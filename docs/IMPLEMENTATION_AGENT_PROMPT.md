@@ -24,6 +24,7 @@ Security requirements are release blockers:
 
 - view and control links are bearer secrets;
 - capabilities stay in volatile memory and never enter logs, files, browser storage, caches, query strings, telemetry, diagnostics, or CI artifacts;
+- pass launch capabilities directly into a pinned `collab-web` in-memory bootstrap; do not make a URL-fragment handoff the release design;
 - list/SSE responses contain metadata only;
 - launch is explicit, generation-bound, same-origin, and no-store;
 - the production HTTP listener is loopback-only and trusts Tailscale identity headers only behind Tailscale Serve;

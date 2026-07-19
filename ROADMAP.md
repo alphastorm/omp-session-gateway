@@ -20,7 +20,8 @@ The roadmap is ordered by dependency, not calendar promises.
 
 - Just-in-time view/control launch endpoint.
 - Pinned/reproducible `collab-web` build.
-- Ephemeral URL-fragment handling.
+- Direct in-memory `collab-web` bootstrap with no capability in a URL or DOM attribute.
+- Temporary fragment compatibility adapter only when upstream requires it, synchronously scrubbed and blocked from release until browser non-persistence tests pass.
 - Browser storage, history, cache, and CSRF test coverage.
 
 ## Phase 3 — OMP integration

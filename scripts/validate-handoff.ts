@@ -7,6 +7,7 @@ const rootPath = root.pathname;
 const required = [
   "README.md",
   "AGENTS.md",
+  "AGENT_BRIEF.md",
   "LICENSE",
   "SECURITY.md",
   "CONTRIBUTING.md",
@@ -18,6 +19,10 @@ const required = [
   "HANDOFF_MANIFEST.md",
   "UPSTREAM.lock.json",
   "docs/ARCHITECTURE.md",
+  "docs/IMPLEMENTATION_AGENT_PROMPT.md",
+  "docs/OPEN_SOURCE.md",
+  "docs/OPEN_SOURCE_RELEASE.md",
+  "docs/PROJECT_POSITIONING.md",
   "docs/SECURITY.md",
   "docs/PROTOCOL.md",
   "docs/OMP_INTEGRATION.md",
@@ -38,6 +43,9 @@ const forbiddenLegacy = [
   "omp-mobile-hub",
   "gitgateway.com",
   "tag:omp-hub",
+  "OMP Collab Hub",
+  "omp-collab-hub",
+  "tag:omp-gateway",
 ] as const;
 
 async function walk(dir: string): Promise<string[]> {
@@ -92,6 +100,18 @@ for (const rel of [
 const packageJson = JSON.parse(await readFile(join(rootPath, "package.json"), "utf8")) as { name?: string };
 if (packageJson.name !== "omp-session-gateway") {
   errors.push(`package.json: expected name omp-session-gateway, got ${String(packageJson.name)}`);
+}
+
+const canonicalChecks: Array<[string, string]> = [
+  ["README.md", "# OMP Session Gateway"],
+  ["AGENTS.md", "Daemon executable/process: `omp-gatewayd`"],
+  ["AGENTS.md", "PWA home-screen name: **OMP Sessions**"],
+  ["AGENTS.md", "Default tailnet tag in examples: `tag:omp-session-gateway`"],
+  ["docs/PROJECT_POSITIONING.md", "Repository | `omp-session-gateway`"],
+];
+for (const [rel, expected] of canonicalChecks) {
+  const text = await readFile(join(rootPath, rel), "utf8");
+  if (!text.includes(expected)) errors.push(`${rel}: missing canonical identifier ${JSON.stringify(expected)}`);
 }
 
 if (errors.length > 0) {

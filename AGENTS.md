@@ -40,9 +40,9 @@ Use these names consistently:
 - Management CLI: `omp-gateway`
 - Daemon executable/process: `omp-gatewayd`
 - Optional foreground/development alias: `omp-gateway serve`
-- OS service name: `omp-session-gateway`
+- OS service identifier: `omp-session-gateway` (Linux unit: `omp-session-gateway.service`)
 - PWA home-screen name: **OMP Sessions**
-- Default tailnet tag in examples: `tag:omp-gateway`
+- Default tailnet tag in examples: `tag:omp-session-gateway`
 
 Do not claim affiliation with or endorsement by OMP. Do not reuse OMP artwork without explicit permission.
 

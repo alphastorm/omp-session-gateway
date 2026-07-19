@@ -9,7 +9,7 @@ Produce a working v0.1 open-source system with:
 - `omp-gatewayd`: a per-user, loopback-only daemon with authenticated local IPC, an in-memory live-session registry, metadata-only HTTP/SSE APIs, Tailscale identity authorization, static PWA serving, TTL cleanup, and safe diagnostics;
 - `omp-gateway`: install, uninstall, status, doctor, serve-guidance, and publisher-token rotation commands;
 - **OMP Sessions**: an installable Android-friendly PWA that lists every live OMP session and launches View or Control just in time without persisting collaboration capabilities;
-- a pinned integration with OMP's existing `collab-web` client, including an in-memory or ephemeral-fragment bootstrap path;
+- a pinned integration with OMP's existing `collab-web` client through a direct in-memory bootstrap; any fragment adapter is temporary and release-blocked until non-persistence is proven;
 - a small backward-compatible OMP patch or supported extension integration that automatically starts collaboration and publishes each active interactive session;
 - Linux, macOS, and Windows user-level service packaging to the extent claimed by the release;
 - complete unit, integration, E2E, lifecycle, authorization, and secret-leak tests;

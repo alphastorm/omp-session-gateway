@@ -33,7 +33,7 @@ Avoid positioning it as a complete OMP dashboard, a replacement agent client, re
 | Daemon | `omp-gatewayd` |
 | Foreground/development alias | `omp-gateway serve` |
 | PWA display name | OMP Sessions |
-| Default example tailnet tag | `tag:omp-gateway` |
+| Default example tailnet tag | `tag:omp-session-gateway` |
 | Suggested npm workspace prefix | `@omp-session-gateway/*` |
 
 The repository owner should re-check GitHub, npm, package registries, and relevant trademark databases immediately before publishing. Search results are not a legal clearance.
