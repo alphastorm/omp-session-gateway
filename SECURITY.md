@@ -2,11 +2,11 @@
 
 ## Project status
 
-OMP Session Gateway is currently pre-alpha and contains an implementation handoff rather than production-ready software. Do not expose an unfinished implementation to untrusted networks or use it to protect sensitive OMP sessions.
+OMP Session Gateway is implemented pre-alpha software and is not production-qualified. Do not expose it to untrusted networks or use it for sensitive OMP sessions until the platform, Tailscale, Android, and lifecycle release gates pass.
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately through GitHub's **Security Advisories** feature for the repository once it is published. Do not open a public issue containing:
+Please report suspected vulnerabilities privately through this repository's [GitHub Security Advisories](https://github.com/alphastorm/omp-session-gateway/security/advisories/new). Do not open a public issue containing:
 
 - collaboration links or URL fragments;
 - publisher tokens;
@@ -15,7 +15,7 @@ Please report suspected vulnerabilities privately through GitHub's **Security Ad
 - filesystem paths that reveal private project names; or
 - exploit steps that would put current users at immediate risk.
 
-Until a private reporting channel is configured, contact the repository owner through a private channel listed in their GitHub profile. The maintainer should add a dedicated security contact before the first alpha release.
+If GitHub Security Advisories is unavailable, contact `@alphastorm` through a private channel listed on the maintainer's GitHub profile.
 
 ## What to include
 
@@ -23,7 +23,7 @@ Include the affected version/commit, deployment mode, impact, minimal reproducti
 
 ## Response expectations
 
-The initial maintainer should document response targets before the first public release. A reasonable starting policy is:
+The volunteer-maintainer response targets are:
 
 - acknowledge within 3 business days;
 - provide an initial severity assessment within 7 business days; and

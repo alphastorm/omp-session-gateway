@@ -1,7 +1,7 @@
-# Replace OWNER with the GitHub username/team responsible for security-sensitive review.
-* @OWNER
-/docs/SECURITY.md @OWNER
-/SECURITY.md @OWNER
-/apps/gateway/ @OWNER
-/packages/protocol/ @OWNER
-/patches/oh-my-pi/ @OWNER
+# Security-sensitive paths require review from the repository owner.
+* @alphastorm
+/docs/SECURITY.md @alphastorm
+/SECURITY.md @alphastorm
+/apps/gateway/ @alphastorm
+/packages/protocol/ @alphastorm
+/patches/oh-my-pi/ @alphastorm

@@ -1,6 +1,17 @@
 {
   "name": "@omp-session-gateway/collab-client",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build": "bun ../../scripts/build-web.ts",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-wire": "17.0.5",
+    "lucide-react": "1.24.0",
+    "marked": "18.0.6",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
 }

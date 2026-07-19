@@ -10,6 +10,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
+    "types": ["bun"],
     "noEmit": true
   },
   "include": [
@@ -18,5 +19,9 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "apps/web/src/service-worker.ts",
+    "packages/collab-client/upstream/**"
   ]
 }

@@ -1,6 +1,13 @@
 {
   "name": "@omp-session-gateway/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@omp-session-gateway/protocol": "workspace:*"
+  },
+  "scripts": {
+    "build": "bun ../../scripts/build-web.ts",
+    "typecheck": "bunx tsc --noEmit && bunx tsc -p tsconfig.worker.json --noEmit"
+  }
 }

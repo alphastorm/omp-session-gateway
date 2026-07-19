@@ -1,6 +1,13 @@
 {
   "name": "@omp-session-gateway/gateway",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@omp-session-gateway/protocol": "workspace:*"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  }
 }

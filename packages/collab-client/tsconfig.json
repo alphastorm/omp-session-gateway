@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "rootDir": "upstream/src"
+  },
+  "include": ["upstream/src/**/*.ts", "upstream/src/**/*.tsx"],
+  "exclude": []
+}

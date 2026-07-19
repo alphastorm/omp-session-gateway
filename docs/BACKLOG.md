@@ -2,22 +2,22 @@
 
 ## v1 required
 
-- [ ] Compatibility spike and pinned OMP commit.
-- [ ] Protocol package and validators.
-- [ ] Secure publisher token and IPC server.
-- [ ] In-memory registry with generations/TTL.
-- [ ] Loopback HTTP, Tailscale identity middleware, allowlist.
-- [ ] Metadata list and SSE.
-- [ ] PWA dashboard and no-secret service worker policy.
-- [ ] Just-in-time view/control launch.
-- [ ] Vendored/pinned collab-web client.
-- [ ] In-memory collab-web bootstrap; ephemeral fragment only as a tested compatibility fallback.
-- [ ] OMP CollabController refactor.
-- [ ] OMP auto-start and publisher.
-- [ ] Linux/macOS/Windows autostart packaging.
-- [ ] Secret leak test harness.
+- [x] Compatibility spike and pinned OMP commit.
+- [x] Protocol package and validators.
+- [x] Secure publisher token and IPC server.
+- [x] In-memory registry with generations/TTL.
+- [x] Loopback HTTP, Tailscale identity middleware, allowlist.
+- [x] Metadata list and SSE.
+- [x] PWA dashboard and no-secret service worker policy.
+- [x] Just-in-time view/control launch.
+- [x] Vendored/pinned collab-web client.
+- [x] In-memory collab-web bootstrap with no fragment fallback.
+- [x] OMP CollabController refactor patch.
+- [x] OMP auto-start and publisher patch.
+- [x] Linux/macOS/Windows autostart definitions.
+- [x] Secret leak test harness.
 - [ ] Android and lifecycle E2E suite.
-- [ ] Install, doctor, uninstall, token rotation.
+- [x] Install, doctor, uninstall, token rotation.
 
 ## v1.1 candidates
 

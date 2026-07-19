@@ -1,8 +1,8 @@
 # `apps/gateway`
 
-Implementation target for the `omp-gateway` CLI and per-user daemon.
+Implementation of the `omp-gateway` CLI and per-user `omp-gatewayd` daemon.
 
-Required modules:
+Implemented modules:
 
 - strict configuration and secure publisher-token store;
 - platform endpoint discovery and permission checks;
@@ -12,7 +12,7 @@ Required modules:
 - generation and heartbeat/TTL reconciliation;
 - loopback-only HTTP server;
 - Tailscale Serve identity middleware and exact allowlist;
-- metadata list, SSE, just-in-time launch, health, and redacted diagnostics APIs;
+- metadata list, SSE, just-in-time launch, generic local health, and redacted local diagnostics;
 - static PWA and pinned collab-web asset serving;
 - `serve`, `install`, `uninstall`, `status`, `doctor`, and token-rotation commands;
 - systemd-user, LaunchAgent, and Windows current-user integration;
