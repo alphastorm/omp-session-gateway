@@ -187,7 +187,7 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 - publisher count and heartbeat health without exposing capabilities;
 - config validation and OMP compatibility.
 
-`doctor --bundle` creates a deterministic redacted archive with a manifest of included fields. It excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities by default.
+`doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.
 
 Never ask a user to paste a collaboration link into an issue.
 

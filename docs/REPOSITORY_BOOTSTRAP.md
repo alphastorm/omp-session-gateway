@@ -72,7 +72,7 @@ Use `docs/ISSUE_PLAN.md` to create the initial issue set.
 
 ## 6. Security channel
 
-Configure GitHub Security Advisories before publishing an alpha. Replace the placeholder language in root `SECURITY.md` with an exact contact and supported-version table.
+The issue template and root `SECURITY.md` point to the repository's private GitHub Security Advisory channel. Confirm that advisories and maintainer notifications remain enabled before publishing an alpha.
 
 ## 7. Package/release namespaces
 

@@ -1,0 +1,18 @@
+{
+  "name": "OMP Sessions",
+  "short_name": "OMP Sessions",
+  "description": "Private directory for live OMP collaboration sessions",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f1eee6",
+  "theme_color": "#171612",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

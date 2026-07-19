@@ -2,7 +2,7 @@
 
 ## Pre-alpha
 
-Design-only snapshots may be tagged only if the release description clearly says no working gateway is included. Prefer repository commits over binary releases until the first executable prototype exists.
+The repository can produce a working Bun-runtime pre-alpha archive, but it must not be described as an alpha or production release until the gates below pass. Repository commits remain preferred while platform and Android qualification is incomplete.
 
 ## Alpha release gates
 
@@ -20,6 +20,10 @@ Before publishing an alpha binary:
 - known limitations are listed prominently.
 
 ## Build and provenance
+
+Run `bun run check` and then `bun run release:build`. The builder emits a deterministic
+`dist/release/omp-session-gateway-0.1.0-bun.tar` plus `SHA256SUMS`; it contains no source maps.
+This runtime-neutral Bun archive is not a substitute for qualified platform installers.
 
 Build release artifacts in protected CI from a signed or protected tag. Publish:
 

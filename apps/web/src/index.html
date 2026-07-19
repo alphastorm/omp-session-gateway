@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#171612" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="Private directory for live OMP collaboration sessions" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>OMP Sessions</title>
+    <!--ASSET_STYLES-->
+  </head>
+  <body>
+    <a class="skip-link" href="#session-list">Skip to sessions</a>
+    <main>
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Private tailnet directory</p>
+          <h1>OMP Sessions</h1>
+          <p class="lede">Live collaboration rooms on this computer. View is read-only; Control can steer the session.</p>
+        </div>
+        <button id="refresh" class="refresh" type="button">Refresh</button>
+      </header>
+      <div id="status-banner" class="status" data-kind="loading" role="status">Loading sessions…</div>
+      <section id="empty-state" class="empty-state" hidden>
+        <p class="empty-kicker">No active sessions</p>
+        <h2>Start an interactive OMP process.</h2>
+        <p>Configured processes appear here automatically after collaboration connects. No link copy or <code>/collab</code> command is needed.</p>
+      </section>
+      <section id="session-list" class="session-list" aria-label="Live OMP sessions"></section>
+      <footer>
+        <span>Capabilities are requested only when you tap an action.</span>
+        <span>Community project; not affiliated with OMP.</span>
+      </footer>
+    </main>
+    <!--ASSET_SCRIPT-->
+  </body>
+</html>

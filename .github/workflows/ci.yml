@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  handoff-checks:
+  implementation-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

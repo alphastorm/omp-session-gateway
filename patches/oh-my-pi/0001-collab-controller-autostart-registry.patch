@@ -1,0 +1,968 @@
+diff --git b/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
+new file mode 100644
+index 0000000..68a94ca
+--- /dev/null
++++ b/packages/coding-agent/src/collab/controller.ts
+@@ -0,0 +1,256 @@
++import { randomUUID } from "node:crypto";
++import { basename } from "node:path";
++import type { InteractiveModeContext } from "../modes/types";
++import { CollabHost } from "./host";
++import {
++	CollabRegistryPublisher,
++	type CollabPublisherRecord,
++	type PublishedCapabilityMode,
++} from "./registry-publisher";
++
++export type CollabControllerState = "stopped" | "starting" | "running" | "stopping" | "faulted";
++export type CollabControllerEvent = "started" | "updated" | "stopped" | "faulted";
++
++export interface CollabCapabilities {
++	readonly instanceId: string;
++	readonly generation: number;
++	readonly sessionId: string;
++	readonly viewLink: string;
++	readonly controlLink: string;
++	readonly startedAt: string;
++}
++
++interface HostLike {
++	readonly link: string;
++	readonly viewLink: string;
++	readonly participants: CollabHost["participants"];
++	onFatal?: (reason: string) => void;
++	start(relayUrl: string, webUrl?: string): Promise<void>;
++	stop(reason: string): Promise<void>;
++}
++
++interface PublisherLike {
++	publish(record: CollabPublisherRecord): void;
++	remove(generation: number, reason: "stopped" | "shutdown" | "session_changed" | "faulted"): void;
++	shutdown(generation: number | undefined): void;
++}
++
++export interface CollabControllerOptions {
++	readonly instanceId?: string;
++	readonly hostFactory?: (context: InteractiveModeContext) => HostLike;
++	readonly publisherFactory?: (
++		instanceId: string,
++		pid: number,
++		endpointSetting: string,
++		onSecurityError: (message: string) => void,
++	) => PublisherLike;
++}
++
++export class CollabController {
++	readonly #context: InteractiveModeContext;
++	readonly #instanceId: string;
++	readonly #hostFactory: (context: InteractiveModeContext) => HostLike;
++	readonly #publisherFactory: NonNullable<CollabControllerOptions["publisherFactory"]>;
++	readonly #listeners = new Map<CollabControllerEvent, Set<(capabilities?: CollabCapabilities) => void>>();
++	#publisher: PublisherLike | undefined;
++	#host: HostLike | undefined;
++	#capabilities: CollabCapabilities | undefined;
++	#queue: Promise<void> = Promise.resolve();
++	#generation = 0;
++	#manualSuspended = false;
++	#state: CollabControllerState = "stopped";
++	#relayUrl = "";
++
++	constructor(context: InteractiveModeContext, options: CollabControllerOptions = {}) {
++		this.#context = context;
++		this.#instanceId = options.instanceId ?? randomUUID();
++		this.#hostFactory = options.hostFactory ?? (ctx => new CollabHost(ctx));
++		this.#publisherFactory =
++			options.publisherFactory ??
++			((instanceId, pid, endpointSetting, onSecurityError) =>
++				new CollabRegistryPublisher({ instanceId, pid, endpointSetting, onSecurityError }));
++	}
++
++	get state(): CollabControllerState {
++		return this.#state;
++	}
++
++	get host(): CollabHost | undefined {
++		return this.#host as CollabHost | undefined;
++	}
++
++	status(): CollabCapabilities | undefined {
++		return this.#capabilities;
++	}
++
++	on(event: CollabControllerEvent, listener: (capabilities?: CollabCapabilities) => void): () => void {
++		let listeners = this.#listeners.get(event);
++		if (!listeners) {
++			listeners = new Set();
++			this.#listeners.set(event, listeners);
++		}
++		listeners.add(listener);
++		return () => listeners?.delete(listener);
++	}
++
++	start(options: { relayUrl?: string; webUrl?: string; publish?: PublishedCapabilityMode } = {}): Promise<CollabCapabilities> {
++		return this.#serialize(async () => {
++			this.#manualSuspended = false;
++			return this.#start(options);
++		});
++	}
++
++	stop(reason = "host stopped", manual = true): Promise<void> {
++		return this.#serialize(async () => {
++			if (manual) this.#manualSuspended = true;
++			await this.#stop(reason, reason === "session changed" ? "session_changed" : "stopped");
++		});
++	}
++
++	autoStart(): Promise<void> {
++		return this.#serialize(async () => {
++			const mode = this.#autoMode();
++			if (mode === "off" || this.#manualSuspended || this.#host) return;
++			try {
++				await this.#start({ publish: mode });
++			} catch {
++				this.#context.showWarning("Automatic collaboration could not connect; normal OMP operation is unaffected.");
++			}
++		});
++	}
++
++	replaceActiveSession(): Promise<void> {
++		return this.#serialize(async () => {
++			const hadHost = this.#host !== undefined;
++			await this.#stop("session changed", "session_changed");
++			this.#manualSuspended = false;
++			const mode = this.#autoMode();
++			if (mode === "off" && !hadHost) return;
++			try {
++				await this.#start({ publish: mode });
++			} catch {
++				this.#context.showWarning("Collaboration did not restart for the active session.");
++			}
++		});
++	}
++
++	shutdown(): Promise<void> {
++		return this.#serialize(async () => {
++			const generation = this.#capabilities?.generation;
++			await this.#stop("OMP shutdown", "shutdown");
++			this.#publisher?.shutdown(generation);
++			this.#publisher = undefined;
++		});
++	}
++
++	async #start(options: {
++		relayUrl?: string;
++		webUrl?: string;
++		publish?: PublishedCapabilityMode;
++	}): Promise<CollabCapabilities> {
++		const relayInput = options.relayUrl ?? this.#context.settings.get("collab.relayUrl") ?? "";
++		if (!relayInput) throw new Error("No collaboration relay is configured");
++		const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
++		if (this.#host && relayUrl === this.#relayUrl && this.#capabilities) return this.#capabilities;
++		if (this.#host) await this.#stop("relay replaced", "session_changed");
++
++		this.#state = "starting";
++		this.#generation += 1;
++		const generation = this.#generation;
++		const host = this.#hostFactory(this.#context);
++		host.onFatal = reason => void this.#handleFatal(host, generation, reason);
++		try {
++			await host.start(relayUrl, options.webUrl ?? this.#context.settings.get("collab.webUrl") ?? "");
++		} catch (error) {
++			this.#state = "faulted";
++			this.#emit("faulted");
++			throw error;
++		}
++
++		const capabilities: CollabCapabilities = {
++			instanceId: this.#instanceId,
++			generation,
++			sessionId: this.#context.sessionManager.getSessionId(),
++			viewLink: host.viewLink,
++			controlLink: host.link,
++			startedAt: new Date().toISOString(),
++		};
++		this.#host = host;
++		this.#relayUrl = relayUrl;
++		this.#capabilities = capabilities;
++		this.#context.collabHost = host as CollabHost;
++		this.#state = "running";
++		const publish = options.publish ?? this.#autoMode();
++		if (publish !== "off") this.#publish(capabilities, publish);
++		this.#emit("started", capabilities);
++		return capabilities;
++	}
++
++	async #stop(
++		reason: string,
++		publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted",
++	): Promise<void> {
++		const host = this.#host;
++		const capabilities = this.#capabilities;
++		if (!host || !capabilities) {
++			this.#state = "stopped";
++			return;
++		}
++		this.#state = "stopping";
++		this.#publisher?.remove(capabilities.generation, publisherReason);
++		this.#capabilities = undefined;
++		this.#host = undefined;
++		this.#context.collabHost = undefined;
++		await host.stop(reason);
++		this.#state = "stopped";
++		this.#emit("stopped");
++	}
++
++	#publish(capabilities: CollabCapabilities, mode: Exclude<PublishedCapabilityMode, "off">): void {
++		const endpointSetting = this.#context.settings.get("collab.registryEndpoint") ?? "auto";
++		if (endpointSetting === "off") return;
++		this.#publisher ??= this.#publisherFactory(this.#instanceId, process.pid, endpointSetting, message => {
++			this.#context.showWarning(message);
++		});
++		this.#publisher.publish({
++			instanceId: capabilities.instanceId,
++			generation: capabilities.generation,
++			pid: process.pid,
++			sessionId: capabilities.sessionId,
++			...(this.#context.sessionName ? { title: this.#context.sessionName } : {}),
++			cwdLabel: basename(this.#context.sessionManager.getCwd()),
++			startedAt: capabilities.startedAt,
++			viewLink: capabilities.viewLink,
++			...(mode === "control" ? { controlLink: capabilities.controlLink } : {}),
++		});
++	}
++
++	#autoMode(): PublishedCapabilityMode {
++		return this.#context.settings.get("collab.autoStart") ?? "off";
++	}
++
++	#handleFatal(host: HostLike, generation: number, _reason: string): Promise<void> {
++		return this.#serialize(async () => {
++			if (this.#host !== host || this.#capabilities?.generation !== generation) return;
++			this.#publisher?.remove(generation, "faulted");
++			this.#host = undefined;
++			this.#capabilities = undefined;
++			this.#context.collabHost = undefined;
++			this.#state = "faulted";
++			this.#emit("faulted");
++		});
++	}
++
++	#emit(event: CollabControllerEvent, capabilities?: CollabCapabilities): void {
++		for (const listener of this.#listeners.get(event) ?? []) listener(capabilities);
++	}
++
++	#serialize<Result>(operation: () => Promise<Result>): Promise<Result> {
++		const next = this.#queue.then(operation, operation);
++		this.#queue = next.then(
++			() => undefined,
++			() => undefined,
++		);
++		return next;
++	}
++}
+diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
+index 74a021a..4168c69 100644
+--- a/packages/coding-agent/src/collab/host.ts
++++ b/packages/coding-agent/src/collab/host.ts
+@@ -138,6 +138,8 @@ export class CollabHost {
+ 	#busUnsubscribers: (() => void)[] = [];
+ 	#registryUnsubscribe?: () => void;
+ 	#stopped = false;
++	/** Invoked after an unrecoverable relay close tears down this host. */
++	onFatal?: (reason: string) => void;
+ 
+ 	constructor(ctx: InteractiveModeContext) {
+ 		this.#ctx = ctx;
+@@ -245,7 +247,7 @@ export class CollabHost {
+ 			if (willReconnect) {
+ 				this.#ctx.showStatus(`Collab relay connection lost (${reason}), reconnecting…`, { dim: true });
+ 			} else {
+-				void this.#teardown();
++				void this.#teardown().finally(() => this.onFatal?.(reason));
+ 				this.#ctx.session.emitNotice("warning", `Collab ended: ${reason}`, "collab");
+ 			}
+ 		};
+diff --git b/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
+new file mode 100644
+index 0000000..08b955f
+--- /dev/null
++++ b/packages/coding-agent/src/collab/registry-publisher.ts
+@@ -0,0 +1,246 @@
++import { lstat, readFile } from "node:fs/promises";
++import { homedir, tmpdir } from "node:os";
++import { basename, isAbsolute, join } from "node:path";
++
++const PROTOCOL_VERSION = 1;
++const MAX_SERVER_FRAME_BYTES = 4 * 1024;
++const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
++
++export type PublishedCapabilityMode = "off" | "view" | "control";
++
++export interface CollabPublisherRecord {
++	readonly instanceId: string;
++	readonly generation: number;
++	readonly pid: number;
++	readonly sessionId: string;
++	readonly title?: string;
++	readonly cwdLabel?: string;
++	readonly startedAt: string;
++	readonly viewLink: string;
++	readonly controlLink?: string;
++}
++
++interface PublisherSocketState {
++	buffer: string;
++}
++
++function configDirectory(): string {
++	if (process.platform === "win32") {
++		return join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "OMP Session Gateway");
++	}
++	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "omp-session-gateway");
++}
++
++function automaticEndpoint(): string {
++	if (process.platform === "win32") {
++		const userKey = Buffer.from(process.env.USERNAME ?? "user").toString("base64url").slice(0, 20);
++		return `\\\\.\\pipe\\omp-session-gateway-${userKey}`;
++	}
++	if (process.platform === "linux" && process.env.XDG_RUNTIME_DIR) {
++		return join(process.env.XDG_RUNTIME_DIR, "omp-session-gateway", "registry.sock");
++	}
++	if (process.platform === "darwin") {
++		return join(process.env.TMPDIR ?? tmpdir(), `omp-session-gateway-${process.getuid?.() ?? "user"}`, "registry.sock");
++	}
++	return join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "omp-session-gateway", "run", "registry.sock");
++}
++
++export function resolveCollabRegistryEndpoint(setting: string): string | undefined {
++	if (setting === "off") return undefined;
++	if (setting === "auto") return automaticEndpoint();
++	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting)) throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
++	if (process.platform === "win32") {
++		if (!setting.startsWith("\\\\.\\pipe\\")) throw new Error("collab.registryEndpoint must be a named pipe");
++		return setting;
++	}
++	if (!isAbsolute(setting)) throw new Error("collab.registryEndpoint must be an absolute local socket path");
++	return setting;
++}
++
++async function readPublisherToken(): Promise<string> {
++	const tokenPath = join(configDirectory(), "publisher-token");
++	const info = await lstat(tokenPath);
++	if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe OMP Session Gateway publisher token file");
++	if (process.platform !== "win32") {
++		const uid = process.getuid?.();
++		if (uid === undefined || info.uid !== uid || (info.mode & 0o077) !== 0) {
++			throw new Error("unsafe OMP Session Gateway publisher token permissions");
++		}
++	}
++	const token = (await readFile(tokenPath, "utf8")).trim();
++	if (!TOKEN_PATTERN.test(token)) throw new Error("invalid OMP Session Gateway publisher token");
++	return token;
++}
++
++export class CollabRegistryPublisher {
++	readonly #instanceId: string;
++	readonly #pid: number;
++	readonly #endpointSetting: string;
++	readonly #onSecurityError: (message: string) => void;
++	#current: CollabPublisherRecord | undefined;
++	#socket: Bun.Socket<PublisherSocketState> | undefined;
++	#heartbeatTimer: Timer | undefined;
++	#reconnectTimer: Timer | undefined;
++	#connecting = false;
++	#stopping = false;
++	#securityDisabled = false;
++	#securityWarningShown = false;
++	#attempt = 0;
++
++	constructor(options: {
++		instanceId: string;
++		pid: number;
++		endpointSetting: string;
++		onSecurityError(message: string): void;
++	}) {
++		this.#instanceId = options.instanceId;
++		this.#pid = options.pid;
++		this.#endpointSetting = options.endpointSetting;
++		this.#onSecurityError = options.onSecurityError;
++	}
++
++	publish(record: CollabPublisherRecord): void {
++		this.#current = record;
++		this.#stopping = false;
++		if (this.#socket) this.#sendUpsert(this.#socket, record);
++		else void this.#connect();
++	}
++
++	remove(generation: number, reason: "stopped" | "shutdown" | "session_changed" | "faulted"): void {
++		const current = this.#current;
++		if (!current || current.generation !== generation) return;
++		if (this.#socket) {
++			this.#socket.write(`${JSON.stringify({ v: PROTOCOL_VERSION, op: "remove", instanceId: this.#instanceId, generation, reason })}\n`);
++		}
++		this.#current = undefined;
++		clearInterval(this.#heartbeatTimer);
++		this.#heartbeatTimer = undefined;
++	}
++
++	shutdown(generation: number | undefined): void {
++		this.#stopping = true;
++		if (generation !== undefined) this.remove(generation, "shutdown");
++		clearTimeout(this.#reconnectTimer);
++		clearInterval(this.#heartbeatTimer);
++		this.#reconnectTimer = undefined;
++		this.#heartbeatTimer = undefined;
++		this.#socket?.end();
++		this.#socket = undefined;
++		this.#current = undefined;
++	}
++
++	async #connect(): Promise<void> {
++		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#securityDisabled) return;
++		this.#connecting = true;
++		let endpoint: string;
++		let token: string;
++		try {
++			const resolved = resolveCollabRegistryEndpoint(this.#endpointSetting);
++			if (resolved === undefined) {
++				this.#connecting = false;
++				return;
++			}
++			endpoint = resolved;
++			token = await readPublisherToken();
++		} catch (error) {
++			this.#connecting = false;
++			const code =
++				typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
++					? error.code
++					: undefined;
++			if (code === "ENOENT" || code === "ECONNREFUSED") this.#scheduleReconnect();
++			else this.#disableForSecurity(error);
++			return;
++		}
++
++		try {
++			const owner = this;
++			await Bun.connect<PublisherSocketState>({
++				unix: endpoint,
++				data: { buffer: "" },
++				socket: {
++					open(socket) {
++						socket.write(`${JSON.stringify({ v: PROTOCOL_VERSION, op: "hello", token, instanceId: owner.#instanceId, pid: owner.#pid })}\n`);
++					},
++					data(socket, data) {
++						socket.data.buffer += Buffer.from(data).toString("utf8");
++						if (Buffer.byteLength(socket.data.buffer, "utf8") > MAX_SERVER_FRAME_BYTES) {
++							socket.end();
++							return;
++						}
++						const newline = socket.data.buffer.indexOf("\n");
++						if (newline < 0) return;
++						let response: unknown;
++						try {
++							response = JSON.parse(socket.data.buffer.slice(0, newline));
++						} catch {
++							socket.end();
++							return;
++						}
++						socket.data.buffer = socket.data.buffer.slice(newline + 1);
++						if (typeof response !== "object" || response === null || !("op" in response) || response.op !== "hello_ok") {
++							socket.end();
++							return;
++						}
++						owner.#connecting = false;
++						owner.#socket = socket;
++						owner.#attempt = 0;
++						const current = owner.#current;
++						if (current) owner.#sendUpsert(socket, current);
++						const heartbeatSeconds = "heartbeatSeconds" in response ? response.heartbeatSeconds : undefined;
++						owner.#startHeartbeat(
++							typeof heartbeatSeconds === "number" && heartbeatSeconds >= 2 && heartbeatSeconds <= 60
++								? heartbeatSeconds
++								: 10,
++						);
++					},
++					close(socket) {
++						owner.#connecting = false;
++						if (owner.#socket === socket) owner.#socket = undefined;
++						clearInterval(owner.#heartbeatTimer);
++						owner.#heartbeatTimer = undefined;
++						owner.#scheduleReconnect();
++					},
++					error() {},
++				},
++			});
++		} catch {
++			this.#connecting = false;
++			this.#scheduleReconnect();
++		}
++	}
++
++	#sendUpsert(socket: Bun.Socket<PublisherSocketState>, record: CollabPublisherRecord): void {
++		socket.write(`${JSON.stringify({ v: PROTOCOL_VERSION, op: "upsert", session: record })}\n`);
++	}
++
++	#startHeartbeat(seconds: number): void {
++		clearInterval(this.#heartbeatTimer);
++		this.#heartbeatTimer = setInterval(() => {
++			const current = this.#current;
++			if (!current || !this.#socket) return;
++			this.#socket.write(
++				`${JSON.stringify({ v: PROTOCOL_VERSION, op: "heartbeat", instanceId: this.#instanceId, generation: current.generation })}\n`,
++			);
++		}, seconds * 1_000);
++	}
++
++	#scheduleReconnect(): void {
++		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#securityDisabled) return;
++		const base = Math.min(30_000, 250 * 2 ** Math.min(this.#attempt, 7));
++		const delay = Math.floor(base * (0.75 + Math.random() * 0.5));
++		this.#attempt += 1;
++		this.#reconnectTimer = setTimeout(() => {
++			this.#reconnectTimer = undefined;
++			void this.#connect();
++		}, delay);
++	}
++
++	#disableForSecurity(error: unknown): void {
++		this.#securityDisabled = true;
++		if (this.#securityWarningShown) return;
++		this.#securityWarningShown = true;
++		const message = error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
++		this.#onSecurityError(message);
++	}
++}
+diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
+index 23b0e68..78cfefa 100644
+--- a/packages/coding-agent/src/config/settings-schema.ts
++++ b/packages/coding-agent/src/config/settings-schema.ts
+@@ -1830,6 +1830,34 @@ export const SETTINGS_SCHEMA = {
+ 	},
+ 
+ 	// Collab
++	"collab.autoStart": {
++		type: "enum",
++		values: ["off", "view", "control"] as const,
++		default: "off",
++		ui: {
++			tab: "interaction",
++			group: "Collab",
++			label: "Automatic Collaboration",
++			description: "Start collaboration after interactive session initialization and publish view or control access",
++			options: [
++				{ value: "off", label: "Off" },
++				{ value: "view", label: "View only" },
++				{ value: "control", label: "View and control" },
++			],
++		},
++	},
++
++	"collab.registryEndpoint": {
++		type: "string",
++		default: "auto",
++		ui: {
++			tab: "interaction",
++			group: "Collab",
++			label: "Session Gateway Registry",
++			description: "Local IPC endpoint: auto, off, an absolute Unix socket, or a Windows named pipe",
++		},
++	},
++
+ 	"collab.relayUrl": {
+ 		type: "string",
+ 		default: DEFAULT_RELAY_URL,
+diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
+index c071021..9bdd5e8 100644
+--- a/packages/coding-agent/src/modes/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive-mode.ts
+@@ -53,6 +53,7 @@ import {
+ } from "@oh-my-pi/pi-utils";
+ import chalk from "chalk";
+ import { reset as resetCapabilities } from "../capability";
++import { CollabController } from "../collab/controller";
+ import type { CollabGuestLink } from "../collab/guest";
+ import type { CollabHost } from "../collab/host";
+ import { KeybindingsManager } from "../config/keybindings";
+@@ -532,6 +533,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	fileSlashCommands: Set<string> = new Set();
+ 	skillCommands: Map<string, Skill> = new Map();
+ 	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
++	readonly collabController: CollabController;
+ 	collabHost?: CollabHost;
+ 	collabGuest?: CollabGuestLink;
+ 
+@@ -756,6 +758,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 
+ 		const skillCommandList = this.#rebuildSkillCommandsFromSession();
+ 
++		this.collabController = new CollabController(this);
+ 		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
+ 		// Store pending commands for init() where file commands are loaded async
+ 		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
+@@ -992,7 +995,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		await this.initHooksAndCustomTools();
+ 
+ 		// Restore mode from session (e.g. plan mode on resume)
+-		this.session.setSessionSwitchReconciler?.(() => this.#reconcileModeFromSession({ preserveActiveGoal: true }));
++		this.session.setSessionSwitchReconciler?.(async () => {
++			await this.collabController.replaceActiveSession();
++			await this.#reconcileModeFromSession({ preserveActiveGoal: true });
++		});
+ 		await this.#reconcileModeFromSession();
+ 
+ 		// Brand-new sessions optionally start in plan mode when the user has made it
+@@ -1091,6 +1097,9 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		this.statusLine.watchBranch(() => {
+ 			this.ui.requestRender();
+ 		});
++
++		// Collaboration starts only after the interactive context and session are ready.
++		await this.collabController.autoStart();
+ 	}
+ 
+ 	/** Reload the title-generation system prompt override for the provided working
+@@ -3752,6 +3761,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	async shutdown(): Promise<void> {
+ 		if (this.#isShuttingDown) return;
+ 		this.#isShuttingDown = true;
++		await this.collabController.shutdown();
+ 
+ 		this.#btwController.dispose();
+ 		this.#omfgController.dispose();
+diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
+index 57ed56b..76dfa88 100644
+--- a/packages/coding-agent/src/modes/types.ts
++++ b/packages/coding-agent/src/modes/types.ts
+@@ -2,6 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+ import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
+ import type { AssistantMessage, ImageContent, Message, Usage, UsageReport } from "@oh-my-pi/pi-ai";
+ import type { Component, Container, EditorTheme, Loader, Spacer, Text, TUI } from "@oh-my-pi/pi-tui";
++import type { CollabController } from "../collab/controller";
+ import type { CollabGuestLink } from "../collab/guest";
+ import type { CollabHost } from "../collab/host";
+ import type { KeybindingsManager } from "../config/keybindings";
+@@ -133,6 +134,7 @@ export interface InteractiveModeContext {
+ 	historyStorage?: HistoryStorage;
+ 	mcpManager?: MCPManager;
+ 	lspServers?: LspStartupServerInfo[];
++	collabController: CollabController;
+ 	collabHost?: CollabHost;
+ 	collabGuest?: CollabGuestLink;
+ 	eventController: EventController;
+diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
+index b564b54..3c94646 100644
+--- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
++++ b/packages/coding-agent/src/slash-commands/builtin-registry.ts
+@@ -6,7 +6,7 @@ import { type AutocompleteItem, Spacer } from "@oh-my-pi/pi-tui";
+ import { APP_NAME, getProjectDir, setProjectDir } from "@oh-my-pi/pi-utils";
+ import { reset as resetCapabilities } from "../capability";
+ import { COLLAB_GUEST_ALLOWED_COMMANDS, CollabGuestLink } from "../collab/guest";
+-import { CollabHost } from "../collab/host";
++import type { CollabHost } from "../collab/host";
+ import { expandRoleAlias, getModelMatchPreferences, resolveCliModel } from "../config/model-resolver";
+ import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
+ import type { SettingPath, SettingValue } from "../config/settings";
+@@ -698,8 +698,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 		],
+ 		allowArgs: true,
+ 		getTuiAutocompleteDescription: runtime => {
+-			if (runtime.ctx.collabHost) {
+-				return `Collab: hosting (${Math.max(0, runtime.ctx.collabHost.participants.length - 1)} guests)`;
++			if (runtime.ctx.collabController.host) {
++				return `Collab: hosting (${Math.max(0, runtime.ctx.collabController.host.participants.length - 1)} guests)`;
+ 			}
+ 			if (runtime.ctx.collabGuest?.readOnly) return "Collab: read-only guest";
+ 			if (runtime.ctx.collabGuest) return "Collab: guest";
+@@ -711,20 +711,20 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 			const args = command.args.trim();
+ 			const { verb, rest } = parseSubcommand(args);
+ 			if (verb === "stop") {
+-				if (!ctx.collabHost) {
++				if (!ctx.collabController.host) {
+ 					ctx.showStatus("Not hosting a collab session");
+ 					return;
+ 				}
+-				await ctx.collabHost.stop("host stopped");
++				await ctx.collabController.stop("host stopped");
+ 				ctx.showStatus("Collab stopped");
+ 				return;
+ 			}
+ 			if (verb === "status") {
+-				if (ctx.collabHost) {
+-					const names = ctx.collabHost.participants.map(p =>
++				if (ctx.collabController.host) {
++					const names = ctx.collabController.host.participants.map(p =>
+ 						p.role === "host" ? `${p.name} (host)` : p.readOnly ? `${p.name} (view-only)` : p.name,
+ 					);
+-					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabHost.webLink)}`);
++					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`);
+ 				} else if (ctx.collabGuest) {
+ 					ctx.showStatus(
+ 						ctx.collabGuest.readOnly
+@@ -742,16 +742,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 			}
+ 			const knownStartVerb = verb === "start" || verb === "view";
+ 			const view = verb === "view";
+-			if (ctx.collabHost) {
++			const explicitUrl = knownStartVerb ? rest : args;
++			const existingHost = ctx.collabController.host;
++			if (existingHost && !explicitUrl) {
+ 				showCollabLink(
+ 					ctx,
+-					ctx.collabHost,
++					existingHost,
+ 					view ? "Read-only collab session active" : "Collab session active",
+ 					view,
+ 				);
+ 				return;
+ 			}
+-			const explicitUrl = knownStartVerb ? rest : args;
+ 			const relayInput = explicitUrl || ctx.settings.get("collab.relayUrl") || "";
+ 			if (!relayInput) {
+ 				ctx.showError(
+@@ -762,14 +763,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 			// Scheme-less relay args default to wss (ws:// must be spelled out for localhost).
+ 			const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
+ 			const webUrl = ctx.settings.get("collab.webUrl") || "";
+-			const host = new CollabHost(ctx);
+ 			try {
+-				await host.start(relayUrl, webUrl);
++				await ctx.collabController.start({ relayUrl, webUrl });
+ 			} catch (err) {
+ 				ctx.showError(`Failed to start collab session: ${errorMessage(err)}`);
+ 				return;
+ 			}
+-			ctx.collabHost = host;
++			const host = ctx.collabController.host;
++			if (!host) {
++				ctx.showError("Failed to start collab session");
++				return;
++			}
+ 			showCollabLink(ctx, host, "Collab session started!", view);
+ 		},
+ 	},
+@@ -786,7 +790,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 				ctx.showError("Usage: /join <link>");
+ 				return;
+ 			}
+-			if (ctx.collabHost) {
++			if (ctx.collabController.host) {
+ 				ctx.showError("Stop hosting first (/collab stop)");
+ 				return;
+ 			}
+@@ -805,7 +809,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 		name: "leave",
+ 		description: "Leave the collab session",
+ 		getTuiAutocompleteDescription: runtime => {
+-			if (runtime.ctx.collabHost) return "Leave collab: hosting";
++			if (runtime.ctx.collabController.host) return "Leave collab: hosting";
+ 			if (runtime.ctx.collabGuest) return "Leave collab: guest";
+ 			return "Leave collab: not in collab";
+ 		},
+@@ -816,8 +820,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ 				await ctx.collabGuest.leave("left");
+ 				return;
+ 			}
+-			if (ctx.collabHost) {
+-				await ctx.collabHost.stop("host stopped");
++			if (ctx.collabController.host) {
++				await ctx.collabController.stop("host stopped");
+ 				ctx.showStatus("Collab stopped");
+ 				return;
+ 			}
+diff --git b/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
+new file mode 100644
+index 0000000..f7fee39
+--- /dev/null
++++ b/packages/coding-agent/test/collab/controller.test.ts
+@@ -0,0 +1,119 @@
++import { describe, expect, mock, test } from "bun:test";
++import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
++import type { InteractiveModeContext } from "../../src/modes/types";
++
++// Load after the host mock so controller lifecycle tests never open a relay.
++mock.module("../../src/collab/host", () => ({ CollabHost: class {} }));
++const { CollabController } = await import("../../src/collab/controller");
++
++class FakeHost {
++	readonly link = "CONTROL_CAPABILITY_FIXTURE";
++	readonly viewLink = "VIEW_CAPABILITY_FIXTURE";
++	readonly webLink = "https://example.invalid/client";
++	readonly webViewLink = "https://example.invalid/client-view";
++	readonly participants = [{ name: "host", role: "host" as const }];
++	onFatal?: (reason: string) => void;
++	starts = 0;
++	stops = 0;
++
++	async start(): Promise<void> {
++		this.starts += 1;
++	}
++
++	async stop(): Promise<void> {
++		this.stops += 1;
++	}
++}
++
++function harness(autoStart: "off" | "view" | "control") {
++	const values: Record<string, string> = {
++		"collab.autoStart": autoStart,
++		"collab.registryEndpoint": "auto",
++		"collab.relayUrl": "wss://relay.example.invalid",
++		"collab.webUrl": "",
++	};
++	const warnings: string[] = [];
++	const context = {
++		settings: { get: (key: string) => values[key] },
++		sessionManager: {
++			getSessionId: () => "session-id",
++			getCwd: () => "/work/repository",
++		},
++		sessionName: "Test session",
++		showWarning: (message: string) => warnings.push(message),
++	} as unknown as InteractiveModeContext;
++	const hosts: FakeHost[] = [];
++	const events: Array<{ type: string; generation: number }> = [];
++	const controller = new CollabController(context, {
++		instanceId: "test-instance-id",
++		hostFactory: () => {
++			const host = new FakeHost();
++			hosts.push(host);
++			return host;
++		},
++		publisherFactory: () => ({
++			publish(record: CollabPublisherRecord) {
++				events.push({ type: record.controlLink ? "publish-control" : "publish-view", generation: record.generation });
++			},
++			remove(generation: number) {
++				events.push({ type: "remove", generation });
++			},
++			shutdown() {},
++		}),
++	});
++	return { context, controller, hosts, events, warnings };
++}
++
++describe("CollabController", () => {
++	test("off preserves startup behavior", async () => {
++		const { controller, hosts } = harness("off");
++		await controller.autoStart();
++		expect(hosts).toHaveLength(0);
++	});
++
++	test("serializes concurrent starts around exactly one host", async () => {
++		const { controller, hosts } = harness("control");
++		await Promise.all([controller.start(), controller.start(), controller.start()]);
++		expect(hosts).toHaveLength(1);
++		expect(hosts[0]?.starts).toBe(1);
++	});
++
++	test("view auto-start publishes no control capability", async () => {
++		const { controller, events } = harness("view");
++		await controller.autoStart();
++		expect(events).toEqual([{ type: "publish-view", generation: 1 }]);
++	});
++
++	test("replacement revokes generation N before publishing N+1", async () => {
++		const { controller, events } = harness("control");
++		await controller.autoStart();
++		await controller.replaceActiveSession();
++		expect(events).toEqual([
++			{ type: "publish-control", generation: 1 },
++			{ type: "remove", generation: 1 },
++			{ type: "publish-control", generation: 2 },
++		]);
++	});
++
++	test("manual stop unregisters and suspends only the current generation", async () => {
++		const { controller, events } = harness("control");
++		await controller.autoStart();
++		await controller.stop();
++		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
++		await controller.autoStart();
++		expect(controller.state).toBe("stopped");
++		await controller.replaceActiveSession();
++		expect(controller.state).toBe("running");
++	});
++
++	test("fatal host closure unregisters immediately", async () => {
++		const { controller, hosts, events } = harness("control");
++		await controller.autoStart();
++		const faulted = Promise.withResolvers<void>();
++		controller.on("faulted", faulted.resolve);
++		hosts[0]?.onFatal?.("relay failed");
++		await faulted.promise;
++		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
++		expect(controller.state).toBe("faulted");
++	});
++});
+diff --git b/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
+new file mode 100644
+index 0000000..05f76aa
+--- /dev/null
++++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
+@@ -0,0 +1,49 @@
++import { expect, test } from "bun:test";
++import { CollabRegistryPublisher, resolveCollabRegistryEndpoint } from "../../src/collab/registry-publisher";
++
++const record = {
++	instanceId: "publisher-test-instance",
++	generation: 1,
++	pid: process.pid,
++	sessionId: "publisher-test-session",
++	startedAt: "2026-07-19T00:00:00.000Z",
++	viewLink: "VIEW_CAPABILITY_FIXTURE",
++	controlLink: "CONTROL_CAPABILITY_FIXTURE",
++};
++
++test("registry endpoint accepts only local IPC", () => {
++	expect(resolveCollabRegistryEndpoint("off")).toBeUndefined();
++	expect(resolveCollabRegistryEndpoint("auto")).toBeString();
++	expect(() => resolveCollabRegistryEndpoint("https://gateway.example.invalid")).toThrow("local IPC");
++	expect(() => resolveCollabRegistryEndpoint("wss://gateway.example.invalid")).toThrow("local IPC");
++	if (process.platform !== "win32") expect(() => resolveCollabRegistryEndpoint("relative.sock")).toThrow("absolute");
++});
++
++test("invalid publisher configuration fails safely without exposing capabilities", async () => {
++	const warning = Promise.withResolvers<string>();
++	const publisher = new CollabRegistryPublisher({
++		instanceId: record.instanceId,
++		pid: process.pid,
++		endpointSetting: "https://gateway.example.invalid",
++		onSecurityError: warning.resolve,
++	});
++	publisher.publish(record);
++	const message = await warning.promise;
++	publisher.shutdown(record.generation);
++	expect(message).toContain("local IPC");
++	expect(message).not.toContain(record.viewLink);
++	expect(message).not.toContain(record.controlLink);
++});
++
++test("disabled publication is a no-op", () => {
++	const publisher = new CollabRegistryPublisher({
++		instanceId: record.instanceId,
++		pid: process.pid,
++		endpointSetting: "off",
++		onSecurityError: () => {
++			throw new Error("off must not report an error");
++		},
++	});
++	publisher.publish(record);
++	publisher.shutdown(record.generation);
++});
+diff --git b/packages/coding-agent/test/config/collab-settings.test.ts b/packages/coding-agent/test/config/collab-settings.test.ts
+new file mode 100644
+index 0000000..ac6c9bf
+--- /dev/null
++++ b/packages/coding-agent/test/config/collab-settings.test.ts
+@@ -0,0 +1,8 @@
++import { expect, test } from "bun:test";
++import { getDefault, getEnumValues } from "../../src/config/settings-schema";
++
++test("automatic collaboration settings default to backward-compatible off", () => {
++	expect(getDefault("collab.autoStart")).toBe("off");
++	expect(getEnumValues("collab.autoStart")).toEqual(["off", "view", "control"]);
++	expect(getDefault("collab.registryEndpoint")).toBe("auto");
++});

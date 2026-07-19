@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OMP Sessions">
+  <rect width="512" height="512" rx="96" fill="#171612"/>
+  <rect x="96" y="96" width="320" height="320" rx="32" fill="#f1eee6"/>
+  <path d="M150 170h212M150 256h154M150 342h212" fill="none" stroke="#275c4b" stroke-width="34" stroke-linecap="square"/>
+  <circle cx="362" cy="256" r="25" fill="#9a472f"/>
+</svg>

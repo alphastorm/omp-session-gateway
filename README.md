@@ -2,7 +2,7 @@
 
 **Secure, zero-touch mobile access to every running Oh My Pi session.**
 
-> **Project status: implementation-ready, pre-alpha.** This repository currently contains the architecture, contracts, security requirements, repository scaffold, and implementation-agent instructions. It does not yet contain a production-ready gateway binary.
+> **Project status: implemented pre-alpha, not production-qualified.** The daemon, authenticated IPC registry, PWA, pinned collaboration client, management CLI, service definitions, release builder, tests, and OMP patch are present. Real Android, Tailscale, relay, and cross-OS acceptance gates remain unqualified.
 
 OMP Session Gateway is a local-first companion for [Oh My Pi](https://github.com/can1357/oh-my-pi) (OMP). After one-time setup, it automatically discovers collaboration endpoints for every live interactive OMP process on a computer and presents them through a private, mobile-first Progressive Web App (PWA).
 
@@ -20,7 +20,7 @@ OMP's `/collab` feature already provides an excellent browser experience, but ea
 - removes stale sessions automatically; and
 - does not expose collaboration capabilities to the public Internet, logs, or persistent browser storage.
 
-## Proposed user experience
+## User experience
 
 After installation and tailnet configuration:
 
@@ -62,7 +62,7 @@ The v1 path is therefore:
 
 ## Security model
 
-OMP collaboration links are bearer capabilities. The implementation must treat both view and control links as secrets.
+OMP collaboration links are bearer capabilities. The implementation treats both view and control links as secrets.
 
 Release-blocking invariants include:
 
@@ -82,33 +82,55 @@ See [the threat model](docs/SECURITY.md) and [security reporting policy](SECURIT
 
 | Path | Purpose |
 |---|---|
-| `AGENTS.md` | Authoritative instructions for an implementation agent |
-| `AGENT_BRIEF.md` | Short standalone implementation brief |
-| `docs/ARCHITECTURE.md` | Components, runtime lifecycle, and trust boundaries |
-| `docs/OMP_INTEGRATION.md` | Narrow patch required in OMP |
-| `docs/PROTOCOL.md` | Local registry and browser API contracts |
-| `docs/SECURITY.md` | Threat model and non-negotiable controls |
-| `docs/IMPLEMENTATION_PLAN.md` | Milestone and commit sequence |
-| `docs/ISSUE_PLAN.md` | Ready-to-create GitHub issue plan |
-| `docs/COMPATIBILITY.md` | OMP baseline and compatibility policy |
-| `docs/OPEN_SOURCE.md` | Scope, positioning, licensing, and governance choices |
-| `docs/UPSTREAM_STRATEGY.md` | Minimal OMP patch/upstream collaboration strategy |
-| `schemas/` | Draft machine-readable API and IPC contracts |
-| `apps/` and `packages/` | Workspace implementation targets |
-| `patches/oh-my-pi/` | OMP patch series or upstream PR notes |
-| `UPSTREAM.lock.json` | Research baseline; must be refreshed before coding |
+| `apps/gateway` | Loopback daemon, authenticated registry IPC, HTTP API, CLI, services, and diagnostics |
+| `apps/web` | Mobile session directory PWA and no-secret service worker |
+| `packages/protocol` | Versioned runtime-validated IPC and browser contracts |
+| `packages/collab-client` | Pinned OMP `collab-web` source and in-memory bootstrap patch |
+| `patches/oh-my-pi` | Apply-ready controller, auto-start, and publisher patch for pinned OMP |
+| `scripts/build-web.ts` | Reproducible hashed PWA/client asset build |
+| `scripts/build-release.ts` | Deterministic Bun-runtime release archive and SHA-256 manifest |
+| `docs/` | Architecture, protocol, security, operations, compatibility, and acceptance plans |
+| `UPSTREAM.lock.json` | Exact OMP source and package baseline |
 
-## Implementation agent entry point
+## Build and run
 
-An implementation agent should begin with [AGENTS.md](AGENTS.md), then read the documents in the order specified there. A standalone prompt is also available at [`docs/IMPLEMENTATION_AGENT_PROMPT.md`](docs/IMPLEMENTATION_AGENT_PROMPT.md).
+Requires Bun 1.3.14 or newer:
 
-The primary success criterion is:
+```sh
+bun install --frozen-lockfile
+bun run check
 
-> Starting three independent interactive OMP processes produces three usable cards on the phone without typing `/collab` or copying a link. Exiting or switching any process removes the old control capability before a replacement can be launched.
+# Loopback-only development mode
+bun apps/gateway/src/cli.ts serve \
+  --dev-localhost \
+  --port 4317 \
+  --origin http://127.0.0.1:4317
+```
+
+Production installation requires an exact tailnet HTTPS origin and at least one normalized Tailscale login:
+
+```sh
+bun run build
+bun apps/gateway/src/cli.ts install \
+  --origin https://host.tailnet.ts.net \
+  --allow user@example.com
+tailscale serve --bg --https=443 http://127.0.0.1:4317
+bun apps/gateway/src/cli.ts doctor
+```
+
+Never enable Tailscale Funnel. Apply the pinned OMP patch and configure `collab.autoStart` to `view` or
+`control`; see [`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md) and
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+Build the deterministic Bun-runtime archive and checksum manifest with `bun run release:build`.
+The archive remains pre-alpha until every mandatory acceptance gate in [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md)
+has passed on the advertised platforms.
 
 ## Current upstream baseline
 
-The research snapshot was prepared against OMP **v17.0.5** on **2026-07-19**. OMP is active; the implementation agent must inspect current upstream `main`, pin an exact commit, and update [`UPSTREAM.lock.json`](UPSTREAM.lock.json) before making code changes.
+Pinned OMP commit: `39c95e5e29b1c8b082059f57421ce445c3dffdd4`, observed on **2026-07-19** with
+**v17.0.5** as the nearest release. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
+source paths.
 
 ## Contributing and releases
 

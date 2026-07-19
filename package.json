@@ -1,6 +1,6 @@
 {
   "name": "omp-session-gateway",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.14",
@@ -9,8 +9,18 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "bun run validate:handoff && bun run check:capability-leaks",
+    "check": "bun run validate:handoff && bun run typecheck && bun run build && bun run test && bun run check:capability-leaks",
     "validate:handoff": "bun scripts/validate-handoff.ts",
-    "check:capability-leaks": "bun scripts/check-capability-leaks.ts"
+    "typecheck": "bun run --filter '*' typecheck",
+    "build": "bun run --filter '@omp-session-gateway/web' build",
+    "test": "bun test",
+    "check:capability-leaks": "bun scripts/check-capability-leaks.ts",
+    "release:build": "bun scripts/build-release.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "7.0.2"
   }
 }

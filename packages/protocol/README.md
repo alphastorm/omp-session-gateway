@@ -1,12 +1,11 @@
 # `packages/protocol`
 
-Shared TypeScript types, strict runtime validators, fixtures, and protocol constants corresponding to `schemas/`.
+Shared TypeScript types, strict runtime validators, and protocol constants corresponding to `schemas/`.
 
-Requirements:
+Enforced invariants:
 
-- keep secret-bearing types structurally distinct from browser-facing metadata;
-- reject unknown major versions and bounded-invalid input;
-- avoid generic `toJSON`, object inspection, or debug printers on capability-bearing values;
-- provide redacted fixture factories and distinctive secret-leak fixtures;
-- support dependency injection for clock and randomness in tests;
-- document compatibility/evolution rules.
+- secret-bearing records are structurally distinct from browser-facing metadata;
+- unknown versions, fields, duplicate JSON keys, invalid UTF-8, and bounded-invalid input are rejected;
+- capability wrappers cannot be serialized and redact string/inspector conversion;
+- publisher, browser snapshot, SSE event, launch request, and launch response payloads are runtime validated; and
+- distinctive synthetic capability fixtures are covered by the repository leak scanner.

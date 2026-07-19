@@ -118,3 +118,15 @@
 **Decision:** Publish OMP Session Gateway under MIT, preserve upstream notices, ship no telemetry/analytics/remote runtime assets, and require private vulnerability reporting plus release provenance.
 
 **Consequences:** Public review improves trust, while maintainers assume responsibility for security triage, dependency hygiene, compatibility documentation, and release integrity.
+
+---
+
+## ADR-011 — Pin OMP main and patch collab-web source in memory
+
+**Status:** Accepted
+
+**Context:** Upstream `main` at `39c95e5e29b1c8b082059f57421ce445c3dffdd4` still has the slash command directly own `CollabHost`, exposes no supported `ctx.collab` extension API, and has `collab-web` write every connected capability to `location.hash`.
+
+**Decision:** Target that exact commit, keep the initial controller/publisher integration as a narrow core patch, and build a pinned collab-web source integration with a direct in-memory bootstrap that never writes the capability to a URL.
+
+**Consequences:** The OMP patch remains necessary for automatic startup and lifecycle-safe publication. The gateway cannot consume upstream collab-web unchanged because doing so would violate the no-persistence capability invariant.

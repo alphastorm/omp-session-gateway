@@ -1,8 +1,8 @@
 # `apps/web`
 
-Implementation target for the **OMP Sessions** dashboard PWA.
+Implementation of the **OMP Sessions** dashboard PWA.
 
-Required states:
+Implemented states:
 
 - authenticated live session list;
 - empty state with gateway/OMP setup guidance;
@@ -11,8 +11,9 @@ Required states:
 - SSE reconnect and snapshot recovery;
 - View and Control launch actions;
 - stale generation, expired session, and process-ended errors;
-- privacy/security information and authenticated identity display;
-- optional passkey enrollment only after v1.
+- privacy/security guidance.
+
+Passkey enrollment is deferred until after the v1 path is qualified.
 
 The dashboard receives metadata only. It must not render transcripts, prefetch capabilities, or implement the OMP collaboration protocol.
 
