@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/upstream-lock.schema.json",
+  "title": "OMP Session Gateway upstream research lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "observedAt",
+    "repository",
+    "tag",
+    "commit",
+    "packageVersion",
+    "bunVersion",
+    "relevantPaths",
+    "notes"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "status": { "type": "string", "minLength": 1 },
+    "observedAt": { "type": "string", "format": "date" },
+    "repository": { "type": "string", "format": "uri" },
+    "tag": { "type": ["string", "null"] },
+    "commit": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      ]
+    },
+    "packageVersion": { "type": ["string", "null"] },
+    "bunVersion": { "type": ["string", "null"] },
+    "relevantPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

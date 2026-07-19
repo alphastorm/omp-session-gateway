@@ -1,0 +1,62 @@
+name: Bug report
+description: Report reproducible incorrect behavior without including live secrets
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste a real OMP collaboration link, publisher token, transcript, or private Tailscale identity. Use synthetic/redacted values. Report security vulnerabilities privately instead of using this form.
+  - type: input
+    id: gateway-version
+    attributes:
+      label: Gateway version or commit
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: omp-version
+    attributes:
+      label: OMP version or commit
+      placeholder: v17.0.5 or exact commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Desktop platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Explain expected and actual behavior. Redact secrets and private paths.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest safe reproduction using synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Include relevant `omp-gateway doctor` output only after verifying it contains no secrets.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I verified this report contains no real collaboration link or publisher token.
+          required: true
+        - label: This is not a vulnerability requiring private disclosure.
+          required: true

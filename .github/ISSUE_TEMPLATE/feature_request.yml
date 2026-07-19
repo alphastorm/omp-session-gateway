@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a scoped improvement to the gateway
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user problem rather than only the preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the user flow and scope.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy impact
+      description: Address capability handling, identity, browser storage, logging, and public exposure where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope checks
+      options:
+        - label: This does not require publishing real collaboration capabilities.
+          required: true
+        - label: I understand v1 reuses OMP collab-web rather than creating a second agent UI.
+          required: true

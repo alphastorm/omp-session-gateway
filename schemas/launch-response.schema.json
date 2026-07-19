@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/launch-response.schema.json",
+  "title": "OMP Session Gateway secret-bearing launch response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "generation",
+    "capability"
+  ],
+  "properties": {
+    "mode": {
+      "enum": ["view", "control"]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "capability": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 8192
+    }
+  }
+}

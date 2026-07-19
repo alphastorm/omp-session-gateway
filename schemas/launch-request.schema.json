@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/launch-request.schema.json",
+  "title": "OMP Session Gateway launch request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "generation"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "view",
+        "control"
+      ]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

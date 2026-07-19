@@ -1,0 +1,15 @@
+// Template only. Merge carefully into the existing tailnet policy.
+// Replace the login and ensure the desktop gateway node owns tag:omp-gateway.
+{
+  "tagOwners": {
+    "tag:omp-gateway": ["replace-with-your-tailnet-login@example.com"]
+  },
+
+  "grants": [
+    {
+      "src": ["replace-with-your-tailnet-login@example.com"],
+      "dst": ["tag:omp-gateway"],
+      "ip": ["tcp:443"]
+    }
+  ]
+}

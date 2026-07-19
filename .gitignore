@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+
+# Never commit runtime secrets or generated local configuration.
+config.json
+publisher-token
+*.sock
+*.pipe
+
+# Editor files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

@@ -1,0 +1,15 @@
+{
+  // Requires the proposed OMP patch. Upstream-safe default is "off".
+  "collab": {
+    // "off" | "view" | "control"
+    "autoStart": "control",
+
+    // "auto" discovers the current-user gateway socket/pipe.
+    // "off" disables publication even if collaboration is automatic.
+    "registryEndpoint": "auto",
+
+    // Existing OMP settings remain available:
+    "relayUrl": "wss://my.omp.sh",
+    "webUrl": ""
+  }
+}

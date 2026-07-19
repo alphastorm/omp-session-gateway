@@ -1,0 +1,14 @@
+{
+  "listen": "127.0.0.1:4317",
+  "auth": {
+    "mode": "tailscale-serve",
+    "allowedLogins": ["replace-with-your-tailnet-login@example.com"]
+  },
+  "registry": {
+    "heartbeatSeconds": 10,
+    "ttlSeconds": 35,
+    "metadataPathMode": "basename"
+  },
+  "controlProtection": "tailnet",
+  "relayAllowlist": ["wss://my.omp.sh"]
+}

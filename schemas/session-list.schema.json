@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/session-list.schema.json",
+  "title": "OMP Session Gateway metadata-only session list",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "revision",
+    "sessions"
+  ],
+  "properties": {
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sessions": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instanceId",
+          "generation",
+          "startedAt",
+          "lastSeenAt",
+          "canView",
+          "canControl"
+        ],
+        "properties": {
+          "instanceId": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "cwdLabel": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "canView": {
+            "type": "boolean"
+          },
+          "canControl": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

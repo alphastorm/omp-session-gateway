@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/registry-message.schema.json",
+  "title": "OMP Session Gateway registry message",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/upsert"
+    },
+    {
+      "$ref": "#/$defs/heartbeat"
+    },
+    {
+      "$ref": "#/$defs/remove"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "label": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "capability": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 8192
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "token",
+        "instanceId",
+        "pid"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "hello"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 128
+        },
+        "instanceId": {
+          "$ref": "#/$defs/id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instanceId",
+        "generation",
+        "pid",
+        "sessionId",
+        "startedAt",
+        "viewLink"
+      ],
+      "properties": {
+        "instanceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sessionId": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/label"
+        },
+        "cwdLabel": {
+          "$ref": "#/$defs/label"
+        },
+        "model": {
+          "$ref": "#/$defs/label"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "viewLink": {
+          "$ref": "#/$defs/capability"
+        },
+        "controlLink": {
+          "$ref": "#/$defs/capability"
+        }
+      }
+    },
+    "upsert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "session"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "upsert"
+        },
+        "session": {
+          "$ref": "#/$defs/session"
+        }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "instanceId",
+        "generation"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "heartbeat"
+        },
+        "instanceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "instanceId",
+        "generation"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "remove"
+        },
+        "instanceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "stopped",
+            "session_changed",
+            "shutdown",
+            "faulted",
+            "manual_stop"
+          ]
+        }
+      }
+    }
+  }
+}

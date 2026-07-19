@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/OWNER/omp-session-gateway/security/advisories/new
+    about: Report vulnerabilities privately. Replace OWNER before publishing.

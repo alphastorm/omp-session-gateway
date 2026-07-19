@@ -1,0 +1,7 @@
+# Replace OWNER with the GitHub username/team responsible for security-sensitive review.
+* @OWNER
+/docs/SECURITY.md @OWNER
+/SECURITY.md @OWNER
+/apps/gateway/ @OWNER
+/packages/protocol/ @OWNER
+/patches/oh-my-pi/ @OWNER
