@@ -61,9 +61,9 @@ secret:
 gh api repos/alphastorm/omp-session-gateway/immutable-releases --jq .enabled
 ```
 
-It must print `true`. GitHub locks the published release, assets, and tag and issues a
-signed release attestation. Treat the release as final at publication; publish a new tag
-to correct it.
+It must print `true`. GitHub applies a 24-hour grace period after publication before
+locking the release, assets, and tag and issuing the immutable-release attestation. Treat
+the release as final at publication; publish a new tag to correct it.
 
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
 emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
@@ -80,7 +80,7 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=provenance-test-v0.1.0.5
+TAG=provenance-test-v0.1.0.6
 ARCHIVE=omp-session-gateway-0.1.0-bun.tar
 SBOM=omp-session-gateway-0.1.0.spdx.json
 
@@ -89,8 +89,9 @@ gh release download "$TAG" --repo "$REPO" --dir release-verification
 cd release-verification
 ```
 
-Verify the immutable release attestation and every release asset. A failure means the
-release is not immutable or the downloaded asset is not part of the attested release:
+After GitHub's 24-hour grace period, verify the immutable release attestation and every
+release asset. A failure means the release is not yet immutable or the downloaded asset is
+not part of the attested release:
 
 ```sh
 gh release verify "$TAG" --repo "$REPO"
