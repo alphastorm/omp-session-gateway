@@ -136,6 +136,23 @@ function nextRegistryEvent(registry: SessionRegistry, type: SessionEvent["type"]
   });
   return promise;
 }
+function nextRegistryEvents(
+  registry: SessionRegistry,
+  type: SessionEvent["type"],
+  count: number,
+): Promise<SessionEvent[]> {
+  const { promise, resolve } = Promise.withResolvers<SessionEvent[]>();
+  const events: SessionEvent[] = [];
+  const unsubscribe = registry.subscribe(event => {
+    if (event.type !== type) return;
+    events.push(event);
+    if (events.length !== count) return;
+    unsubscribe();
+    resolve(events);
+  });
+  return promise;
+}
+
 
 function testConfig(root: string): GatewayConfig {
   return {
@@ -381,6 +398,84 @@ test("IPC isolates concurrent same-process publishers and enforces capacity", as
     await rm(root, { recursive: true, force: true });
   }
 });
+test("IPC supports fifty authenticated publishers through upsert and cleanup", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-load-"));
+  const baseConfig = testConfig(root);
+  const publisherCount = 50;
+  const config: GatewayConfig = {
+    ...baseConfig,
+    registry: { ...baseConfig.registry, maxPublishers: publisherCount, maxSessions: publisherCount },
+  };
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const registry = new SessionRegistry({
+    ttlSeconds: config.registry.ttlSeconds,
+    maxSessions: config.registry.maxSessions,
+  });
+  const token = "T".repeat(43);
+  const server = await startRegistryIpcServer({
+    config,
+    token,
+    registry,
+    logger: new SafeLogger({ write() {} }),
+  });
+  const instanceIds = Array.from(
+    { length: publisherCount },
+    (_, index) => `ipc-load-instance-${(index + 1).toString().padStart(2, "0")}`,
+  );
+  const pid = 500;
+
+  try {
+    const sockets = await Promise.all(instanceIds.map(() => connect(config.paths.socketPath)));
+    await Promise.all(
+      sockets.map((socket, index) => authenticatePublisher(socket, token, instanceIds[index]!, pid)),
+    );
+    expect(server.publishers).toBe(publisherCount);
+
+    const upsertEvents = nextRegistryEvents(registry, "session_upsert", publisherCount);
+    for (const [index, socket] of sockets.entries()) {
+      socket.write(
+        `${JSON.stringify({
+          v: 1,
+          op: "upsert",
+          session: {
+            instanceId: instanceIds[index]!,
+            generation: 1,
+            pid,
+            sessionId: `ipc-load-session-${index + 1}`,
+            title: `IPC load session ${index + 1}`,
+            startedAt: "2026-07-19T00:00:00.000Z",
+            viewLink: `LOAD_VIEW_${index}_${"V".repeat(20)}`,
+          },
+        })}\n`,
+      );
+    }
+    expect(await upsertEvents).toHaveLength(publisherCount);
+    expect(registry.snapshot().sessions.map(session => session.instanceId).sort()).toEqual(
+      [...instanceIds].sort(),
+    );
+
+    for (const [index, socket] of sockets.entries()) {
+      socket.write(
+        `${JSON.stringify({
+          v: 1,
+          op: "heartbeat",
+          instanceId: instanceIds[index]!,
+          generation: 1,
+        })}\n`,
+      );
+    }
+
+    const removeEvents = nextRegistryEvents(registry, "session_remove", publisherCount);
+    for (const socket of sockets) socket.end();
+    expect(await removeEvents).toHaveLength(publisherCount);
+    expect(registry.size).toBe(0);
+    expect(server.publishers).toBe(0);
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 
 test("IPC deadlines free publisher capacity and preserve fragmented frames", async () => {
   const root = await mkdtemp(join(tmpdir(), "gateway-ipc-deadlines-"));
