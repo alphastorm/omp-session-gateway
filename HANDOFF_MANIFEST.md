@@ -7,7 +7,7 @@
 ## Implemented
 
 - strict protocol contracts and runtime validation for publisher, metadata, SSE, and launch messages;
-- authenticated size-bounded local IPC with generation-aware in-memory storage and monotonic TTL expiry;
+- authenticated size- and deadline-bounded local IPC with generation-aware in-memory storage and monotonic TTL expiry;
 - loopback HTTP, fail-closed Tailscale identity allowlisting, exact-Origin mutation checks, SSE, and no-store launch;
 - Android-sized installable PWA with metadata-only states and a shell-only service-worker cache;
 - OMP `collab-web` pinned to commit `39c95e5e29b1c8b082059f57421ce445c3dffdd4` and patched for one-time in-memory `MessageChannel` bootstrap plus mobile foreground/online transport replacement;
@@ -34,7 +34,7 @@ contain boolean results only. Tailscale Funnel remains unsupported.
 
 ## Validation performed
 
-- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 39 tests across nine files, and the capability-leak scan passed.
+- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 40 tests across nine files, and the capability-leak scan passed.
 - `bun audit`: no vulnerabilities found.
 - `git apply --check patches/oh-my-pi/0001-collab-controller-autostart-registry.patch` against the pinned fixture: passed.
 - OMP patch lifecycle fixtures: 20 controller/publisher/settings/session-ordering tests passed; the full coding-agent package typecheck passed.
