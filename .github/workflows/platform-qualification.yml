@@ -12,8 +12,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
@@ -30,7 +30,7 @@ jobs:
             throw "gateway status was not installed, active, and ready"
           }
           $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
             Select-Object -First 1
           if ($null -eq $process) { throw "gateway process was not found" }
           $process.ProcessId | Set-Content -NoNewline "$env:RUNNER_TEMP\gateway-pid.txt"
@@ -48,7 +48,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "active reinstall failed" }
           $beforePid = [int](Get-Content "$env:RUNNER_TEMP\gateway-pid.txt")
           $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
             Select-Object -First 1
           if ($null -eq $process -or $process.ProcessId -eq $beforePid) {
             throw "active reinstall did not replace the gateway process"
@@ -68,3 +68,8 @@ jobs:
           if ($null -ne (Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue)) {
             throw "scheduled task remained after uninstall"
           }
+          Start-Sleep -Milliseconds 500
+          $process = Get-CimInstance Win32_Process |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Select-Object -First 1
+          if ($null -ne $process) { throw "gateway process remained after uninstall" }

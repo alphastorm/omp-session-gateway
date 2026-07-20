@@ -87,6 +87,45 @@ describe("HTTP boundary", () => {
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(200);
   });
 
+  test("accepts shutdown only from loopback with the publisher token", async () => {
+    const token = "S".repeat(43);
+    let requests = 0;
+    const handler = createHttpHandler({
+      config: config(),
+      registry: populatedRegistry(),
+      staticAssets: assets,
+      shutdown: { token, request: () => requests++ },
+    });
+    const shutdownRequest = (supplied: string): Request =>
+      request("/_internal/v1/shutdown", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${supplied}`,
+          Origin: origin,
+          "Sec-Fetch-Site": "same-origin",
+        },
+      });
+    expect((await handler(shutdownRequest("X".repeat(43)), peer)).status).toBe(403);
+    expect(
+      (
+        await handler(
+          request("/_internal/v1/shutdown", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, Origin: "https://evil.example" },
+          }),
+          peer,
+        )
+      ).status,
+    ).toBe(403);
+    expect((await handler(shutdownRequest(token), { address: "10.0.0.8" })).status).toBe(403);
+    expect(requests).toBe(0);
+    const response = await handler(shutdownRequest(token), peer);
+    expect(response.status).toBe(202);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    await Bun.sleep(60);
+    expect(requests).toBe(1);
+  });
+
   test("returns metadata-only no-store list and SSE", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const list = await handler(request("/api/v1/sessions"), peer);

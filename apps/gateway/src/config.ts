@@ -50,45 +50,77 @@ function currentUserId(): number {
   return uid;
 }
 
+function windowsPowerShellEnvironment(overrides: Record<string, string>): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && key.toLowerCase() !== "psmodulepath") environment[key] = value;
+  }
+  return { ...environment, ...overrides };
+}
+
 async function applyWindowsAcl(path: string, directory: boolean): Promise<void> {
   if (process.platform !== "win32") return;
-  const username = process.env.USERNAME;
-  if (username === undefined || username.length === 0 || /[\0\r\n]/u.test(username)) {
-    throw new Error("current Windows user is unavailable");
-  }
-  const permission = directory ? "(OI)(CI)F" : "F";
-  const subprocess = Bun.spawn(
-    ["icacls.exe", path, "/inheritance:r", "/grant:r", `${username}:${permission}`, `*S-1-5-18:${permission}`],
-    { stdin: "ignore", stdout: "ignore", stderr: "pipe" },
-  );
+  const script =
+    "$Path=$env:OMP_GATEWAY_ACL_PATH; $Directory=$env:OMP_GATEWAY_ACL_DIRECTORY; " +
+    "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
+    "$flags=if($Directory -eq '1'){'OICI'}else{''}; " +
+    "$sddl='D:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;'+$sid+')'; " +
+    "$acl=Get-Acl -LiteralPath $Path; $acl.SetSecurityDescriptorSddlForm($sddl); " +
+    "Set-Acl -LiteralPath $Path -AclObject $acl";
+  const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
+    env: windowsPowerShellEnvironment({
+      OMP_GATEWAY_ACL_PATH: path,
+      OMP_GATEWAY_ACL_DIRECTORY: directory ? "1" : "0",
+    }),
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
   const stderr = await new Response(subprocess.stderr).text();
   if ((await subprocess.exited) !== 0) throw new Error(`failed to secure private Windows path: ${stderr.trim()}`);
 }
 
-async function assertWindowsAclPrivate(path: string): Promise<void> {
+async function assertWindowsAclPrivate(path: string, directory: boolean): Promise<void> {
   if (process.platform !== "win32") return;
   const script =
-    "& { param([string]$Path) $acl=Get-Acl -LiteralPath $Path; " +
+    "$Path=$env:OMP_GATEWAY_ACL_PATH; $acl=Get-Acl -LiteralPath $Path; " +
     "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
-    "$rules=@($acl.Access | ForEach-Object { try { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { '' } }); " +
-    "[pscustomobject]@{ Protected=$acl.AreAccessRulesProtected; Current=$sid; Rules=$rules } | ConvertTo-Json -Compress }";
-  const subprocess = Bun.spawn(
-    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, path],
-    { stdin: "ignore", stdout: "pipe", stderr: "ignore" },
-  );
+    "$descriptor=[System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl); " +
+    "$rules=@($descriptor.DiscretionaryAcl | ForEach-Object { [pscustomobject]@{ " +
+    "Sid=$_.SecurityIdentifier.Value; Type=$_.AceType.ToString(); Mask=$_.AccessMask; Flags=[int]$_.AceFlags } }); " +
+    "[pscustomobject]@{ Protected=$acl.AreAccessRulesProtected; Current=$sid; Rules=@($rules) } " +
+    "| ConvertTo-Json -Compress -Depth 3";
+  const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
+    env: windowsPowerShellEnvironment({ OMP_GATEWAY_ACL_PATH: path }),
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
   const text = await new Response(subprocess.stdout).text();
   if ((await subprocess.exited) !== 0) throw new Error("failed to inspect private Windows ACL");
   const value: unknown = JSON.parse(text);
   const protectedAcl = typeof value === "object" && value !== null ? Reflect.get(value, "Protected") : undefined;
   const current = typeof value === "object" && value !== null ? Reflect.get(value, "Current") : undefined;
   const rules = typeof value === "object" && value !== null ? Reflect.get(value, "Rules") : undefined;
+  const expectedSids = new Set([current, "S-1-5-18"]);
+  const expectedFlags = directory ? 3 : 0;
   if (
     protectedAcl !== true ||
     typeof current !== "string" ||
     !Array.isArray(rules) ||
-    !rules.includes(current) ||
-    !rules.includes("S-1-5-18") ||
-    rules.some(rule => rule !== current && rule !== "S-1-5-18")
+    rules.length !== 2 ||
+    rules.some(rule => {
+      if (typeof rule !== "object" || rule === null) return true;
+      const sid = Reflect.get(rule, "Sid");
+      return (
+        typeof sid !== "string" ||
+        !expectedSids.delete(sid) ||
+        Reflect.get(rule, "Type") !== "AccessAllowed" ||
+        Reflect.get(rule, "Mask") !== 2_032_127 ||
+        Reflect.get(rule, "Flags") !== expectedFlags
+      );
+    }) ||
+    expectedSids.size !== 0
   ) {
     throw new Error("unsafe private Windows ACL");
   }
@@ -135,7 +167,7 @@ async function assertPrivateDirectory(path: string, create: boolean): Promise<vo
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`unsafe private directory: ${path}`);
   if (process.platform === "win32") {
     if (create) await applyWindowsAcl(path, true);
-    await assertWindowsAclPrivate(path);
+    await assertWindowsAclPrivate(path, true);
     return;
   }
   if (info.uid !== currentUserId() || (info.mode & 0o077) !== 0) {
@@ -147,7 +179,7 @@ async function assertPrivateRegularFile(path: string): Promise<void> {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error(`unsafe private file: ${path}`);
   if (process.platform === "win32") {
-    await assertWindowsAclPrivate(path);
+    await assertWindowsAclPrivate(path, false);
     return;
   }
   if (info.uid !== currentUserId() || (info.mode & 0o077) !== 0) {

@@ -37,9 +37,11 @@ describe("service packaging", () => {
   test("generates least-privilege Windows logon task", () => {
     const definition = serviceDefinition(config, "win32");
     expect(definition.path).toEndWith("omp-session-gateway-task.xml");
-    expect(definition.content).toStartWith('<?xml version="1.0" encoding="UTF-8"?>');
+    expect(definition.content).toStartWith('<?xml version="1.0" encoding="UTF-16"?>');
     expect(definition.content).toContain("<LogonType>InteractiveToken</LogonType>");
     expect(definition.content).toContain("<RunLevel>LeastPrivilege</RunLevel>");
+    expect(definition.content).toContain("<AllowHardTerminate>true</AllowHardTerminate>");
     expect(definition.content).not.toContain("HighestAvailable");
+    expect(definition.content).not.toContain("cmd.exe");
   });
 });

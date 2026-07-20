@@ -49,9 +49,11 @@ jobs:
           fi
           archive="dist/release/omp-session-gateway-${version}-bun.tar"
           checksums="dist/release/SHA256SUMS"
+          sbom="dist/release/omp-session-gateway-${version}.spdx.json"
           {
             echo "PACKAGE_VERSION=$version"
             echo "ARCHIVE_PATH=$archive"
+            echo "SBOM_PATH=$sbom"
             echo "CHECKSUM_PATH=$checksums"
           } >> "$GITHUB_ENV"
 
@@ -67,8 +69,9 @@ jobs:
           set -euo pipefail
           bun run release:build
           test -f "$ARCHIVE_PATH"
+          test -f "$SBOM_PATH"
           test -f "$CHECKSUM_PATH"
-          if [[ "$(find dist/release -maxdepth 1 -type f | wc -l | tr -d ' ')" != "2" ]]; then
+          if [[ "$(find dist/release -maxdepth 1 -type f | wc -l | tr -d ' ')" != "3" ]]; then
             echo "Release builder emitted unexpected files." >&2
             exit 1
           fi
@@ -79,6 +82,7 @@ jobs:
         with:
           subject-path: |
             dist/release/omp-session-gateway-*-bun.tar
+            dist/release/omp-session-gateway-*.spdx.json
             dist/release/SHA256SUMS
 
       - name: Install Cosign
@@ -89,7 +93,7 @@ jobs:
       - name: Sign artifacts with GitHub OIDC
         run: |
           set -euo pipefail
-          for artifact in "$ARCHIVE_PATH" "$CHECKSUM_PATH"; do
+          for artifact in "$ARCHIVE_PATH" "$SBOM_PATH" "$CHECKSUM_PATH"; do
             cosign sign-blob --yes --bundle "${artifact}.sigstore.json" "$artifact"
           done
 
@@ -101,7 +105,7 @@ jobs:
           (cd dist/release && sha256sum --check SHA256SUMS)
           signer_workflow="$GITHUB_REPOSITORY/.github/workflows/release.yml"
           certificate_identity="https://github.com/${signer_workflow}@${GITHUB_REF}"
-          for artifact in "$ARCHIVE_PATH" "$CHECKSUM_PATH"; do
+          for artifact in "$ARCHIVE_PATH" "$SBOM_PATH" "$CHECKSUM_PATH"; do
             gh attestation verify "$artifact" \
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$signer_workflow" \
@@ -141,8 +145,10 @@ jobs:
           EOF
           gh release create "$GITHUB_REF_NAME" \
             "$ARCHIVE_PATH" \
+            "$SBOM_PATH" \
             "$CHECKSUM_PATH" \
             "${ARCHIVE_PATH}.sigstore.json" \
+            "${SBOM_PATH}.sigstore.json" \
             "${CHECKSUM_PATH}.sigstore.json" \
             --draft \
             --prerelease \

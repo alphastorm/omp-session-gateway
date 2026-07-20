@@ -106,6 +106,28 @@ export class CollabSocket {
 		if (hadActivity && !wasClosed) this.onClose?.("closed", false);
 	}
 
+	/**
+	 * Replace a potentially stale transport without ending the logical guest.
+	 * Mobile browsers may suspend a page without delivering a WebSocket close
+	 * event, so foreground/online lifecycle events must be able to force a
+	 * fresh relay connection.
+	 */
+	reconnect(): void {
+		if (this.#closed) return;
+		this.#clearRetry();
+		const ws = this.#ws;
+		this.#ws = null;
+		if (ws) {
+			try {
+				ws.close(1000);
+			} catch {
+				// already closing/closed
+			}
+		}
+		this.onClose?.("connection refresh", true);
+		this.#openSocket();
+	}
+
 	#openSocket(): void {
 		const ws = new WebSocket(`${this.#opts.wsUrl}?role=${this.#opts.role}`);
 		ws.binaryType = "arraybuffer";

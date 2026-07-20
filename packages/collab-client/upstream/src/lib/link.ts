@@ -186,5 +186,5 @@ export function parseCollabLink(link: string): ParsedCollabLink | { error: strin
 	}
 	const key = secret.subarray(0, ROOM_KEY_BYTES);
 	const writeToken = secret.byteLength > ROOM_KEY_BYTES ? secret.subarray(ROOM_KEY_BYTES) : undefined;
-	return { wsUrl: `${normalized.origin}/r/${roomId}`, roomId, key, writeToken };
+	return { wsUrl: `${normalized.origin}/r/${roomId}`, roomId, key, ...(writeToken === undefined ? {} : { writeToken }) };
 }

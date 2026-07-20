@@ -16,6 +16,89 @@ interface ArchiveFile {
   readonly executable: boolean;
 }
 
+type BunLockPackage = readonly [
+  resolution: string,
+  registry?: string,
+  metadata?: Readonly<Record<string, unknown>>,
+  integrity?: string,
+];
+
+interface BunLockfile {
+  readonly packages: Readonly<Record<string, BunLockPackage>>;
+}
+
+async function createSpdxSbom(): Promise<string> {
+  const lock = Bun.JSONC.parse(await Bun.file(join(root, "bun.lock")).text()) as BunLockfile;
+  const dependencies = Object.entries(lock.packages)
+    .filter(([, entry]) => !entry[0].includes("@workspace:"))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, entry], index) => {
+      const resolution = entry[0];
+      const version = resolution.slice(resolution.lastIndexOf("@") + 1);
+      const integrity = entry[3];
+      return {
+        name,
+        SPDXID: `SPDXRef-Dependency-${index + 1}`,
+        versionInfo: version,
+        downloadLocation: "NOASSERTION",
+        filesAnalyzed: false,
+        licenseConcluded: "NOASSERTION",
+        licenseDeclared: "NOASSERTION",
+        copyrightText: "NOASSERTION",
+        ...(integrity?.startsWith("sha512-")
+          ? {
+              checksums: [
+                {
+                  algorithm: "SHA512",
+                  checksumValue: Buffer.from(integrity.slice("sha512-".length), "base64")
+                    .toString("hex")
+                    .toUpperCase(),
+                },
+              ],
+            }
+          : {}),
+      };
+    });
+  const rootPackage = {
+    name: "omp-session-gateway",
+    SPDXID: "SPDXRef-Package-Root",
+    versionInfo: PRODUCT_VERSION,
+    downloadLocation: "NOASSERTION",
+    filesAnalyzed: false,
+    licenseConcluded: "MIT",
+    licenseDeclared: "MIT",
+    copyrightText: "NOASSERTION",
+  };
+  return `${JSON.stringify(
+    {
+      spdxVersion: "SPDX-2.3",
+      dataLicense: "CC0-1.0",
+      SPDXID: "SPDXRef-DOCUMENT",
+      name: `omp-session-gateway-${PRODUCT_VERSION}`,
+      documentNamespace: `https://github.com/alphastorm/omp-session-gateway/sbom/${PRODUCT_VERSION}`,
+      creationInfo: {
+        created: "1970-01-01T00:00:00Z",
+        creators: ["Tool: omp-session-gateway deterministic release builder"],
+      },
+      packages: [rootPackage, ...dependencies],
+      relationships: [
+        {
+          spdxElementId: "SPDXRef-DOCUMENT",
+          relationshipType: "DESCRIBES",
+          relatedSpdxElement: rootPackage.SPDXID,
+        },
+        ...dependencies.map(dependency => ({
+          spdxElementId: rootPackage.SPDXID,
+          relationshipType: "DEPENDS_ON",
+          relatedSpdxElement: dependency.SPDXID,
+        })),
+      ],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 
 async function run(command: readonly string[]): Promise<void> {
   const subprocess = Bun.spawn([...command], { cwd: root, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
@@ -79,6 +162,8 @@ await run([process.execPath, "scripts/build-web.ts"]);
 await rm(releaseRoot, { recursive: true, force: true });
 await mkdir(releaseRoot, { recursive: true });
 const staging = await mkdtemp(join(tmpdir(), "omp-session-gateway-release-"));
+const sbomName = `omp-session-gateway-${PRODUCT_VERSION}.spdx.json`;
+const sbom = await createSpdxSbom();
 try {
   const cliDirectory = join(staging, "apps", "gateway", "src");
   await mkdir(cliDirectory, { recursive: true });
@@ -133,6 +218,7 @@ try {
       2,
     )}\n`,
   );
+  await writeFile(join(staging, "SBOM.spdx.json"), sbom);
   const files = await archiveFiles(staging);
   for (const file of files) {
     if (file.path.endsWith(".map")) throw new Error("release archive must not contain source maps");
@@ -144,10 +230,16 @@ try {
   const archive = Buffer.concat([...files.map(tarEntry), Buffer.alloc(1_024)]);
   const archiveName = `${archiveBase}.tar`;
   await writeFile(join(releaseRoot, archiveName), archive);
-  const digest = createHash("sha256").update(archive).digest("hex");
-  await writeFile(join(releaseRoot, "SHA256SUMS"), `${digest}  ${archiveName}\n`);
+  await writeFile(join(releaseRoot, sbomName), sbom);
+  const archiveDigest = createHash("sha256").update(archive).digest("hex");
+  const sbomDigest = createHash("sha256").update(sbom).digest("hex");
+  await writeFile(
+    join(releaseRoot, "SHA256SUMS"),
+    `${archiveDigest}  ${archiveName}\n${sbomDigest}  ${sbomName}\n`,
+  );
   const archiveInfo = await stat(join(releaseRoot, archiveName));
   console.log(`built ${relative(root, join(releaseRoot, archiveName))} (${archiveInfo.size} bytes)`);
+  console.log(`wrote ${relative(root, join(releaseRoot, sbomName))}`);
   console.log(`wrote ${relative(root, join(releaseRoot, "SHA256SUMS"))}`);
 } finally {
   await rm(staging, { recursive: true, force: true });
