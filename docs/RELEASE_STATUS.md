@@ -38,7 +38,7 @@ gaps in the next section.
 | Scope | Status | Recorded evidence |
 |---|---|---|
 | Exact upstream pin | **PASS** | `UPSTREAM.lock.json` pins `can1357/oh-my-pi@39c95e5e29b1c8b082059f57421ce445c3dffdd4`, nearest release `v17.0.5`, with package and Bun versions. |
-| Repository check | **PASS** | `bun run check` passed handoff validation, four workspace typechecks, production web/client builds, 39 tests across nine files, and capability-leak scanning. |
+| Repository check | **PASS** | `bun run check` passed handoff validation, four workspace typechecks, production web/client builds, 40 tests across nine files, and capability-leak scanning. |
 | Dependency audit | **PASS** | `bun audit` reported no vulnerabilities for the recorded lockfile. |
 | OMP patch application and lifecycle fixtures | **PASS** | Patch apply-check passed; 20 controller/publisher/settings/session-ordering tests and the full coding-agent package typecheck passed. |
 | Full pinned OMP checkout | **PASS** | `bun run ci:check:full` passed after temporary exclusion of upstream-baseline failures reproduced in an untouched checkout; exclusions were restored and are not part of the patch. |

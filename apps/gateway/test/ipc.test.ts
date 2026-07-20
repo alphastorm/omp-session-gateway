@@ -4,13 +4,57 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionEvent } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
-import { startRegistryIpcServer } from "../src/ipc.ts";
+import {
+  type RegistryIpcDeadline,
+  type RegistryIpcDeadlineScheduler,
+  startRegistryIpcServer,
+} from "../src/ipc.ts";
 import { SafeLogger } from "../src/logger.ts";
 import { SessionRegistry } from "../src/registry.ts";
 
 interface ClientData {
   text: string;
   waiters: Array<{ needle: string; resolve(): void }>;
+}
+
+class ManualDeadline implements RegistryIpcDeadline {
+  active = true;
+
+  constructor(
+    readonly callback: () => void,
+    readonly timeoutMilliseconds: number,
+  ) {}
+
+  cancel(): void {
+    if (!this.active) return;
+    this.active = false;
+  }
+
+  fire(): void {
+    if (!this.active) return;
+    this.active = false;
+    this.callback();
+  }
+}
+
+class ManualDeadlineScheduler implements RegistryIpcDeadlineScheduler {
+  readonly #deadlines: ManualDeadline[] = [];
+
+  schedule(callback: () => void, timeoutMilliseconds: number): ManualDeadline {
+    const deadline = new ManualDeadline(callback, timeoutMilliseconds);
+    this.#deadlines.push(deadline);
+    return deadline;
+  }
+
+  onlyActive(expectedTimeoutMilliseconds: number): ManualDeadline {
+    const active = this.#deadlines.filter(deadline => deadline.active);
+    if (active.length !== 1) throw new Error(`expected one active deadline, received ${active.length}`);
+    const deadline = active[0];
+    if (deadline === undefined || deadline.timeoutMilliseconds !== expectedTimeoutMilliseconds) {
+      throw new Error("active deadline has an unexpected timeout");
+    }
+    return deadline;
+  }
 }
 
 function waitForText(socket: Bun.Socket<ClientData>, needle: string): Promise<void> {
@@ -65,6 +109,7 @@ async function connect(endpoint: string): Promise<Bun.Socket<ClientData>> {
   });
 }
 
+
 test("IPC authenticates before accepting capability-bearing frames and removes on close", async () => {
   const root = await mkdtemp(join(tmpdir(), "gateway-ipc-"));
   const config = testConfig(root);
@@ -111,6 +156,85 @@ test("IPC authenticates before accepting capability-bearing frames and removes o
     const removed = nextRegistryEvent(registry, "session_remove");
     socket.end();
     await removed;
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("IPC deadlines free publisher capacity and preserve fragmented frames", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-deadlines-"));
+  const baseConfig = testConfig(root);
+  const config: GatewayConfig = {
+    ...baseConfig,
+    registry: { ...baseConfig.registry, maxPublishers: 1 },
+  };
+  const deadlineScheduler = new ManualDeadlineScheduler();
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
+  const token = "T".repeat(43);
+  const server = await startRegistryIpcServer({
+    config,
+    token,
+    registry,
+    logger: new SafeLogger({ write() {} }),
+    deadlineScheduler,
+  });
+
+  try {
+    const stalled = await connect(config.paths.socketPath);
+
+    const rejected = await connect(config.paths.socketPath);
+    await waitForText(rejected, '"capacity"');
+    rejected.end();
+
+    deadlineScheduler.onlyActive(5_000).fire();
+    expect(server.publishers).toBe(0);
+
+    const socket = await connect(config.paths.socketPath);
+    const hello = `${JSON.stringify({
+      v: 1,
+      op: "hello",
+      token,
+      instanceId: "ipc-instance-fragmented",
+      pid: 300,
+    })}\n`;
+    const helloSplit = Math.floor(hello.length / 2);
+    socket.write(hello.slice(0, helloSplit));
+    socket.write(hello.slice(helloSplit));
+    await waitForText(socket, "hello_ok");
+    const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
+    const firstIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
+    expect(firstIdleDeadline.active).toBeTrue();
+
+    const upserted = nextRegistryEvent(registry, "session_upsert");
+    const upsert = `${JSON.stringify({
+      v: 1,
+      op: "upsert",
+      session: {
+        instanceId: "ipc-instance-fragmented",
+        generation: 1,
+        pid: 300,
+        sessionId: "ipc-session-fragmented",
+        title: "Fragmented IPC session",
+        startedAt: "2026-07-19T00:00:00.000Z",
+        viewLink: `FRAGMENTED_${"V".repeat(2_048)}`,
+      },
+    })}\n`;
+    socket.write(upsert.slice(0, 700));
+    socket.write(upsert.slice(700, 1_400));
+    socket.write(upsert.slice(1_400));
+    await upserted;
+    expect(registry.size).toBe(1);
+
+    expect(firstIdleDeadline.active).toBeFalse();
+    const replacementIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
+    expect(replacementIdleDeadline).not.toBe(firstIdleDeadline);
+    replacementIdleDeadline.fire();
+    expect(registry.size).toBe(0);
+    expect(server.publishers).toBe(0);
+    stalled.end();
+    socket.end();
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });
