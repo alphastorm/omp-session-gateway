@@ -1,13 +1,17 @@
 import { ProtocolValidationError, SecretCapability, type SecretSessionRecord } from "./secret.ts";
 import {
   MAX_FRAME_BYTES,
+  IPC_AUTH_VALUE_LENGTH,
   MAX_INSTANCE_ID_BYTES,
   MAX_SESSIONS,
   MAX_LABEL_CODEPOINTS,
   PROTOCOL_VERSION,
   type AuthenticatedPublisherFrame,
+  type AuthenticateFrame,
+  type ChallengeFrame,
   type HeartbeatFrame,
   type HelloFrame,
+  type HelloOkFrame,
   type LaunchRequest,
   type LaunchResponse,
   type PublishedSessionInput,
@@ -20,7 +24,7 @@ import {
 
 const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
 const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/u;
+const IPC_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const DISALLOWED_LABEL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu;
 const REMOVE_REASONS: Record<RemoveFrame["reason"], true> = {
   stopped: true,
@@ -62,6 +66,17 @@ function requireInstanceId(value: unknown): string {
     typeof value !== "string" ||
     value.length > MAX_INSTANCE_ID_BYTES ||
     !INSTANCE_ID_PATTERN.test(value)
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return value;
+}
+
+function requireIpcAuthValue(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length !== IPC_AUTH_VALUE_LENGTH ||
+    !IPC_AUTH_VALUE_PATTERN.test(value)
   ) {
     throw new ProtocolValidationError();
   }
@@ -192,15 +207,48 @@ export function parseJsonFrame(bytes: Uint8Array): unknown {
 
 export function parseHelloFrame(value: unknown): HelloFrame {
   const record = requireRecord(value);
-  requireExactKeys(record, ["v", "op", "token", "instanceId", "pid"]);
+  requireExactKeys(record, ["v", "op", "clientNonce", "instanceId", "pid"]);
   if (record.v !== PROTOCOL_VERSION || record.op !== "hello") throw new ProtocolValidationError();
-  if (typeof record.token !== "string" || !TOKEN_PATTERN.test(record.token)) throw new ProtocolValidationError();
   return {
     v: PROTOCOL_VERSION,
     op: "hello",
-    token: record.token,
+    clientNonce: requireIpcAuthValue(record.clientNonce),
     instanceId: requireInstanceId(record.instanceId),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
+  };
+}
+
+export function parseChallengeFrame(value: unknown): ChallengeFrame {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["v", "op", "serverNonce", "proof"]);
+  if (record.v !== PROTOCOL_VERSION || record.op !== "challenge") throw new ProtocolValidationError();
+  return {
+    v: PROTOCOL_VERSION,
+    op: "challenge",
+    serverNonce: requireIpcAuthValue(record.serverNonce),
+    proof: requireIpcAuthValue(record.proof),
+  };
+}
+
+export function parseAuthenticateFrame(value: unknown): AuthenticateFrame {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["v", "op", "proof"]);
+  if (record.v !== PROTOCOL_VERSION || record.op !== "authenticate") throw new ProtocolValidationError();
+  return { v: PROTOCOL_VERSION, op: "authenticate", proof: requireIpcAuthValue(record.proof) };
+}
+
+export function parseHelloOkFrame(value: unknown): HelloOkFrame {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["v", "op", "heartbeatSeconds", "ttlSeconds"]);
+  if (record.v !== PROTOCOL_VERSION || record.op !== "hello_ok") throw new ProtocolValidationError();
+  const heartbeatSeconds = requireInteger(record.heartbeatSeconds, 2, 60);
+  const ttlSeconds = requireInteger(record.ttlSeconds, 5, 300);
+  if (ttlSeconds <= heartbeatSeconds * 2) throw new ProtocolValidationError();
+  return {
+    v: PROTOCOL_VERSION,
+    op: "hello_ok",
+    heartbeatSeconds,
+    ttlSeconds,
   };
 }
 

@@ -37,9 +37,11 @@ Platform targets:
 - macOS: LaunchAgent under the current user;
 - Windows: current-user scheduled task or equivalently scoped user service, plus a current-user named pipe ACL.
 
-The pre-alpha OMP patch currently fails closed instead of publishing on Windows. Do not enable or
-advertise Windows session discovery until the OMP client authenticates the named-pipe server and
-namespace-squatting and cross-user tests pass.
+The pre-alpha OMP patch derives the same current-user pipe name, verifies the private token ACL, and
+authenticates the named-pipe server before releasing its proof or capabilities. The hosted
+source-checkout publisher/lifecycle workflow passes. Do not advertise Windows session discovery
+until the signed-candidate lifecycle, reboot/login, upgrade/rollback, namespace-squatting, and
+cross-user acceptance gates pass.
 
 Also provide:
 

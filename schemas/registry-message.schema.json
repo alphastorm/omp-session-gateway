@@ -7,6 +7,15 @@
       "$ref": "#/$defs/hello"
     },
     {
+      "$ref": "#/$defs/authenticate"
+    },
+    {
+      "$ref": "#/$defs/challenge"
+    },
+    {
+      "$ref": "#/$defs/helloOk"
+    },
+    {
       "$ref": "#/$defs/upsert"
     },
     {
@@ -27,6 +36,12 @@
       "type": "string",
       "maxLength": 256
     },
+    "authValue": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
     "capability": {
       "type": "string",
       "minLength": 16,
@@ -38,7 +53,7 @@
       "required": [
         "v",
         "op",
-        "token",
+        "clientNonce",
         "instanceId",
         "pid"
       ],
@@ -49,10 +64,8 @@
         "op": {
           "const": "hello"
         },
-        "token": {
-          "type": "string",
-          "minLength": 43,
-          "maxLength": 128
+        "clientNonce": {
+          "$ref": "#/$defs/authValue"
         },
         "instanceId": {
           "$ref": "#/$defs/id"
@@ -60,6 +73,79 @@
         "pid": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "serverNonce",
+        "proof"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "challenge"
+        },
+        "serverNonce": {
+          "$ref": "#/$defs/authValue"
+        },
+        "proof": {
+          "$ref": "#/$defs/authValue"
+        }
+      }
+    },
+    "helloOk": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "Runtime validation also requires ttlSeconds to exceed two heartbeat intervals.",
+      "required": [
+        "v",
+        "op",
+        "heartbeatSeconds",
+        "ttlSeconds"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "hello_ok"
+        },
+        "heartbeatSeconds": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 60
+        },
+        "ttlSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300
+        }
+      }
+    },
+    "authenticate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "op",
+        "proof"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "op": {
+          "const": "authenticate"
+        },
+        "proof": {
+          "$ref": "#/$defs/authValue"
         }
       }
     },

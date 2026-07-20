@@ -4,20 +4,27 @@ import {
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
   ProtocolValidationError,
+  parseAuthenticateFrame,
   parseAuthenticatedPublisherFrame,
   parseHelloFrame,
   parseJsonFrame,
 } from "@omp-session-gateway/protocol";
 import {
+  createRegistryAuthNonce,
+  createRegistryClientProof,
+  createRegistryServerProof,
+  registryAuthProofMatches,
+  type RegistryAuthBinding,
+} from "@omp-session-gateway/protocol/ipc-auth";
+import {
   assertSocketPrivate,
   type GatewayConfig,
-  publisherTokenMatches,
   removeRuntimeSocket,
 } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
 
-const MAX_HELLO_FRAME_BYTES = 1_024;
+const MAX_HANDSHAKE_FRAME_BYTES = 1_024;
 const HELLO_TIMEOUT_MILLISECONDS = 5_000;
 const fatalUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -27,6 +34,8 @@ interface ConnectionState {
   bufferedBytes: number;
   deadline?: RegistryIpcDeadline;
   authenticated: boolean;
+  clientNonce?: string;
+  serverNonce?: string;
   instanceId?: string;
   pid?: number;
   closed: boolean;
@@ -60,16 +69,34 @@ export interface RegistryIpcServer {
   stop(): Promise<void>;
 }
 
-function isSafeHelloCandidate(frame: Uint8Array): boolean {
-  if (frame.byteLength > MAX_HELLO_FRAME_BYTES) return false;
+function isSafeHandshakeCandidate(state: ConnectionState, frame: Uint8Array): boolean {
+  if (frame.byteLength > MAX_HANDSHAKE_FRAME_BYTES) return false;
   let text: string;
   try {
     text = fatalUtf8Decoder.decode(frame);
   } catch {
     return false;
   }
-  if (/"(?:viewLink|controlLink|session)"\s*:/u.test(text)) return false;
-  return /"op"\s*:\s*"hello"/u.test(text);
+  if (/"(?:viewLink|controlLink|session|token)"\s*:/u.test(text)) return false;
+  if (state.instanceId === undefined) return /"op"\s*:\s*"hello"/u.test(text);
+  return /"op"\s*:\s*"authenticate"/u.test(text);
+}
+
+function registryAuthBinding(state: ConnectionState): RegistryAuthBinding {
+  if (
+    state.clientNonce === undefined ||
+    state.serverNonce === undefined ||
+    state.instanceId === undefined ||
+    state.pid === undefined
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return {
+    clientNonce: state.clientNonce,
+    serverNonce: state.serverNonce,
+    instanceId: state.instanceId,
+    pid: state.pid,
+  };
 }
 
 export async function startRegistryIpcServer(options: {
@@ -79,7 +106,8 @@ export async function startRegistryIpcServer(options: {
   readonly logger?: SafeLogger;
   readonly deadlineScheduler?: RegistryIpcDeadlineScheduler;
 }): Promise<RegistryIpcServer> {
-  const { config, token, registry } = options;
+  const { config, registry } = options;
+  const tokenKey = Buffer.from(options.token, "ascii");
   const logger = options.logger ?? new SafeLogger();
   const deadlineScheduler = options.deadlineScheduler ?? runtimeDeadlineScheduler;
   const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
@@ -98,10 +126,16 @@ export async function startRegistryIpcServer(options: {
     state.bufferedBytes = 0;
   };
 
+  const scrubHandshake = (state: ConnectionState): void => {
+    delete state.clientNonce;
+    delete state.serverNonce;
+  };
+
   const releaseConnection = (socket: Bun.Socket<ConnectionState>): void => {
     const state = socket.data;
     clearDeadline(state);
     scrubBuffer(state);
+    scrubHandshake(state);
     state.closed = true;
     if (!connections.delete(socket)) return;
     publisherCount -= 1;
@@ -130,7 +164,7 @@ export async function startRegistryIpcServer(options: {
 
   const appendFrameBytes = (socket: Bun.Socket<ConnectionState>, bytes: Uint8Array): boolean => {
     const state = socket.data;
-    const maximumBytes = state.authenticated ? MAX_FRAME_BYTES : MAX_HELLO_FRAME_BYTES;
+    const maximumBytes = state.authenticated ? MAX_FRAME_BYTES : MAX_HANDSHAKE_FRAME_BYTES;
     const nextLength = state.bufferedBytes + bytes.byteLength;
     if (nextLength > maximumBytes) {
       closeWithProtocolError(socket);
@@ -150,19 +184,38 @@ export async function startRegistryIpcServer(options: {
   const processFrame = (socket: Bun.Socket<ConnectionState>, frameBytes: Uint8Array): void => {
     const state = socket.data;
     if (!state.authenticated) {
-      if (!isSafeHelloCandidate(frameBytes)) {
+      if (!isSafeHandshakeCandidate(state, frameBytes)) {
         closeWithProtocolError(socket);
         return;
       }
-      const hello = parseHelloFrame(parseJsonFrame(frameBytes));
-      if (!publisherTokenMatches(token, hello.token)) {
+      const value = parseJsonFrame(frameBytes);
+      if (state.instanceId === undefined) {
+        const hello = parseHelloFrame(value);
+        state.clientNonce = hello.clientNonce;
+        state.serverNonce = createRegistryAuthNonce();
+        state.instanceId = hello.instanceId;
+        state.pid = hello.pid;
+        const binding = registryAuthBinding(state);
+        socket.write(
+          `${JSON.stringify({
+            v: PROTOCOL_VERSION,
+            op: "challenge",
+            serverNonce: binding.serverNonce,
+            proof: createRegistryServerProof(tokenKey, binding),
+          })}\n`,
+        );
+        return;
+      }
+
+      const authenticate = parseAuthenticateFrame(value);
+      const expectedProof = createRegistryClientProof(tokenKey, registryAuthBinding(state));
+      if (!registryAuthProofMatches(expectedProof, authenticate.proof)) {
         logger.event("warn", "ipc.authentication_denied");
         closeWithProtocolError(socket);
         return;
       }
       state.authenticated = true;
-      state.instanceId = hello.instanceId;
-      state.pid = hello.pid;
+      scrubHandshake(state);
       socket.write(
         `${JSON.stringify({
           v: PROTOCOL_VERSION,
@@ -197,7 +250,7 @@ export async function startRegistryIpcServer(options: {
       open(socket) {
         socket.data = {
           ownerId: randomUUID(),
-          buffer: Buffer.alloc(MAX_HELLO_FRAME_BYTES),
+          buffer: Buffer.alloc(MAX_HANDSHAKE_FRAME_BYTES),
           bufferedBytes: 0,
           authenticated: false,
           closed: false,
@@ -265,6 +318,7 @@ export async function startRegistryIpcServer(options: {
         releaseConnection(socket);
         socket.end();
       }
+      tokenKey.fill(0);
       server.stop(true);
       registry.clear();
       await removeRuntimeSocket(config);

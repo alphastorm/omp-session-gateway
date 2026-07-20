@@ -67,9 +67,10 @@ Semantics:
 
 Keep `relayUrl`, `webUrl`, and `displayName` behavior unchanged.
 
-The current pre-alpha patch enables registry publication only on POSIX. Windows publication fails
-closed until the publisher can authenticate the named-pipe server and resist namespace squatting;
-a client ACL and first-frame publisher token authenticate only the client, not the server.
+The current pre-alpha patch publishes through owner-checked Unix-domain sockets on POSIX and the
+gateway's current-user named pipe on Windows. A fresh nonce exchange and domain-separated HMAC
+proofs authenticate both the publisher and the daemon before either side sends capability-bearing
+records. The publisher token itself never crosses the IPC connection.
 
 ## 3. Process identity and generations
 
@@ -106,10 +107,11 @@ Rules:
 - Use capped exponential reconnect (for example 250 ms to 30 s with jitter).
 - Re-send the current upsert after reconnect.
 - Send remove before an orderly stop. Do not block process exit indefinitely; cap shutdown flush.
-- If token/endpoint files have unsafe permissions, disable publication and surface one concise security error.
+- If token or endpoint files have unsafe ownership, modes, or ACLs, disable publication and surface one concise security error.
 - Before reading capabilities on POSIX, require a current-user-owned socket in a current-user-owned private parent directory.
-- Track the pending socket, enforce a bounded hello handshake, and cancel it on shutdown before it can install heartbeat state.
-- On Windows, fail closed until client-side named-pipe server authentication is implemented and qualified.
+- On Windows, derive the same current-user pipe name as the gateway and require the publisher-token ACL to contain only the current user and SYSTEM with full access.
+- Track the pending socket, enforce a bounded mutual-authentication handshake, and cancel it on shutdown before it can install heartbeat state.
+- Validate the daemon's HMAC proof in constant time before sending the publisher proof or any capability-bearing frame; use fresh nonces and domain-separated transcripts for both directions.
 
 ## 5. Session changes
 

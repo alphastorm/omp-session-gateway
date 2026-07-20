@@ -40,15 +40,15 @@ Use a current-user-scoped named pipe:
 
 Apply an ACL permitting only the current user and SYSTEM. Store the publisher token under `%LOCALAPPDATA%\OMP Session Gateway\publisher-token` with equivalent ACLs.
 
-### Publisher token
+### Publisher authentication key
 
-`omp-gatewayd` creates 32 random bytes and stores the base64url encoding in the platform config directory, for example:
+`omp-gatewayd` creates 32 random bytes and stores their 43-character unpadded base64url encoding in the platform config directory, for example:
 
 ```text
 ~/.config/omp-session-gateway/publisher-token
 ```
 
-Create atomically with current-user-only permissions. Reject weak length, permissive ownership/mode, symlinks, or non-regular files. Never print the token. Compare it in constant time after strict size validation.
+Create atomically with current-user-only permissions or ACLs. Reject weak length, permissive ownership/mode/ACL, symlinks, or non-regular files. Never print the key or send it over IPC. The protocol uses the key's 43 ASCII bytes as the HMAC-SHA-256 key; implementations keep it in a mutable buffer and overwrite that buffer after authentication. Compare proofs in constant time after strict size validation.
 
 ## 2. IPC framing
 
@@ -64,23 +64,58 @@ Required bounds:
 - use read and idle timeouts;
 - close with a generic protocol error that never echoes input.
 
-The first frame must be `hello`. No secret-bearing `upsert` object may be parsed into application structures before authentication succeeds.
+The first frame must be `hello`. It contains a fresh nonce and no shared secret. No secret-bearing
+`upsert` object may be sent, parsed into application structures, or accepted before both peers
+authenticate.
 
 ## 3. Publisher protocol v1
 
-### `hello`
+### Mutual authentication
+
+The publisher begins with a fresh 32-byte, unpadded-base64url client nonce:
 
 ```json
 {
   "v": 1,
   "op": "hello",
-  "token": "<publisher-token>",
+  "clientNonce": "<43-character-client-nonce>",
   "instanceId": "0190d9ad-example",
   "pid": 12345
 }
 ```
 
-Successful response:
+The daemon returns a fresh server nonce and proof:
+
+```json
+{
+  "v": 1,
+  "op": "challenge",
+  "serverNonce": "<43-character-server-nonce>",
+  "proof": "<43-character-server-proof>"
+}
+```
+
+For domain `D`, define the UTF-8 proof transcript as the exact string:
+
+```text
+D\n<clientNonce>\n<serverNonce>\n<instanceId>\n<pid>
+```
+
+The daemon proof is the unpadded base64url encoding of
+`HMAC-SHA-256(publisher-key-as-ASCII, transcript)` using domain
+`omp-session-gateway.registry.server.v1`. The publisher validates it in constant time before
+sending any proof or capability. It then responds with the same construction under domain
+`omp-session-gateway.registry.client.v1`:
+
+```json
+{
+  "v": 1,
+  "op": "authenticate",
+  "proof": "<43-character-client-proof>"
+}
+```
+
+Only after the daemon validates that proof may it return:
 
 ```json
 {
@@ -91,7 +126,11 @@ Successful response:
 }
 ```
 
-One authenticated connection owns exactly one `instanceId`. A connection cannot mutate another instance.
+Both nonces must be independently generated for every connection. All four authentication frames
+use exact-key validation; unknown fields, malformed values, replayed proofs, timeouts, or extra
+pre-authentication frames close the connection. The publisher treats a bad daemon proof as a
+security failure and does not retry during that OMP process lifetime.
+One authenticated connection owns exactly one `instanceId` and cannot mutate another instance.
 
 ### `upsert`
 

@@ -137,9 +137,10 @@ Tailnet grants and application allowlisting are both required defense layers. Fu
 ## 9. Local IPC
 
 - current-user-only socket/pipe permissions;
-- random token with at least 256 bits of entropy;
-- strict first-frame authentication and constant-time comparison;
-- one instance ID per connection;
+- random authentication key with at least 256 bits of entropy, never transmitted over IPC;
+- fresh client/server nonces and domain-separated HMAC proofs that authenticate both peers before capability release;
+- strict frame validation, constant-time proof comparison, and prompt scrubbing of mutable key and pre-authentication frame buffers;
+- one instance ID per authenticated connection;
 - message, connection, and rate limits;
 - bounded queues and backpressure;
 - reject unsafe owners, modes, ACLs, symlinks, and endpoint replacement;
