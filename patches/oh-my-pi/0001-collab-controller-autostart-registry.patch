@@ -1,16 +1,16 @@
-diff --git b/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
+diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
 new file mode 100644
-index 0000000..68a94ca
+index 000000000..356f1cf5c
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/controller.ts
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,252 @@
 +import { randomUUID } from "node:crypto";
 +import { basename } from "node:path";
 +import type { InteractiveModeContext } from "../modes/types";
 +import { CollabHost } from "./host";
 +import {
-+	CollabRegistryPublisher,
 +	type CollabPublisherRecord,
++	CollabRegistryPublisher,
 +	type PublishedCapabilityMode,
 +} from "./registry-publisher";
 +
@@ -99,7 +99,9 @@ index 0000000..68a94ca
 +		return () => listeners?.delete(listener);
 +	}
 +
-+	start(options: { relayUrl?: string; webUrl?: string; publish?: PublishedCapabilityMode } = {}): Promise<CollabCapabilities> {
++	start(
++		options: { relayUrl?: string; webUrl?: string; publish?: PublishedCapabilityMode } = {},
++	): Promise<CollabCapabilities> {
 +		return this.#serialize(async () => {
 +			this.#manualSuspended = false;
 +			return this.#start(options);
@@ -184,7 +186,6 @@ index 0000000..68a94ca
 +		this.#host = host;
 +		this.#relayUrl = relayUrl;
 +		this.#capabilities = capabilities;
-+		this.#context.collabHost = host as CollabHost;
 +		this.#state = "running";
 +		const publish = options.publish ?? this.#autoMode();
 +		if (publish !== "off") this.#publish(capabilities, publish);
@@ -192,10 +193,7 @@ index 0000000..68a94ca
 +		return capabilities;
 +	}
 +
-+	async #stop(
-+		reason: string,
-+		publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted",
-+	): Promise<void> {
++	async #stop(reason: string, publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted"): Promise<void> {
 +		const host = this.#host;
 +		const capabilities = this.#capabilities;
 +		if (!host || !capabilities) {
@@ -206,7 +204,6 @@ index 0000000..68a94ca
 +		this.#publisher?.remove(capabilities.generation, publisherReason);
 +		this.#capabilities = undefined;
 +		this.#host = undefined;
-+		this.#context.collabHost = undefined;
 +		await host.stop(reason);
 +		this.#state = "stopped";
 +		this.#emit("stopped");
@@ -241,7 +238,6 @@ index 0000000..68a94ca
 +			this.#publisher?.remove(generation, "faulted");
 +			this.#host = undefined;
 +			this.#capabilities = undefined;
-+			this.#context.collabHost = undefined;
 +			this.#state = "faulted";
 +			this.#emit("faulted");
 +		});
@@ -261,7 +257,7 @@ index 0000000..68a94ca
 +	}
 +}
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 74a021a..4168c69 100644
+index 74a021a80..8e19799c5 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
 @@ -138,6 +138,8 @@ export class CollabHost {
@@ -282,15 +278,23 @@ index 74a021a..4168c69 100644
  				this.#ctx.session.emitNotice("warning", `Collab ended: ${reason}`, "collab");
  			}
  		};
-diff --git b/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
+@@ -314,7 +316,6 @@ export class CollabHost {
+ 		this.#peers.clear();
+ 		this.#socket?.close();
+ 		this.#socket = null;
+-		this.#ctx.collabHost = undefined;
+ 		this.#ctx.statusLine.setCollabStatus(null);
+ 		this.#ctx.ui.requestRender();
+ 	}
+diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 0000000..08b955f
+index 000000000..a4ec68b7f
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,267 @@
 +import { lstat, readFile } from "node:fs/promises";
 +import { homedir, tmpdir } from "node:os";
-+import { basename, isAbsolute, join } from "node:path";
++import { isAbsolute, join } from "node:path";
 +
 +const PROTOCOL_VERSION = 1;
 +const MAX_SERVER_FRAME_BYTES = 4 * 1024;
@@ -323,22 +327,34 @@ index 0000000..08b955f
 +
 +function automaticEndpoint(): string {
 +	if (process.platform === "win32") {
-+		const userKey = Buffer.from(process.env.USERNAME ?? "user").toString("base64url").slice(0, 20);
++		const userKey = Buffer.from(process.env.USERNAME ?? "user")
++			.toString("base64url")
++			.slice(0, 20);
 +		return `\\\\.\\pipe\\omp-session-gateway-${userKey}`;
 +	}
 +	if (process.platform === "linux" && process.env.XDG_RUNTIME_DIR) {
 +		return join(process.env.XDG_RUNTIME_DIR, "omp-session-gateway", "registry.sock");
 +	}
 +	if (process.platform === "darwin") {
-+		return join(process.env.TMPDIR ?? tmpdir(), `omp-session-gateway-${process.getuid?.() ?? "user"}`, "registry.sock");
++		return join(
++			process.env.TMPDIR ?? tmpdir(),
++			`omp-session-gateway-${process.getuid?.() ?? "user"}`,
++			"registry.sock",
++		);
 +	}
-+	return join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "omp-session-gateway", "run", "registry.sock");
++	return join(
++		process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
++		"omp-session-gateway",
++		"run",
++		"registry.sock",
++	);
 +}
 +
 +export function resolveCollabRegistryEndpoint(setting: string): string | undefined {
 +	if (setting === "off") return undefined;
 +	if (setting === "auto") return automaticEndpoint();
-+	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting)) throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
++	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting))
++		throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
 +	if (process.platform === "win32") {
 +		if (!setting.startsWith("\\\\.\\pipe\\")) throw new Error("collab.registryEndpoint must be a named pipe");
 +		return setting;
@@ -400,7 +416,9 @@ index 0000000..08b955f
 +		const current = this.#current;
 +		if (!current || current.generation !== generation) return;
 +		if (this.#socket) {
-+			this.#socket.write(`${JSON.stringify({ v: PROTOCOL_VERSION, op: "remove", instanceId: this.#instanceId, generation, reason })}\n`);
++			this.#socket.write(
++				`${JSON.stringify({ v: PROTOCOL_VERSION, op: "remove", instanceId: this.#instanceId, generation, reason })}\n`,
++			);
 +		}
 +		this.#current = undefined;
 +		clearInterval(this.#heartbeatTimer);
@@ -450,7 +468,9 @@ index 0000000..08b955f
 +				data: { buffer: "" },
 +				socket: {
 +					open(socket) {
-+						socket.write(`${JSON.stringify({ v: PROTOCOL_VERSION, op: "hello", token, instanceId: owner.#instanceId, pid: owner.#pid })}\n`);
++						socket.write(
++							`${JSON.stringify({ v: PROTOCOL_VERSION, op: "hello", token, instanceId: owner.#instanceId, pid: owner.#pid })}\n`,
++						);
 +					},
 +					data(socket, data) {
 +						socket.data.buffer += Buffer.from(data).toString("utf8");
@@ -468,7 +488,12 @@ index 0000000..08b955f
 +							return;
 +						}
 +						socket.data.buffer = socket.data.buffer.slice(newline + 1);
-+						if (typeof response !== "object" || response === null || !("op" in response) || response.op !== "hello_ok") {
++						if (
++							typeof response !== "object" ||
++							response === null ||
++							!("op" in response) ||
++							response.op !== "hello_ok"
++						) {
 +							socket.end();
 +							return;
 +						}
@@ -535,7 +560,7 @@ index 0000000..08b955f
 +	}
 +}
 diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
-index 23b0e68..78cfefa 100644
+index 23b0e6800..78cfefa7c 100644
 --- a/packages/coding-agent/src/config/settings-schema.ts
 +++ b/packages/coding-agent/src/config/settings-schema.ts
 @@ -1830,6 +1830,34 @@ export const SETTINGS_SCHEMA = {
@@ -573,27 +598,61 @@ index 23b0e68..78cfefa 100644
  	"collab.relayUrl": {
  		type: "string",
  		default: DEFAULT_RELAY_URL,
+diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+index fa75dd615..4d78bdb26 100644
+--- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+@@ -563,7 +563,7 @@ export class ExtensionUiController {
+ 		questions: ExtensionAskDialogQuestion[],
+ 		dialogOptions?: ExtensionUIDialogOptions,
+ 	): Promise<ExtensionAskDialogResult | undefined> {
+-		const host = this.ctx.collabHost;
++		const host = this.ctx.collabController.host;
+ 		if (!host) return this.#showLocalAskDialog(questions, dialogOptions);
+ 		const localAbort = new AbortController();
+ 		const remoteAbort = new AbortController();
+@@ -671,7 +671,7 @@ export class ExtensionUiController {
+ 		signal: AbortSignal | undefined,
+ 		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
+ 	): Promise<string | undefined> {
+-		const host = this.ctx.collabHost;
++		const host = this.ctx.collabController.host;
+ 		if (!host) return local(signal);
+ 		const localAbort = new AbortController();
+ 		const remoteAbort = new AbortController();
+@@ -811,7 +811,7 @@ export class ExtensionUiController {
+ 	}
+ 
+ 	async #requestGuestUiString(request: CollabUiRequestDraft, signal: AbortSignal): Promise<GuestUiResult> {
+-		const host = this.ctx.collabHost;
++		const host = this.ctx.collabController.host;
+ 		if (!host) return { kind: "unavailable" };
+ 		const remote = host.requestGuestUi(request, signal);
+ 		if (!remote) return { kind: "unavailable" };
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index c071021..9bdd5e8 100644
+index 9d3a2a59a..afd39d9b3 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -53,6 +53,7 @@ import {
+@@ -53,8 +53,8 @@ import {
  } from "@oh-my-pi/pi-utils";
  import chalk from "chalk";
  import { reset as resetCapabilities } from "../capability";
 +import { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
- import type { CollabHost } from "../collab/host";
+-import type { CollabHost } from "../collab/host";
  import { KeybindingsManager } from "../config/keybindings";
-@@ -532,6 +533,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ import type { ResolvedModelRoleValue } from "../config/model-resolver";
+ import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
+@@ -532,7 +532,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	fileSlashCommands: Set<string> = new Set();
  	skillCommands: Map<string, Skill> = new Map();
  	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
+-	collabHost?: CollabHost;
 +	readonly collabController: CollabController;
- 	collabHost?: CollabHost;
  	collabGuest?: CollabGuestLink;
  
-@@ -756,6 +758,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	#pendingCommandOutput: Component[] = [];
+@@ -756,6 +756,7 @@ export class InteractiveMode implements InteractiveModeContext {
  
  		const skillCommandList = this.#rebuildSkillCommandsFromSession();
  
@@ -601,7 +660,7 @@ index c071021..9bdd5e8 100644
  		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
  		// Store pending commands for init() where file commands are loaded async
  		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
-@@ -992,7 +995,10 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -992,7 +993,10 @@ export class InteractiveMode implements InteractiveModeContext {
  		await this.initHooksAndCustomTools();
  
  		// Restore mode from session (e.g. plan mode on resume)
@@ -613,7 +672,7 @@ index c071021..9bdd5e8 100644
  		await this.#reconcileModeFromSession();
  
  		// Brand-new sessions optionally start in plan mode when the user has made it
-@@ -1091,6 +1097,9 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1091,6 +1095,9 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.statusLine.watchBranch(() => {
  			this.ui.requestRender();
  		});
@@ -623,7 +682,7 @@ index c071021..9bdd5e8 100644
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -3752,6 +3761,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -3752,6 +3759,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	async shutdown(): Promise<void> {
  		if (this.#isShuttingDown) return;
  		this.#isShuttingDown = true;
@@ -632,27 +691,30 @@ index c071021..9bdd5e8 100644
  		this.#btwController.dispose();
  		this.#omfgController.dispose();
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 57ed56b..76dfa88 100644
+index 57ed56bb3..8d22f181a 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
-@@ -2,6 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+@@ -2,8 +2,8 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
  import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
  import type { AssistantMessage, ImageContent, Message, Usage, UsageReport } from "@oh-my-pi/pi-ai";
  import type { Component, Container, EditorTheme, Loader, Spacer, Text, TUI } from "@oh-my-pi/pi-tui";
 +import type { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
- import type { CollabHost } from "../collab/host";
+-import type { CollabHost } from "../collab/host";
  import type { KeybindingsManager } from "../config/keybindings";
-@@ -133,6 +134,7 @@ export interface InteractiveModeContext {
+ import type { Settings } from "../config/settings";
+ import type {
+@@ -133,7 +133,7 @@ export interface InteractiveModeContext {
  	historyStorage?: HistoryStorage;
  	mcpManager?: MCPManager;
  	lspServers?: LspStartupServerInfo[];
+-	collabHost?: CollabHost;
 +	collabController: CollabController;
- 	collabHost?: CollabHost;
  	collabGuest?: CollabGuestLink;
  	eventController: EventController;
+ 	eventBus?: EventBus;
 diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
-index b564b54..3c94646 100644
+index b564b5471..52cf5ab6f 100644
 --- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
 +++ b/packages/coding-agent/src/slash-commands/builtin-registry.ts
 @@ -6,7 +6,7 @@ import { type AutocompleteItem, Spacer } from "@oh-my-pi/pi-tui";
@@ -675,7 +737,7 @@ index b564b54..3c94646 100644
  			}
  			if (runtime.ctx.collabGuest?.readOnly) return "Collab: read-only guest";
  			if (runtime.ctx.collabGuest) return "Collab: guest";
-@@ -711,20 +711,20 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -711,20 +711,22 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  			const args = command.args.trim();
  			const { verb, rest } = parseSubcommand(args);
  			if (verb === "stop") {
@@ -697,39 +759,41 @@ index b564b54..3c94646 100644
  						p.role === "host" ? `${p.name} (host)` : p.readOnly ? `${p.name} (view-only)` : p.name,
  					);
 -					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabHost.webLink)}`);
-+					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`);
++					ctx.showStatus(
++						`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
++					);
  				} else if (ctx.collabGuest) {
  					ctx.showStatus(
  						ctx.collabGuest.readOnly
-@@ -742,16 +742,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -742,16 +744,12 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  			}
  			const knownStartVerb = verb === "start" || verb === "view";
  			const view = verb === "view";
 -			if (ctx.collabHost) {
+-				showCollabLink(
+-					ctx,
+-					ctx.collabHost,
+-					view ? "Read-only collab session active" : "Collab session active",
+-					view,
+-				);
 +			const explicitUrl = knownStartVerb ? rest : args;
 +			const existingHost = ctx.collabController.host;
 +			if (existingHost && !explicitUrl) {
- 				showCollabLink(
- 					ctx,
--					ctx.collabHost,
-+					existingHost,
- 					view ? "Read-only collab session active" : "Collab session active",
- 					view,
- 				);
++				showCollabLink(ctx, existingHost, view ? "Read-only collab session active" : "Collab session active", view);
  				return;
  			}
 -			const explicitUrl = knownStartVerb ? rest : args;
  			const relayInput = explicitUrl || ctx.settings.get("collab.relayUrl") || "";
  			if (!relayInput) {
  				ctx.showError(
-@@ -762,14 +763,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -762,14 +760,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  			// Scheme-less relay args default to wss (ws:// must be spelled out for localhost).
  			const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
  			const webUrl = ctx.settings.get("collab.webUrl") || "";
 -			const host = new CollabHost(ctx);
  			try {
 -				await host.start(relayUrl, webUrl);
-+				await ctx.collabController.start({ relayUrl, webUrl });
++				await ctx.collabController.start({ relayUrl, webUrl, publish: view ? "view" : "control" });
  			} catch (err) {
  				ctx.showError(`Failed to start collab session: ${errorMessage(err)}`);
  				return;
@@ -743,7 +807,7 @@ index b564b54..3c94646 100644
  			showCollabLink(ctx, host, "Collab session started!", view);
  		},
  	},
-@@ -786,7 +790,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -786,7 +787,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  				ctx.showError("Usage: /join <link>");
  				return;
  			}
@@ -752,7 +816,7 @@ index b564b54..3c94646 100644
  				ctx.showError("Stop hosting first (/collab stop)");
  				return;
  			}
-@@ -805,7 +809,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -805,7 +806,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  		name: "leave",
  		description: "Leave the collab session",
  		getTuiAutocompleteDescription: runtime => {
@@ -761,7 +825,7 @@ index b564b54..3c94646 100644
  			if (runtime.ctx.collabGuest) return "Leave collab: guest";
  			return "Leave collab: not in collab";
  		},
-@@ -816,8 +820,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -816,8 +817,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  				await ctx.collabGuest.leave("left");
  				return;
  			}
@@ -772,12 +836,24 @@ index b564b54..3c94646 100644
  				ctx.showStatus("Collab stopped");
  				return;
  			}
-diff --git b/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
+diff --git a/packages/coding-agent/test/collab/chunked-welcome.test.ts b/packages/coding-agent/test/collab/chunked-welcome.test.ts
+index 53d786845..ca6e17e5c 100644
+--- a/packages/coding-agent/test/collab/chunked-welcome.test.ts
++++ b/packages/coding-agent/test/collab/chunked-welcome.test.ts
+@@ -82,7 +82,6 @@ function makeHostContext(snapshot: SizedSnapshot): InteractiveModeContext {
+ 		},
+ 		ui: { requestRender: () => {} },
+ 		showStatus: () => {},
+-		collabHost: undefined,
+ 	};
+ 	return ctx as unknown as InteractiveModeContext;
+ }
+diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
 new file mode 100644
-index 0000000..f7fee39
+index 000000000..16c41027f
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,122 @@
 +import { describe, expect, mock, test } from "bun:test";
 +import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
 +import type { InteractiveModeContext } from "../../src/modes/types";
@@ -833,7 +909,10 @@ index 0000000..f7fee39
 +		},
 +		publisherFactory: () => ({
 +			publish(record: CollabPublisherRecord) {
-+				events.push({ type: record.controlLink ? "publish-control" : "publish-view", generation: record.generation });
++				events.push({
++					type: record.controlLink ? "publish-control" : "publish-view",
++					generation: record.generation,
++				});
 +			},
 +			remove(generation: number) {
 +				events.push({ type: "remove", generation });
@@ -890,16 +969,68 @@ index 0000000..f7fee39
 +		const { controller, hosts, events } = harness("control");
 +		await controller.autoStart();
 +		const faulted = Promise.withResolvers<void>();
-+		controller.on("faulted", faulted.resolve);
++		controller.on("faulted", () => faulted.resolve());
 +		hosts[0]?.onFatal?.("relay failed");
 +		await faulted.promise;
 +		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
 +		expect(controller.state).toBe("faulted");
 +	});
 +});
-diff --git b/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
+diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+index 76330b0d3..94b319882 100644
+--- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
++++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+@@ -472,7 +472,7 @@ function makeHostContext(): InteractiveModeContext {
+ 		},
+ 		ui: { requestRender: () => {} },
+ 		showStatus: () => {},
+-		collabHost: undefined,
++		collabController: { host: undefined },
+ 	} as unknown as InteractiveModeContext;
+ }
+ 
+@@ -650,7 +650,7 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 		const ctx = makeHostContext();
+ 		const host = new CollabHost(ctx);
+ 		await host.start("ws://localhost:8787");
+-		ctx.collabHost = host;
++		Object.assign(ctx.collabController, { host });
+ 		const controller = new StubDialogController(ctx);
+ 		const guest = await joinRawGuest(host.link, COLLAB_PROTO);
+ 		const welcome = await guest.nextFrame();
+@@ -731,7 +731,7 @@ describe("guest ask unavailable literal answer (#4375)", () => {
+ 		const ctx = makeHostContext();
+ 		const host = new CollabHost(ctx);
+ 		await host.start("ws://localhost:8787");
+-		ctx.collabHost = host;
++		Object.assign(ctx.collabController, { host });
+ 		try {
+ 			const guest = await joinRawGuest(host.link, COLLAB_PROTO);
+ 			const welcome = await guest.nextFrame();
+@@ -815,7 +815,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 		const ctx = makeAskHostContext();
+ 		const host = new CollabHost(ctx);
+ 		await host.start("ws://localhost:8787");
+-		ctx.collabHost = host;
++		Object.assign(ctx.collabController, { host });
+ 		const controller = new ExtensionUiController(ctx);
+ 		try {
+ 			const guest = await joinRawGuest(host.link, COLLAB_PROTO);
+diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
+index 84a7dc006..0fa169eab 100644
+--- a/packages/coding-agent/test/collab/read-only.test.ts
++++ b/packages/coding-agent/test/collab/read-only.test.ts
+@@ -73,7 +73,6 @@ function makeHostContext(): HostHarness {
+ 		},
+ 		ui: { requestRender: () => {} },
+ 		showStatus: () => {},
+-		collabHost: undefined,
+ 	} as unknown as InteractiveModeContext;
+ 	const nextPrompt = (): Promise<{ from?: string }> => {
+ 		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
+diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 0000000..05f76aa
+index 000000000..05f76aa57
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
 @@ -0,0 +1,49 @@
@@ -952,9 +1083,33 @@ index 0000000..05f76aa
 +	publisher.publish(record);
 +	publisher.shutdown(record.generation);
 +});
-diff --git b/packages/coding-agent/test/config/collab-settings.test.ts b/packages/coding-agent/test/config/collab-settings.test.ts
+diff --git a/packages/coding-agent/test/collab/replication-shrink.test.ts b/packages/coding-agent/test/collab/replication-shrink.test.ts
+index 9087cbfa7..3f5196133 100644
+--- a/packages/coding-agent/test/collab/replication-shrink.test.ts
++++ b/packages/coding-agent/test/collab/replication-shrink.test.ts
+@@ -178,7 +178,6 @@ function makeHostContext(snapshot: OversizedSnapshot): HostHarness {
+ 		},
+ 		ui: { requestRender: () => {} },
+ 		showStatus: (msg: string) => statusMessages.push(msg),
+-		collabHost: undefined,
+ 	} as unknown as InteractiveModeContext;
+ 	return { ctx, statusMessages };
+ }
+diff --git a/packages/coding-agent/test/collab/steer-queue.test.ts b/packages/coding-agent/test/collab/steer-queue.test.ts
+index 0f76299fd..1dc189e26 100644
+--- a/packages/coding-agent/test/collab/steer-queue.test.ts
++++ b/packages/coding-agent/test/collab/steer-queue.test.ts
+@@ -127,7 +127,6 @@ function makeStreamingHostContext(): StreamingHostHarness {
+ 		ui: { requestRender: () => {} },
+ 		updatePendingMessagesDisplay: () => {},
+ 		showStatus: () => {},
+-		collabHost: undefined,
+ 	} as unknown as InteractiveModeContext;
+ 	const nextPrompt = (): Promise<CapturedPrompt> => {
+ 		const { promise, resolve } = Promise.withResolvers<CapturedPrompt>();
+diff --git a/packages/coding-agent/test/config/collab-settings.test.ts b/packages/coding-agent/test/config/collab-settings.test.ts
 new file mode 100644
-index 0000000..ac6c9bf
+index 000000000..ac6c9bf01
 --- /dev/null
 +++ b/packages/coding-agent/test/config/collab-settings.test.ts
 @@ -0,0 +1,8 @@
@@ -966,3 +1121,98 @@ index 0000000..ac6c9bf
 +	expect(getEnumValues("collab.autoStart")).toEqual(["off", "view", "control"]);
 +	expect(getDefault("collab.registryEndpoint")).toBe("auto");
 +});
+diff --git a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
+index 8a63482d0..171e7094e 100644
+--- a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
++++ b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
+@@ -1,4 +1,5 @@
+ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
++import type { CollabController } from "@oh-my-pi/pi-coding-agent/collab/controller";
+ import { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
+ import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+ import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+@@ -24,20 +25,17 @@ afterAll(() => {
+ 	resetSettingsForTest();
+ });
+ 
+-function fakeHost(options?: {
+-	webLink?: string;
+-	webViewLink?: string;
+-}): NonNullable<InteractiveModeContext["collabHost"]> {
++function fakeHost(options?: { webLink?: string; webViewLink?: string }): CollabHost {
+ 	return {
+ 		link: "relay.example.com/r/full-control",
+ 		viewLink: "relay.example.com/r/read-only",
+ 		webLink: options?.webLink ?? "https://my.omp.sh/#full-control",
+ 		webViewLink: options?.webViewLink ?? "https://my.omp.sh/#read-only",
+ 		participants: [{ name: "host", role: "host" }],
+-	} as unknown as NonNullable<InteractiveModeContext["collabHost"]>;
++	} as unknown as CollabHost;
+ }
+ 
+-function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveModeContext["collabHost"]> }) {
++function createRuntimeHarness(options?: { collabHost?: CollabHost }) {
+ 	const setText = vi.fn();
+ 	const showStatus = vi.fn();
+ 	const showError = vi.fn();
+@@ -47,16 +45,31 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+ 		if (key === "collab.webUrl") return "";
+ 		return "";
+ 	});
++	let collabHost = options?.collabHost;
+ 	const ctx = {
+ 		editor: { setText },
+ 		showStatus,
+ 		showError,
+ 		present,
+ 		settings: { get: settingsGet },
+-		collabHost: options?.collabHost,
+ 	} as unknown as InteractiveModeContext;
++	const start = vi.fn();
++	const collabController = {
++		get host() {
++			return collabHost;
++		},
++		async start(startOptions: { relayUrl?: string; webUrl?: string; publish?: "view" | "control" }) {
++			start(startOptions);
++			const next = new CollabHost(ctx);
++			await next.start(startOptions.relayUrl ?? "", startOptions.webUrl);
++			collabHost = next;
++		},
++		stop: vi.fn(),
++	} as unknown as CollabController;
++	Object.assign(ctx, { collabController });
+ 	return {
+ 		ctx,
++		start,
+ 		setText,
+ 		showStatus,
+ 		showError,
+@@ -88,7 +101,12 @@ describe("/collab slash command QR code rendering", () => {
+ 		expect(handled).toBe(true);
+ 		expect(harness.setText).toHaveBeenCalledWith("");
+ 		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
+-		expect(harness.ctx.collabHost).toBeInstanceOf(CollabHost);
++		expect(harness.start).toHaveBeenCalledWith({
++			relayUrl: "wss://relay.example.com",
++			webUrl: "",
++			publish: "control",
++		});
++		expect(harness.ctx.collabController.host).toBeInstanceOf(CollabHost);
+ 		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
+ 		expect(statusText).toContain("my.omp.sh/#started-full");
+ 		const presented = harness.present.mock.calls[0]?.[0] as readonly unknown[];
+@@ -107,7 +125,12 @@ describe("/collab slash command QR code rendering", () => {
+ 
+ 		expect(handled).toBe(true);
+ 		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
+-		expect(harness.ctx.collabHost).toBeInstanceOf(CollabHost);
++		expect(harness.start).toHaveBeenCalledWith({
++			relayUrl: "wss://relay.example.com",
++			webUrl: "",
++			publish: "view",
++		});
++		expect(harness.ctx.collabController.host).toBeInstanceOf(CollabHost);
+ 		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
+ 		expect(statusText).toContain("my.omp.sh/#started-view");
+ 		expect(statusText).not.toContain("my.omp.sh/#started-full");
