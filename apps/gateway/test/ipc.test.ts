@@ -271,6 +271,117 @@ test("IPC authenticates before accepting capability-bearing frames and removes o
   }
 });
 
+test("IPC isolates concurrent same-process publishers and enforces capacity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-concurrent-"));
+  const baseConfig = testConfig(root);
+  const config: GatewayConfig = {
+    ...baseConfig,
+    registry: { ...baseConfig.registry, maxPublishers: 3 },
+  };
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
+  const token = "T".repeat(43);
+  const server = await startRegistryIpcServer({
+    config,
+    token,
+    registry,
+    logger: new SafeLogger({ write() {} }),
+  });
+  const instanceIds = ["ipc-concurrent-01", "ipc-concurrent-02", "ipc-concurrent-03"] as const;
+  const pid = 400;
+
+  try {
+    const sockets = await Promise.all(instanceIds.map(() => connect(config.paths.socketPath)));
+    await Promise.all(
+      sockets.map((socket, index) => authenticatePublisher(socket, token, instanceIds[index]!, pid)),
+    );
+    expect(server.publishers).toBe(3);
+
+    const rejected = await connect(config.paths.socketPath);
+    expect(await readFrame(rejected)).toMatchObject({ op: "error", code: "capacity" });
+    rejected.end();
+    expect(server.publishers).toBe(3);
+
+    for (const [index, socket] of sockets.entries()) {
+      socket.write(
+        `${JSON.stringify({
+          v: 1,
+          op: "upsert",
+          session: {
+            instanceId: instanceIds[index]!,
+            generation: 1,
+            pid,
+            sessionId: `ipc-concurrent-session-${index + 1}`,
+            title: `Concurrent IPC session ${index + 1}`,
+            startedAt: `2026-07-19T00:0${index}:00.000Z`,
+            viewLink: `CONCURRENT_VIEW_${index}_${"V".repeat(20)}`,
+          },
+        })}\n`,
+      );
+    }
+    await waitFor(() => registry.size === 3);
+    expect(registry.snapshot().sessions.map(session => session.instanceId).sort()).toEqual([...instanceIds].sort());
+
+    sockets[0]!.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "upsert",
+        session: {
+          instanceId: instanceIds[0],
+          generation: 2,
+          pid,
+          sessionId: "ipc-concurrent-session-1-replacement",
+          title: "Concurrent IPC session 1 replacement",
+          startedAt: "2026-07-19T00:03:00.000Z",
+          viewLink: `CONCURRENT_VIEW_REPLACEMENT_${"R".repeat(20)}`,
+        },
+      })}\n`,
+    );
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      for (const [index, socket] of sockets.entries()) {
+        socket.write(
+          `${JSON.stringify({
+            v: 1,
+            op: "heartbeat",
+            instanceId: instanceIds[index]!,
+            generation: index === 0 ? 2 : 1,
+          })}\n`,
+        );
+      }
+    }
+    await waitFor(
+      () => registry.snapshot().sessions.find(session => session.instanceId === instanceIds[0])?.generation === 2,
+    );
+    const active = registry.snapshot().sessions;
+    expect(active.find(session => session.instanceId === instanceIds[0])).toMatchObject({
+      generation: 2,
+      title: "Concurrent IPC session 1 replacement",
+    });
+    expect(active.find(session => session.instanceId === instanceIds[1])).toMatchObject({
+      generation: 1,
+      title: "Concurrent IPC session 2",
+    });
+    expect(active.find(session => session.instanceId === instanceIds[2])).toMatchObject({
+      generation: 1,
+      title: "Concurrent IPC session 3",
+    });
+
+    sockets[1]!.end();
+    await waitFor(() => registry.size === 2 && server.publishers === 2);
+    expect(registry.snapshot().sessions.map(session => session.instanceId).sort()).toEqual([
+      instanceIds[0],
+      instanceIds[2],
+    ]);
+
+    sockets[0]!.end();
+    sockets[2]!.end();
+    await waitFor(() => registry.size === 0 && server.publishers === 0);
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("IPC deadlines free publisher capacity and preserve fragmented frames", async () => {
   const root = await mkdtemp(join(tmpdir(), "gateway-ipc-deadlines-"));
   const baseConfig = testConfig(root);
