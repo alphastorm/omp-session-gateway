@@ -23,6 +23,7 @@ worker.addEventListener("fetch", event => {
     request.method !== "GET" ||
     request.mode === "navigate" ||
     url.origin !== worker.location.origin ||
+    url.search !== "" ||
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/client/") ||
     url.pathname.startsWith("/internal/") ||

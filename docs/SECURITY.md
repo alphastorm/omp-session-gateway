@@ -55,7 +55,14 @@ Required default:
 - Tailscale Funnel and public reverse tunnels are not configured;
 - plain LAN HTTP is unsupported.
 
-Keep the backend on localhost because another remotely reachable path would let callers inject `Tailscale-User-*` headers themselves. A malicious same-user local process can still call loopback or spoof headers and is already outside the threat boundary.
+Keep the backend on localhost because another remotely reachable path would let callers inject
+`Tailscale-User-*` headers themselves. Direct loopback requests cannot be distinguished
+cryptographically from Serve-originated requests, so every untrusted process or OS account able
+to run on the desktop host is outside the v1 HTTP trust boundary. V1 is for a user-controlled
+workstation without mutually untrusted local accounts; do not deploy it on a shared shell host.
+The private publisher token and IPC permissions still prevent a different local account from
+registering sessions or satisfying managed-install readiness, but they do not authenticate browser
+API requests.
 
 Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
 
@@ -103,7 +110,8 @@ Additional requirements:
 - all metadata rendered as text, never unsanitized HTML;
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
-- service worker caches only content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/` bootstrap, navigation, and all non-GET requests;
+- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/` bootstrap, navigation, query-bearing URLs, and all non-GET requests;
+- clear session metadata and disable launch actions whenever the directory transport fails; repopulate only from a current authenticated snapshot/SSE epoch and ignore lower revisions within that epoch;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, or performance marks;
 - external links use `rel="noopener noreferrer"`;
 - production builds disable framework devtools hooks where practical;
@@ -141,6 +149,23 @@ Tailnet grants and application allowlisting are both required defense layers. Fu
 - publisher reconnect cannot resurrect an older generation.
 
 The token prevents accidents and cross-user access; it is not protection from same-user malware.
+
+Service installation and `doctor` do not trust a generic loopback health response. The daemon
+returns an HMAC over a fresh 256-bit challenge using the private publisher token; managed startup
+also binds the HMAC to a one-time instance nonce written into the new service definition. The CLI
+requires that exact nonce before activating the staged runtime, so an older same-token process
+cannot satisfy replacement readiness. Runtime manifests record the readiness protocol so rollback
+to a verified pre-nonce runtime can use a service-manager-checked legacy proof. The challenge,
+nonce, and proof disclose no publisher token. Token rotation validates the managed runtime first
+and never restores the prior token after replacement; a failed restart retains the fresh token and
+stops the service.
+
+On POSIX, the publisher also verifies that the registry endpoint is a socket owned by the current
+user and that both the socket and its immediate parent are private before reading capabilities.
+The Windows pre-alpha path still lacks client-side proof of the named-pipe server identity and a
+completed namespace-squatting test. A private server DACL and publisher token do not by themselves
+authenticate a server that pre-creates the expected pipe name. Do not advertise Windows support
+until that boundary is implemented and qualified.
 
 ## 10. Lost phone and user presence
 

@@ -82,6 +82,7 @@ export class SessionRegistry {
 
   upsert(ownerId: string, input: PublishedSessionInput): UpsertResult {
     const existing = this.#metadata.get(input.instanceId);
+    if (existing !== undefined && existing.ownerId !== ownerId) throw new Error("instance owned by another publisher");
     if (existing !== undefined && input.generation < existing.metadata.generation) return "ignored_older";
     if (existing === undefined && this.#metadata.size >= this.#maxSessions) throw new Error("registry capacity exceeded");
     const receivedAtMs = this.#clock.monotonicNowMs();

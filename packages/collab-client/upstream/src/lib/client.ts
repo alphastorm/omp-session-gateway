@@ -143,12 +143,7 @@ export class GuestClient {
 			this.#commit();
 		}
 		this.#socket.connect();
-		if (!this.#welcomed && this.#welcomeTimer === null) {
-			this.#welcomeTimer = setTimeout(() => {
-				this.#welcomeTimer = null;
-				if (!this.#welcomed) this.#end("timed out waiting for the host's welcome");
-			}, WELCOME_TIMEOUT_MS);
-		}
+		if (!this.#welcomed && this.#welcomeTimer === null) this.#armWelcomeTimer();
 	}
 
 	close(): void {
@@ -192,7 +187,7 @@ export class GuestClient {
 	}
 
 	sendAgentCmd(cmd: "chat" | "kill" | "revive", agentId: string, text?: string): void {
-		this.#socket.send({ t: "agent-cmd", cmd, agentId, text });
+		this.#socket.send({ t: "agent-cmd", cmd, agentId, ...(text === undefined ? {} : { text }) });
 	}
 
 	/**
@@ -218,7 +213,14 @@ export class GuestClient {
 	}
 
 	#handleOpen(): void {
-		this.#socket.send({ t: "hello", proto: COLLAB_PROTO, name: this.#name, writeToken: this.#writeToken });
+		this.#welcomed = false;
+		this.#armWelcomeTimer();
+		this.#socket.send({
+			t: "hello",
+			proto: COLLAB_PROTO,
+			name: this.#name,
+			...(this.#writeToken === undefined ? {} : { writeToken: this.#writeToken }),
+		});
 		this.#phase = this.#everConnected ? "reconnecting" : "waiting";
 		this.#everConnected = true;
 		this.#commit();
@@ -226,6 +228,7 @@ export class GuestClient {
 
 	#handleClose(reason: string, willReconnect: boolean): void {
 		this.#clearSnapshotProgressTimer();
+		this.#clearWelcomeTimer();
 		if (this.#phase === "ended") return;
 		if (willReconnect) {
 			this.#phase = "reconnecting";
@@ -249,6 +252,14 @@ export class GuestClient {
 		this.#clearUiRequests();
 		this.#commit();
 		this.#socket.close();
+	}
+
+	#armWelcomeTimer(): void {
+		this.#clearWelcomeTimer();
+		this.#welcomeTimer = setTimeout(() => {
+			this.#welcomeTimer = null;
+			if (!this.#welcomed) this.#end("timed out waiting for the host's welcome");
+		}, WELCOME_TIMEOUT_MS);
 	}
 
 	#clearWelcomeTimer(): void {
@@ -422,7 +433,7 @@ export class GuestClient {
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
 					args: event.args,
-					intent: event.intent,
+					...(event.intent === undefined ? {} : { intent: event.intent }),
 					startedAt: Date.now(),
 				};
 				this.#activeTools = new Map(this.#activeTools).set(event.toolCallId, tool);

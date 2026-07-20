@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import {
   MAX_FRAME_BYTES,
   ProtocolValidationError,
@@ -6,7 +7,7 @@ import {
   parseLaunchRequest,
 } from "@omp-session-gateway/protocol";
 import { authorizeHttpRequest, isLoopbackAddress, requestHasValidMutationContext, type RequestPeer } from "./auth.ts";
-import { publisherTokenMatches, type GatewayConfig } from "./config.ts";
+import type { GatewayConfig } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
 import { StaticAssetStore } from "./static.ts";
@@ -77,6 +78,16 @@ function problem(status: number, code: string, message: string): Response {
     true,
   );
 }
+function isValidClientBootstrap(url: URL): boolean {
+  if (url.pathname !== "/client/") return false;
+  const entries = [...url.searchParams.entries()];
+  return (
+    entries.length === 1 &&
+    entries[0]?.[0] === "handoff" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(entries[0][1])
+  );
+}
+
 
 async function readBoundedBody(request: Request, maximumBytes: number): Promise<Uint8Array> {
   const declared = request.headers.get("Content-Length");
@@ -149,23 +160,17 @@ function eventStream(registry: SessionRegistry): Response {
     true,
   );
 }
-
-interface ShutdownControl {
-  readonly token: string;
-  readonly request: () => void;
-}
-
 export function createHttpHandler(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
   readonly logger?: SafeLogger;
-  readonly shutdown?: ShutdownControl;
+  readonly readinessToken?: string;
+  readonly readinessInstance?: string;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
   const limiter = new LaunchRateLimiter();
-
   return async (request, peer): Promise<Response> => {
     let url: URL;
     try {
@@ -173,31 +178,31 @@ export function createHttpHandler(options: {
     } catch {
       return problem(400, "bad_request", "Invalid request");
     }
-
-    if (url.pathname === "/_internal/v1/shutdown" && request.method === "POST" && options.shutdown !== undefined) {
-      const authorization = request.headers.get("Authorization");
-      const candidate = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
-      const contentLength = request.headers.get("Content-Length");
-      if (
-        peer === undefined ||
-        !isLoopbackAddress(peer.address) ||
-        url.search !== "" ||
-        (contentLength !== null && contentLength !== "0") ||
-        !requestHasValidMutationContext(request, config.http.publicOrigin) ||
-        request.body !== null ||
-        !publisherTokenMatches(options.shutdown.token, candidate)
-      ) {
-        return problem(403, "forbidden", "Forbidden");
-      }
-      setTimeout(options.shutdown.request, 50);
-      return withSecurityHeaders(Response.json({ status: "stopping" }, { status: 202 }), true);
+    const clientBootstrap = isValidClientBootstrap(url);
+    if (url.search !== "" && !clientBootstrap) {
+      return problem(400, "bad_request", "Query parameters are not accepted");
     }
 
+
     if (url.pathname === "/api/v1/health" && request.method === "GET") {
-      if (peer === undefined || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer.address)) {
+      if (peer === undefined || !isLoopbackAddress(peer.address)) {
         return problem(403, "forbidden", "Forbidden");
       }
-      return withSecurityHeaders(Response.json({ status: "ready" }), true);
+      const challenge = request.headers.get("X-OMP-Readiness-Challenge");
+      if (challenge === null) return withSecurityHeaders(Response.json({ status: "ready" }), true);
+      if (options.readinessToken === undefined || !/^[A-Za-z0-9_-]{43}$/u.test(challenge)) {
+        return problem(400, "bad_request", "Invalid readiness challenge");
+      }
+      const instance = options.readinessInstance ?? "";
+      const proof = createHmac("sha256", options.readinessToken)
+        .update(challenge)
+        .update("\0")
+        .update(instance)
+        .digest("base64url");
+      return withSecurityHeaders(
+        Response.json({ status: "ready", proof, ...(instance === "" ? {} : { instance }) }),
+        true,
+      );
     }
 
     const authorization = authorizeHttpRequest(request, peer, config);
@@ -205,26 +210,30 @@ export function createHttpHandler(options: {
       logger.event("warn", "http.authorization_denied");
       return problem(403, "forbidden", "Forbidden");
     }
-
-    if (url.pathname.startsWith("/api/") && url.search !== "") {
-      return problem(400, "bad_request", "Invalid request");
-    }
-
     if (url.pathname === "/api/v1/sessions" && request.method === "GET") {
       return withSecurityHeaders(Response.json(registry.snapshot()), true);
     }
     if (url.pathname === "/api/v1/events" && request.method === "GET") return eventStream(registry);
 
-    const launchMatch = /^\/api\/v1\/sessions\/([A-Za-z0-9._:-]{16,128})\/launch$/u.exec(url.pathname);
+    const launchMatch = /^\/api\/v1\/sessions\/([^/]{1,384})\/launch$/u.exec(url.pathname);
     if (launchMatch !== null && request.method === "POST") {
+      const encodedInstanceId = launchMatch[1];
+      if (encodedInstanceId === undefined) return problem(400, "bad_request", "Invalid request");
+      let instanceId: string;
+      try {
+        instanceId = decodeURIComponent(encodedInstanceId);
+      } catch {
+        return problem(400, "bad_request", "Invalid request");
+      }
+      if (!/^[A-Za-z0-9._:-]{16,128}$/u.test(instanceId)) {
+        return problem(400, "bad_request", "Invalid request");
+      }
       if (!requestHasValidMutationContext(request, config.http.publicOrigin)) {
         return problem(403, "forbidden", "Forbidden");
       }
       if (request.headers.get("Content-Type")?.toLowerCase() !== "application/json") {
         return problem(415, "unsupported_media_type", "Expected application/json");
       }
-      const instanceId = launchMatch[1];
-      if (instanceId === undefined) return problem(400, "bad_request", "Invalid request");
       let launchRequest;
       try {
         const body = await readBoundedBody(request, Math.min(MAX_FRAME_BYTES, 4_096));
@@ -250,7 +259,7 @@ export function createHttpHandler(options: {
 
     if (url.pathname.startsWith("/api/")) return problem(404, "not_found", "Not found");
     const staticResponse = staticAssets.response(url.pathname);
-    return withSecurityHeaders(staticResponse ?? new Response("Not found", { status: 404 }), false);
+    return withSecurityHeaders(staticResponse ?? new Response("Not found", { status: 404 }), clientBootstrap);
   };
 }
 
@@ -259,7 +268,8 @@ export function startHttpServer(options: {
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
   readonly logger?: SafeLogger;
-  readonly shutdown?: ShutdownControl;
+  readonly readinessToken: string;
+  readonly readinessInstance?: string;
 }): Bun.Server<undefined> {
   const handler = createHttpHandler(options);
   const server = Bun.serve({

@@ -1,5 +1,6 @@
+import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { GatewayConfig } from "../src/config.ts";
@@ -17,7 +18,11 @@ let assets: StaticAssetStore;
 
 function config(mode: GatewayConfig["auth"]["mode"] = "tailscale-serve"): GatewayConfig {
   return {
-    http: { hostname: "127.0.0.1", port: 4317, publicOrigin: origin },
+    http: {
+      hostname: "127.0.0.1",
+      port: 4317,
+      publicOrigin: mode === "dev-localhost" ? "http://127.0.0.1:4317" : origin,
+    },
     auth: { mode, allowedLogins: mode === "tailscale-serve" ? ["allowed@example.com"] : [] },
     registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
     paths: {
@@ -37,10 +42,10 @@ function request(path: string, init: RequestInit = {}, identity = "allowed@examp
   return new Request(`${origin}${path}`, { ...init, headers });
 }
 
-function populatedRegistry(): SessionRegistry {
+function populatedRegistry(instanceId = "http-instance-000001"): SessionRegistry {
   const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
   registry.upsert("owner", {
-    instanceId: "http-instance-000001",
+    instanceId,
     generation: 3,
     pid: 1234,
     sessionId: "session-three",
@@ -54,8 +59,12 @@ function populatedRegistry(): SessionRegistry {
   return registry;
 }
 
-function launchRequest(generation = 3, mode: "view" | "control" = "view"): Request {
-  return request("/api/v1/sessions/http-instance-000001/launch", {
+function launchRequest(
+  generation = 3,
+  mode: "view" | "control" = "view",
+  instanceId = "http-instance-000001",
+): Request {
+  return request(`/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`, {
     method: "POST",
     headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
     body: JSON.stringify({ mode, generation }),
@@ -65,6 +74,10 @@ function launchRequest(generation = 3, mode: "view" | "control" = "view"): Reque
 beforeAll(async () => {
   assetRoot = await mkdtemp(join(tmpdir(), "gateway-http-assets-"));
   await writeFile(join(assetRoot, "index.html"), "<!doctype html><title>OMP Sessions</title>");
+  await mkdir(join(assetRoot, "client"));
+  await mkdir(join(assetRoot, "assets"));
+  await writeFile(join(assetRoot, "client", "index.html"), "<!doctype html><title>OMP client</title>");
+  await writeFile(join(assetRoot, "assets", "app.0123456789ab.js"), "export {};");
   assets = await StaticAssetStore.load(assetRoot);
 });
 
@@ -73,6 +86,34 @@ afterAll(async () => {
 });
 
 describe("HTTP boundary", () => {
+  test("proves loopback readiness with a publisher-token HMAC challenge", async () => {
+    const readinessToken = "T".repeat(43);
+    const challenge = "C".repeat(43);
+    const readinessInstance = "I".repeat(43);
+    const handler = createHttpHandler({
+      config: config(),
+      registry: populatedRegistry(),
+      staticAssets: assets,
+      readinessToken,
+      readinessInstance,
+    });
+    const healthRequest = new Request("http://127.0.0.1:4317/api/v1/health", {
+      headers: { "X-OMP-Readiness-Challenge": challenge },
+    });
+    const response = await handler(healthRequest, peer);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "ready",
+      instance: readinessInstance,
+      proof: createHmac("sha256", readinessToken)
+        .update(challenge)
+        .update("\0")
+        .update(readinessInstance)
+        .digest("base64url"),
+    });
+    expect((await handler(healthRequest, { address: "192.168.1.20" })).status).toBe(403);
+  });
+
   test("fails closed for missing, disallowed, forged remote, and tagged-style identities", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
@@ -81,49 +122,32 @@ describe("HTTP boundary", () => {
     expect((await handler(request("/api/v1/sessions", {}, "tag:phone"), peer)).status).toBe(403);
   });
 
-  test("dev mode still refuses non-loopback callers", async () => {
+  test("dev mode requires both a loopback peer and the configured loopback origin", async () => {
     const handler = createHttpHandler({ config: config("dev-localhost"), registry: populatedRegistry(), staticAssets: assets });
-    expect((await handler(request("/api/v1/sessions", {}, ""), { address: "10.0.0.8" })).status).toBe(403);
-    expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(200);
+    const localRequest = new Request("http://127.0.0.1:4317/api/v1/sessions");
+    expect((await handler(localRequest, { address: "10.0.0.8" })).status).toBe(403);
+    expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
+    expect((await handler(localRequest, peer)).status).toBe(200);
   });
 
-  test("accepts shutdown only from loopback with the publisher token", async () => {
-    const token = "S".repeat(43);
-    let requests = 0;
+  test("does not expose an HTTP shutdown control endpoint", async () => {
     const handler = createHttpHandler({
       config: config(),
       registry: populatedRegistry(),
       staticAssets: assets,
-      shutdown: { token, request: () => requests++ },
     });
-    const shutdownRequest = (supplied: string): Request =>
+    const response = await handler(
       request("/_internal/v1/shutdown", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${supplied}`,
+          Authorization: `Bearer ${"S".repeat(43)}`,
           Origin: origin,
           "Sec-Fetch-Site": "same-origin",
         },
-      });
-    expect((await handler(shutdownRequest("X".repeat(43)), peer)).status).toBe(403);
-    expect(
-      (
-        await handler(
-          request("/_internal/v1/shutdown", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, Origin: "https://evil.example" },
-          }),
-          peer,
-        )
-      ).status,
-    ).toBe(403);
-    expect((await handler(shutdownRequest(token), { address: "10.0.0.8" })).status).toBe(403);
-    expect(requests).toBe(0);
-    const response = await handler(shutdownRequest(token), peer);
-    expect(response.status).toBe(202);
-    expect(response.headers.get("Cache-Control")).toContain("no-store");
-    await Bun.sleep(60);
-    expect(requests).toBe(1);
+      }),
+      peer,
+    );
+    expect(response.status).toBe(404);
   });
 
   test("returns metadata-only no-store list and SSE", async () => {
@@ -152,6 +176,35 @@ describe("HTTP boundary", () => {
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(payload.capability).toBe(viewCapability);
     expect(JSON.stringify(payload)).not.toContain(controlCapability);
+  });
+
+  test("launches a valid encoded colon-bearing instance ID", async () => {
+    const instanceId = "http:instance:000001";
+    const handler = createHttpHandler({
+      config: config(),
+      registry: populatedRegistry(instanceId),
+      staticAssets: assets,
+    });
+    const response = await handler(launchRequest(3, "view", instanceId), peer);
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as Record<string, unknown>).capability).toBe(viewCapability);
+  });
+
+  test("rejects malformed and encoded-separator instance IDs", async () => {
+    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    expect((await handler(launchRequest(3, "view", "http%instance00001"), peer)).status).toBe(400);
+    expect(
+      (
+        await handler(
+          request("/api/v1/sessions/http-instance%2F000001/launch", {
+            method: "POST",
+            headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "view", generation: 3 }),
+          }),
+          peer,
+        )
+      ).status,
+    ).toBe(400);
   });
 
   test("enforces generation, origin, fetch metadata, media type, and body shape", async () => {
@@ -216,6 +269,18 @@ describe("HTTP boundary", () => {
       expect(response.headers.get("Permissions-Policy")).toContain("camera=()");
       expect(response.headers.has("Access-Control-Allow-Origin")).toBeFalse();
     }
+  });
+
+  test("rejects query-bearing assets and no-stores the validated client bootstrap", async () => {
+    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const rejected = await handler(request(`/assets/app.0123456789ab.js?token=${viewCapability}`), peer);
+    expect(rejected.status).toBe(400);
+    expect(rejected.headers.get("Cache-Control")).toContain("no-store");
+
+    const bootstrap = await handler(request("/client/?handoff=7a2cadc8-c634-4a4e-9045-bc7001a034a7"), peer);
+    expect(bootstrap.status).toBe(200);
+    expect(bootstrap.headers.get("Cache-Control")).toContain("no-store");
+    expect((await handler(request("/client/?handoff=not-a-uuid"), peer)).status).toBe(400);
   });
 
   test("never writes capability-bearing data to structured logs", async () => {

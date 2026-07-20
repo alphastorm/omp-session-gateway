@@ -73,21 +73,27 @@ The following describes code and evidence, not advertised support:
 |---|---|---|---|---|
 | Linux host | Unix-domain socket; systemd user service | Debian 13 arm64 container with a real user manager passed live install, autostart, active reinstall/PID replacement, private permissions, token rotation, and uninstall | Container evidence is not bare-metal qualification; rollback and non-systemd paths remain unrun | None |
 | macOS host | User-only Unix-domain socket; LaunchAgent | macOS 26.5.2 arm64 passed live install, restart/reinstall, private permissions, atomic token rotation, doctor/bundle, Tailscale Serve checks, and uninstall from a development checkout | Signed artifact rollback, reboot/login persistence, and a release-candidate run remain unqualified | None |
-| Windows host | Current-user named pipe; current-user scheduled task | [GitHub Actions run 29715302992](https://github.com/alphastorm/omp-session-gateway/actions/runs/29715302992) on commit `ff3b56370822` passed strict config/token ACL checks, UTF-16 task installation, active health, atomic token rotation, authenticated exact-Origin graceful PID replacement, active reinstall, and process-clean uninstall | Hosted development-checkout evidence is not signed-artifact qualification; reboot/login persistence, upgrade/rollback, and a release-candidate run remain unqualified | None |
+| Windows host | Gateway current-user named pipe and scheduled task; OMP publication currently fails closed | [GitHub Actions run 29728466089](https://github.com/alphastorm/omp-session-gateway/actions/runs/29728466089) passed strict config/token ACL checks, current-user publisher access, cross-user publisher-write denial, UTF-16 task installation, active health, atomic token rotation with graceful PID replacement, idempotent active reinstall, and process-clean uninstall | Hosted development-checkout evidence is not signed-artifact qualification; OMP publisher-side server authentication/namespace-squatting resistance, reboot/login persistence, upgrade/rollback, and a release-candidate run remain unqualified | None |
 | Android client | Installable HTTPS PWA through Tailscale Serve | Chrome 150 headless emulation at `412 × 915` with touch/Android UA rendered three real auto-published OMP sessions; View, Control, interrupt, leave navigation, and lifecycle-triggered transport replacement passed | No physical Android installation, OS lock/resume, radio/network transition, browser-history, or persistence qualification exists | None |
 | Desktop Chromium | Development/smoke client | Real Tailscale Serve allow/deny, three real OMP cards, View/Control/interrupt, SSE, URL scrub, browser-store/cache checks, process removal, foreground/online reconnect, and live `/new` generation revocation (`409` for the stale generation) passed | Not a release target and not a substitute for physical Android qualification | Smoke only |
 
 No other Linux init system, macOS deployment mode, Windows service mechanism, iOS browser,
 Firefox, Safari, or Chromium derivative has a compatibility claim.
 
+The v1 HTTP identity boundary assumes a user-controlled workstation. Any untrusted process or
+different OS account that can connect to the desktop's loopback port can forge the non-cryptographic
+Serve identity headers and is therefore outside the support boundary. Shared shell hosts and
+mutually untrusted local accounts are unsupported even though IPC publication itself remains
+current-user/token protected.
+
 ## Deployment dependency matrix
 
 | Dependency or mode | Current state | Compatibility statement |
 |---|---|---|
-| Tailscale Serve over tailnet HTTPS | Required production architecture; live on macOS 26.5.2 with Tailscale 1.98.8 | Allowed identity succeeded; denied identity, missing identity, and a spoofed direct-backend header were rejected; direct LAN and Tailscale-IP port access failed and Funnel remained disabled. This qualifies only the recorded host run. |
+| Tailscale Serve over tailnet HTTPS | Required production architecture; live on macOS 26.5.2 with Tailscale 1.98.8 | Allowed identity succeeded through Serve; denied and missing identities were rejected; direct LAN and Tailscale-IP port access failed and Funnel remained disabled. Direct loopback spoofing remains outside the explicitly single-user v1 trust boundary above. |
 | User-owned Tailscale source identity | Designed identity-header mode | The exact `alphastorm@github` login was observed through Serve and allowlisted for qualification; no broader identity/device support is claimed. |
 | Tagged Tailscale source device | Unsupported | Serve user identity headers do not provide the required user identity for this source type. |
-| Existing OMP encrypted relay | Required v1 relay path | Real desktop View/Control/interrupt passed; physical Android and the eight-hour soak remain release-blocking. Availability and traffic metadata are inherited dependencies. |
+| Existing OMP encrypted relay | Required v1 relay path | Real desktop View/Control/interrupt passed; a read-only client remained live for 28,804 seconds through the default relay and finished in the live phase. Physical Android qualification remains release-blocking; relay availability and traffic metadata are inherited dependencies. |
 | Self-hosted or proxied relay | Unsupported/deferred | Must pass the dedicated long-lived WebSocket soak before it can be documented as supported. |
 | `dev-localhost` HTTP mode | Development only | Never a remote, LAN, or production deployment path. |
 | Tailscale Funnel or public reverse tunnel | Unsupported | Must not be enabled or documented as a normal deployment path. |

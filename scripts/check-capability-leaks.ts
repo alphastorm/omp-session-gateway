@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { extname, join, relative } from "node:path";
+import { basename, extname, join, relative } from "node:path";
 import { CAPABILITY_TEXT_EXTENSIONS, findCapabilityLeaks } from "./capability-leak-rules.ts";
 
 const rootPath = new URL("../", import.meta.url).pathname;
@@ -20,7 +20,7 @@ const findings: string[] = [];
 for (const file of await walk(rootPath)) {
   const rel = relative(rootPath, file);
   if (exempt.has(rel)) continue;
-  if (!CAPABILITY_TEXT_EXTENSIONS.has(extname(file)) && !["LICENSE"].includes(rel)) continue;
+  if (!CAPABILITY_TEXT_EXTENSIONS.has(extname(file)) && !["LICENSE", "publisher-token"].includes(basename(rel))) continue;
   const text = await readFile(file, "utf8");
   for (const finding of findCapabilityLeaks(text)) {
     findings.push(`${rel}: possible ${finding.label} at byte ${finding.byteOffset}`);

@@ -26,6 +26,16 @@ describe("service packaging", () => {
     expect(definition.content).not.toContain("0.0.0.0");
   });
 
+  test("binds managed service readiness to the installed instance", () => {
+    const readinessInstance = "R".repeat(43);
+    const definition = serviceDefinition(config, "linux", "/private/runtime/cli.js", readinessInstance);
+    expect(definition.content).toContain('"--readiness-instance"');
+    expect(definition.content).toContain(`"${readinessInstance}"`);
+    expect(() => serviceDefinition(config, "linux", "/private/runtime/cli.js", "invalid")).toThrow(
+      "invalid service readiness instance",
+    );
+  });
+
   test("generates current-user macOS LaunchAgent", () => {
     const definition = serviceDefinition(config, "darwin");
     expect(definition.path).toEndWith("omp-session-gateway.plist");

@@ -63,6 +63,14 @@ function waitForText(socket: Bun.Socket<ClientData>, needle: string): Promise<vo
   socket.data.waiters.push({ needle, resolve });
   return promise;
 }
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for IPC state");
+    await Bun.sleep(5);
+  }
+}
+
 
 function nextRegistryEvent(registry: SessionRegistry, type: SessionEvent["type"]): Promise<SessionEvent> {
   const { promise, resolve } = Promise.withResolvers<SessionEvent>();
@@ -78,7 +86,7 @@ function testConfig(root: string): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317" },
     auth: { mode: "dev-localhost", allowedLogins: [] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 5, maxSessions: 5 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 1, maxSessions: 5 },
     paths: {
       configDir: join(root, "config"),
       stateDir: join(root, "state"),
@@ -127,6 +135,7 @@ test("IPC authenticates before accepting capability-bearing frames and removes o
       `${JSON.stringify({ v: 1, op: "hello", token: "X".repeat(43), instanceId: "ipc-instance-denied", pid: 100 })}\n`,
     );
     await waitForText(denied, "protocol_error");
+    await waitFor(() => server.publishers === 0);
     expect(registry.size).toBe(0);
 
     const socket = await connect(config.paths.socketPath);

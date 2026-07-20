@@ -26,13 +26,25 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Replaced handoff-only `bun run check` with TypeScript, browser/client build, full test, handoff, and capability-leak gates.
 - Pinned the research baseline to OMP commit `39c95e5e29b1c8b082059f57421ce445c3dffdd4` (nearest release v17.0.5).
 - Kept all platform and Android support entries unadvertised until real-device and cross-OS acceptance passes.
-- Qualified the OMP patch in a complete pinned upstream checkout; the full upstream check passed and every test bucket passed outside baseline failures reproduced without the patch.
+- Qualified the final source-review-hardened OMP patch in the complete pinned upstream checkout; checks and every official TypeScript test bucket passed with documented upstream-baseline exclusions restored afterward.
+- Completed an eight-hour default-relay endurance run: the read-only client remained connected for 28,804 seconds and finished in the live phase.
+
+- Made production install a config/service/runtime transaction with prior-endpoint checks, instance-bound HMAC readiness, verified legacy-runtime rollback, exact external Serve-port guidance, and recovery uninstall that does not require a readable application config.
 
 ### Fixed
 
 - Kept Bun's HTTP idle timeout above the SSE keepalive interval so live updates do not cycle through reconnect state.
-- Force a fresh collab relay transport after mobile foreground, BFCache restore, and online transitions so suspended sockets cannot remain silently stale.
-- Revoke the active OMP collaboration generation before session mutation and publish its replacement only after the new session or tree state is active.
-- Harden Windows config and publisher-token paths with current-user/SYSTEM-only ACLs, write Task Scheduler XML as UTF-16, and use an authenticated loopback shutdown so reinstall and uninstall cannot orphan the gateway process.
+- Redirect direct, reloaded, invalid, and BFCache-restored collaboration client documents to the secret-free session directory; discard stale reconnect sends and emit a fresh guest hello before current-generation frames.
+- Force a fresh collab relay transport after mobile foreground and online transitions so suspended sockets cannot remain silently stale.
+- Revoke the active OMP collaboration generation before session mutation, keep manual hosts stopped when auto-start is off, force explicit relay replacements, and revoke/re-publish same-relay View/Control mode changes.
+- Harden Windows config and publisher-token paths with current-user/SYSTEM-only ACLs, write Task Scheduler XML as UTF-16, run Bun directly, and wait for exact task termination during reinstall and uninstall without exposing a loopback shutdown credential.
 - Bound unauthenticated IPC handshakes and authenticated publisher idleness so stalled local clients cannot exhaust publisher capacity; partial frames now use fixed-capacity buffers that are scrubbed on release.
 - Made unsafe-permission test fixtures independent of the invoking shell's `umask`.
+- Bound registry authentication, frame buffering, idle connections, publisher slots, private config/token reads, diagnostics command output, and launch-path decoding; verify POSIX publisher endpoint ownership; reject cross-connection instance replacement; and derive Windows pipe names from a normalized stable user identity.
+- Fail Windows OMP registry publication closed until the publisher can authenticate the named-pipe server; the gateway service remains available for lifecycle qualification without exposing collaboration secrets to a pre-created pipe.
+- Detect bare default-relay capabilities in leak scans and redact malformed collaboration capabilities from parser errors so they cannot enter logs or crash reports.
+- Authenticate loopback startup/doctor readiness with a publisher-token HMAC challenge so another local account cannot satisfy install health checks by pre-binding the configured port.
+- Stage immutable content-addressed gateway runtimes, verify their manifests and payload digests across version upgrades, idempotently reuse a verified payload during Windows reinstall, preserve the prior runtime for rollback, and retain the fresh publisher token while stopping the service if rotation restart fails.
+- Ship `bun.lock`, its SHA-256, the embedded SPDX inventory, complete reviewed license texts, and the distributed OMP coding-agent patch component in deterministic release archives.
+- Detect raw extensionless publisher-token files, percent-encoded legacy collaboration links, and contextual publisher-token JSON/file leaks in staged release payloads and CI leak gates.
+- Reject unknown CLI options, missing values, and query-bearing API/static requests before mutation or cache admission; rate-limit repetitive denial/protocol logs; bound readiness response bodies; order PWA snapshots and SSE events by connection epoch and revision; clear stale metadata on transport loss; distinguish empty, unauthorized, offline, unavailable-action, and busy states; and arm the client handoff before capability fetch so an immediately ready collaboration window cannot race launch.

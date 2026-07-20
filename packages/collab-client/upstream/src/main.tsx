@@ -7,7 +7,6 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("missing #root element");
 const rootContainer: HTMLElement = rootElement;
 const handoff = new URL(location.href).searchParams.get("handoff");
-history.replaceState(null, "", "/client/");
 let root: Root | undefined;
 let activePort: MessagePort | undefined;
 
@@ -17,14 +16,10 @@ export function startCollabWithCapability(capability: string, onDispose: () => v
 	root.render(<App capability={capability} onDispose={onDispose} />);
 }
 
-if (handoff === null || handoff.length > 128 || window.opener === null) {
-	const heading = document.createElement("h1");
-	heading.textContent = "No session selected";
-	const link = document.createElement("a");
-	link.href = "/";
-	link.textContent = "Return to OMP Sessions";
-	rootContainer.replaceChildren(heading, link);
+if (handoff === null || handoff.length === 0 || handoff.length > 128 || window.opener === null) {
+	window.location.replace("/");
 } else {
+	history.replaceState(null, "", "/client/");
 	const opener = window.opener as Window;
 	const announceReady = (): void => {
 		opener.postMessage({ type: "omp-client-ready", handoff }, location.origin);
@@ -82,4 +77,8 @@ window.addEventListener("pagehide", () => {
 	activePort?.close();
 	root?.unmount();
 	root = undefined;
+});
+
+window.addEventListener("pageshow", (event: PageTransitionEvent) => {
+	if (event.persisted) window.location.replace("/");
 });

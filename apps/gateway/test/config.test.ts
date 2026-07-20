@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   type GatewayConfig,
+  captureGatewayConfigFile,
   loadGatewayConfig,
   loadOrCreatePublisherToken,
   publisherTokenMatches,
+  publicOriginHttpsPort,
+  restoreGatewayConfigFile,
   rotatePublisherToken,
 } from "../src/config.ts";
 
@@ -53,7 +56,7 @@ async function secureWindowsFixture(path: string): Promise<void> {
     "$Path=$env:OMP_GATEWAY_ACL_PATH; " +
     "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
     "$sddl='D:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')'; " +
-    "$acl=Get-Acl -LiteralPath $Path; $acl.SetSecurityDescriptorSddlForm($sddl); " +
+    "$acl=Get-Acl -LiteralPath $Path; $acl.SetSecurityDescriptorSddlForm($sddl); $acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
     "Set-Acl -LiteralPath $Path -AclObject $acl";
   const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
     env: windowsPowerShellEnvironment({ OMP_GATEWAY_ACL_PATH: path }),
@@ -125,6 +128,71 @@ describe("secure config", () => {
     ).rejects.toThrow("HTTPS");
   });
 
+  test("requires an exact configured loopback origin in development mode", async () => {
+    const root = await privateRoot();
+    const path = join(root, "config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        http: { hostname: "::1", port: 4318, publicOrigin: "http://[::1]:4318" },
+        auth: { mode: "dev-localhost", allowedLogins: [] },
+      }),
+      { mode: 0o600 },
+    );
+    await secureWindowsFixture(path);
+    const loaded = await loadGatewayConfig({ configPath: path });
+    expect(loaded.http.publicOrigin).toBe("http://[::1]:4318");
+    await writeFile(
+      path,
+      JSON.stringify({
+        http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
+        auth: { mode: "dev-localhost", allowedLogins: [] },
+      }),
+      { mode: 0o600 },
+    );
+    await secureWindowsFixture(path);
+    await expect(loadGatewayConfig({ configPath: path })).rejects.toThrow("loopback HTTP origin");
+  });
+
+  test("synthesizes a matching local origin for development mode and port overrides", async () => {
+    const root = await privateRoot();
+    const path = join(root, "config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
+        auth: { mode: "tailscale-serve", allowedLogins: ["allowed@example.com"] },
+      }),
+      { mode: 0o600 },
+    );
+    await secureWindowsFixture(path);
+    const loaded = await loadGatewayConfig({ configPath: path, mode: "dev-localhost", port: 4319 });
+    expect(loaded.http.port).toBe(4319);
+    expect(loaded.http.publicOrigin).toBe("http://127.0.0.1:4319");
+    expect(loaded.auth.mode).toBe("dev-localhost");
+  });
+
+  test("derives the configured external HTTPS port", () => {
+    expect(publicOriginHttpsPort("https://gateway.example.ts.net")).toBe(443);
+    expect(publicOriginHttpsPort("https://gateway.example.ts.net:8443")).toBe(8443);
+  });
+
+  test("restores existing and absent config snapshots", async () => {
+    const root = await privateRoot();
+    const path = join(root, "config.json");
+    await writeFile(path, "original\n", { mode: 0o600 });
+    await secureWindowsFixture(path);
+    const existing = await captureGatewayConfigFile(path);
+    await writeFile(path, "replacement\n", { mode: 0o600 });
+    await restoreGatewayConfigFile(existing);
+    expect(await readFile(path, "utf8")).toBe("original\n");
+    await rm(path);
+    const absent = await captureGatewayConfigFile(path);
+    await writeFile(path, "created\n", { mode: 0o600 });
+    await restoreGatewayConfigFile(absent);
+    expect(await Bun.file(path).exists()).toBe(false);
+  });
+
   test("rejects permissive and symlinked config files", async () => {
     const root = await privateRoot();
     const path = join(root, "config.json");
@@ -147,20 +215,54 @@ describe("secure config", () => {
     expect(file.isFile()).toBeTrue();
     if (process.platform !== "win32") expect(file.mode & 0o077).toBe(0);
     expect(await loadOrCreatePublisherToken(config)).toBe(first);
-    await rotatePublisherToken(config);
-    const second = await loadOrCreatePublisherToken(config);
+    const second = await rotatePublisherToken(config);
+    expect(await loadOrCreatePublisherToken(config)).toBe(second);
     expect(second).not.toBe(first);
     expect(publisherTokenMatches(second, second)).toBeTrue();
     expect(publisherTokenMatches(second, `${second}x`)).toBeFalse();
     expect(publisherTokenMatches(second, first)).toBeFalse();
   }, 20_000);
 
-  test("rejects unsafe token permissions", async () => {
+  test("rotation remediates an unsafe token leaf without following it", async () => {
     const root = await privateRoot();
     const config = configForRoot(root);
     await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
     await writeFile(config.paths.tokenPath, `${"A".repeat(43)}\n`, { mode: 0o644 });
     await makeFixtureUnsafe(config.paths.tokenPath);
     await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("unsafe");
+    const rotated = await rotatePublisherToken(config);
+    expect(await loadOrCreatePublisherToken(config)).toBe(rotated);
+    const file = await lstat(config.paths.tokenPath);
+    expect(file.isFile()).toBeTrue();
+    if (process.platform !== "win32") expect(file.mode & 0o077).toBe(0);
+  }, 20_000);
+
+  test("rotation replaces a token symlink without modifying its target", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
+    const target = join(root, "external-token");
+    const original = `${"A".repeat(43)}\n`;
+    await writeFile(target, original, { mode: 0o600 });
+    await symlink(target, config.paths.tokenPath);
+    const rotated = await rotatePublisherToken(config);
+    expect(await loadOrCreatePublisherToken(config)).toBe(rotated);
+    expect(await Bun.file(target).text()).toBe(original);
+    expect((await lstat(config.paths.tokenPath)).isSymbolicLink()).toBeFalse();
   });
+
+  test("rejects oversized private config and publisher-token files before parsing", async () => {
+    const root = await privateRoot();
+    const configPath = join(root, "oversized-config.json");
+    await writeFile(configPath, " ".repeat(64 * 1_024 + 1), { mode: 0o600 });
+    await secureWindowsFixture(configPath);
+    await expect(loadGatewayConfig({ configPath, mode: "dev-localhost" })).rejects.toThrow("size limit");
+
+    const config = configForRoot(root);
+    await loadOrCreatePublisherToken(config);
+    await writeFile(config.paths.tokenPath, "A".repeat(46), { mode: 0o600 });
+    await secureWindowsFixture(config.paths.tokenPath);
+    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("invalid encoding or length");
+  }, 20_000);
 });
