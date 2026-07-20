@@ -1,16 +1,60 @@
-import { expect, jest, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionEvent } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
-import { startRegistryIpcServer } from "../src/ipc.ts";
+import {
+  type RegistryIpcDeadline,
+  type RegistryIpcDeadlineScheduler,
+  startRegistryIpcServer,
+} from "../src/ipc.ts";
 import { SafeLogger } from "../src/logger.ts";
 import { SessionRegistry } from "../src/registry.ts";
 
 interface ClientData {
   text: string;
   waiters: Array<{ needle: string; resolve(): void }>;
+}
+
+class ManualDeadline implements RegistryIpcDeadline {
+  active = true;
+
+  constructor(
+    readonly callback: () => void,
+    readonly timeoutMilliseconds: number,
+  ) {}
+
+  cancel(): void {
+    if (!this.active) return;
+    this.active = false;
+  }
+
+  fire(): void {
+    if (!this.active) return;
+    this.active = false;
+    this.callback();
+  }
+}
+
+class ManualDeadlineScheduler implements RegistryIpcDeadlineScheduler {
+  readonly #deadlines: ManualDeadline[] = [];
+
+  schedule(callback: () => void, timeoutMilliseconds: number): ManualDeadline {
+    const deadline = new ManualDeadline(callback, timeoutMilliseconds);
+    this.#deadlines.push(deadline);
+    return deadline;
+  }
+
+  onlyActive(expectedTimeoutMilliseconds: number): ManualDeadline {
+    const active = this.#deadlines.filter(deadline => deadline.active);
+    if (active.length !== 1) throw new Error(`expected one active deadline, received ${active.length}`);
+    const deadline = active[0];
+    if (deadline === undefined || deadline.timeoutMilliseconds !== expectedTimeoutMilliseconds) {
+      throw new Error("active deadline has an unexpected timeout");
+    }
+    return deadline;
+  }
 }
 
 function waitForText(socket: Bun.Socket<ClientData>, needle: string): Promise<void> {
@@ -125,7 +169,7 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     ...baseConfig,
     registry: { ...baseConfig.registry, maxPublishers: 1 },
   };
-  jest.useFakeTimers();
+  const deadlineScheduler = new ManualDeadlineScheduler();
   await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
   const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
   const token = "T".repeat(43);
@@ -134,6 +178,7 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     token,
     registry,
     logger: new SafeLogger({ write() {} }),
+    deadlineScheduler,
   });
 
   try {
@@ -143,7 +188,7 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     await waitForText(rejected, '"capacity"');
     rejected.end();
 
-    jest.advanceTimersByTime(5_000);
+    deadlineScheduler.onlyActive(5_000).fire();
     expect(server.publishers).toBe(0);
 
     const socket = await connect(config.paths.socketPath);
@@ -159,8 +204,8 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     socket.write(hello.slice(helloSplit));
     await waitForText(socket, "hello_ok");
     const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
-    jest.advanceTimersByTime(idleTimeoutMilliseconds - 1);
-    expect(server.publishers).toBe(1);
+    const firstIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
+    expect(firstIdleDeadline.active).toBeTrue();
 
     const upserted = nextRegistryEvent(registry, "session_upsert");
     const upsert = `${JSON.stringify({
@@ -182,17 +227,16 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     await upserted;
     expect(registry.size).toBe(1);
 
-    jest.advanceTimersByTime(idleTimeoutMilliseconds - 1);
-    expect(registry.size).toBe(1);
-    expect(server.publishers).toBe(1);
-    jest.advanceTimersByTime(1);
+    expect(firstIdleDeadline.active).toBeFalse();
+    const replacementIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
+    expect(replacementIdleDeadline).not.toBe(firstIdleDeadline);
+    replacementIdleDeadline.fire();
     expect(registry.size).toBe(0);
     expect(server.publishers).toBe(0);
     stalled.end();
     socket.end();
   } finally {
     await server.stop();
-    jest.useRealTimers();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -25,12 +25,34 @@ interface ConnectionState {
   readonly ownerId: string;
   buffer: Buffer;
   bufferedBytes: number;
-  deadline?: Timer;
+  deadline?: RegistryIpcDeadline;
   authenticated: boolean;
   instanceId?: string;
   pid?: number;
   closed: boolean;
 }
+
+export interface RegistryIpcDeadline {
+  cancel(): void;
+}
+
+export interface RegistryIpcDeadlineScheduler {
+  schedule(callback: () => void, timeoutMilliseconds: number): RegistryIpcDeadline;
+}
+
+const runtimeDeadlineScheduler: RegistryIpcDeadlineScheduler = {
+  schedule(callback, timeoutMilliseconds) {
+    const timer = setTimeout(callback, timeoutMilliseconds);
+    let active = true;
+    return {
+      cancel() {
+        if (!active) return;
+        active = false;
+        clearTimeout(timer);
+      },
+    };
+  },
+};
 
 export interface RegistryIpcServer {
   readonly endpoint: string;
@@ -55,9 +77,11 @@ export async function startRegistryIpcServer(options: {
   readonly token: string;
   readonly registry: SessionRegistry;
   readonly logger?: SafeLogger;
+  readonly deadlineScheduler?: RegistryIpcDeadlineScheduler;
 }): Promise<RegistryIpcServer> {
   const { config, token, registry } = options;
   const logger = options.logger ?? new SafeLogger();
+  const deadlineScheduler = options.deadlineScheduler ?? runtimeDeadlineScheduler;
   const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
   await removeRuntimeSocket(config);
   let publisherCount = 0;
@@ -65,7 +89,7 @@ export async function startRegistryIpcServer(options: {
 
   const clearDeadline = (state: ConnectionState): void => {
     if (state.deadline === undefined) return;
-    clearTimeout(state.deadline);
+    state.deadline.cancel();
     delete state.deadline;
   };
 
@@ -101,7 +125,7 @@ export async function startRegistryIpcServer(options: {
   const armDeadline = (socket: Bun.Socket<ConnectionState>, timeoutMilliseconds: number): void => {
     const state = socket.data;
     clearDeadline(state);
-    state.deadline = setTimeout(() => closeTimedOut(socket), timeoutMilliseconds);
+    state.deadline = deadlineScheduler.schedule(() => closeTimedOut(socket), timeoutMilliseconds);
   };
 
   const appendFrameBytes = (socket: Bun.Socket<ConnectionState>, bytes: Uint8Array): boolean => {
