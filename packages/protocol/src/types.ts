@@ -4,6 +4,8 @@ export const MAX_CAPABILITY_BYTES = 8 * 1024;
 export const MAX_LABEL_CODEPOINTS = 256;
 export const MAX_SESSIONS = 1_000;
 export const MAX_INSTANCE_ID_BYTES = 128;
+export const IPC_AUTH_NONCE_BYTES = 32;
+export const IPC_AUTH_VALUE_LENGTH = 43;
 
 export type LaunchMode = "view" | "control";
 export type RemoveReason =
@@ -17,9 +19,22 @@ export type RemoveReason =
 export interface HelloFrame {
   readonly v: typeof PROTOCOL_VERSION;
   readonly op: "hello";
-  readonly token: string;
+  readonly clientNonce: string;
   readonly instanceId: string;
   readonly pid: number;
+}
+
+export interface ChallengeFrame {
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly op: "challenge";
+  readonly serverNonce: string;
+  readonly proof: string;
+}
+
+export interface AuthenticateFrame {
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly op: "authenticate";
+  readonly proof: string;
 }
 
 export interface HelloOkFrame {

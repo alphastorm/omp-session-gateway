@@ -2,7 +2,19 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { SessionEvent } from "@omp-session-gateway/protocol";
+import {
+  parseChallengeFrame,
+  parseHelloOkFrame,
+  parseJsonFrame,
+  type SessionEvent,
+} from "@omp-session-gateway/protocol";
+import {
+  createRegistryAuthNonce,
+  createRegistryClientProof,
+  createRegistryServerProof,
+  registryAuthProofMatches,
+  type RegistryAuthBinding,
+} from "@omp-session-gateway/protocol/ipc-auth";
 import type { GatewayConfig } from "../src/config.ts";
 import {
   type RegistryIpcDeadline,
@@ -63,6 +75,49 @@ function waitForText(socket: Bun.Socket<ClientData>, needle: string): Promise<vo
   socket.data.waiters.push({ needle, resolve });
   return promise;
 }
+
+async function readFrame(socket: Bun.Socket<ClientData>): Promise<unknown> {
+  await waitForText(socket, "\n");
+  const lineEnd = socket.data.text.indexOf("\n");
+  if (lineEnd < 0) throw new Error("expected complete IPC frame");
+  const line = socket.data.text.slice(0, lineEnd);
+  socket.data.text = socket.data.text.slice(lineEnd + 1);
+  return parseJsonFrame(new TextEncoder().encode(line));
+}
+
+async function finishPublisherAuthentication(
+  socket: Bun.Socket<ClientData>,
+  token: string,
+  clientNonce: string,
+  instanceId: string,
+  pid: number,
+): Promise<void> {
+  const challenge = parseChallengeFrame(await readFrame(socket));
+  const binding: RegistryAuthBinding = {
+    clientNonce,
+    serverNonce: challenge.serverNonce,
+    instanceId,
+    pid,
+  };
+  if (!registryAuthProofMatches(createRegistryServerProof(token, binding), challenge.proof)) {
+    throw new Error("gateway server proof did not match");
+  }
+  socket.write(
+    `${JSON.stringify({ v: 1, op: "authenticate", proof: createRegistryClientProof(token, binding) })}\n`,
+  );
+  parseHelloOkFrame(await readFrame(socket));
+}
+
+async function authenticatePublisher(
+  socket: Bun.Socket<ClientData>,
+  token: string,
+  instanceId: string,
+  pid: number,
+): Promise<void> {
+  const clientNonce = createRegistryAuthNonce();
+  socket.write(`${JSON.stringify({ v: 1, op: "hello", clientNonce, instanceId, pid })}\n`);
+  await finishPublisherAuthentication(socket, token, clientNonce, instanceId, pid);
+}
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (!predicate()) {
@@ -91,7 +146,10 @@ function testConfig(root: string): GatewayConfig {
       configDir: join(root, "config"),
       stateDir: join(root, "state"),
       runtimeDir: join(root, "run"),
-      socketPath: join(root, "run", "registry.sock"),
+      socketPath:
+        process.platform === "win32"
+          ? `\\\\.\\pipe\\omp-gateway-ipc-${Buffer.from(root).toString("hex").slice(-20)}`
+          : join(root, "run", "registry.sock"),
       tokenPath: join(root, "config", "publisher-token"),
       configPath: join(root, "config", "config.json"),
     },
@@ -131,18 +189,60 @@ test("IPC authenticates before accepting capability-bearing frames and removes o
 
   try {
     const denied = await connect(config.paths.socketPath);
-    denied.write(
-      `${JSON.stringify({ v: 1, op: "hello", token: "X".repeat(43), instanceId: "ipc-instance-denied", pid: 100 })}\n`,
-    );
+    const deniedHello = JSON.stringify({
+      v: 1,
+      op: "hello",
+      clientNonce: createRegistryAuthNonce(),
+      instanceId: "ipc-instance-denied",
+      pid: 100,
+    });
+    expect(deniedHello).not.toContain(token);
+    expect(deniedHello).not.toContain(capability);
+    denied.write(`${deniedHello}\n`);
+    const deniedChallenge = parseChallengeFrame(await readFrame(denied));
+    expect(JSON.stringify(deniedChallenge)).not.toContain(token);
+    denied.write(`${JSON.stringify({ v: 1, op: "authenticate", proof: "X".repeat(43) })}\n`);
     await waitForText(denied, "protocol_error");
     await waitFor(() => server.publishers === 0);
     expect(registry.size).toBe(0);
 
-    const socket = await connect(config.paths.socketPath);
-    socket.write(
-      `${JSON.stringify({ v: 1, op: "hello", token, instanceId: "ipc-instance-valid-01", pid: 200 })}\n`,
+    const replaySource = await connect(config.paths.socketPath);
+    const sourceNonce = createRegistryAuthNonce();
+    const replayInstanceId = "ipc-instance-replay-01";
+    replaySource.write(
+      `${JSON.stringify({ v: 1, op: "hello", clientNonce: sourceNonce, instanceId: replayInstanceId, pid: 150 })}\n`,
     );
-    await waitForText(socket, "hello_ok");
+    const sourceChallenge = parseChallengeFrame(await readFrame(replaySource));
+    const sourceBinding: RegistryAuthBinding = {
+      clientNonce: sourceNonce,
+      serverNonce: sourceChallenge.serverNonce,
+      instanceId: replayInstanceId,
+      pid: 150,
+    };
+    const oldProof = createRegistryClientProof(token, sourceBinding);
+    replaySource.write(`${JSON.stringify({ v: 1, op: "authenticate", proof: oldProof })}\n`);
+    parseHelloOkFrame(await readFrame(replaySource));
+    replaySource.end();
+    await waitFor(() => server.publishers === 0);
+
+    const replayTarget = await connect(config.paths.socketPath);
+    replayTarget.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "hello",
+        clientNonce: createRegistryAuthNonce(),
+        instanceId: replayInstanceId,
+        pid: 150,
+      })}\n`,
+    );
+    await readFrame(replayTarget);
+    replayTarget.write(`${JSON.stringify({ v: 1, op: "authenticate", proof: oldProof })}\n`);
+    await waitForText(replayTarget, "protocol_error");
+    await waitFor(() => server.publishers === 0);
+    expect(registry.size).toBe(0);
+
+    const socket = await connect(config.paths.socketPath);
+    await authenticatePublisher(socket, token, "ipc-instance-valid-01", 200);
     const upserted = nextRegistryEvent(registry, "session_upsert");
     socket.write(
       `${JSON.stringify({
@@ -201,17 +301,18 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     expect(server.publishers).toBe(0);
 
     const socket = await connect(config.paths.socketPath);
+    const clientNonce = createRegistryAuthNonce();
     const hello = `${JSON.stringify({
       v: 1,
       op: "hello",
-      token,
+      clientNonce,
       instanceId: "ipc-instance-fragmented",
       pid: 300,
     })}\n`;
     const helloSplit = Math.floor(hello.length / 2);
     socket.write(hello.slice(0, helloSplit));
     socket.write(hello.slice(helloSplit));
-    await waitForText(socket, "hello_ok");
+    await finishPublisherAuthentication(socket, token, clientNonce, "ipc-instance-fragmented", 300);
     const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
     const firstIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
     expect(firstIdleDeadline.active).toBeTrue();

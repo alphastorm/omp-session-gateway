@@ -156,3 +156,29 @@ token and stops the service.
 foreground readiness responses without exposing the publisher token. Verified legacy payloads
 remain rollback-compatible. Disk use grows by one immutable payload per staged version until an
 explicit future garbage-collection policy is qualified.
+
+---
+
+## ADR-013 — Mutually authenticate local registry peers without transmitting the key
+
+**Status:** Accepted
+
+**Context:** A first-frame publisher key authenticates the client to the gateway but not the gateway
+to the publisher. On Windows, a same-session process may pre-create the expected named-pipe name
+before the gateway starts and receive that key and subsequent capabilities. OS ACLs prevent
+cross-user access but do not establish that the process owning the pipe is `omp-gatewayd`.
+
+**Decision:** Replace the raw-key hello with a four-frame, nonce-bound mutual HMAC handshake on every
+platform. The publisher sends a fresh client nonce; the gateway sends a fresh server nonce and a
+domain-separated server proof; the publisher validates that proof before sending its separately
+domain-separated client proof; and the gateway accepts capability-bearing frames only after that
+proof validates. Bind both proofs to both nonces, `instanceId`, and PID. Require exact frame keys,
+fixed 43-character base64url values, constant-time proof comparison, bounded handshake time/space,
+and mutable-buffer scrubbing. Derive the Windows pipe name identically in both components and
+require the private token ACL to contain only the current user and SYSTEM.
+
+**Consequences:** The publisher key never crosses IPC, a process that merely squats the pipe
+namespace receives only a nonce-bearing hello, stale proofs do not replay, and Windows OMP
+publication can fail closed on an unauthenticated server instead of remaining disabled. This is a
+clean pre-alpha protocol cutover: old publishers and daemons do not interoperate. Same-user malware
+that can read the private token remains outside the v1 threat boundary.

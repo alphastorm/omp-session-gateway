@@ -23,7 +23,7 @@ A small in-process client publishes one live record per interactive OMP process 
 Responsibilities:
 
 - discover the platform IPC endpoint;
-- authenticate with the per-install publisher token and OS user permissions;
+- authenticate both publisher and gateway with fresh nonces and domain-separated HMAC proofs derived from the private per-install key; never transmit that key;
 - publish minimal metadata plus the capabilities permitted by configuration;
 - heartbeat and reconnect with bounded jittered backoff;
 - revoke old generations before publishing replacements;
@@ -150,7 +150,7 @@ A stale or removed generation is deleted from both metadata and capability maps 
 flowchart TB
     subgraph DesktopUser[Desktop user security boundary]
       OMP[OMP processes]
-      IPC[User-only IPC + publisher token]
+      IPC[User-only IPC + mutual HMAC]
       GATEWAY[omp-gatewayd: in-memory registry]
       HTTP[Loopback HTTP]
       OMP --> IPC --> GATEWAY --> HTTP

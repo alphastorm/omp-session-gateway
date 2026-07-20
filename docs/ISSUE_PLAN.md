@@ -47,7 +47,7 @@ Create these issues after publishing the repository. Each issue should link to t
 **Labels:** `area: gateway`, `area: protocol`, `security`
 
 - Unix socket and named pipe abstractions.
-- First-frame authentication and constant-time comparison.
+- Nonce-bound mutual HMAC authentication with constant-time proof comparison and no raw key on the wire.
 - Frame/connection/rate limits.
 - Generation-aware ownership and disconnect behavior.
 
