@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { parseSessionListResponse, type SessionListResponse } from "@omp-session-gateway/protocol";
 import { assertPublisherTokenPrivate, assertSocketPrivate, type GatewayConfig, loadGatewayConfig } from "./config.ts";
@@ -56,7 +57,16 @@ export function serveConfigurationMatches(value: unknown, config: GatewayConfig)
 }
 
 export function funnelConfigurationDisabled(value: unknown): boolean {
-  return !hasMeaningfulValue(value);
+  return !hasMeaningfulValue(property(value, "AllowFunnel"));
+}
+
+export function tailscaleSelfIp(value: unknown): string | undefined {
+  const addresses = property(property(value, "Self"), "TailscaleIPs");
+  if (!Array.isArray(addresses)) return undefined;
+  return (
+    addresses.find(address => typeof address === "string" && isIP(address) === 4) ??
+    addresses.find(address => typeof address === "string" && isIP(address) === 6)
+  );
 }
 
 export async function gatewayReady(port: number): Promise<boolean> {
@@ -71,12 +81,39 @@ export async function gatewayReady(port: number): Promise<boolean> {
   }
 }
 
-async function publicSessions(config: GatewayConfig): Promise<SessionListResponse | undefined> {
+async function publicResponse(
+  config: GatewayConfig,
+  path: string,
+  tailscaleIp?: string,
+): Promise<Response | undefined> {
+  const intended = new URL(path, config.http.publicOrigin);
   try {
-    const response = await fetch(`${config.http.publicOrigin}/api/v1/sessions`, {
+    return await fetch(intended, {
       signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
       cache: "no-store",
     });
+  } catch {
+    if (tailscaleIp === undefined) return undefined;
+  }
+
+  const direct = new URL(intended);
+  direct.hostname = isIP(tailscaleIp) === 6 ? `[${tailscaleIp}]` : tailscaleIp;
+  try {
+    return await fetch(direct, {
+      headers: { Host: intended.host },
+      signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
+      cache: "no-store",
+      tls: { serverName: intended.hostname },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function publicSessions(config: GatewayConfig, tailscaleIp?: string): Promise<SessionListResponse | undefined> {
+  const response = await publicResponse(config, "/api/v1/sessions", tailscaleIp);
+  if (response === undefined) return undefined;
+  try {
     const cacheDirectives = response.headers
       .get("Cache-Control")
       ?.split(",")
@@ -88,15 +125,8 @@ async function publicSessions(config: GatewayConfig): Promise<SessionListRespons
   }
 }
 
-async function publicAsset(config: GatewayConfig, path: string): Promise<Response | undefined> {
-  try {
-    return await fetch(new URL(path, config.http.publicOrigin), {
-      signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
-      cache: "no-store",
-    });
-  } catch {
-    return undefined;
-  }
+async function publicAsset(config: GatewayConfig, path: string, tailscaleIp?: string): Promise<Response | undefined> {
+  return await publicResponse(config, path, tailscaleIp);
 }
 
 async function localAssetsPresent(): Promise<boolean> {
@@ -191,14 +221,17 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
     return { service: "omp-session-gateway", checks };
   }
 
-  const [status, serve, funnel, sessions, root, manifest, worker] = await Promise.all([
+  const [status, serve, funnel] = await Promise.all([
     commandJson(["tailscale", "status", "--json"]),
     commandJson(["tailscale", "serve", "status", "--json"]),
     commandJson(["tailscale", "funnel", "status", "--json"]),
-    publicSessions(config),
-    publicAsset(config, "/"),
-    publicAsset(config, "/manifest.webmanifest"),
-    publicAsset(config, "/service-worker.js"),
+  ]);
+  const tailscaleIp = tailscaleSelfIp(status);
+  const [sessions, root, manifest, worker] = await Promise.all([
+    publicSessions(config, tailscaleIp),
+    publicAsset(config, "/", tailscaleIp),
+    publicAsset(config, "/manifest.webmanifest", tailscaleIp),
+    publicAsset(config, "/service-worker.js", tailscaleIp),
   ]);
   checks.tailscaleConnected = property(status, "BackendState") === "Running";
   checks.serveMapping = serveConfigurationMatches(serve, config);
