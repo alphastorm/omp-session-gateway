@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Apply-ready OMP `CollabController`, auto-start, local publisher, lifecycle revocation, and test patch.
 - Cross-platform user-service definitions and management commands for install, uninstall, status, doctor, token rotation, and Serve guidance.
 - Deterministic redacted diagnostics archives and deterministic Bun-runtime release archives with SHA-256 manifests.
+- Keyless GitHub OIDC build attestations and Cosign signatures with immutable tag-triggered pre-alpha releases and documented verification.
 - Unit/integration coverage for protocol, registry, IPC, HTTP authorization and launch, config permissions, services, diagnostics, and capability leaks.
 
 ### Changed
