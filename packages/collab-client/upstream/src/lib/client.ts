@@ -157,6 +157,12 @@ export class GuestClient {
 		this.#socket.close();
 	}
 
+	/** Force a fresh relay transport after a browser foreground/network transition. */
+	refreshConnection(): void {
+		if (this.#phase === "ended") return;
+		this.#socket.reconnect();
+	}
+
 	subscribe(listener: () => void): () => void {
 		this.#listeners.add(listener);
 		return () => {

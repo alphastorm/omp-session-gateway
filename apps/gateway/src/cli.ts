@@ -14,7 +14,12 @@ import { startHttpServer } from "./http.ts";
 import { startRegistryIpcServer } from "./ipc.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
-import { installUserService, uninstallUserService, userServiceStatus } from "./service.ts";
+import {
+  installUserService,
+  requestGatewayShutdown,
+  uninstallUserService,
+  userServiceStatus,
+} from "./service.ts";
 import { StaticAssetStore } from "./static.ts";
 
 interface ParsedArguments {
@@ -76,22 +81,25 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   const logger = new SafeLogger();
   const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: config.registry.maxSessions });
   const ipc = await startRegistryIpcServer({ config, token, registry, logger });
-  const http = startHttpServer({ config, registry, staticAssets, logger });
+  let stopping = false;
+  let resolveStop: () => void = () => undefined;
+  const stopped = new Promise<void>(resolve => {
+    resolveStop = resolve;
+  });
+  const stop = (): void => {
+    if (stopping) return;
+    stopping = true;
+    resolveStop();
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  const http = startHttpServer({ config, registry, staticAssets, logger, shutdown: { token, request: stop } });
   const sweeper = setInterval(() => {
     const removed = registry.sweepExpired();
     if (removed > 0) logger.event("info", "registry.expired", { removed });
   }, Math.max(1_000, Math.floor((config.registry.ttlSeconds * 1_000) / 3)));
 
-  await new Promise<void>(resolveStop => {
-    let stopping = false;
-    const stop = (): void => {
-      if (stopping) return;
-      stopping = true;
-      resolveStop();
-    };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
-  });
+  await stopped;
   clearInterval(sweeper);
   http.stop(true);
   await ipc.stop();
@@ -116,11 +124,11 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     allowedLogins,
     ...(port === undefined ? {} : { port }),
   });
-  await loadOrCreatePublisherToken(config);
+  const token = await loadOrCreatePublisherToken(config);
   const activate = !hasFlag(arguments_, "--no-start");
   const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
   await StaticAssetStore.load(webRoot);
-  const definition = await installUserService(config, activate);
+  const definition = await installUserService(config, token, activate);
   if (activate) await waitForGateway(config.http.port);
   console.log(`Installed ${definition.identifier}; loopback health ${activate ? "ready" : "not started"}.`);
   console.log(`Configure Tailscale Serve: tailscale serve --bg --https=443 http://127.0.0.1:${config.http.port}`);
@@ -129,7 +137,8 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
 
 async function runUninstall(arguments_: ParsedArguments): Promise<void> {
   const config = await loadGatewayConfig();
-  await uninstallUserService(config, !hasFlag(arguments_, "--no-stop"));
+  const token = await loadOrCreatePublisherToken(config);
+  await uninstallUserService(config, token, !hasFlag(arguments_, "--no-stop"));
   console.log("Uninstalled omp-session-gateway service. Configuration and publisher token were preserved.");
 }
 
@@ -169,8 +178,18 @@ async function runDoctor(arguments_: ParsedArguments): Promise<void> {
 
 async function runRotateToken(): Promise<void> {
   const config = await loadGatewayConfig();
+  const token = await loadOrCreatePublisherToken(config);
+  const service = await userServiceStatus(config);
+  if (process.platform === "win32" && service.active) await requestGatewayShutdown(config, token);
   await rotatePublisherToken(config);
-  console.log("Publisher token rotated. Restart the gateway and live OMP publishers to reconnect.");
+  if (service.installed && service.active) {
+    const replacementToken = await loadOrCreatePublisherToken(config);
+    await installUserService(config, replacementToken);
+    await waitForGateway(config.http.port);
+    console.log("Publisher token rotated. Active gateway restarted; live OMP publishers will reconnect.");
+  } else {
+    console.log("Publisher token rotated. Restart the gateway and live OMP publishers to reconnect.");
+  }
 }
 
 async function runServeGuidance(): Promise<void> {
