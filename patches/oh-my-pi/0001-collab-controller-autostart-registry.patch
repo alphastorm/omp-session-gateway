@@ -1680,10 +1680,10 @@ index 84a7dc00622d675fcd5d8b0db919156bda7ee382..0fa169eab061f6ac555da69685349f08
  		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..921e03c50e14fb5da3e656a46dba1fabae9b26ba
+index 0000000000000000000000000000000000000000..b40fb9e343d14ffe41c44bafb88337f2e9da78d7
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,531 @@
+@@ -0,0 +1,540 @@
 +import { expect, test, vi } from "bun:test";
 +import { createHmac, randomBytes } from "node:crypto";
 +import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -1709,6 +1709,7 @@ index 0000000000000000000000000000000000000000..921e03c50e14fb5da3e656a46dba1fab
 +}
 +interface AuthenticatedRegistryServer {
 +	readonly server: { stop(closeActiveConnections?: boolean): void };
++	readonly disconnect: () => void;
 +	readonly frames: Array<Record<string, unknown>>;
 +	readonly binding: () => AuthBinding | undefined;
 +	readonly upsertReceived: Promise<void>;
@@ -1794,10 +1795,14 @@ index 0000000000000000000000000000000000000000..921e03c50e14fb5da3e656a46dba1fab
 +	const frames: Array<Record<string, unknown>> = [];
 +	const upsertReceived = Promise.withResolvers<void>();
 +	let binding: AuthBinding | undefined;
++	let activeSocket: Bun.Socket<{ buffer: string }> | undefined;
 +	const server = Bun.listen<{ buffer: string }>({
 +		unix: endpoint,
 +		data: { buffer: "" },
 +		socket: {
++			open(socket) {
++				activeSocket = socket;
++			},
 +			data(socket, data) {
 +				socket.data.buffer += Buffer.from(data).toString("utf8");
 +				while (socket.data.buffer.includes("\n")) {
@@ -1833,6 +1838,9 @@ index 0000000000000000000000000000000000000000..921e03c50e14fb5da3e656a46dba1fab
 +	});
 +	return {
 +		server,
++		disconnect: () => {
++			activeSocket?.end();
++		},
 +		frames,
 +		binding: () => binding,
 +		upsertReceived: upsertReceived.promise,
@@ -2036,9 +2044,10 @@ index 0000000000000000000000000000000000000000..921e03c50e14fb5da3e656a46dba1fab
 +			reconnectScheduled.resolve(() => callback(...callbackArguments));
 +			return undefined as never;
 +		}) as unknown as typeof setTimeout);
++		first.disconnect();
++		const reconnect = await reconnectScheduled.promise;
 +		first.server.stop(true);
 +		firstStopped = true;
-+		const reconnect = await reconnectScheduled.promise;
 +		timeoutSpy.mockRestore();
 +
 +		if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
