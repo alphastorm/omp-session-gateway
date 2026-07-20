@@ -46,13 +46,12 @@ contain boolean results only. Tailscale Funnel remains unsupported.
 - Debian 13 arm64 systemd-container qualification: live user-service install/autostart, active PID replacement, private permissions, token rotation, and uninstall passed; this is not a bare-metal support claim.
 - Hosted Windows lifecycle qualification: GitHub Actions run `29715302992` passed config/token ACL checks, UTF-16 scheduled-task install/start, active health/status, atomic token rotation, authenticated exact-Origin graceful PID replacement, active reinstall, and process-clean uninstall.
 - Real desktop relay/browser acceptance: three patched interactive OMP processes auto-published; View was read-only, Control prompted and interrupted, `/new` advanced the live generation only after session replacement and the prior generation returned `409`; exited/crashed processes disappeared, secret-free leave navigation passed, and foreground/online events created fresh relay sockets.
-- GitHub private vulnerability reporting and immutable releases are enabled. The commit-pinned OIDC release workflow signs and attests the archive, SBOM, and checksum manifest; hosted provenance execution has not yet run.
+- Provenance-test release `provenance-test-v0.1.0.6` (GitHub Actions run `29715568204`) published the archive, SPDX inventory, checksum manifest, and three Sigstore bundles. Downloaded checksums, GitHub attestations, and all Cosign bundles verified independently against the tag and workflow identity. Private vulnerability reporting and immutable releases remain enabled.
 
 ## Remaining release blockers
 
 - qualify signed candidate artifacts, upgrade/rollback, reboot/login persistence, and native Linux;
 - complete the running eight-hour default-relay soak;
-- run physical Android install, lock/resume, radio/network-change, back-navigation, reconnect, View, Control, interrupt, and leak acceptance; and
-- execute and independently verify a provenance-test release.
+- run physical Android install, lock/resume, radio/network-change, back-navigation, reconnect, View, Control, interrupt, and leak acceptance.
 
 No operating system or Android release is advertised in `docs/COMPATIBILITY.md` until those gates pass.

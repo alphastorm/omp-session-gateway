@@ -51,6 +51,7 @@ gaps in the next section.
 | Real desktop OMP/browser acceptance | **PASS** | Three patched interactive OMP processes auto-published without `/collab`; Chrome 150 at `412 × 915` observed cards, View/Control separation, prompt, interrupt, process removal, safe leave, no URL/storage capability, and foreground/online transport replacement. A live `/new` revoked generation 1, published generation 2 after replacement, and left generation 1 unlaunchable (`409`). |
 | Private vulnerability reporting | **PASS** | GitHub repository private vulnerability reporting returned `enabled: true` on 2026-07-20. |
 | Deterministic SPDX inventory | **PASS** | Two release builds produced identical archive and SPDX 2.3 digests; `SHA256SUMS` verified both and the archive contains `SBOM.spdx.json`. |
+| Hosted signing and provenance | **PASS** | Provenance-test release `provenance-test-v0.1.0.6` (run `29715568204`) published the archive, SPDX inventory, checksum manifest, and three Sigstore bundles. Downloaded checksums, GitHub attestations, and all Cosign bundles verified independently. |
 
 The evidence date and caveats above come from the implementation handoff. A release candidate
 must rerun every applicable command from a clean checkout and attach the resulting CI/native
@@ -78,7 +79,7 @@ qualification records to the candidate tag.
 | Platform install/doctor/uninstall | **PARTIAL** | Full development-checkout flows passed on macOS, a Debian 13 systemd container, and hosted Windows; Windows included process-clean uninstall. | Qualify signed candidate artifacts on every advertised OS. |
 | Configuration migration and rollback | **PARTIAL** | Active reinstall/PID replacement passed on macOS, Linux, and hosted Windows; configuration and token ownership were preserved. | Execute explicit forward migration and rollback with candidate artifacts on each advertised host. |
 | Private vulnerability reporting | **PASS** | GitHub private vulnerability reporting is enabled and repository security guidance identifies the private path. | Reverify before publication. |
-| Release signing, SBOM, and provenance | **BLOCKED** | A least-privilege, commit-pinned OIDC workflow builds a deterministic SPDX 2.3 inventory and signs/attests every release artifact; local reproducibility passed and hosted Actions recovered for Windows qualification. No hosted provenance-test release has run. | Run a provenance-test tag and verify GitHub attestations, Cosign bundles, checksums, SBOM, and immutable release assets. |
+| Release signing, SBOM, and provenance | **PASS** | Provenance-test release `provenance-test-v0.1.0.6` (run `29715568204`) completed the commit-pinned OIDC workflow. Downloaded `SHA256SUMS`, all three GitHub attestations, and all three Cosign bundles verified against the tag and workflow identity. | Repeat at the candidate tag and verify immutable release assets before publication. |
 | Known limitations and exact compatibility matrix | **PASS** | This ledger and `COMPATIBILITY.md` state the pre-alpha boundary, exact OMP pin, unqualified platforms, and unsupported modes. | Keep both synchronized with every candidate. |
 | Self-hosted/proxied relay | **N/A** | Explicitly unsupported and deferred. | Do not advertise; a future release needs the dedicated WebSocket soak and a separate security qualification. |
 
