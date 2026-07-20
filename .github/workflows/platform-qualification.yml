@@ -32,7 +32,11 @@ jobs:
           git -C $upstream config core.autocrlf false
           git -C $upstream reset --hard HEAD
           if ($LASTEXITCODE -ne 0) { throw "OMP source line endings could not be normalized" }
-          git -C $upstream apply "$env:GITHUB_WORKSPACE\patches\oh-my-pi\0001-collab-controller-autostart-registry.patch"
+          $patchSource = "$env:GITHUB_WORKSPACE\patches\oh-my-pi\0001-collab-controller-autostart-registry.patch"
+          $normalizedPatch = "$env:RUNNER_TEMP\omp-session-gateway-omp.patch"
+          $patchText = [System.IO.File]::ReadAllText($patchSource).Replace("`r`n", "`n")
+          [System.IO.File]::WriteAllText($normalizedPatch, $patchText, [System.Text.UTF8Encoding]::new($false))
+          git -C $upstream apply $normalizedPatch
           if ($LASTEXITCODE -ne 0) { throw "OMP patch did not apply" }
           Push-Location $upstream
           try {
