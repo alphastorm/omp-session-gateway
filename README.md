@@ -60,6 +60,27 @@ The v1 path is therefore:
 - optional Trusted Web Activity packaging later; and
 - no independent native implementation of OMP's collaboration protocol.
 
+## How this differs from `omp-deck`
+
+[OMP Session Gateway](https://github.com/alphastorm/omp-session-gateway) and
+[`omp-deck`](https://libraries.io/npm/omp-deck) address different workflows rather than competing
+for the same product boundary. The comparison below reflects `omp-deck` 0.6.0's published package
+description; check its current documentation before choosing.
+
+| | OMP Session Gateway | `omp-deck` 0.6.0 |
+|---|---|---|
+| Primary job | Private, zero-touch discovery and launch for already-running interactive terminal OMP processes | A browser cockpit that embeds the OMP SDK and owns the surrounding agent workflow |
+| Session experience | Opens OMP's existing encrypted `collab-web` client for View or Control | Provides its own multi-session chat surface |
+| Additional state | Keeps only live session metadata and capabilities in daemon memory; does not store transcripts | Adds persisted sessions plus kanban, inbox, knowledge-base, routines, marketplace, and messaging features |
+| Remote-access opinion | Loopback gateway behind Tailscale Serve with an exact identity allowlist; no public fallback | Loopback by default, with Tailscale, SSH tunnel, or an authenticated reverse proxy described by its package documentation |
+| Best fit | The terminal remains the source of truth and the phone needs the smallest possible session directory and capability broker | The browser should be a persistent work cockpit with project-management and automation features around the agent |
+
+Choose OMP Session Gateway when the desired change is narrowly: “make every current terminal OMP
+session safely reachable from my phone without copying links.” Choose `omp-deck` when the desired
+change is a broader browser-first operating environment for agent work. The gateway is intentionally
+not a chat rewrite, task system, routine engine, knowledge base, or messaging hub; reusing
+`collab-web` is the point.
+
 ## Security model
 
 OMP collaboration links are bearer capabilities. The implementation treats both view and control links as secrets.
