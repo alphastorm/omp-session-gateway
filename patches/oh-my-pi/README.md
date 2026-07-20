@@ -21,8 +21,11 @@ bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/config/collab-settings.test.ts
 ```
 
-The gateway repository verifies the controller and publisher tests against a source fixture. A maintainer
-must run the full OMP coding-agent suite after applying the patch in a complete upstream checkout.
+The patch was applied and qualified in a complete checkout at the pinned commit. `bun run ci:check:full`
+passed. Every official TypeScript test bucket passed after temporarily excluding 32 failures reproduced in
+an untouched checkout: two Python completion bridge cases, one Python shortcut case, one UTC/local-date
+logger assertion, and the intermittently failing 28-test auto-compaction suite. Qualification-only skips
+were restored before regenerating this patch.
 
 No upstream PR or fork commit exists yet. Rebase by revalidating the paths in `UPSTREAM.lock.json`, applying
 with `git apply --3way`, resolving only narrow collaboration conflicts, then rerunning all listed and

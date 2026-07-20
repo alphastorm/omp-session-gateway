@@ -23,6 +23,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Replaced handoff-only `bun run check` with TypeScript, browser/client build, full test, handoff, and capability-leak gates.
 - Pinned the research baseline to OMP commit `39c95e5e29b1c8b082059f57421ce445c3dffdd4` (nearest release v17.0.5).
 - Kept all platform and Android support entries unadvertised until real-device and cross-OS acceptance passes.
+- Qualified the OMP patch in a complete pinned upstream checkout; the full upstream check passed and every test bucket passed outside baseline failures reproduced without the patch.
 
 ### Fixed
 

@@ -38,13 +38,13 @@ contain boolean results only. Tailscale Funnel remains unsupported.
 - `bun audit`: no vulnerabilities found.
 - `git apply --check patches/oh-my-pi/0001-collab-controller-autostart-registry.patch` against the pinned fixture: passed.
 - OMP patch lifecycle fixtures: nine controller/publisher tests passed; all six touched OMP entry points syntax-compiled.
+- Full-checkout OMP qualification: `bun run ci:check:full` passed. Every official TypeScript test bucket passed after temporarily excluding 32 upstream-baseline-sensitive tests: two Python completion bridge cases and one Python shortcut case that return cancelled results in an untouched worktree, one UTC/local-date logger case that fails in the untouched worktree during the UTC date boundary, and the 28-test auto-compaction suite whose timing failure reproduced 4/140 times in an untouched worktree. The exclusions were restored after the run; no qualification-only changes are in the patch.
 - `bun scripts/build-release.ts` run twice: byte-identical archive checksum.
 - Extracted release smoke: repeated `install --no-start` was idempotent with two normalized allowlist entries; diagnostics bundle creation and `uninstall --no-stop` behaved as documented.
 - Chromium at 412 × 915: three synthetic sessions rendered without visual overflow; SSE remained ready across a 26-second keepalive observation; stale launch returned `409`; valid launch was `no-store`; the client scrubbed its handoff URL; Local Storage, Session Storage, IndexedDB, history state, and service-worker cache contained no capability; publisher socket close removed all cards promptly.
 
 ## Remaining release blockers
 
-- run the complete patch in a full upstream OMP checkout;
 - qualify install, permissions, autostart, diagnostics, token rotation, upgrade, and uninstall on Linux, macOS, and Windows;
 - run real Tailscale Serve allow/deny tests, LAN/public reachability tests, and relay connectivity/soak tests;
 - run Android install, lock/resume, network-change, back-navigation, reconnect, View, Control, and interrupt acceptance;
