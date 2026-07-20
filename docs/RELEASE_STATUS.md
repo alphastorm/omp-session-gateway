@@ -1,15 +1,15 @@
 # Release status
 
 **Updated:** 2026-07-20  
-**Repository version:** `0.1.0` (unreleased)  
+**Repository version:** `0.1.0` (provenance-test artifact only; no alpha)  
 **Classification:** implemented pre-alpha  
 **Alpha decision:** **NO-GO**  
 **Advertised host/client platforms:** none
 
-The repository implements the intended v1 path and can build a deterministic Bun-runtime
-archive. It is not production-qualified, no alpha artifact is approved for publication, and no
-operating system, browser, or Android device is currently supported. Repository commits and
-locally built archives are engineering inputs for qualification only.
+The repository implements the intended v1 path and publishes a deterministic Bun-runtime
+archive only as a provenance exercise. It is not production-qualified, no alpha artifact is
+approved for publication, and no operating system, browser, or Android device is currently
+supported. Repository commits and provenance-test archives are engineering inputs for qualification only.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
@@ -52,19 +52,19 @@ gaps in the next section.
 | Default-relay endurance soak | **PASS** | A read-only `GuestClient` remained connected for 28,804 seconds, observed three phase transitions, and completed with `finalPhase: "live"`. |
 | Private vulnerability reporting | **PASS** | GitHub repository private vulnerability reporting returned `enabled: true` on 2026-07-20. |
 | Deterministic SPDX inventory | **PASS** | Two release builds produced identical archive and SPDX 2.3 digests; `SHA256SUMS` verified both and the archive contains `SBOM.spdx.json`. |
-| Hosted signing and provenance | **PASS** | Provenance-test release `provenance-test-v0.1.0.6` (run `29715568204`) published the archive, SPDX inventory, checksum manifest, and three Sigstore bundles. Downloaded checksums, GitHub attestations, and all Cosign bundles verified independently. |
+| Hosted signing and provenance | **PASS** | [`provenance-test-v0.1.0.7`](https://github.com/alphastorm/omp-session-gateway/releases/tag/provenance-test-v0.1.0.7) at commit `21ce8aab095b69bddf3152e28766f25c0f594cfd` ([run `29736223435`](https://github.com/alphastorm/omp-session-gateway/actions/runs/29736223435)) published six immutable-release-attested assets. Downloaded checksums, all three GitHub build attestations, all three Cosign bundles, and every release asset verified independently; a clean local rebuild was byte-identical. |
 | Repository security controls | **PASS** | Private vulnerability reporting, dependency alerts and automated security updates, secret scanning and push protection, and immutable releases are enabled. `main` requires signed commits, pull requests, current implementation/Windows checks, resolved conversations, and blocks force-pushes and deletion. |
 
-The evidence date and caveats above come from the implementation handoff. A release candidate
-must rerun every applicable command from a clean checkout and attach the resulting CI/native
-qualification records to the candidate tag.
+The evidence date and caveats above come from the implementation handoff and the current
+provenance-test artifact. Every later candidate must rerun the applicable clean-checkout CI and
+native qualification and attach those records to its tag.
 
 ## Alpha gate ledger
 
 | Release gate | Status | Evidence or missing proof | Required to close |
 |---|---|---|---|
 | Exact OMP and collab-web provenance | **PASS** | Immutable source commit, package versions, relevant paths, local integration, and patch are recorded in `UPSTREAM.lock.json` and `packages/collab-client/upstream/UPSTREAM.json`. | Revalidate unchanged data at the candidate tag. |
-| Repository automated suite | **PASS** | Typechecks, production asset builds, unit/integration tests, handoff checks, and the repository leak scanner passed. | Rerun from clean CI at the candidate tag. |
+| Repository automated suite | **PASS** | Typechecks, production asset builds, 78 unit/integration tests, handoff checks, and the repository leak scanner passed again in the tag-triggered release workflow. | Repeat from clean CI for every subsequent candidate. |
 | OMP patch compatibility | **PASS** | The final patch applies cleanly; 31 lifecycle/slash-command fixtures, coding-agent package typecheck, full-checkout checks, and all official TypeScript test buckets passed with documented baseline exclusions restored afterward. | Rerun from the exact pin at the candidate tag; do not broaden the OMP range. |
 | Capability non-persistence | **PARTIAL** | Automated scans and desktop Chromium storage/history/cache checks passed. | Complete Android lifecycle checks and scan release CI artifacts, recordings, diagnostics, browser state, and all forbidden sinks with canary capabilities. |
 | Loopback-only exposure | **PARTIAL** | macOS listener inspection and direct LAN/Tailscale-IP connection attempts proved the development checkout loopback-only. | Repeat with every signed candidate artifact and qualified host OS. |
@@ -81,7 +81,7 @@ qualification records to the candidate tag.
 | Platform install/doctor/uninstall | **PARTIAL** | Full development-checkout flows passed on macOS, a Debian 13 systemd container, and hosted Windows; Windows included process-clean uninstall. | Qualify signed candidate artifacts on every advertised OS. |
 | Configuration migration and rollback | **PARTIAL** | Active reinstall/PID replacement passed on macOS, Linux, and hosted Windows; configuration and token ownership were preserved. | Execute explicit forward migration and rollback with candidate artifacts on each advertised host. |
 | Private vulnerability reporting | **PASS** | GitHub private vulnerability reporting is enabled and repository security guidance identifies the private path. | Reverify before publication. |
-| Release signing, SBOM, and provenance | **PARTIAL** | Provenance-test release `provenance-test-v0.1.0.6` (run `29715568204`) verified the commit-pinned OIDC workflow, checksums, attestations, and Cosign bundles. Current source additionally archives the exact `bun.lock` plus SHA-256, the embedded SPDX inventory, reviewed license texts, and the distributed OMP coding-agent patch component; that hardened artifact has not been published from a candidate tag. | Build from a clean immutable candidate tag, then verify all assets, the archived lock digest, SPDX component inventory, GitHub attestations, and Cosign bundles before publication. |
+| Release signing, SBOM, and provenance | **PASS** | `provenance-test-v0.1.0.7` verified the protected tag workflow and current hardened payload: archive `41abc575e5b5b598b5224b0912ac260ae6c114c43ce3d93a430394568fa12f86`, SPDX inventory `d17758bd292813db01cfd32cccf534c8fbbe1f34825d31c35b394b4c2b03cda6`, and checksum manifest `81877cce35515fec13eb033999a738bb4b61a24e4633ceb46759c68cc931bb36`. The archive records the exact source commit and `bun.lock` digest, includes reviewed licenses and the distributed OMP patch, and its SBOM identifies that patch component. All six immutable release assets, three GitHub attestations, and three Cosign bundles verified; a local rebuild matched all payload digests. | Repeat for every subsequent candidate; this PASS does not qualify a host or Android client. |
 | Known limitations and exact compatibility matrix | **PASS** | This ledger and `COMPATIBILITY.md` state the pre-alpha boundary, exact OMP pin, unqualified platforms, and unsupported modes. | Keep both synchronized with every candidate. |
 | Self-hosted/proxied relay | **N/A** | Explicitly unsupported and deferred. | Do not advertise; a future release needs the dedicated WebSocket soak and a separate security qualification. |
 
@@ -89,15 +89,17 @@ qualification records to the candidate tag.
 
 The alpha decision remains **NO-GO** until, at minimum:
 
-1. at least one proposed host platform passes its complete native lifecycle and security matrix;
-2. real Tailscale Serve authorization and LAN/public isolation pass on that platform;
-3. a real Android device passes install, automatic discovery, View, Control, interrupt,
+1. at least one proposed host platform passes its complete native lifecycle and security matrix
+   from the signed candidate artifact, including reboot/login persistence, upgrade, rollback,
+   diagnostics, token rotation, and uninstall;
+2. real Tailscale Serve authorization and LAN/public isolation pass from distinct allowed and
+   denied devices against that candidate host;
+3. a physical Android device passes install, automatic discovery, View, Control, interrupt,
    generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak checks;
-4. the default OMP relay path passes the applicable connectivity/soak scenarios;
-5. upgrade, rollback, diagnostics, token rotation, and uninstall pass for every advertised host;
-6. release artifacts are produced by protected CI with checksums, SBOM/dependency inventory,
-   signing or documented provenance, and a clean canary leak scan;
-7. private vulnerability reporting is enabled and verified.
+4. the candidate OMP path passes switch, branch, resume, crash-by-TTL, and applicable default-relay
+   connectivity scenarios without exposing a stale capability; and
+5. every advertised host/client combination completes its candidate-artifact capability-leak
+   acceptance across all forbidden sinks.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.
 It does not promote untested rows or broaden the pinned OMP range.
