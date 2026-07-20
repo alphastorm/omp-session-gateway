@@ -100,7 +100,7 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=provenance-test-v0.1.0.8
+TAG=provenance-test-v0.1.0.9
 ARCHIVE=omp-session-gateway-0.1.0-bun.tar
 SBOM=omp-session-gateway-0.1.0.spdx.json
 
