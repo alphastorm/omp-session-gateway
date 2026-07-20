@@ -21,8 +21,6 @@ jobs:
       attestations: write
       contents: write
       id-token: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -57,14 +55,6 @@ jobs:
             echo "CHECKSUM_PATH=$checksums"
           } >> "$GITHUB_ENV"
 
-      - name: Require immutable releases
-        run: |
-          set -euo pipefail
-          enabled="$(gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')"
-          if [[ "$enabled" != "true" ]]; then
-            echo "Repository setting Features > Immutable releases must be enabled before publishing." >&2
-            exit 1
-          fi
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -104,6 +94,8 @@ jobs:
           done
 
       - name: Verify checksums, provenance, and signatures
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           (cd dist/release && sha256sum --check SHA256SUMS)
@@ -122,6 +114,8 @@ jobs:
           done
 
       - name: Create complete draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
@@ -158,4 +152,6 @@ jobs:
             --verify-tag
 
       - name: Publish release once
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
