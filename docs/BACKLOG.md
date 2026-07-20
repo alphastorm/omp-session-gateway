@@ -25,7 +25,7 @@
 - [ ] Session metadata aliases/favorites.
 - [ ] Per-session control policy rules.
 - [ ] More granular tailnet/device posture guidance.
-- [ ] Signed release artifacts, SBOM, and provenance.
+- [x] Keyless signed release artifacts, deterministic SPDX SBOM, and provenance workflow.
 - [ ] Separately threat-modeled signed update mechanism.
 
 ## Later / optional
