@@ -15,7 +15,8 @@
     "build": "bun run --filter '@omp-session-gateway/web' build",
     "test": "bun test",
     "check:capability-leaks": "bun scripts/check-capability-leaks.ts",
-    "release:build": "bun scripts/build-release.ts"
+    "release:build": "bun scripts/build-release.ts",
+    "qualify:relay-soak": "bun scripts/relay-soak.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

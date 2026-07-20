@@ -24,6 +24,26 @@ Before publishing an alpha binary:
 - configuration and upgrade behavior are documented;
 - known limitations are listed prominently.
 
+## Default-relay soak qualification
+
+Keep a patched OMP process and the gateway running, then exercise a view-only client for the default
+eight hours:
+
+```sh
+OMP_GATEWAY_SOAK_PUBLIC_ORIGIN=https://gateway.example.ts.net \
+OMP_GATEWAY_SOAK_TAILSCALE_LOGIN=user@example.com \
+bun run qualify:relay-soak
+```
+
+The harness sends identity headers and receives the launch capability only through a numeric loopback
+gateway origin, requires `no-store` metadata and launch responses, never prints the capability, and
+fails if the collaboration client ends or is not live at completion. Set
+`OMP_GATEWAY_SOAK_INSTANCE_ID` to select one published session. `OMP_GATEWAY_SOAK_SECONDS` may shorten
+a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
+long-lived relay scenario. Record the gateway commit, pinned OMP commit/patch, output JSON, final
+gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
+required before claiming bounded memory growth.
+
 ## Build and keyless provenance
 
 The release workflow accepts only tags matching the current `package.json` version:
