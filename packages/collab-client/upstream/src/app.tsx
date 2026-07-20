@@ -107,6 +107,38 @@ export function App({ capability, onDispose }: AppProps): ReactNode {
 	}, [capability, connect]);
 
 	useEffect(() => {
+		if (!client) return;
+		let wasHidden = document.visibilityState === "hidden";
+		let lastRefreshAt = 0;
+		const refresh = (): void => {
+			const now = Date.now();
+			if (now - lastRefreshAt < 500) return;
+			lastRefreshAt = now;
+			client.refreshConnection();
+		};
+		const visibilityChanged = (): void => {
+			if (document.visibilityState === "hidden") {
+				wasHidden = true;
+				return;
+			}
+			if (!wasHidden) return;
+			wasHidden = false;
+			refresh();
+		};
+		const pageShown = (event: PageTransitionEvent): void => {
+			if (event.persisted) refresh();
+		};
+		window.addEventListener("online", refresh);
+		window.addEventListener("pageshow", pageShown);
+		document.addEventListener("visibilitychange", visibilityChanged);
+		return () => {
+			window.removeEventListener("online", refresh);
+			window.removeEventListener("pageshow", pageShown);
+			document.removeEventListener("visibilitychange", visibilityChanged);
+		};
+	}, [client]);
+
+	useEffect(() => {
 		if (!client) document.title = "OMP collaboration";
 	}, [client]);
 

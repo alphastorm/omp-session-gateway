@@ -10,6 +10,8 @@
   "localPatches": [
     "Direct in-memory App capability prop; no capability URL/hash writes",
     "One-time same-origin MessageChannel bootstrap",
-    "Return to the gateway directory on leave or reload"
+    "Return to the gateway directory on leave or reload",
+    "Force a fresh relay transport after mobile foreground and online transitions",
+    "Preserve strict exact-optional typing for view links without a write token"
   ]
 }

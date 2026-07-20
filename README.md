@@ -2,7 +2,7 @@
 
 **Secure, zero-touch mobile access to every running Oh My Pi session.**
 
-> **Project status: implemented pre-alpha, not production-qualified.** The daemon, authenticated IPC registry, PWA, pinned collaboration client, management CLI, service definitions, release builder, tests, and OMP patch are present. Real Android, Tailscale, relay, and cross-OS acceptance gates remain unqualified.
+> **Project status: implemented pre-alpha, not production-qualified.** The daemon, authenticated IPC registry, PWA, pinned collaboration client, management CLI, service definitions, release builder, tests, and OMP patch are present. Real Android, Tailscale, relay, and cross-OS acceptance gates remain unqualified. See the [release gate ledger](docs/RELEASE_STATUS.md) and [compatibility matrix](docs/COMPATIBILITY.md).
 
 OMP Session Gateway is a local-first companion for [Oh My Pi](https://github.com/can1357/oh-my-pi) (OMP). After one-time setup, it automatically discovers collaboration endpoints for every live interactive OMP process on a computer and presents them through a private, mobile-first Progressive Web App (PWA).
 

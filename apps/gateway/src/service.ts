@@ -46,11 +46,16 @@ export function serviceDefinition(config: GatewayConfig, platform = process.plat
     };
   }
   if (platform === "win32") {
-    const command = argv.map(value => `&quot;${xmlEscape(value)}&quot;`).join(" ");
+    const executable = argv[0];
+    if (executable === undefined) throw new Error("service executable is unavailable");
+    const argumentsXml = argv
+      .slice(1)
+      .map(value => `&quot;${xmlEscape(value)}&quot;`)
+      .join(" ");
     return {
       identifier: "omp-session-gateway",
       path: join(config.paths.configDir, "omp-session-gateway-task.xml"),
-      content: `<?xml version="1.0" encoding="UTF-8"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>cmd.exe</Command><Arguments>/d /s /c &quot;${command}&quot;</Arguments></Exec></Actions>\n</Task>\n`,
+      content: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><AllowHardTerminate>true</AllowHardTerminate><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>${xmlEscape(executable)}</Command><Arguments>${argumentsXml}</Arguments></Exec></Actions>\n</Task>\n`,
     };
   }
   throw new Error(`unsupported platform: ${platform}`);
@@ -71,6 +76,39 @@ async function commandSucceeds(command: readonly string[]): Promise<boolean> {
     return false;
   }
 }
+export async function requestGatewayShutdown(config: GatewayConfig, token: string): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${config.http.port}/_internal/v1/shutdown`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: config.http.publicOrigin,
+        "Sec-Fetch-Site": "same-origin",
+      },
+      signal: AbortSignal.timeout(2_000),
+    });
+  } catch {
+    return false;
+  }
+  if (response.status !== 202) throw new Error("running gateway rejected authenticated shutdown");
+  await response.arrayBuffer();
+  const deadline = Date.now() + 7_500;
+  while (Date.now() < deadline) {
+    try {
+      const health = await fetch(`http://127.0.0.1:${config.http.port}/api/v1/health`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(500),
+      });
+      await health.arrayBuffer();
+    } catch {
+      return true;
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error("running gateway did not stop");
+}
+
 
 async function bootstrapLaunchAgent(domain: string, path: string): Promise<void> {
   let lastError: unknown;
@@ -121,10 +159,18 @@ export async function userServiceStatus(config: GatewayConfig): Promise<UserServ
   return { installed, active };
 }
 
-export async function installUserService(config: GatewayConfig, activate = true): Promise<ServiceDefinition> {
+export async function installUserService(
+  config: GatewayConfig,
+  token: string,
+  activate = true,
+): Promise<ServiceDefinition> {
   const definition = serviceDefinition(config);
   await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
-  await writeFile(definition.path, definition.content, { encoding: "utf8", mode: 0o600 });
+  const serialized =
+    process.platform === "win32"
+      ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(definition.content, "utf16le")])
+      : definition.content;
+  await writeFile(definition.path, serialized, { mode: 0o600 });
   if (process.platform !== "win32") await chmod(definition.path, 0o600);
   if (!activate) return definition;
   if (process.platform === "linux") {
@@ -138,6 +184,7 @@ export async function installUserService(config: GatewayConfig, activate = true)
     await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path);
   } else {
     if (await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"])) {
+      await requestGatewayShutdown(config, token);
       await commandSucceeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
     }
     await run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
@@ -146,7 +193,7 @@ export async function installUserService(config: GatewayConfig, activate = true)
   return definition;
 }
 
-export async function uninstallUserService(config: GatewayConfig, deactivate = true): Promise<void> {
+export async function uninstallUserService(config: GatewayConfig, token: string, deactivate = true): Promise<void> {
   const definition = serviceDefinition(config);
   const status = await userServiceStatus(config);
   if (deactivate) {
@@ -159,6 +206,7 @@ export async function uninstallUserService(config: GatewayConfig, deactivate = t
         await run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
       }
     } else if (status.installed) {
+      if (status.active) await requestGatewayShutdown(config, token);
       await run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
     }
   }
