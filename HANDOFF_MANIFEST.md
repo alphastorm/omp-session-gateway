@@ -42,7 +42,7 @@ and pre-authentication frame buffers are scrubbed when their lifetimes end.
 
 ## Validation performed
 
-- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 82 tests with 328 assertions across 16 files, and the capability-leak scan passed.
+- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 83 tests with 336 assertions across 16 files, and the capability-leak scan passed. The IPC suite now regression-tests three concurrent same-PID publishers, a capacity-rejected fourth connection, rapid heartbeat/generation activity, per-owner isolation, and socket-close cleanup.
 - `bun audit`: no vulnerabilities found.
 - `git apply --check patches/oh-my-pi/0001-collab-controller-autostart-registry.patch` against the pinned fixture: passed.
 - OMP patch lifecycle fixtures: 34 controller/publisher/settings/session-ordering/slash-command tests passed in isolation-safe invocations, including the pinned mutual-HMAC vector, fake-server capability-withholding, and legitimate-server exchange; the full coding-agent package typecheck passed.
