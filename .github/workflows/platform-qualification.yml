@@ -29,6 +29,9 @@ jobs:
         shell: pwsh
         run: |
           $upstream = "$env:GITHUB_WORKSPACE\.qualification\oh-my-pi"
+          git -C $upstream config core.autocrlf false
+          git -C $upstream reset --hard HEAD
+          if ($LASTEXITCODE -ne 0) { throw "OMP source line endings could not be normalized" }
           git -C $upstream apply "$env:GITHUB_WORKSPACE\patches\oh-my-pi\0001-collab-controller-autostart-registry.patch"
           if ($LASTEXITCODE -ne 0) { throw "OMP patch did not apply" }
           Push-Location $upstream
