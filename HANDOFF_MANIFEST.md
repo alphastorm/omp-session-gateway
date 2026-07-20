@@ -38,7 +38,7 @@ current pointers are verified or restored across version upgrades.
 
 ## Validation performed
 
-- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 78 tests across 14 files, and the capability-leak scan passed.
+- `bun run check`: handoff validation, all four workspace typechecks, production web/client build, 80 tests across 15 files, and the capability-leak scan passed.
 - `bun audit`: no vulnerabilities found.
 - `git apply --check patches/oh-my-pi/0001-collab-controller-autostart-registry.patch` against the pinned fixture: passed.
 - OMP patch lifecycle fixtures: 31 controller/publisher/settings/session-ordering/slash-command tests passed in isolation-safe invocations; the full coding-agent package typecheck passed.
@@ -51,7 +51,7 @@ current pointers are verified or restored across version upgrades.
 - Debian 13 arm64 systemd-container qualification: live user-service install/autostart, active PID replacement, private permissions, token rotation, and uninstall passed; this is not a bare-metal support claim.
 - Hosted Windows lifecycle qualification: GitHub Actions run `29728466089` passed config/token ACL checks, current-user publisher access plus cross-user publisher-write denial, UTF-16 scheduled-task install/start, active health/status, atomic token rotation with graceful PID replacement, idempotent active reinstall, and process-clean uninstall.
 - Real desktop relay/browser acceptance: three patched interactive OMP processes auto-published; View was read-only, Control prompted and interrupted, `/new` advanced the live generation only after session replacement and the prior generation returned `409`; exited/crashed processes disappeared, secret-free leave navigation passed, and foreground/online events created fresh relay sockets.
-- Default-relay endurance qualification: a read-only `GuestClient` remained live for 28,804 seconds, completed with three expected phase transitions, and reported `finalPhase: "live"`.
+- Default-relay endurance qualification: a read-only `GuestClient` against gateway checkout HEAD `6e32bd98386a1ac2c04987bed3476c492a2b2e51` and the pinned OMP baseline plus repository patch remained live for 28,804 seconds, completed with three expected phase transitions, and reported `finalPhase: "live"`; final gateway RSS was 44,384 KiB. The checked-in `bun run qualify:relay-soak` harness reproduced the final-live path in a one-second smoke run.
 - Provenance-test release `provenance-test-v0.1.0.6` (GitHub Actions run `29715568204`) published the archive, SPDX inventory, checksum manifest, and three Sigstore bundles. Downloaded checksums, GitHub attestations, and all Cosign bundles verified independently against the tag and workflow identity. That tag predates the current lock-digest and distributed-patch inventory hardening, which must be rerun on a candidate tag. Private vulnerability reporting, dependency alerts/security updates, secret scanning/push protection, immutable releases, and protected signed-commit `main` are enabled.
 
 ## Remaining release blockers

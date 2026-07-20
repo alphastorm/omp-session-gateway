@@ -20,6 +20,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Unit/integration coverage for protocol, registry, IPC, HTTP authorization and launch, config permissions, services, diagnostics, and capability leaks.
 - Explicit compatibility/support matrices and a release-status gate ledger separating implemented, smoke-tested, qualified, and supported claims.
 - Protected `main` with signed commits, pull-request/CI gates, immutable releases, dependency alerts, automated security updates, secret scanning, and push protection.
+- Loopback-only, no-store-enforcing default-relay soak harness with bounded duration and secret-free results.
 
 ### Changed
 
