@@ -299,8 +299,10 @@ This mode is a migration path, not the desired final architecture.
 ## 7. Revisions and races
 
 - Each registry mutation increments a daemon-wide revision.
+- A client starts a new directory epoch by aborting any prior snapshot, closing its prior SSE source, fetching one authenticated snapshot, and only then opening SSE.
+- Within one connected epoch, a response or event with a lower revision is ignored. Duplicate same-revision snapshots remain idempotent.
+- An SSE transport failure clears displayed metadata immediately. A successful reconnect resets revision ordering before its initial snapshot because a daemon restart resets both revision and registry state.
 - Launch requests carry the generation observed in the metadata response.
 - A mismatch never returns a capability.
 - Expired and removed records are indistinguishable to remote callers.
 - A session removed while a client page is opening closes or resets that page with a generic message.
-- Daemon restart resets revision and registry state; clients fetch a new snapshot.

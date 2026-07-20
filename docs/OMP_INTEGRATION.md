@@ -67,6 +67,10 @@ Semantics:
 
 Keep `relayUrl`, `webUrl`, and `displayName` behavior unchanged.
 
+The current pre-alpha patch enables registry publication only on POSIX. Windows publication fails
+closed until the publisher can authenticate the named-pipe server and resist namespace squatting;
+a client ACL and first-frame publisher token authenticate only the client, not the server.
+
 ## 3. Process identity and generations
 
 - Create a cryptographically random `instanceId` once per OMP process.
@@ -103,6 +107,9 @@ Rules:
 - Re-send the current upsert after reconnect.
 - Send remove before an orderly stop. Do not block process exit indefinitely; cap shutdown flush.
 - If token/endpoint files have unsafe permissions, disable publication and surface one concise security error.
+- Before reading capabilities on POSIX, require a current-user-owned socket in a current-user-owned private parent directory.
+- Track the pending socket, enforce a bounded hello handshake, and cancel it on shutdown before it can install heartbeat state.
+- On Windows, fail closed until client-side named-pipe server authentication is implemented and qualified.
 
 ## 5. Session changes
 
@@ -127,6 +134,7 @@ Expected behavior:
 - `/collab view`: show current view link.
 - `/collab stop`: stop and unregister. Decide whether auto-start remains suspended for the rest of that process; recommended behavior is **manual stop suspends auto-restart until the next active-session generation or an explicit `/collab`**. Document this.
 - an explicit relay URL passed to `/collab`: restart through the controller and republish the replacement generation.
+- changing View/Control publication mode on the current relay must revoke the prior registry record before republishing the requested mode.
 - status includes whether the session is published to the session gateway, but never logs the link.
 
 ## 7. Future extension API (optional follow-up)

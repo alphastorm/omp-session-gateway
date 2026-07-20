@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GatewayConfig } from "./config.ts";
+type ServicePathConfig = Pick<GatewayConfig, "paths">;
 
 export interface ServiceDefinition {
   readonly identifier: "omp-session-gateway";
@@ -15,20 +16,30 @@ export interface UserServiceStatus {
   readonly active: boolean;
 }
 
-function serviceArgv(): readonly string[] {
+function serviceArgv(installedCli?: string, readinessInstance?: string): readonly string[] {
   const fallbackSource = fileURLToPath(new URL("./cli.ts", import.meta.url));
-  const cliSource = resolve(process.argv[1] ?? fallbackSource);
-  return basename(process.execPath).startsWith("bun")
+  const cliSource = resolve(installedCli ?? process.argv[1] ?? fallbackSource);
+  const argv = basename(process.execPath).startsWith("bun")
     ? [process.execPath, cliSource, "serve"]
     : [process.execPath, "serve"];
+  if (readinessInstance !== undefined) argv.push("--readiness-instance", readinessInstance);
+  return argv;
 }
 
 function xmlEscape(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-export function serviceDefinition(config: GatewayConfig, platform = process.platform): ServiceDefinition {
-  const argv = serviceArgv();
+export function serviceDefinition(
+  config: ServicePathConfig,
+  platform = process.platform,
+  installedCli?: string,
+  readinessInstance?: string,
+): ServiceDefinition {
+  if (readinessInstance !== undefined && !/^[A-Za-z0-9_-]{43}$/u.test(readinessInstance)) {
+    throw new Error("invalid service readiness instance");
+  }
+  const argv = serviceArgv(installedCli, readinessInstance);
   if (platform === "linux") {
     const command = argv.map(value => JSON.stringify(value)).join(" ");
     return {
@@ -42,7 +53,7 @@ export function serviceDefinition(config: GatewayConfig, platform = process.plat
     return {
       identifier: "omp-session-gateway",
       path: join(homedir(), "Library", "LaunchAgents", "omp-session-gateway.plist"),
-      content: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key><string>omp-session-gateway</string>\n    <key>ProgramArguments</key>\n    <array>\n${argumentsXml}\n    </array>\n    <key>RunAtLoad</key><true/>\n    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n    <key>ProcessType</key><string>Background</string>\n    <key>StandardOutPath</key><string>${xmlEscape(join(config.paths.stateDir, "gateway.log"))}</string>\n    <key>StandardErrorPath</key><string>${xmlEscape(join(config.paths.stateDir, "gateway-error.log"))}</string>\n  </dict>\n</plist>\n`,
+      content: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key><string>omp-session-gateway</string>\n    <key>ProgramArguments</key>\n    <array>\n${argumentsXml}\n    </array>\n    <key>RunAtLoad</key><true/>\n    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n    <key>ProcessType</key><string>Background</string>\n    <key>StandardOutPath</key><string>/dev/null</string>\n    <key>StandardErrorPath</key><string>/dev/null</string>\n  </dict>\n</plist>\n`,
     };
   }
   if (platform === "win32") {
@@ -76,38 +87,6 @@ async function commandSucceeds(command: readonly string[]): Promise<boolean> {
     return false;
   }
 }
-export async function requestGatewayShutdown(config: GatewayConfig, token: string): Promise<boolean> {
-  let response: Response;
-  try {
-    response = await fetch(`http://127.0.0.1:${config.http.port}/_internal/v1/shutdown`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Origin: config.http.publicOrigin,
-        "Sec-Fetch-Site": "same-origin",
-      },
-      signal: AbortSignal.timeout(2_000),
-    });
-  } catch {
-    return false;
-  }
-  if (response.status !== 202) throw new Error("running gateway rejected authenticated shutdown");
-  await response.arrayBuffer();
-  const deadline = Date.now() + 7_500;
-  while (Date.now() < deadline) {
-    try {
-      const health = await fetch(`http://127.0.0.1:${config.http.port}/api/v1/health`, {
-        redirect: "error",
-        signal: AbortSignal.timeout(500),
-      });
-      await health.arrayBuffer();
-    } catch {
-      return true;
-    }
-    await Bun.sleep(100);
-  }
-  throw new Error("running gateway did not stop");
-}
 
 
 async function bootstrapLaunchAgent(domain: string, path: string): Promise<void> {
@@ -132,8 +111,33 @@ async function fileExists(path: string): Promise<boolean> {
     return false;
   }
 }
+async function windowsTaskActive(): Promise<boolean> {
+  return commandSucceeds([
+    "powershell.exe",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "if ((Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction Stop).State -eq 'Running') { exit 0 } else { exit 1 }",
+  ]);
+}
 
-export async function userServiceStatus(config: GatewayConfig): Promise<UserServiceStatus> {
+export async function assertServiceInstallPreflight(activate: boolean): Promise<void> {
+  if (process.platform === "win32" && !activate && (await windowsTaskActive())) {
+    throw new Error("cannot replace an active Windows service with --no-start");
+  }
+}
+
+async function stopWindowsTask(): Promise<void> {
+  await commandSucceeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
+  const deadline = Date.now() + 7_500;
+  while (Date.now() < deadline) {
+    if (!(await windowsTaskActive())) return;
+    await Bun.sleep(100);
+  }
+  throw new Error("running gateway task did not stop");
+}
+
+export async function userServiceStatus(config: ServicePathConfig): Promise<UserServiceStatus> {
   const definition = serviceDefinition(config);
   const definitionExists = await fileExists(definition.path);
   if (process.platform === "linux") {
@@ -147,24 +151,18 @@ export async function userServiceStatus(config: GatewayConfig): Promise<UserServ
     return { installed: definitionExists, active: await commandSucceeds(["launchctl", "print", target]) };
   }
   const installed = await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]);
-  const active =
-    installed &&
-    (await commandSucceeds([
-      "powershell.exe",
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "if ((Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction Stop).State -eq 'Running') { exit 0 } else { exit 1 }",
-    ]));
+  const active = installed && (await windowsTaskActive());
   return { installed, active };
 }
 
 export async function installUserService(
   config: GatewayConfig,
-  token: string,
   activate = true,
+  installedCli?: string,
+  readinessInstance?: string,
 ): Promise<ServiceDefinition> {
-  const definition = serviceDefinition(config);
+  await assertServiceInstallPreflight(activate);
+  const definition = serviceDefinition(config, process.platform, installedCli, readinessInstance);
   await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
   const serialized =
     process.platform === "win32"
@@ -172,43 +170,62 @@ export async function installUserService(
       : definition.content;
   await writeFile(definition.path, serialized, { mode: 0o600 });
   if (process.platform !== "win32") await chmod(definition.path, 0o600);
-  if (!activate) return definition;
   if (process.platform === "linux") {
     const wasActive = await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]);
     await run(["systemctl", "--user", "daemon-reload"]);
     await run(["systemctl", "--user", "enable", "omp-session-gateway.service"]);
-    await run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
+    if (activate) await run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
   } else if (process.platform === "darwin") {
+    if (!activate) return definition;
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
     if (await commandSucceeds(["launchctl", "print", target])) await run(["launchctl", "bootout", target]);
     await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path);
   } else {
-    if (await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"])) {
-      await requestGatewayShutdown(config, token);
-      await commandSucceeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
-    }
+    const status = await userServiceStatus(config);
+    if (status.active) await stopWindowsTask();
     await run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
-    await run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
+    if (activate) await run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
   }
   return definition;
 }
 
-export async function uninstallUserService(config: GatewayConfig, token: string, deactivate = true): Promise<void> {
+export async function stopUserService(config: ServicePathConfig): Promise<void> {
+  const status = await userServiceStatus(config);
+  if (!status.active) return;
+  if (process.platform === "linux") {
+    await run(["systemctl", "--user", "stop", "omp-session-gateway.service"]);
+  } else if (process.platform === "darwin") {
+    const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
+    await run(["launchctl", "bootout", target]);
+  } else {
+    await stopWindowsTask();
+  }
+  if ((await userServiceStatus(config)).active) throw new Error("gateway service remained active after stop");
+}
+
+export async function uninstallUserService(config: ServicePathConfig, deactivate = true): Promise<void> {
   const definition = serviceDefinition(config);
   const status = await userServiceStatus(config);
-  if (deactivate) {
-    if (process.platform === "linux") {
-      if (status.installed || status.active) {
-        await run(["systemctl", "--user", "disable", "--now", "omp-session-gateway.service"]);
-      }
-    } else if (process.platform === "darwin") {
-      if (status.active) {
-        await run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
-      }
-    } else if (status.installed) {
-      if (status.active) await requestGatewayShutdown(config, token);
-      await run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
+  if (!deactivate && status.active) {
+    throw new Error("cannot uninstall an active gateway with --no-stop");
+  }
+  if (process.platform === "linux") {
+    if (status.installed || status.active) {
+      await run([
+        "systemctl",
+        "--user",
+        "disable",
+        ...(deactivate ? ["--now"] : []),
+        "omp-session-gateway.service",
+      ]);
     }
+  } else if (process.platform === "darwin") {
+    if (deactivate && status.active) {
+      await run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
+    }
+  } else if (status.installed) {
+    if (deactivate && status.active) await stopWindowsTask();
+    await run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
   }
   await rm(definition.path, { force: true });
   if (process.platform === "linux") await run(["systemctl", "--user", "daemon-reload"]);

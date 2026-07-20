@@ -1,7 +1,7 @@
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export type AuthMode = "tailscale-serve" | "dev-localhost";
 
@@ -29,6 +29,11 @@ export interface GatewayConfig {
     readonly tokenPath: string;
     readonly configPath: string;
   };
+}
+
+export function loopbackHttpOrigin(hostname: GatewayConfig["http"]["hostname"], port: number): string {
+  const host = hostname === "::1" ? "[::1]" : hostname;
+  return `http://${host}:${port}`;
 }
 
 export interface ConfigOverrides {
@@ -65,8 +70,9 @@ async function applyWindowsAcl(path: string, directory: boolean): Promise<void> 
     "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
     "$flags=if($Directory -eq '1'){'OICI'}else{''}; " +
     "$sddl='D:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;'+$sid+')'; " +
-    "$acl=Get-Acl -LiteralPath $Path; $acl.SetSecurityDescriptorSddlForm($sddl); " +
-    "Set-Acl -LiteralPath $Path -AclObject $acl";
+    "$acl=Get-Acl -LiteralPath $Path; " +
+    "$acl.SetSecurityDescriptorSddlForm($sddl); " +
+    "$acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); Set-Acl -LiteralPath $Path -AclObject $acl";
   const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
     env: windowsPowerShellEnvironment({
       OMP_GATEWAY_ACL_PATH: path,
@@ -85,10 +91,11 @@ async function assertWindowsAclPrivate(path: string, directory: boolean): Promis
   const script =
     "$Path=$env:OMP_GATEWAY_ACL_PATH; $acl=Get-Acl -LiteralPath $Path; " +
     "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
+    "$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; " +
     "$descriptor=[System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl); " +
     "$rules=@($descriptor.DiscretionaryAcl | ForEach-Object { [pscustomobject]@{ " +
     "Sid=$_.SecurityIdentifier.Value; Type=$_.AceType.ToString(); Mask=$_.AccessMask; Flags=[int]$_.AceFlags } }); " +
-    "[pscustomobject]@{ Protected=$acl.AreAccessRulesProtected; Current=$sid; Rules=@($rules) } " +
+    "[pscustomobject]@{ Protected=$acl.AreAccessRulesProtected; Current=$sid; Owner=$owner; Rules=@($rules) } " +
     "| ConvertTo-Json -Compress -Depth 3";
   const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
     env: windowsPowerShellEnvironment({ OMP_GATEWAY_ACL_PATH: path }),
@@ -101,28 +108,42 @@ async function assertWindowsAclPrivate(path: string, directory: boolean): Promis
   const value: unknown = JSON.parse(text);
   const protectedAcl = typeof value === "object" && value !== null ? Reflect.get(value, "Protected") : undefined;
   const current = typeof value === "object" && value !== null ? Reflect.get(value, "Current") : undefined;
+  const owner = typeof value === "object" && value !== null ? Reflect.get(value, "Owner") : undefined;
   const rules = typeof value === "object" && value !== null ? Reflect.get(value, "Rules") : undefined;
-  const expectedSids = new Set([current, "S-1-5-18"]);
+  const allowedSids = new Set([current, "S-1-5-18"]);
+  const seenSids = new Set<string>();
   const expectedFlags = directory ? 3 : 0;
-  if (
-    protectedAcl !== true ||
-    typeof current !== "string" ||
-    !Array.isArray(rules) ||
-    rules.length !== 2 ||
-    rules.some(rule => {
-      if (typeof rule !== "object" || rule === null) return true;
+  const rulesValid =
+    Array.isArray(rules) &&
+    rules.length >= allowedSids.size &&
+    rules.length <= 2 &&
+    rules.every(rule => {
+      if (typeof rule !== "object" || rule === null) return false;
       const sid = Reflect.get(rule, "Sid");
+      if (typeof sid !== "string" || !allowedSids.has(sid)) return false;
+      seenSids.add(sid);
       return (
-        typeof sid !== "string" ||
-        !expectedSids.delete(sid) ||
-        Reflect.get(rule, "Type") !== "AccessAllowed" ||
-        Reflect.get(rule, "Mask") !== 2_032_127 ||
-        Reflect.get(rule, "Flags") !== expectedFlags
+        Reflect.get(rule, "Type") === "AccessAllowed" &&
+        Reflect.get(rule, "Mask") === 2_032_127 &&
+        Reflect.get(rule, "Flags") === expectedFlags
       );
-    }) ||
-    expectedSids.size !== 0
-  ) {
-    throw new Error("unsafe private Windows ACL");
+    }) &&
+    seenSids.size === allowedSids.size;
+  if (protectedAcl !== true || typeof current !== "string" || owner !== current || !rulesValid) {
+    const ruleDiagnostics = Array.isArray(rules)
+      ? rules.map(rule => {
+          const sid = typeof rule === "object" && rule !== null ? Reflect.get(rule, "Sid") : undefined;
+          return {
+            sid: sid === current ? "current" : sid === "S-1-5-18" ? "system" : "other",
+            type: typeof rule === "object" && rule !== null ? Reflect.get(rule, "Type") : undefined,
+            mask: typeof rule === "object" && rule !== null ? Reflect.get(rule, "Mask") : undefined,
+            flags: typeof rule === "object" && rule !== null ? Reflect.get(rule, "Flags") : undefined,
+          };
+        })
+      : "not-array";
+    throw new Error(
+      `unsafe private Windows ACL (protected=${String(protectedAcl)}, ownerMatches=${String(owner === current)}, currentIsSystem=${String(current === "S-1-5-18")}, rules=${JSON.stringify(ruleDiagnostics)})`,
+    );
   }
 }
 
@@ -149,7 +170,10 @@ export function defaultGatewayPaths(): GatewayConfig["paths"] {
   const runtimeDir = process.platform === "win32" ? stateDir : privateRuntimeDir();
   const socketPath =
     process.platform === "win32"
-      ? `\\\\.\\pipe\\omp-session-gateway-${Buffer.from(process.env.USERNAME ?? "user").toString("base64url").slice(0, 20)}`
+      ? `\\\\.\\pipe\\omp-session-gateway-${createHash("sha256")
+          .update(`${process.env.USERDOMAIN ?? process.env.COMPUTERNAME ?? "local"}\\${process.env.USERNAME ?? "user"}`.toLowerCase())
+          .digest("hex")
+          .slice(0, 20)}`
       : join(runtimeDir, "registry.sock");
   return {
     configDir,
@@ -175,16 +199,17 @@ async function assertPrivateDirectory(path: string, create: boolean): Promise<vo
   }
 }
 
-async function assertPrivateRegularFile(path: string): Promise<void> {
+async function assertPrivateRegularFile(path: string): Promise<number> {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error(`unsafe private file: ${path}`);
   if (process.platform === "win32") {
     await assertWindowsAclPrivate(path, false);
-    return;
+    return info.size;
   }
   if (info.uid !== currentUserId() || (info.mode & 0o077) !== 0) {
     throw new Error(`unsafe private file permissions: ${path}`);
   }
+  return info.size;
 }
 
 function validatePort(value: unknown): number {
@@ -246,6 +271,9 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
   if (mode === "tailscale-serve" && publicOrigin.protocol !== "https:") {
     throw new Error("tailscale-serve mode requires an exact HTTPS public origin");
   }
+  if (mode === "dev-localhost" && publicOrigin.origin !== loopbackHttpOrigin(hostname, port)) {
+    throw new Error("dev-localhost mode requires the configured loopback HTTP origin");
+  }
   const allowedRaw = auth.allowedLogins ?? defaults.auth.allowedLogins;
   if (!Array.isArray(allowedRaw) || allowedRaw.some(value => typeof value !== "string")) {
     throw new Error("auth.allowedLogins must be an array of login strings");
@@ -305,18 +333,27 @@ export async function loadGatewayConfig(overrides: ConfigOverrides = {}): Promis
   const configPath = overrides.configPath ?? paths.configPath;
   let loaded: unknown = {};
   try {
-    await assertPrivateRegularFile(configPath);
+    const configBytes = await assertPrivateRegularFile(configPath);
+    if (configBytes > 64 * 1_024) throw new Error("config file exceeds size limit");
     loaded = JSON.parse(await readFile(configPath, "utf8")) as unknown;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const config = parseConfigObject(loaded, defaults);
   const mode = overrides.mode ?? config.auth.mode;
-  const publicOriginValue = overrides.publicOrigin ?? config.http.publicOrigin;
+  const port = overrides.port === undefined ? config.http.port : validatePort(overrides.port);
+  const publicOriginValue =
+    overrides.publicOrigin ??
+    (mode === "dev-localhost" && (overrides.mode !== undefined || overrides.port !== undefined)
+      ? loopbackHttpOrigin(config.http.hostname, port)
+      : config.http.publicOrigin);
   const publicOrigin = new URL(publicOriginValue);
   if (publicOrigin.origin !== publicOriginValue) throw new Error("http.publicOrigin must be an exact URL origin");
   if (mode === "tailscale-serve" && publicOrigin.protocol !== "https:") {
     throw new Error("tailscale-serve mode requires an exact HTTPS public origin");
+  }
+  if (mode === "dev-localhost" && publicOrigin.origin !== loopbackHttpOrigin(config.http.hostname, port)) {
+    throw new Error("dev-localhost mode requires the configured loopback HTTP origin");
   }
   if (mode === "tailscale-serve" && config.auth.allowedLogins.length === 0) {
     throw new Error("tailscale-serve mode requires at least one allowed login");
@@ -326,7 +363,7 @@ export async function loadGatewayConfig(overrides: ConfigOverrides = {}): Promis
     auth: { ...config.auth, mode },
     http: {
       ...config.http,
-      ...(overrides.port === undefined ? {} : { port: validatePort(overrides.port) }),
+      port,
       publicOrigin: publicOrigin.origin,
     },
     paths: { ...paths, configPath },
@@ -337,6 +374,63 @@ export async function ensureRuntimeDirectories(config: GatewayConfig): Promise<v
   await assertPrivateDirectory(config.paths.configDir, true);
   await assertPrivateDirectory(config.paths.stateDir, true);
   if (process.platform !== "win32") await assertPrivateDirectory(config.paths.runtimeDir, true);
+}
+
+export interface GatewayConfigFileSnapshot {
+  readonly path: string;
+  readonly content: string | undefined;
+}
+
+async function writePrivateTextFile(path: string, content: string): Promise<void> {
+  const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  const handle = await open(temporaryPath, "wx", 0o600);
+  try {
+    await handle.writeFile(content, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporaryPath, path);
+    if (process.platform === "win32") await applyWindowsAcl(path, false);
+    else await chmod(path, 0o600);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+export async function captureGatewayConfigFile(
+  path = defaultGatewayPaths().configPath,
+): Promise<GatewayConfigFileSnapshot> {
+  try {
+    const bytes = await assertPrivateRegularFile(path);
+    if (bytes > 64 * 1_024) throw new Error("config file exceeds size limit");
+    return { path, content: await readFile(path, "utf8") };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path, content: undefined };
+    throw error;
+  }
+}
+
+export async function restoreGatewayConfigFile(snapshot: GatewayConfigFileSnapshot): Promise<void> {
+  await assertPrivateDirectory(dirname(snapshot.path), true);
+  if (snapshot.content !== undefined) {
+    await writePrivateTextFile(snapshot.path, snapshot.content);
+    return;
+  }
+  try {
+    const info = await lstat(snapshot.path);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("refusing to remove an unsafe config path");
+    await rm(snapshot.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+export function publicOriginHttpsPort(publicOrigin: string): number {
+  const origin = new URL(publicOrigin);
+  if (origin.protocol !== "https:") throw new Error("public origin must use HTTPS");
+  return origin.port === "" ? 443 : Number.parseInt(origin.port, 10);
 }
 
 export async function writeGatewayConfigFile(options: {
@@ -357,27 +451,17 @@ export async function writeGatewayConfigFile(options: {
   const paths = defaultGatewayPaths();
   await assertPrivateDirectory(paths.configDir, true);
   await assertPrivateDirectory(paths.stateDir, true);
-  const temporaryPath = `${paths.configPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const configDocument = {
     http: { hostname: "127.0.0.1", port: validatePort(options.port ?? 4317), publicOrigin: origin.origin },
     auth: { mode, allowedLogins },
     registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 },
   };
-  const handle = await open(temporaryPath, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(configDocument, null, 2)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temporaryPath, paths.configPath);
-  if (process.platform === "win32") await applyWindowsAcl(paths.configPath, false);
-  else await chmod(paths.configPath, 0o600);
+  await writePrivateTextFile(paths.configPath, `${JSON.stringify(configDocument, null, 2)}\n`);
   return loadGatewayConfig({ configPath: paths.configPath });
 }
 
-async function writeFreshToken(path: string): Promise<string> {
-  const token = randomBytes(32).toString("base64url");
+async function writePublisherToken(path: string, token: string): Promise<string> {
+  if (!TOKEN_PATTERN.test(token)) throw new Error("publisher token has invalid encoding or length");
   const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {
@@ -392,8 +476,13 @@ async function writeFreshToken(path: string): Promise<string> {
   return token;
 }
 
+async function writeFreshToken(path: string): Promise<string> {
+  return writePublisherToken(path, randomBytes(32).toString("base64url"));
+}
+
 async function readExistingPublisherToken(config: GatewayConfig): Promise<string> {
-  await assertPrivateRegularFile(config.paths.tokenPath);
+  const tokenBytes = await assertPrivateRegularFile(config.paths.tokenPath);
+  if (tokenBytes < 43 || tokenBytes > 45) throw new Error("publisher token has invalid encoding or length");
   const token = (await readFile(config.paths.tokenPath, "utf8")).trim();
   if (!TOKEN_PATTERN.test(token)) throw new Error("publisher token has invalid encoding or length");
   return token;
@@ -412,15 +501,23 @@ export async function loadOrCreatePublisherToken(config: GatewayConfig): Promise
     return writeFreshToken(config.paths.tokenPath);
   }
 }
+export async function loadPublisherToken(config: GatewayConfig): Promise<string> {
+  await ensureRuntimeDirectories(config);
+  return readExistingPublisherToken(config);
+}
 
-export async function rotatePublisherToken(config: GatewayConfig): Promise<void> {
+
+export async function rotatePublisherToken(config: GatewayConfig): Promise<string> {
   await ensureRuntimeDirectories(config);
   try {
-    await assertPrivateRegularFile(config.paths.tokenPath);
+    const existing = await lstat(config.paths.tokenPath);
+    if (!existing.isFile() && !existing.isSymbolicLink()) {
+      throw new Error("refusing to replace a non-file publisher token path");
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  await writeFreshToken(config.paths.tokenPath);
+  return writeFreshToken(config.paths.tokenPath);
 }
 
 export function publisherTokenMatches(expected: string, supplied: string): boolean {

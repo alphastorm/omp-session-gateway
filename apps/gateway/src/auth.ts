@@ -1,4 +1,4 @@
-import type { GatewayConfig } from "./config.ts";
+import { loopbackHttpOrigin, type GatewayConfig } from "./config.ts";
 
 export interface RequestPeer {
   readonly address: string;
@@ -9,9 +9,12 @@ export type AuthorizationResult =
   | { readonly allowed: false };
 
 export function isLoopbackAddress(address: string): boolean {
-  const normalized = address.toLowerCase().split("%")[0] ?? "";
+  const lower = address.toLowerCase();
+  const unbracketed = lower.startsWith("[") && lower.endsWith("]") ? lower.slice(1, -1) : lower;
+  const normalized = unbracketed.split("%")[0] ?? "";
   return normalized === "127.0.0.1" || normalized === "::1" || normalized === "::ffff:127.0.0.1";
 }
+
 
 export function normalizeTailscaleLogin(value: string): string | undefined {
   const normalized = value.normalize("NFC").trim().toLowerCase();
@@ -25,7 +28,16 @@ export function authorizeHttpRequest(
   config: GatewayConfig,
 ): AuthorizationResult {
   if (peer === undefined || !isLoopbackAddress(peer.address)) return { allowed: false };
-  if (config.auth.mode === "dev-localhost") return { allowed: true, identityKey: "dev-localhost" };
+  if (config.auth.mode === "dev-localhost") {
+    try {
+      const origin = new URL(request.url).origin;
+      return origin === config.http.publicOrigin && origin === loopbackHttpOrigin(config.http.hostname, config.http.port)
+        ? { allowed: true, identityKey: "dev-localhost" }
+        : { allowed: false };
+    } catch {
+      return { allowed: false };
+    }
+  }
   const header = request.headers.get("Tailscale-User-Login");
   if (header === null) return { allowed: false };
   const login = normalizeTailscaleLogin(header);

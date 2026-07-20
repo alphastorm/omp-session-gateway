@@ -114,9 +114,11 @@ bun run build
 bun apps/gateway/src/cli.ts install \
   --origin https://host.tailnet.ts.net \
   --allow user@example.com
-tailscale serve --bg --https=443 http://127.0.0.1:4317
+bun apps/gateway/src/cli.ts serve-guidance
 bun apps/gateway/src/cli.ts doctor
 ```
+
+V1 assumes a user-controlled workstation with no mutually untrusted local accounts: a direct loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy it on a shared shell host.
 
 Never enable Tailscale Funnel. Apply the pinned OMP patch and configure `collab.autoStart` to `view` or
 `control`; see [`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md) and

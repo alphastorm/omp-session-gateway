@@ -46,12 +46,16 @@ export class CollabSocket {
 	#attempt = 0;
 	/** Terminal state: intentional close or fatal failure. Cleared by connect(). */
 	#closed = false;
-	/** Serializes seal() so frames hit the wire in send() order. */
+	/** Serializes seals for the active transport generation so frames retain send() order. */
 	#sendChain: Promise<void> = Promise.resolve();
 	/** Serializes open() so frames are delivered in arrival order. */
 	#recvChain: Promise<void> = Promise.resolve();
-	/** Envelopes sealed while disconnected, flushed on the next open. */
+	/** Application envelopes held until the active transport's hello is emitted. */
 	#pendingSends: Uint8Array<ArrayBuffer>[] = [];
+	/** Invalidates asynchronous sends that began against an older transport. */
+	#sendGeneration = 0;
+	/** Every opened guest transport must emit its hello before application frames. */
+	#awaitingHello = false;
 
 	constructor(opts: CollabSocketOptions) {
 		this.#opts = opts;
@@ -64,23 +68,32 @@ export class CollabSocket {
 	connect(): void {
 		if (this.#ws || this.#retryTimer) return;
 		this.#closed = false;
+		this.#resetSendsForNewTransport();
 		this.#attempt = 0;
 		this.#openSocket();
 	}
 
 	send(frame: GuestFrame, targetPeer = 0): void {
+		const generation = this.#sendGeneration;
+		const isHello = frame.t === "hello";
 		this.#sendChain = this.#sendChain
 			.then(async () => {
-				if (this.#closed) return;
+				if (this.#closed || generation !== this.#sendGeneration) return;
 				const sealed = await seal(await this.#opts.key, frame);
+				if (this.#closed || generation !== this.#sendGeneration) return;
 				const envelope = packEnvelope(targetPeer, sealed);
 				const ws = this.#ws;
-				if (ws && ws.readyState === WebSocket.OPEN) {
+				if (ws && ws.readyState === WebSocket.OPEN && (!this.#awaitingHello || isHello)) {
 					ws.send(envelope);
+					if (isHello && this.#awaitingHello) {
+						this.#awaitingHello = false;
+						this.#flushPending(ws);
+					}
 					return;
 				}
-				if (this.#pendingSends.length >= MAX_PENDING_SENDS) return;
-				this.#pendingSends.push(envelope);
+				if (!isHello && this.#pendingSends.length < MAX_PENDING_SENDS) {
+					this.#pendingSends.push(envelope);
+				}
 			})
 			.catch(() => {
 				// dropped frame; the socket-level close path reports actionable failures
@@ -93,7 +106,7 @@ export class CollabSocket {
 		this.#clearRetry();
 		const wasClosed = this.#closed;
 		this.#closed = true;
-		this.#pendingSends.length = 0;
+		this.#resetSendsForNewTransport();
 		const ws = this.#ws;
 		this.#ws = null;
 		if (ws) {
@@ -115,6 +128,7 @@ export class CollabSocket {
 	reconnect(): void {
 		if (this.#closed) return;
 		this.#clearRetry();
+		this.#resetSendsForNewTransport();
 		const ws = this.#ws;
 		this.#ws = null;
 		if (ws) {
@@ -135,8 +149,8 @@ export class CollabSocket {
 		ws.onopen = () => {
 			if (this.#ws !== ws) return;
 			this.#attempt = 0;
-			for (const envelope of this.#pendingSends) ws.send(envelope);
-			this.#pendingSends.length = 0;
+			this.#awaitingHello = this.#opts.role === "guest";
+			if (!this.#awaitingHello) this.#flushPending(ws);
 			this.onOpen?.();
 		};
 		ws.onmessage = (event: MessageEvent) => {
@@ -192,10 +206,10 @@ export class CollabSocket {
 
 	#handleClose(code: number, reason: string): void {
 		if (this.#closed) return;
+		this.#resetSendsForNewTransport();
 		const fatalReason = FATAL_CLOSE_REASONS[code];
 		if (fatalReason !== undefined) {
 			this.#closed = true;
-			this.#pendingSends.length = 0;
 			this.onClose?.(fatalReason, false);
 			return;
 		}
@@ -230,6 +244,19 @@ export class CollabSocket {
 			if (this.#closed) return;
 			this.#openSocket();
 		}, delay);
+	}
+
+	#flushPending(ws: WebSocket): void {
+		if (this.#ws !== ws || ws.readyState !== WebSocket.OPEN || this.#awaitingHello) return;
+		for (const envelope of this.#pendingSends) ws.send(envelope);
+		this.#pendingSends.length = 0;
+	}
+
+	#resetSendsForNewTransport(): void {
+		this.#sendGeneration++;
+		this.#sendChain = Promise.resolve();
+		this.#pendingSends.length = 0;
+		this.#awaitingHello = false;
 	}
 
 	#clearRetry(): void {
