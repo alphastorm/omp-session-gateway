@@ -37,10 +37,11 @@ Platform targets:
 - macOS: LaunchAgent under the current user;
 - Windows: current-user scheduled task or equivalently scoped user service, plus a current-user named pipe ACL.
 
-The pre-alpha OMP patch now derives the same current-user pipe name, verifies the private token ACL,
-and authenticates the named-pipe server before releasing its proof or capabilities. Do not advertise
-Windows session discovery until the updated hosted publisher workflow, signed-candidate lifecycle,
-namespace-squatting, and cross-user tests pass.
+The pre-alpha OMP patch derives the same current-user pipe name, verifies the private token ACL, and
+authenticates the named-pipe server before releasing its proof or capabilities. The hosted
+source-checkout publisher/lifecycle workflow passes. Do not advertise Windows session discovery
+until the signed-candidate lifecycle, reboot/login, upgrade/rollback, namespace-squatting, and
+cross-user acceptance gates pass.
 
 Also provide:
 
