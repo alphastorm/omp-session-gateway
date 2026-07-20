@@ -399,7 +399,7 @@ index e39ca813d..097710324 100644
  		this.#branchSummaryAbortController = undefined;
  
 diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
-index b564b5471..52cf5ab6f 100644
+index b564b5471..3c6a1a674 100644
 --- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
 +++ b/packages/coding-agent/src/slash-commands/builtin-registry.ts
 @@ -6,7 +6,7 @@ import { type AutocompleteItem, Spacer } from "@oh-my-pi/pi-tui";
@@ -471,14 +471,19 @@ index b564b5471..52cf5ab6f 100644
  			const relayInput = explicitUrl || ctx.settings.get("collab.relayUrl") || "";
  			if (!relayInput) {
  				ctx.showError(
-@@ -762,14 +760,17 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -762,14 +760,22 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  			// Scheme-less relay args default to wss (ws:// must be spelled out for localhost).
  			const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
  			const webUrl = ctx.settings.get("collab.webUrl") || "";
 -			const host = new CollabHost(ctx);
  			try {
 -				await host.start(relayUrl, webUrl);
-+				await ctx.collabController.start({ relayUrl, webUrl, publish: view ? "view" : "control" });
++				await ctx.collabController.start({
++					relayUrl,
++					webUrl,
++					publish: view ? "view" : "control",
++					...(explicitUrl ? { forceReplacement: true } : {}),
++				});
  			} catch (err) {
  				ctx.showError(`Failed to start collab session: ${errorMessage(err)}`);
  				return;
@@ -492,7 +497,7 @@ index b564b5471..52cf5ab6f 100644
  			showCollabLink(ctx, host, "Collab session started!", view);
  		},
  	},
-@@ -786,7 +787,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -786,7 +792,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  				ctx.showError("Usage: /join <link>");
  				return;
  			}
@@ -501,7 +506,7 @@ index b564b5471..52cf5ab6f 100644
  				ctx.showError("Stop hosting first (/collab stop)");
  				return;
  			}
-@@ -805,7 +806,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -805,7 +811,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  		name: "leave",
  		description: "Leave the collab session",
  		getTuiAutocompleteDescription: runtime => {
@@ -510,7 +515,7 @@ index b564b5471..52cf5ab6f 100644
  			if (runtime.ctx.collabGuest) return "Leave collab: guest";
  			return "Leave collab: not in collab";
  		},
-@@ -816,8 +817,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -816,8 +822,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
  				await ctx.collabGuest.leave("left");
  				return;
  			}
@@ -671,7 +676,7 @@ index 8a63482d0..171e7094e 100644
  	const setText = vi.fn();
  	const showStatus = vi.fn();
  	const showError = vi.fn();
-@@ -47,16 +45,31 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+@@ -47,16 +45,36 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
  		if (key === "collab.webUrl") return "";
  		return "";
  	});
@@ -689,7 +694,12 @@ index 8a63482d0..171e7094e 100644
 +		get host() {
 +			return collabHost;
 +		},
-+		async start(startOptions: { relayUrl?: string; webUrl?: string; publish?: "view" | "control" }) {
++		async start(startOptions: {
++			relayUrl?: string;
++			webUrl?: string;
++			publish?: "view" | "control";
++			forceReplacement?: boolean;
++		}) {
 +			start(startOptions);
 +			const next = new CollabHost(ctx);
 +			await next.start(startOptions.relayUrl ?? "", startOptions.webUrl);
@@ -704,7 +714,7 @@ index 8a63482d0..171e7094e 100644
  		setText,
  		showStatus,
  		showError,
-@@ -88,7 +101,12 @@ describe("/collab slash command QR code rendering", () => {
+@@ -88,7 +106,12 @@ describe("/collab slash command QR code rendering", () => {
  		expect(handled).toBe(true);
  		expect(harness.setText).toHaveBeenCalledWith("");
  		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
@@ -718,7 +728,7 @@ index 8a63482d0..171e7094e 100644
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-full");
  		const presented = harness.present.mock.calls[0]?.[0] as readonly unknown[];
-@@ -107,7 +125,12 @@ describe("/collab slash command QR code rendering", () => {
+@@ -107,7 +130,12 @@ describe("/collab slash command QR code rendering", () => {
  
  		expect(handled).toBe(true);
  		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
@@ -732,12 +742,30 @@ index 8a63482d0..171e7094e 100644
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-view");
  		expect(statusText).not.toContain("my.omp.sh/#started-full");
+@@ -177 +182,17 @@ describe("/collab slash command QR code rendering", () => {
++
++	it("forces replacement when an explicit relay matches the active relay", async () => {
++		mockStartedHostLinks();
++		const harness = createRuntimeHarness({ collabHost: fakeHost() });
++
++		const handled = await executeBuiltinSlashCommand("/collab wss://relay.example.com", harness.runtime);
++
++		expect(handled).toBe(true);
++		expect(harness.start).toHaveBeenCalledWith({
++			relayUrl: "wss://relay.example.com",
++			webUrl: "",
++			publish: "control",
++			forceReplacement: true,
++		});
++	});
++
+ });
 diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
 new file mode 100644
-index 000000000..5c1a1a75f
+index 000000000..ba774627c
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/controller.ts
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,282 @@
 +import { randomUUID } from "node:crypto";
 +import { basename } from "node:path";
 +import type { InteractiveModeContext } from "../modes/types";
@@ -800,6 +828,7 @@ index 000000000..5c1a1a75f
 +	#manualSuspended = false;
 +	#restartAfterSessionReplacement = false;
 +	#state: CollabControllerState = "stopped";
++	#publicationMode: PublishedCapabilityMode = "off";
 +	#relayUrl = "";
 +
 +	constructor(context: InteractiveModeContext, options: CollabControllerOptions = {}) {
@@ -835,7 +864,12 @@ index 000000000..5c1a1a75f
 +	}
 +
 +	start(
-+		options: { relayUrl?: string; webUrl?: string; publish?: PublishedCapabilityMode } = {},
++		options: {
++			relayUrl?: string;
++			webUrl?: string;
++			publish?: PublishedCapabilityMode;
++			forceReplacement?: boolean;
++		} = {},
 +	): Promise<CollabCapabilities> {
 +		return this.#serialize(async () => {
 +			this.#manualSuspended = false;
@@ -864,8 +898,7 @@ index 000000000..5c1a1a75f
 +
 +	prepareActiveSessionReplacement(): Promise<void> {
 +		return this.#serialize(async () => {
-+			this.#restartAfterSessionReplacement =
-+				this.#restartAfterSessionReplacement || this.#host !== undefined || this.#autoMode() !== "off";
++			this.#restartAfterSessionReplacement = this.#restartAfterSessionReplacement || this.#autoMode() !== "off";
 +			await this.#stop("session changed", "session_changed");
 +			this.#manualSuspended = false;
 +		});
@@ -903,11 +936,21 @@ index 000000000..5c1a1a75f
 +		relayUrl?: string;
 +		webUrl?: string;
 +		publish?: PublishedCapabilityMode;
++		forceReplacement?: boolean;
 +	}): Promise<CollabCapabilities> {
 +		const relayInput = options.relayUrl ?? this.#context.settings.get("collab.relayUrl") ?? "";
 +		if (!relayInput) throw new Error("No collaboration relay is configured");
 +		const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
-+		if (this.#host && relayUrl === this.#relayUrl && this.#capabilities) return this.#capabilities;
++		const publish = options.publish ?? this.#autoMode();
++		if (!options.forceReplacement && this.#host && relayUrl === this.#relayUrl && this.#capabilities) {
++			if (publish !== this.#publicationMode) {
++				this.#publisher?.remove(this.#capabilities.generation, "session_changed");
++				this.#publicationMode = publish;
++				if (publish !== "off") this.#publish(this.#capabilities, publish);
++				this.#emit("updated", this.#capabilities);
++			}
++			return this.#capabilities;
++		}
 +		if (this.#host) await this.#stop("relay replaced", "session_changed");
 +
 +		this.#state = "starting";
@@ -935,7 +978,7 @@ index 000000000..5c1a1a75f
 +		this.#relayUrl = relayUrl;
 +		this.#capabilities = capabilities;
 +		this.#state = "running";
-+		const publish = options.publish ?? this.#autoMode();
++		this.#publicationMode = publish;
 +		if (publish !== "off") this.#publish(capabilities, publish);
 +		this.#emit("started", capabilities);
 +		return capabilities;
@@ -952,6 +995,7 @@ index 000000000..5c1a1a75f
 +		this.#publisher?.remove(capabilities.generation, publisherReason);
 +		this.#capabilities = undefined;
 +		this.#host = undefined;
++		this.#publicationMode = "off";
 +		await host.stop(reason);
 +		this.#state = "stopped";
 +		this.#emit("stopped");
@@ -1006,13 +1050,13 @@ index 000000000..5c1a1a75f
 +}
 diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 000000000..a4ec68b7f
+index 000000000..1e5d30812
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,314 @@
 +import { lstat, readFile } from "node:fs/promises";
 +import { homedir, tmpdir } from "node:os";
-+import { isAbsolute, join } from "node:path";
++import { dirname, isAbsolute, join } from "node:path";
 +
 +const PROTOCOL_VERSION = 1;
 +const MAX_SERVER_FRAME_BYTES = 4 * 1024;
@@ -1044,12 +1088,6 @@ index 000000000..a4ec68b7f
 +}
 +
 +function automaticEndpoint(): string {
-+	if (process.platform === "win32") {
-+		const userKey = Buffer.from(process.env.USERNAME ?? "user")
-+			.toString("base64url")
-+			.slice(0, 20);
-+		return `\\\\.\\pipe\\omp-session-gateway-${userKey}`;
-+	}
 +	if (process.platform === "linux" && process.env.XDG_RUNTIME_DIR) {
 +		return join(process.env.XDG_RUNTIME_DIR, "omp-session-gateway", "registry.sock");
 +	}
@@ -1070,26 +1108,50 @@ index 000000000..a4ec68b7f
 +
 +export function resolveCollabRegistryEndpoint(setting: string): string | undefined {
 +	if (setting === "off") return undefined;
++	if (process.platform === "win32") {
++		throw new Error(
++			"OMP Session Gateway publication is disabled on Windows until pipe server authentication is available",
++		);
++	}
 +	if (setting === "auto") return automaticEndpoint();
 +	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting))
 +		throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
-+	if (process.platform === "win32") {
-+		if (!setting.startsWith("\\\\.\\pipe\\")) throw new Error("collab.registryEndpoint must be a named pipe");
-+		return setting;
-+	}
 +	if (!isAbsolute(setting)) throw new Error("collab.registryEndpoint must be an absolute local socket path");
 +	return setting;
 +}
 +
++async function assertPublisherEndpointPrivate(endpoint: string): Promise<void> {
++	if (process.platform === "win32") return;
++	const uid = process.getuid?.();
++	const [endpointInfo, parentInfo] = await Promise.all([lstat(endpoint), lstat(dirname(endpoint))]);
++	if (
++		uid === undefined ||
++		!endpointInfo.isSocket() ||
++		endpointInfo.isSymbolicLink() ||
++		endpointInfo.uid !== uid ||
++		(endpointInfo.mode & 0o077) !== 0 ||
++		!parentInfo.isDirectory() ||
++		parentInfo.isSymbolicLink() ||
++		parentInfo.uid !== uid ||
++		(parentInfo.mode & 0o077) !== 0
++	) {
++		throw new Error("unsafe OMP Session Gateway registry endpoint");
++	}
++}
++
 +async function readPublisherToken(): Promise<string> {
++	if (process.platform === "win32") {
++		throw new Error(
++			"OMP Session Gateway publication is disabled on Windows until pipe server authentication is available",
++		);
++	}
 +	const tokenPath = join(configDirectory(), "publisher-token");
 +	const info = await lstat(tokenPath);
 +	if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe OMP Session Gateway publisher token file");
-+	if (process.platform !== "win32") {
-+		const uid = process.getuid?.();
-+		if (uid === undefined || info.uid !== uid || (info.mode & 0o077) !== 0) {
-+			throw new Error("unsafe OMP Session Gateway publisher token permissions");
-+		}
++	if (info.size < 43 || info.size > 45) throw new Error("invalid OMP Session Gateway publisher token");
++	const uid = process.getuid?.();
++	if (uid === undefined || info.uid !== uid || (info.mode & 0o077) !== 0) {
++		throw new Error("unsafe OMP Session Gateway publisher token permissions");
 +	}
 +	const token = (await readFile(tokenPath, "utf8")).trim();
 +	if (!TOKEN_PATTERN.test(token)) throw new Error("invalid OMP Session Gateway publisher token");
@@ -1103,6 +1165,8 @@ index 000000000..a4ec68b7f
 +	readonly #onSecurityError: (message: string) => void;
 +	#current: CollabPublisherRecord | undefined;
 +	#socket: Bun.Socket<PublisherSocketState> | undefined;
++	#pendingSocket: Bun.Socket<PublisherSocketState> | undefined;
++	#handshakeTimer: Timer | undefined;
 +	#heartbeatTimer: Timer | undefined;
 +	#reconnectTimer: Timer | undefined;
 +	#connecting = false;
@@ -1150,6 +1214,10 @@ index 000000000..a4ec68b7f
 +		clearInterval(this.#heartbeatTimer);
 +		this.#reconnectTimer = undefined;
 +		this.#heartbeatTimer = undefined;
++		clearTimeout(this.#handshakeTimer);
++		this.#handshakeTimer = undefined;
++		this.#pendingSocket?.end();
++		this.#pendingSocket = undefined;
 +		this.#socket?.end();
 +		this.#socket = undefined;
 +		this.#current = undefined;
@@ -1168,6 +1236,11 @@ index 000000000..a4ec68b7f
 +			}
 +			endpoint = resolved;
 +			token = await readPublisherToken();
++			await assertPublisherEndpointPrivate(endpoint);
++			if (this.#stopping || !this.#current) {
++				this.#connecting = false;
++				return;
++			}
 +		} catch (error) {
 +			this.#connecting = false;
 +			const code =
@@ -1186,9 +1259,17 @@ index 000000000..a4ec68b7f
 +				data: { buffer: "" },
 +				socket: {
 +					open(socket) {
++						owner.#pendingSocket = socket;
++						if (owner.#stopping || !owner.#current) {
++							socket.end();
++							return;
++						}
 +						socket.write(
 +							`${JSON.stringify({ v: PROTOCOL_VERSION, op: "hello", token, instanceId: owner.#instanceId, pid: owner.#pid })}\n`,
 +						);
++						owner.#handshakeTimer = setTimeout(() => {
++							if (owner.#pendingSocket === socket) socket.end();
++						}, 5_000);
 +					},
 +					data(socket, data) {
 +						socket.data.buffer += Buffer.from(data).toString("utf8");
@@ -1215,6 +1296,13 @@ index 000000000..a4ec68b7f
 +							socket.end();
 +							return;
 +						}
++						if (owner.#stopping || !owner.#current || owner.#pendingSocket !== socket) {
++							socket.end();
++							return;
++						}
++						clearTimeout(owner.#handshakeTimer);
++						owner.#handshakeTimer = undefined;
++						owner.#pendingSocket = undefined;
 +						owner.#connecting = false;
 +						owner.#socket = socket;
 +						owner.#attempt = 0;
@@ -1229,6 +1317,9 @@ index 000000000..a4ec68b7f
 +					},
 +					close(socket) {
 +						owner.#connecting = false;
++						if (owner.#pendingSocket === socket) owner.#pendingSocket = undefined;
++						clearTimeout(owner.#handshakeTimer);
++						owner.#handshakeTimer = undefined;
 +						if (owner.#socket === socket) owner.#socket = undefined;
 +						clearInterval(owner.#heartbeatTimer);
 +						owner.#heartbeatTimer = undefined;
@@ -1279,10 +1370,10 @@ index 000000000..a4ec68b7f
 +}
 diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
 new file mode 100644
-index 000000000..368000987
+index 000000000..b129e3d45
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,167 @@
 +import { describe, expect, mock, test } from "bun:test";
 +import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
 +import type { InteractiveModeContext } from "../../src/modes/types";
@@ -1389,6 +1480,45 @@ index 000000000..368000987
 +		]);
 +	});
 +
++	test("manual collaboration stays stopped across replacement when auto-start is off", async () => {
++		const { controller, hosts } = harness("off");
++		await controller.start();
++		await controller.prepareActiveSessionReplacement();
++		await controller.restoreActiveSession();
++		expect(controller.state).toBe("stopped");
++		expect(hosts).toHaveLength(1);
++		expect(hosts[0]?.stops).toBe(1);
++	});
++
++	test("same-relay publication mode changes revoke before republishing", async () => {
++		const { controller, hosts, events } = harness("off");
++		await controller.start({ publish: "control" });
++		await controller.start({ relayUrl: "wss://relay.example.invalid", publish: "view" });
++		expect(hosts).toHaveLength(1);
++		expect(events).toEqual([
++			{ type: "publish-control", generation: 1 },
++			{ type: "remove", generation: 1 },
++			{ type: "publish-view", generation: 1 },
++		]);
++	});
++
++	test("explicit same-relay starts replace the host and generation", async () => {
++		const { controller, hosts, events } = harness("off");
++		await controller.start({ publish: "control" });
++		await controller.start({
++			relayUrl: "wss://relay.example.invalid",
++			publish: "control",
++			forceReplacement: true,
++		});
++		expect(hosts).toHaveLength(2);
++		expect(hosts[0]?.stops).toBe(1);
++		expect(events).toEqual([
++			{ type: "publish-control", generation: 1 },
++			{ type: "remove", generation: 1 },
++			{ type: "publish-control", generation: 2 },
++		]);
++	});
++
 +	test("manual stop unregisters and suspends only the current generation", async () => {
 +		const { controller, events } = harness("control");
 +		await controller.autoStart();
@@ -1413,11 +1543,14 @@ index 000000000..368000987
 +});
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 000000000..05f76aa57
+index 000000000..4888c8955
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,172 @@
 +import { expect, test } from "bun:test";
++import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
 +import { CollabRegistryPublisher, resolveCollabRegistryEndpoint } from "../../src/collab/registry-publisher";
 +
 +const record = {
@@ -1430,12 +1563,17 @@ index 000000000..05f76aa57
 +	controlLink: "CONTROL_CAPABILITY_FIXTURE",
 +};
 +
-+test("registry endpoint accepts only local IPC", () => {
++test("registry endpoint accepts only qualified local IPC", () => {
 +	expect(resolveCollabRegistryEndpoint("off")).toBeUndefined();
++	if (process.platform === "win32") {
++		expect(() => resolveCollabRegistryEndpoint("auto")).toThrow("disabled on Windows");
++		expect(() => resolveCollabRegistryEndpoint("\\\\.\\pipe\\other")).toThrow("disabled on Windows");
++		return;
++	}
 +	expect(resolveCollabRegistryEndpoint("auto")).toBeString();
 +	expect(() => resolveCollabRegistryEndpoint("https://gateway.example.invalid")).toThrow("local IPC");
 +	expect(() => resolveCollabRegistryEndpoint("wss://gateway.example.invalid")).toThrow("local IPC");
-+	if (process.platform !== "win32") expect(() => resolveCollabRegistryEndpoint("relative.sock")).toThrow("absolute");
++	expect(() => resolveCollabRegistryEndpoint("relative.sock")).toThrow("absolute");
 +});
 +
 +test("invalid publisher configuration fails safely without exposing capabilities", async () => {
@@ -1452,6 +1590,121 @@ index 000000000..05f76aa57
 +	expect(message).toContain("local IPC");
 +	expect(message).not.toContain(record.viewLink);
 +	expect(message).not.toContain(record.controlLink);
++});
++
++test("publisher rejects an untrusted local endpoint before sending capabilities", async () => {
++	if (process.platform === "win32") return;
++	const root = await mkdtemp(join(tmpdir(), "registry-publisher-endpoint-"));
++	const previousRoot = process.env.XDG_CONFIG_HOME;
++	process.env.XDG_CONFIG_HOME = root;
++	try {
++		const configDir = join(root, "omp-session-gateway");
++		const endpoint = join(root, "not-a-socket");
++		await mkdir(configDir, { mode: 0o700 });
++		await writeFile(join(configDir, "publisher-token"), `${"A".repeat(43)}\n`, { mode: 0o600 });
++		await writeFile(endpoint, "", { mode: 0o600 });
++		const warning = Promise.withResolvers<string>();
++		const publisher = new CollabRegistryPublisher({
++			instanceId: record.instanceId,
++			pid: process.pid,
++			endpointSetting: endpoint,
++			onSecurityError: warning.resolve,
++		});
++		publisher.publish(record);
++		const message = await warning.promise;
++		publisher.shutdown(record.generation);
++		expect(message).toContain("unsafe");
++		expect(message).not.toContain(record.viewLink);
++	} finally {
++		if (previousRoot === undefined) delete process.env.XDG_CONFIG_HOME;
++		else process.env.XDG_CONFIG_HOME = previousRoot;
++		await rm(root, { recursive: true, force: true });
++	}
++});
++
++test("shutdown closes a pending handshake before capabilities are sent", async () => {
++	if (process.platform === "win32") return;
++	const root = await mkdtemp(join(tmpdir(), "registry-publisher-handshake-"));
++	const previousRoot = process.env.XDG_CONFIG_HOME;
++	process.env.XDG_CONFIG_HOME = root;
++	const endpoint = join(root, "registry.sock");
++	const accepted = Promise.withResolvers<void>();
++	const closed = Promise.withResolvers<void>();
++	let received = "";
++	const server = Bun.listen({
++		unix: endpoint,
++		socket: {
++			open() {
++				accepted.resolve();
++			},
++			data(_socket, data) {
++				received += Buffer.from(data).toString("utf8");
++			},
++			close() {
++				closed.resolve();
++			},
++			error() {},
++		},
++	});
++	try {
++		await chmod(endpoint, 0o600);
++		const configDir = join(root, "omp-session-gateway");
++		await mkdir(configDir, { mode: 0o700 });
++		await writeFile(join(configDir, "publisher-token"), `${"A".repeat(43)}\n`, { mode: 0o600 });
++		const publisher = new CollabRegistryPublisher({
++			instanceId: record.instanceId,
++			pid: process.pid,
++			endpointSetting: endpoint,
++			onSecurityError: message => {
++				throw new Error(message);
++			},
++		});
++		publisher.publish(record);
++		await accepted.promise;
++		publisher.shutdown(record.generation);
++		await Promise.race([
++			closed.promise,
++			Bun.sleep(1_000).then(() => {
++				throw new Error("pending publisher handshake did not close");
++			}),
++		]);
++		expect(received).not.toContain(record.viewLink);
++		expect(received).not.toContain(record.controlLink);
++	} finally {
++		server.stop(true);
++		if (previousRoot === undefined) delete process.env.XDG_CONFIG_HOME;
++		else process.env.XDG_CONFIG_HOME = previousRoot;
++		await rm(root, { recursive: true, force: true });
++	}
++});
++
++test("oversized publisher tokens fail closed before they are read", async () => {
++	if (process.platform === "win32") return;
++	const root = await mkdtemp(join(tmpdir(), "registry-publisher-token-"));
++	const environmentKey = "XDG_CONFIG_HOME";
++	const previousRoot = process.env[environmentKey];
++	process.env[environmentKey] = root;
++	const configDir = join(root, "omp-session-gateway");
++	try {
++		await mkdir(configDir, { recursive: true, mode: 0o700 });
++		await writeFile(join(configDir, "publisher-token"), "A".repeat(46), { mode: 0o600 });
++		const warning = Promise.withResolvers<string>();
++		const publisher = new CollabRegistryPublisher({
++			instanceId: record.instanceId,
++			pid: process.pid,
++			endpointSetting: "auto",
++			onSecurityError: warning.resolve,
++		});
++		publisher.publish(record);
++		const message = await warning.promise;
++		publisher.shutdown(record.generation);
++		expect(message).toContain("invalid");
++		expect(message).not.toContain(record.viewLink);
++	} finally {
++		if (previousRoot === undefined) delete process.env[environmentKey];
++		else process.env[environmentKey] = previousRoot;
++		await rm(root, { recursive: true, force: true });
++	}
 +});
 +
 +test("disabled publication is a no-op", () => {

@@ -130,3 +130,29 @@
 **Decision:** Target that exact commit, keep the initial controller/publisher integration as a narrow core patch, and build a pinned collab-web source integration with a direct in-memory bootstrap that never writes the capability to a URL.
 
 **Consequences:** The OMP patch remains necessary for automatic startup and lifecycle-safe publication. The gateway cannot consume upstream collab-web unchanged because doing so would violate the no-persistence capability invariant.
+
+---
+
+## ADR-012 — Prove managed readiness and activate immutable runtimes
+
+**Status:** Accepted
+
+**Context:** A generic loopback health body does not prove that the configured port belongs to the
+newly managed gateway; another local account can pre-bind it. In-place runtime replacement also
+makes failed upgrades and cross-version rollback difficult to verify.
+
+**Decision:** Stage each gateway payload in a private content-addressed version directory, verify
+its manifest and complete payload digest before activation, and advance an atomic current pointer
+only after the exact managed service answers a fresh publisher-token HMAC challenge bound to a
+one-time instance nonce in its service definition. Snapshot the prior config before mutation and
+restore config, service state, and runtime pointer if install fails. Probe both prior and requested
+loopback endpoints before replacement. Runtime manifests record the readiness protocol; accept
+prior SemVer runtime directories only after the same containment, manifest, and digest verification,
+and use a stable service-manager check with the legacy HMAC only for a verified pre-nonce runtime.
+Publisher-token rotation never restores the previous token; a failed restart retains the fresh
+token and stops the service.
+
+**Consequences:** Installs and upgrades reject generic, same-token-stale, and authenticated
+foreground readiness responses without exposing the publisher token. Verified legacy payloads
+remain rollback-compatible. Disk use grows by one immutable payload per staged version until an
+explicit future garbage-collection policy is qualified.

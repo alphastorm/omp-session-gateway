@@ -12,6 +12,7 @@
     "One-time same-origin MessageChannel bootstrap",
     "Return to the gateway directory on leave or reload",
     "Force a fresh relay transport after mobile foreground and online transitions",
-    "Preserve strict exact-optional typing for view links without a write token"
+    "Preserve strict exact-optional typing for view links without a write token",
+    "Redact invalid capability input from collaboration-link errors"
   ]
 }

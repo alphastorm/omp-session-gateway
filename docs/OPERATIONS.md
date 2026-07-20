@@ -37,6 +37,10 @@ Platform targets:
 - macOS: LaunchAgent under the current user;
 - Windows: current-user scheduled task or equivalently scoped user service, plus a current-user named pipe ACL.
 
+The pre-alpha OMP patch currently fails closed instead of publishing on Windows. Do not enable or
+advertise Windows session discovery until the OMP client authenticates the named-pipe server and
+namespace-squatting and cross-user tests pass.
+
 Also provide:
 
 ```text
@@ -47,7 +51,27 @@ omp-gateway rotate-publisher-token
 omp-gateway uninstall
 ```
 
-Uninstall must not edit OMP settings or Tailscale policy without explicit confirmation. It should offer commands to remove the Serve mapping and local runtime state separately.
+Uninstall does not edit OMP settings or Tailscale policy. Normal uninstall derives the fixed
+current-user service path without parsing application config, stops the service, and removes its
+autostart registration even when config is absent or malformed. `uninstall --no-stop` is accepted
+only when the service is already inactive; it refuses an active service rather than orphaning a
+daemon. Serve mappings and local config/token state remain separate, explicit cleanup steps.
+
+Install snapshots the prior private config, validates any existing managed service/runtime, rejects
+authenticated foreground listeners on both the prior and requested endpoints, stages a
+content-addressed runtime, and verifies its manifest and payload digest. It starts that exact CLI
+with a one-time readiness-instance nonce and advances the current pointer only after a
+publisher-token HMAC bound to that nonce succeeds. A generic loopback
+`{"status":"ready"}` response and a same-token prior process are insufficient. If config, service
+registration, startup, readiness, or pointer activation fails, install restores the prior config,
+service state, and verified runtime. An unavailable token is repaired only while the prior service
+is inactive and its loopback endpoint is unoccupied.
+
+Publisher-token rotation validates the managed runtime before replacing the token. If the service
+cannot restart on the fresh token, the fresh token remains authoritative and the service is
+stopped; the prior potentially exposed token is never restored. Repair the failure, then rerun the
+normal install command to restore service registration. Mutation commands reject unknown options,
+missing values, and misspelled safety flags before changing state.
 
 ## 3. Paths
 
@@ -97,17 +121,31 @@ Validate strictly and fail closed. Reject wildcard listen addresses in productio
 
 ## 5. Tailscale Serve
 
-After `omp-gatewayd` is healthy on loopback, configure a persistent private HTTPS proxy. A representative current command is:
+After `omp-gatewayd` is healthy on loopback, configure a persistent private HTTPS proxy. Ask the
+installed CLI for the command matching the configured public origin:
 
 ```bash
-tailscale serve --bg http://127.0.0.1:4317
+omp-gateway serve-guidance
 ```
 
-The installer must inspect the installed Tailscale CLI help/version, run or print the compatible command, and show `tailscale serve status`. It must never execute `tailscale funnel` or enable public exposure.
+For a default HTTPS origin it prints a command equivalent to:
 
-The gateway remains loopback-only after Serve is configured. `doctor` must fail if it detects a non-loopback listener or an active Funnel mapping for this service.
+```bash
+tailscale serve --bg --https=443 http://127.0.0.1:4317
+```
 
-Tailscale Serve removes spoofed incoming identity headers before adding trusted tailnet identity headers. The backend must still require the exact expected header and application allowlist.
+An origin such as `https://host.tailnet.ts.net:8443` produces `--https=8443`; `doctor` requires the
+exact configured external host and port plus the exact loopback target. Check `tailscale serve
+--help` on the installed version, apply the printed private Serve mapping, and inspect `tailscale
+serve status`. Never execute `tailscale funnel` or enable public exposure.
+
+The gateway remains loopback-only after Serve is configured. `doctor` fails for a mismatched Serve
+host, external port, loopback proxy, non-loopback listener, or active Funnel mapping.
+
+Tailscale Serve removes spoofed incoming identity headers before adding trusted tailnet identity
+headers. The backend still requires the exact expected header and application allowlist. Direct
+loopback callers can forge those headers; the supported v1 host is therefore a user-controlled
+workstation with no mutually untrusted local accounts.
 
 ## 6. Tailnet access policy
 
@@ -155,6 +193,8 @@ Do not ask the user to bookmark or copy an individual OMP collaboration link.
 - support explicit protocol versions and a safe rolling-upgrade overlap where practical;
 - gateway restart begins empty and publishers reconnect;
 - rotate the publisher token after suspected local exposure or ownership/permission failure;
+  Rotation atomically replaces an unsafe regular-file/symlink leaf inside the verified private
+  config directory, but refuses an unsafe parent or non-file token path.
 - verify release checksums and provenance before replacing binaries;
 - provide rollback instructions for gateway and OMP patch/extension versions.
 
@@ -185,7 +225,9 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 - PWA, manifest, CSP, and service-worker availability;
 - relay DNS/TLS connectivity without creating or logging a real capability;
 - publisher count and heartbeat health without exposing capabilities;
-- config validation and OMP compatibility.
+- config validation plus the presence and exact pin of the bundled `UPSTREAM.lock.json` and OMP patch artifacts.
+
+The compatibility check validates the gateway distribution's pinned integration artifacts. It does not inspect or claim that the locally installed OMP executable contains the patch; verify that separately against the exact commit during installation and qualification. Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.
 

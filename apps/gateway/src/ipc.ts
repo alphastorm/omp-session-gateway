@@ -1,5 +1,5 @@
-import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { chmod } from "node:fs/promises";
 import {
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
@@ -247,6 +247,7 @@ export async function startRegistryIpcServer(options: {
       },
     },
   });
+
 
   if (process.platform !== "win32") {
     await chmod(config.paths.socketPath, 0o600);

@@ -89,7 +89,7 @@ function normalizeRelayOrigin(relayUrl: string): { origin: string } | { error: s
 	try {
 		url = new URL(relayUrl);
 	} catch {
-		return { error: `Invalid relay URL: ${relayUrl}` };
+		return { error: "Invalid relay URL" };
 	}
 	let scheme: string;
 	switch (url.protocol) {
@@ -155,7 +155,7 @@ export function parseCollabLink(link: string): ParsedCollabLink | { error: strin
 	try {
 		url = new URL(text);
 	} catch {
-		return { error: `Invalid collab link: ${link}` };
+		return { error: "Invalid collaboration link" };
 	}
 	if ((url.protocol === "http:" || url.protocol === "https:") && url.hash) {
 		const inner = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;

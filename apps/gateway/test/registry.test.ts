@@ -106,6 +106,15 @@ describe("SessionRegistry", () => {
     expect(registry.size).toBe(0);
   });
 
+  test("prevents one authenticated connection from replacing another instance", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.upsert("owner-a", published(1));
+    expect(() => registry.upsert("owner-b", published(2))).toThrow("owned by another publisher");
+    expect(registry.snapshot().sessions[0]?.generation).toBe(1);
+    expect(registry.lookupCapability("registry-instance-0001", 1, "control").status).toBe("ok");
+    expect(registry.lookupCapability("registry-instance-0001", 2, "control").status).toBe("generation_mismatch");
+  });
+
   test("rejects conflicting immutable identity within a generation", () => {
     const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
     registry.upsert("owner-a", published());

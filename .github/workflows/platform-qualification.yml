@@ -30,10 +30,75 @@ jobs:
             throw "gateway status was not installed, active, and ready"
           }
           $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -eq $process) { throw "gateway process was not found" }
           $process.ProcessId | Set-Content -NoNewline "$env:RUNNER_TEMP\gateway-pid.txt"
+      - name: Reject another local user's publisher write access
+        shell: pwsh
+        run: |
+          $domain = if ($env:USERDOMAIN) { $env:USERDOMAIN } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "local" }
+          $identity = "$domain\$env:USERNAME".ToLowerInvariant()
+          $digest = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($identity))
+          $pipeName = "omp-session-gateway-$([Convert]::ToHexString($digest).ToLowerInvariant().Substring(0, 20))"
+
+          $currentUserProbe = [System.IO.Pipes.NamedPipeClientStream]::new(
+            ".",
+            $pipeName,
+            [System.IO.Pipes.PipeDirection]::InOut
+          )
+          try {
+            $currentUserProbe.Connect(1000)
+            if (-not $currentUserProbe.IsConnected) { throw "current user could not connect to publisher pipe" }
+          } finally {
+            $currentUserProbe.Dispose()
+          }
+
+          $probePath = "$env:PUBLIC\omp-gateway-pipe-probe.ps1"
+          @'
+          param([string]$PipeName)
+          foreach ($direction in @(
+            [System.IO.Pipes.PipeDirection]::Out,
+            [System.IO.Pipes.PipeDirection]::InOut
+          )) {
+            $probe = [System.IO.Pipes.NamedPipeClientStream]::new(".", $PipeName, $direction)
+            $connected = $false
+            try {
+              $probe.Connect(750)
+              $connected = $probe.IsConnected
+            } catch [System.UnauthorizedAccessException] {
+            } catch [System.TimeoutException] {
+            } finally {
+              $probe.Dispose()
+            }
+            if ($connected) { exit 91 }
+          }
+          exit 0
+          '@ | Set-Content -LiteralPath $probePath -Encoding utf8
+
+          $otherUser = "ompgatewayprobe"
+          $password = "Omp!" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + "1"
+          & net.exe user $otherUser $password /add /expires:never
+          if ($LASTEXITCODE -ne 0) { throw "failed to create pipe ACL probe user" }
+          try {
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            $credential = [System.Management.Automation.PSCredential]::new(
+              "$env:COMPUTERNAME\$otherUser",
+              $securePassword
+            )
+            $probeProcess = Start-Process `
+              -FilePath "powershell.exe" `
+              -Credential $credential `
+              -ArgumentList @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $probePath, $pipeName) `
+              -Wait `
+              -PassThru
+            if ($probeProcess.ExitCode -ne 0) {
+              throw "publisher pipe granted write access to another local user (probe exit $($probeProcess.ExitCode))"
+            }
+          } finally {
+            Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+            & net.exe user $otherUser /delete | Out-Null
+          }
       - name: Rotate token and reinstall
         shell: pwsh
         run: |
@@ -48,7 +113,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "active reinstall failed" }
           $beforePid = [int](Get-Content "$env:RUNNER_TEMP\gateway-pid.txt")
           $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -eq $process -or $process.ProcessId -eq $beforePid) {
             throw "active reinstall did not replace the gateway process"
@@ -56,6 +121,15 @@ jobs:
           $status = bun apps/gateway/src/cli.ts status | ConvertFrom-Json
           if (-not $status.installed -or -not $status.active -or -not $status.ready) {
             throw "gateway did not recover after reinstall"
+          }
+      - name: Refuse no-stop uninstall while active
+        shell: pwsh
+        run: |
+          bun apps/gateway/src/cli.ts uninstall --no-stop
+          if ($LASTEXITCODE -eq 0) { throw "active no-stop uninstall unexpectedly succeeded" }
+          $status = bun apps/gateway/src/cli.ts status | ConvertFrom-Json
+          if (-not $status.installed -or -not $status.active -or -not $status.ready) {
+            throw "no-stop refusal altered the active service"
           }
       - name: Uninstall current-user task
         if: always()
@@ -70,6 +144,6 @@ jobs:
           }
           Start-Sleep -Milliseconds 500
           $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -ne $process) { throw "gateway process remained after uninstall" }

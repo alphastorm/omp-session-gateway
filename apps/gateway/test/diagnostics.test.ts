@@ -1,10 +1,17 @@
+import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { GatewayConfig } from "../src/config.ts";
 import { createDiagnosticsBundle, diagnosticsBundleBytes } from "../src/diagnostics.ts";
-import { funnelConfigurationDisabled, serveConfigurationMatches, tailscaleSelfIp } from "../src/doctor.ts";
+import {
+  funnelConfigurationDisabled,
+  gatewayReady,
+  loopbackHttpResponds,
+  serveConfigurationMatches,
+  tailscaleSelfIp,
+} from "../src/doctor.ts";
 
 const roots: string[] = [];
 
@@ -85,6 +92,101 @@ describe("redacted diagnostics", () => {
   });
 });
 
+test("rejects an unauthenticated ready response from a loopback port squatter", async () => {
+  const squatter = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ status: "ready" }) });
+  try {
+    const base = config();
+    const gatewayConfig: GatewayConfig = {
+      ...base,
+      http: { ...base.http, port: squatter.port ?? 0 },
+    };
+    expect(await gatewayReady(gatewayConfig, "T".repeat(43))).toBe(false);
+    expect(await loopbackHttpResponds(gatewayConfig)).toBe(true);
+  } finally {
+    squatter.stop(true);
+  }
+});
+
+test("rejects an authenticated prior instance during managed startup", async () => {
+  const token = "T".repeat(43);
+  const priorInstance = "P".repeat(43);
+  const squatter = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: request => {
+      const challenge = request.headers.get("X-OMP-Readiness-Challenge") ?? "";
+      const proof = createHmac("sha256", token)
+        .update(challenge)
+        .update("\0")
+        .update(priorInstance)
+        .digest("base64url");
+      return Response.json({ status: "ready", instance: priorInstance, proof });
+    },
+  });
+  try {
+    const base = config();
+    const gatewayConfig: GatewayConfig = {
+      ...base,
+      http: { ...base.http, port: squatter.port ?? 0 },
+    };
+    expect(await gatewayReady(gatewayConfig, token)).toBe(true);
+    expect(await gatewayReady(gatewayConfig, token, "N".repeat(43))).toBe(false);
+  } finally {
+    squatter.stop(true);
+  }
+});
+
+test("recognizes a legacy same-token gateway only outside instance-bound startup", async () => {
+  const token = "T".repeat(43);
+  const legacy = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: request => {
+      const challenge = request.headers.get("X-OMP-Readiness-Challenge") ?? "";
+      return Response.json({
+        status: "ready",
+        proof: createHmac("sha256", token).update(challenge).digest("base64url"),
+      });
+    },
+  });
+  try {
+    const base = config();
+    const gatewayConfig = { ...base, http: { ...base.http, port: legacy.port ?? 0 } };
+    expect(await gatewayReady(gatewayConfig, token)).toBe(true);
+    expect(await gatewayReady(gatewayConfig, token, "N".repeat(43))).toBe(false);
+  } finally {
+    legacy.stop(true);
+  }
+});
+
+test("rejects oversized readiness responses before parsing", async () => {
+  const squatter = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(513));
+            controller.close();
+          },
+        }),
+      ),
+  });
+  try {
+    const base = config();
+    expect(
+      await gatewayReady(
+        { ...base, http: { ...base.http, port: squatter.port ?? 0 } },
+        "T".repeat(43),
+        "N".repeat(43),
+      ),
+    ).toBe(false);
+  } finally {
+    squatter.stop(true);
+  }
+});
+
 describe("Tailscale doctor parsing", () => {
   test("requires the configured HTTPS host and exact loopback proxy", () => {
     const value = {
@@ -105,6 +207,39 @@ describe("Tailscale doctor parsing", () => {
       serveConfigurationMatches(
         { Web: { "gateway.example.ts.net:443": { Handlers: { "/": { Proxy: "http://0.0.0.0:4317" } } } } },
         config(),
+      ),
+    ).toBe(false);
+  });
+
+  test("requires the exact configured external HTTPS port", () => {
+    const customPortConfig: GatewayConfig = {
+      ...config(),
+      http: { ...config().http, publicOrigin: "https://gateway.example.ts.net:8443" },
+    };
+    const handlers = { "/": { Proxy: "http://127.0.0.1:4317" } };
+    expect(serveConfigurationMatches({ Web: { "gateway.example.ts.net:8443": { Handlers: handlers } } }, customPortConfig)).toBe(
+      true,
+    );
+    expect(serveConfigurationMatches({ Web: { "gateway.example.ts.net:443": { Handlers: handlers } } }, customPortConfig)).toBe(
+      false,
+    );
+  });
+
+  test("matches an exact bracketed IPv6 loopback proxy", () => {
+    const ipv6Config: GatewayConfig = {
+      ...config(),
+      http: { hostname: "::1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
+    };
+    expect(
+      serveConfigurationMatches(
+        { Web: { "gateway.example.ts.net:443": { Handlers: { "/": { Proxy: "http://[::1]:4317" } } } } },
+        ipv6Config,
+      ),
+    ).toBe(true);
+    expect(
+      serveConfigurationMatches(
+        { Web: { "gateway.example.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:4317" } } } } },
+        ipv6Config,
       ),
     ).toBe(false);
   });
