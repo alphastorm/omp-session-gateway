@@ -1680,11 +1680,11 @@ index 84a7dc00622d675fcd5d8b0db919156bda7ee382..0fa169eab061f6ac555da69685349f08
  		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d741431db1dec50cbe045e4850f4401626f4469
+index 0000000000000000000000000000000000000000..b7d18b7b20809ef9647da6ae5bb69b456aa66044
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,401 @@
-+import { expect, test } from "bun:test";
+@@ -0,0 +1,527 @@
++import { expect, test, vi } from "bun:test";
 +import { createHmac, randomBytes } from "node:crypto";
 +import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 +import { tmpdir } from "node:os";
@@ -1707,10 +1707,18 @@ index 0000000000000000000000000000000000000000..3d741431db1dec50cbe045e4850f4401
 +	readonly instanceId: string;
 +	readonly pid: number;
 +}
++interface AuthenticatedRegistryServer {
++	readonly server: { stop(closeActiveConnections?: boolean): void };
++	readonly frames: Array<Record<string, unknown>>;
++	readonly binding: () => AuthBinding | undefined;
++	readonly upsertReceived: Promise<void>;
++	readonly connectionClosed: Promise<void>;
++}
 +
 +interface PublisherFixture {
 +	readonly root: string;
 +	readonly endpoint: string;
++	readonly tokenPath: string;
 +	readonly environmentKey: "LOCALAPPDATA" | "XDG_CONFIG_HOME";
 +	readonly previousRoot: string | undefined;
 +}
@@ -1757,7 +1765,7 @@ index 0000000000000000000000000000000000000000..3d741431db1dec50cbe045e4850f4401
 +		process.platform === "win32"
 +			? `\\\\.\\pipe\\publisher-${label}-${randomBytes(6).toString("hex")}`
 +			: join(root, "registry.sock");
-+	return { root, endpoint, environmentKey, previousRoot };
++	return { root, endpoint, tokenPath, environmentKey, previousRoot };
 +}
 +
 +async function prepareServerEndpoint(endpoint: string): Promise<void> {
@@ -1770,13 +1778,71 @@ index 0000000000000000000000000000000000000000..3d741431db1dec50cbe045e4850f4401
 +	await rm(fixture.root, { recursive: true, force: true });
 +}
 +
-+async function beforeTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
++async function beforeTimeout<T>(promise: Promise<T>, message: string, timeoutMilliseconds = 2_000): Promise<T> {
 +	return await Promise.race([
 +		promise,
-+		Bun.sleep(2_000).then(() => {
++		Bun.sleep(timeoutMilliseconds).then(() => {
 +			throw new Error(message);
 +		}),
 +	]);
++}
++
++function startAuthenticatedRegistryServer(
++	endpoint: string,
++	token: string,
++	serverNonce: string,
++): AuthenticatedRegistryServer {
++	const frames: Array<Record<string, unknown>> = [];
++	const upsertReceived = Promise.withResolvers<void>();
++	const connectionClosed = Promise.withResolvers<void>();
++	let binding: AuthBinding | undefined;
++	const server = Bun.listen<{ buffer: string }>({
++		unix: endpoint,
++		data: { buffer: "" },
++		socket: {
++			data(socket, data) {
++				socket.data.buffer += Buffer.from(data).toString("utf8");
++				while (socket.data.buffer.includes("\n")) {
++					const newline = socket.data.buffer.indexOf("\n");
++					const line = socket.data.buffer.slice(0, newline);
++					socket.data.buffer = socket.data.buffer.slice(newline + 1);
++					const frame = JSON.parse(line) as Record<string, unknown>;
++					frames.push(frame);
++					if (frame.op === "hello") {
++						binding = {
++							clientNonce: String(frame.clientNonce),
++							serverNonce,
++							instanceId: String(frame.instanceId),
++							pid: Number(frame.pid),
++						};
++						socket.write(
++							`${JSON.stringify({
++								v: 1,
++								op: "challenge",
++								serverNonce,
++								proof: authProof(token, "omp-session-gateway.registry.server.v1", binding),
++							})}\n`,
++						);
++					} else if (frame.op === "authenticate") {
++						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
++					} else if (frame.op === "upsert") {
++						upsertReceived.resolve();
++					}
++				}
++			},
++			close() {
++				connectionClosed.resolve();
++			},
++			error() {},
++		},
++	});
++	return {
++		server,
++		frames,
++		binding: () => binding,
++		upsertReceived: upsertReceived.promise,
++		connectionClosed: connectionClosed.promise,
++	};
 +}
 +
 +test("publisher mutual-auth proof vector matches the gateway protocol", () => {
@@ -1937,6 +2003,66 @@ index 0000000000000000000000000000000000000000..3d741431db1dec50cbe045e4850f4401
 +		publisher.shutdown(record.generation);
 +	} finally {
 +		server.stop(true);
++		await cleanupPublisherFixture(fixture);
++	}
++});
++
++test("publisher reconnects after registry restart and rereads the rotated token", async () => {
++	const fixture = await createPublisherFixture("restart-token");
++	const initialToken = "A".repeat(43);
++	const rotatedToken = "B".repeat(43);
++	const first = startAuthenticatedRegistryServer(fixture.endpoint, initialToken, "C".repeat(43));
++	let firstStopped = false;
++	let second: AuthenticatedRegistryServer | undefined;
++	const warnings: string[] = [];
++	const publisher = new CollabRegistryPublisher({
++		instanceId: record.instanceId,
++		pid: record.pid,
++		endpointSetting: fixture.endpoint,
++		onSecurityError: message => warnings.push(message),
++	});
++	vi.useFakeTimers();
++	try {
++		await prepareServerEndpoint(fixture.endpoint);
++		publisher.publish(record);
++		await first.upsertReceived;
++		const firstBinding = first.binding();
++		expect(firstBinding).toBeDefined();
++		expect(first.frames[1]).toHaveProperty(
++			"proof",
++			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
++		);
++		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++
++		first.server.stop(true);
++		firstStopped = true;
++		await first.connectionClosed;
++		if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
++		await writeFile(fixture.tokenPath, `${rotatedToken}\n`, { mode: 0o600 });
++		await secureWindowsPublisherToken(fixture.tokenPath);
++		second = startAuthenticatedRegistryServer(fixture.endpoint, rotatedToken, "D".repeat(43));
++		await prepareServerEndpoint(fixture.endpoint);
++
++		vi.advanceTimersByTime(1_000);
++		await second.upsertReceived;
++		const secondBinding = second.binding();
++		expect(secondBinding).toBeDefined();
++		expect(secondBinding?.clientNonce).not.toBe(firstBinding?.clientNonce);
++		expect(second.frames[0]?.op).toBe("hello");
++		expect(second.frames[1]).toHaveProperty(
++			"proof",
++			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
++		);
++		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++		expect(warnings).toEqual([]);
++		const wire = JSON.stringify([...first.frames, ...second.frames]);
++		expect(wire).not.toContain(initialToken);
++		expect(wire).not.toContain(rotatedToken);
++	} finally {
++		publisher.shutdown(record.generation);
++		if (!firstStopped) first.server.stop(true);
++		second?.server.stop(true);
++		vi.useRealTimers();
 +		await cleanupPublisherFixture(fixture);
 +	}
 +});
