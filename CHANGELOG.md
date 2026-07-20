@@ -29,6 +29,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Kept all platform and Android support entries unadvertised until real-device and cross-OS acceptance passes.
 - Qualified the final source-review-hardened OMP patch in the complete pinned upstream checkout; checks and every official TypeScript test bucket passed with documented upstream-baseline exclusions restored afterward.
 - Completed an eight-hour default-relay endurance run: the read-only client remained connected for 28,804 seconds and finished in the live phase.
+- Published and independently verified the immutable provenance-test `provenance-test-v0.1.0.7` from the hardened `main` commit, including deterministic archive/SBOM/checksum reproduction, GitHub build attestations, Cosign bundles, and immutable release-asset attestations.
 
 - Made production install a config/service/runtime transaction with prior-endpoint checks, instance-bound HMAC readiness, verified legacy-runtime rollback, exact external Serve-port guidance, and recovery uninstall that does not require a readable application config.
 
