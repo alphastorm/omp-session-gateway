@@ -47,7 +47,7 @@ Use distinctive fixture strings for publisher token, view capability, and contro
 - generated diagnostics bundle;
 - unhandled exception and snapshot output.
 
-Fail on any exact fixture or meaningful substring. The only permitted transient appearances are authenticated IPC/API response memory and the collab client's in-memory parsed value.
+Fail on any exact fixture or meaningful substring outside its designated source/sink. The publisher authentication key is permitted only in the private token fixture and live HMAC key buffers; it must never appear in captured IPC frames. View/control capabilities are permitted only in authenticated publisher/API response memory and the collab client's in-memory parsed value.
 
 ## 3. Integration tests
 
@@ -57,6 +57,7 @@ Fail on any exact fixture or meaningful substring. The only permitted transient 
 - daemon restart followed by reconnect/repopulation;
 - publisher starts before daemon;
 - token rotation and reconnect;
+- mutual publisher/gateway proof-vector agreement, stale-proof replay rejection, and fake named-pipe server capability withholding;
 - session generation replacement while phone card is open;
 - launch race with process exit;
 - SSE reconnect and full snapshot;

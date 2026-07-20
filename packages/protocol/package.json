@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ipc-auth": "./src/ipc-auth.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
