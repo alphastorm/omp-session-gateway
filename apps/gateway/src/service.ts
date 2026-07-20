@@ -50,7 +50,7 @@ export function serviceDefinition(config: GatewayConfig, platform = process.plat
     return {
       identifier: "omp-session-gateway",
       path: join(config.paths.configDir, "omp-session-gateway-task.xml"),
-      content: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>cmd.exe</Command><Arguments>/d /s /c &quot;${command}&quot;</Arguments></Exec></Actions>\n</Task>\n`,
+      content: `<?xml version="1.0" encoding="UTF-8"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>cmd.exe</Command><Arguments>/d /s /c &quot;${command}&quot;</Arguments></Exec></Actions>\n</Task>\n`,
     };
   }
   throw new Error(`unsupported platform: ${platform}`);
@@ -70,6 +70,20 @@ async function commandSucceeds(command: readonly string[]): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function bootstrapLaunchAgent(domain: string, path: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await run(["launchctl", "bootstrap", domain, path]);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 19) await Bun.sleep(100);
+    }
+  }
+  throw lastError;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -94,9 +108,17 @@ export async function userServiceStatus(config: GatewayConfig): Promise<UserServ
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
     return { installed: definitionExists, active: await commandSucceeds(["launchctl", "print", target]) };
   }
-  const installed =
-    definitionExists && (await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]));
-  return { installed, active: installed };
+  const installed = await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]);
+  const active =
+    installed &&
+    (await commandSucceeds([
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "if ((Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction Stop).State -eq 'Running') { exit 0 } else { exit 1 }",
+    ]));
+  return { installed, active };
 }
 
 export async function installUserService(config: GatewayConfig, activate = true): Promise<ServiceDefinition> {
@@ -106,13 +128,18 @@ export async function installUserService(config: GatewayConfig, activate = true)
   if (process.platform !== "win32") await chmod(definition.path, 0o600);
   if (!activate) return definition;
   if (process.platform === "linux") {
+    const wasActive = await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]);
     await run(["systemctl", "--user", "daemon-reload"]);
-    await run(["systemctl", "--user", "enable", "--now", "omp-session-gateway.service"]);
+    await run(["systemctl", "--user", "enable", "omp-session-gateway.service"]);
+    await run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
   } else if (process.platform === "darwin") {
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
     if (await commandSucceeds(["launchctl", "print", target])) await run(["launchctl", "bootout", target]);
-    await run(["launchctl", "bootstrap", `gui/${process.getuid?.() ?? 0}`, definition.path]);
+    await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path);
   } else {
+    if (await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"])) {
+      await commandSucceeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
+    }
     await run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
     await run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
   }

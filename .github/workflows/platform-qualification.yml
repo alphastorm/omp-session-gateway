@@ -1,0 +1,70 @@
+name: Platform qualification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-service-lifecycle:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Validate Windows contracts and ACLs
+        run: bun test apps/gateway/test/config.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
+      - name: Install and start current-user task
+        run: bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
+      - name: Verify active service
+        shell: pwsh
+        run: |
+          $status = bun apps/gateway/src/cli.ts status | ConvertFrom-Json
+          if (-not $status.installed -or -not $status.active -or -not $status.ready) {
+            throw "gateway status was not installed, active, and ready"
+          }
+          $process = Get-CimInstance Win32_Process |
+            Where-Object { $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Select-Object -First 1
+          if ($null -eq $process) { throw "gateway process was not found" }
+          $process.ProcessId | Set-Content -NoNewline "$env:RUNNER_TEMP\gateway-pid.txt"
+      - name: Rotate token and reinstall
+        shell: pwsh
+        run: |
+          $token = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\publisher-token"
+          $beforeWrite = $token.LastWriteTimeUtc
+          Start-Sleep -Milliseconds 1100
+          bun apps/gateway/src/cli.ts rotate-publisher-token
+          if ($LASTEXITCODE -ne 0) { throw "token rotation failed" }
+          $rotated = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\publisher-token"
+          if ($rotated.LastWriteTimeUtc -le $beforeWrite) { throw "token file was not replaced" }
+          bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
+          if ($LASTEXITCODE -ne 0) { throw "active reinstall failed" }
+          $beforePid = [int](Get-Content "$env:RUNNER_TEMP\gateway-pid.txt")
+          $process = Get-CimInstance Win32_Process |
+            Where-Object { $_.CommandLine -like '*apps\gateway\src\cli.ts*serve*' } |
+            Select-Object -First 1
+          if ($null -eq $process -or $process.ProcessId -eq $beforePid) {
+            throw "active reinstall did not replace the gateway process"
+          }
+          $status = bun apps/gateway/src/cli.ts status | ConvertFrom-Json
+          if (-not $status.installed -or -not $status.active -or -not $status.ready) {
+            throw "gateway did not recover after reinstall"
+          }
+      - name: Uninstall current-user task
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:LOCALAPPDATA\OMP Session Gateway\config.json") {
+            bun apps/gateway/src/cli.ts uninstall
+            if ($LASTEXITCODE -ne 0) { throw "gateway uninstall failed" }
+          }
+          if ($null -ne (Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue)) {
+            throw "scheduled task remained after uninstall"
+          }

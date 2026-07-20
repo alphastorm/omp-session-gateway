@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { GatewayConfig } from "../src/config.ts";
 import { createDiagnosticsBundle, diagnosticsBundleBytes } from "../src/diagnostics.ts";
-import { funnelConfigurationDisabled, serveConfigurationMatches } from "../src/doctor.ts";
+import { funnelConfigurationDisabled, serveConfigurationMatches, tailscaleSelfIp } from "../src/doctor.ts";
 
 const roots: string[] = [];
 
@@ -109,9 +109,28 @@ describe("Tailscale doctor parsing", () => {
     ).toBe(false);
   });
 
+  test("selects a validated Tailscale self address for direct HTTPS diagnostics", () => {
+    expect(
+      tailscaleSelfIp({
+        Self: { TailscaleIPs: ["fd7a:115c:a1e0::1234", "100.64.0.7"] },
+      }),
+    ).toBe("100.64.0.7");
+    expect(tailscaleSelfIp({ Self: { TailscaleIPs: ["not-an-ip"] } })).toBeUndefined();
+  });
+
   test("fails when any Funnel configuration is active", () => {
     expect(funnelConfigurationDisabled({})).toBe(true);
     expect(funnelConfigurationDisabled({ AllowFunnel: {} })).toBe(true);
+    expect(
+      funnelConfigurationDisabled({
+        TCP: { "443": { HTTPS: true } },
+        Web: {
+          "gateway.example.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:4317" } },
+          },
+        },
+      }),
+    ).toBe(true);
     expect(funnelConfigurationDisabled({ AllowFunnel: { "gateway.example.ts.net": { "443": false } } })).toBe(true);
     expect(funnelConfigurationDisabled({ AllowFunnel: { "gateway.example.ts.net": { "443": true } } })).toBe(false);
   });
