@@ -18,6 +18,7 @@
 - [x] Secret leak test harness.
 - [ ] Android and lifecycle E2E suite.
 - [x] Install, doctor, uninstall, token rotation.
+- [ ] Update the README with a neutral comparison to [`omp-deck`](https://libraries.io/npm/omp-deck): explain that OMP Session Gateway is a minimal tailnet session directory and capability broker for already-running terminal OMP processes that reuses OMP's existing `collab-web`, rather than a persistent full agent cockpit with its own chat, task board, routines, knowledge base, and messaging integrations; state when each approach is the better fit.
 
 ## v1.1 candidates
 
