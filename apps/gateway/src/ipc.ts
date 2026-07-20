@@ -17,9 +17,15 @@ import {
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
 
+const MAX_HELLO_FRAME_BYTES = 1_024;
+const HELLO_TIMEOUT_MILLISECONDS = 5_000;
+const fatalUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
 interface ConnectionState {
   readonly ownerId: string;
   buffer: Buffer;
+  bufferedBytes: number;
+  deadline?: Timer;
   authenticated: boolean;
   instanceId?: string;
   pid?: number;
@@ -33,10 +39,10 @@ export interface RegistryIpcServer {
 }
 
 function isSafeHelloCandidate(frame: Uint8Array): boolean {
-  if (frame.byteLength > 1_024) return false;
+  if (frame.byteLength > MAX_HELLO_FRAME_BYTES) return false;
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(frame);
+    text = fatalUtf8Decoder.decode(frame);
   } catch {
     return false;
   }
@@ -52,15 +58,69 @@ export async function startRegistryIpcServer(options: {
 }): Promise<RegistryIpcServer> {
   const { config, token, registry } = options;
   const logger = options.logger ?? new SafeLogger();
+  const idleTimeoutMilliseconds = config.registry.ttlSeconds * 1_000;
   await removeRuntimeSocket(config);
   let publisherCount = 0;
   const connections = new Set<Bun.Socket<ConnectionState>>();
 
+  const clearDeadline = (state: ConnectionState): void => {
+    if (state.deadline === undefined) return;
+    clearTimeout(state.deadline);
+    delete state.deadline;
+  };
+
+  const scrubBuffer = (state: ConnectionState): void => {
+    state.buffer.fill(0);
+    state.bufferedBytes = 0;
+  };
+
+  const releaseConnection = (socket: Bun.Socket<ConnectionState>): void => {
+    const state = socket.data;
+    clearDeadline(state);
+    scrubBuffer(state);
+    state.closed = true;
+    if (!connections.delete(socket)) return;
+    publisherCount -= 1;
+    registry.removeOwner(state.ownerId);
+  };
+
   const closeWithProtocolError = (socket: Bun.Socket<ConnectionState>): void => {
     if (socket.data.closed) return;
-    socket.data.closed = true;
     logger.event("warn", "ipc.protocol_rejected");
+    releaseConnection(socket);
     socket.end('{"v":1,"op":"error","code":"protocol_error"}\n');
+  };
+
+  const closeTimedOut = (socket: Bun.Socket<ConnectionState>): void => {
+    if (socket.data.closed) return;
+    logger.event("warn", "ipc.connection_timed_out", { authenticated: socket.data.authenticated });
+    releaseConnection(socket);
+    socket.end('{"v":1,"op":"error","code":"protocol_error"}\n');
+  };
+
+  const armDeadline = (socket: Bun.Socket<ConnectionState>, timeoutMilliseconds: number): void => {
+    const state = socket.data;
+    clearDeadline(state);
+    state.deadline = setTimeout(() => closeTimedOut(socket), timeoutMilliseconds);
+  };
+
+  const appendFrameBytes = (socket: Bun.Socket<ConnectionState>, bytes: Uint8Array): boolean => {
+    const state = socket.data;
+    const maximumBytes = state.authenticated ? MAX_FRAME_BYTES : MAX_HELLO_FRAME_BYTES;
+    const nextLength = state.bufferedBytes + bytes.byteLength;
+    if (nextLength > maximumBytes) {
+      closeWithProtocolError(socket);
+      return false;
+    }
+    if (nextLength > state.buffer.byteLength) {
+      const grown = Buffer.alloc(MAX_FRAME_BYTES);
+      state.buffer.copy(grown, 0, 0, state.bufferedBytes);
+      state.buffer.fill(0);
+      state.buffer = grown;
+    }
+    state.buffer.set(bytes, state.bufferedBytes);
+    state.bufferedBytes = nextLength;
+    return true;
   };
 
   const processFrame = (socket: Bun.Socket<ConnectionState>, frameBytes: Uint8Array): void => {
@@ -113,46 +173,50 @@ export async function startRegistryIpcServer(options: {
       open(socket) {
         socket.data = {
           ownerId: randomUUID(),
-          buffer: Buffer.alloc(0),
+          buffer: Buffer.alloc(MAX_HELLO_FRAME_BYTES),
+          bufferedBytes: 0,
           authenticated: false,
           closed: false,
         };
         if (publisherCount >= config.registry.maxPublishers) {
+          socket.data.closed = true;
           socket.end('{"v":1,"op":"error","code":"capacity"}\n');
           return;
         }
         publisherCount += 1;
         connections.add(socket);
+        armDeadline(socket, HELLO_TIMEOUT_MILLISECONDS);
       },
       data(socket, chunk) {
-        if (socket.data.closed) return;
-        socket.data.buffer = Buffer.concat([socket.data.buffer, Buffer.from(chunk)]);
-        while (!socket.data.closed) {
-          const newline = socket.data.buffer.indexOf(0x0a);
-          if (newline < 0) {
-            if (socket.data.buffer.byteLength > MAX_FRAME_BYTES) closeWithProtocolError(socket);
-            return;
-          }
-          if (newline > MAX_FRAME_BYTES) {
+        const state = socket.data;
+        if (state.closed) return;
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        let offset = 0;
+        while (offset < bytes.byteLength && !state.closed) {
+          const newline = bytes.indexOf(0x0a, offset);
+          const end = newline < 0 ? bytes.byteLength : newline;
+          if (!appendFrameBytes(socket, bytes.subarray(offset, end))) return;
+          if (newline < 0) return;
+          if (state.bufferedBytes === 0) {
             closeWithProtocolError(socket);
             return;
           }
-          const frame = socket.data.buffer.subarray(0, newline);
-          socket.data.buffer = socket.data.buffer.subarray(newline + 1);
-          if (frame.byteLength === 0) {
-            closeWithProtocolError(socket);
-            return;
-          }
+
+          const frameLength = state.bufferedBytes;
           try {
-            processFrame(socket, frame);
+            processFrame(socket, state.buffer.subarray(0, frameLength));
+            if (!state.closed && state.authenticated) armDeadline(socket, idleTimeoutMilliseconds);
           } catch {
             closeWithProtocolError(socket);
+          } finally {
+            state.buffer.fill(0, 0, frameLength);
+            state.bufferedBytes = 0;
           }
+          offset = newline + 1;
         }
       },
       close(socket) {
-        if (connections.delete(socket)) publisherCount -= 1;
-        registry.removeOwner(socket.data.ownerId);
+        releaseConnection(socket);
       },
       error(socket) {
         if (!socket.data.closed) logger.event("warn", "ipc.connection_error");
@@ -172,7 +236,10 @@ export async function startRegistryIpcServer(options: {
       return publisherCount;
     },
     async stop() {
-      for (const socket of connections) socket.end();
+      for (const socket of connections) {
+        releaseConnection(socket);
+        socket.end();
+      }
       server.stop(true);
       registry.clear();
       await removeRuntimeSocket(config);

@@ -65,8 +65,11 @@ async function secureWindowsFixture(path: string): Promise<void> {
   if ((await subprocess.exited) !== 0) throw new Error(`failed to secure test fixture: ${stderr.trim()}`);
 }
 
-async function makeWindowsFixtureUnsafe(path: string): Promise<void> {
-  if (process.platform !== "win32") return;
+async function makeFixtureUnsafe(path: string): Promise<void> {
+  if (process.platform !== "win32") {
+    await chmod(path, 0o644);
+    return;
+  }
   const subprocess = Bun.spawn(["icacls.exe", path, "/grant", "*S-1-1-0:F"], {
     stdin: "ignore",
     stdout: "ignore",
@@ -126,7 +129,7 @@ describe("secure config", () => {
     const root = await privateRoot();
     const path = join(root, "config.json");
     await writeFile(path, "{}", { mode: 0o644 });
-    await makeWindowsFixtureUnsafe(path);
+    await makeFixtureUnsafe(path);
     await expect(loadGatewayConfig({ configPath: path, mode: "dev-localhost" })).rejects.toThrow("unsafe");
     await rm(path);
     const target = join(root, "target.json");
@@ -157,7 +160,7 @@ describe("secure config", () => {
     const config = configForRoot(root);
     await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
     await writeFile(config.paths.tokenPath, `${"A".repeat(43)}\n`, { mode: 0o644 });
-    await makeWindowsFixtureUnsafe(config.paths.tokenPath);
+    await makeFixtureUnsafe(config.paths.tokenPath);
     await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("unsafe");
   });
 });

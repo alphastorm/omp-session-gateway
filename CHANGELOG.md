@@ -34,3 +34,5 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Force a fresh collab relay transport after mobile foreground, BFCache restore, and online transitions so suspended sockets cannot remain silently stale.
 - Revoke the active OMP collaboration generation before session mutation and publish its replacement only after the new session or tree state is active.
 - Harden Windows config and publisher-token paths with current-user/SYSTEM-only ACLs, write Task Scheduler XML as UTF-16, and use an authenticated loopback shutdown so reinstall and uninstall cannot orphan the gateway process.
+- Bound unauthenticated IPC handshakes and authenticated publisher idleness so stalled local clients cannot exhaust publisher capacity; partial frames now use fixed-capacity buffers that are scrubbed on release.
+- Made unsafe-permission test fixtures independent of the invoking shell's `umask`.
