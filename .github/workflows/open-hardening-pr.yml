@@ -1,0 +1,39 @@
+name: Open IPC hardening PR
+
+on:
+  push:
+    branches:
+      - hardening/waiting-soak
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head hardening/waiting-soak \
+            --title "fix: bound idle IPC publishers" --body-file - <<'EOF'
+          ## Summary
+
+          - enforce a bounded 5-second hello deadline and registry-TTL-aligned authenticated idle deadline
+          - reclaim publisher capacity and remove owned sessions immediately when a local client stalls
+          - replace repeated `Buffer.concat` partial-frame copies with a fixed 1 KiB pre-auth buffer that grows once to the protocol frame limit after authentication
+          - scrub buffered bytes whenever frames complete or connections close
+          - make unsafe-permission fixtures deterministic under restrictive shell umasks
+
+          ## Threat-model impact
+
+          A local user process still must hold the publisher token to publish capability-bearing records. This change closes a local availability gap: unauthenticated sockets can no longer occupy all publisher slots indefinitely. It does not add persistence, network ingress, or a new capability sink. Timeout logs include only authentication state; buffered capability data is overwritten before connection state is released.
+
+          ## Verification
+
+          - `bun test apps/gateway/test/ipc.test.ts` — 2 passed, 10 assertions
+          - `bun test apps/gateway/test/config.test.ts` — 5 passed, 15 assertions
+          - `bun run check` — handoff validation, four workspace typechecks, production builds, 40 tests/155 assertions, capability-leak scan
+          EOF
