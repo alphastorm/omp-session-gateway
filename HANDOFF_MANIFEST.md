@@ -44,15 +44,15 @@ contain boolean results only. Tailscale Funnel remains unsupported.
 - Chromium at 412 × 915: three synthetic sessions rendered without visual overflow; SSE remained ready across a 26-second keepalive observation; stale launch returned `409`; valid launch was `no-store`; the client scrubbed its handoff URL; Local Storage, Session Storage, IndexedDB, history state, and service-worker cache contained no capability; publisher socket close removed all cards promptly.
 - macOS 26.5.2 arm64 development-checkout qualification: live LaunchAgent install/reinstall, private permissions, atomic token rotation, doctor/bundle, Tailscale Serve allow/deny/spoof checks, loopback/LAN isolation, and uninstall passed.
 - Debian 13 arm64 systemd-container qualification: live user-service install/autostart, active PID replacement, private permissions, token rotation, and uninstall passed; this is not a bare-metal support claim.
-- Hosted Windows lifecycle qualification: GitHub Actions run `29715302992` passed config/token ACL checks, UTF-16 scheduled-task install/start, active health/status, atomic token rotation, authenticated exact-Origin graceful PID replacement, active reinstall, and process-clean uninstall.
+- Hosted Windows lifecycle qualification: GitHub Actions run 29715302992 on commit `ff3b56370822` passed config/token ACL checks, UTF-16 scheduled-task install/start, active health/status, atomic token rotation, authenticated exact-Origin graceful PID replacement, active reinstall, and process-clean uninstall.
 - Real desktop relay/browser acceptance: three patched interactive OMP processes auto-published; View was read-only, Control prompted and interrupted, `/new` advanced the live generation only after session replacement and the prior generation returned `409`; exited/crashed processes disappeared, secret-free leave navigation passed, and foreground/online events created fresh relay sockets.
-- GitHub private vulnerability reporting and immutable releases are enabled. The commit-pinned OIDC release workflow signs and attests the archive, SBOM, and checksum manifest; hosted provenance execution has not yet run.
+- GitHub private vulnerability reporting, dependency alerts/security updates, secret scanning/push protection, immutable releases, and protected signed-commit `main` are enabled. The commit-pinned OIDC workflow signs and attests the archive, SBOM, and checksum manifest; `provenance-test-v0.1.0.5` verified the pre-SBOM archive/checksum path, and the SBOM-bearing path awaits the post-merge `provenance-test-v0.1.0.6` run.
 
 ## Remaining release blockers
 
 - qualify signed candidate artifacts, upgrade/rollback, reboot/login persistence, and native Linux;
 - complete the running eight-hour default-relay soak;
 - run physical Android install, lock/resume, radio/network-change, back-navigation, reconnect, View, Control, interrupt, and leak acceptance; and
-- execute and independently verify a provenance-test release.
+- execute and independently verify the SBOM-bearing `provenance-test-v0.1.0.6` release after the integrated workflow reaches `main`.
 
 No operating system or Android release is advertised in `docs/COMPATIBILITY.md` until those gates pass.
