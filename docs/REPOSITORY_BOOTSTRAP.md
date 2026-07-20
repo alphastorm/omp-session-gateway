@@ -37,6 +37,7 @@ Before inviting users:
 - protect `main` with required pull requests and CI;
 - disallow force pushes and branch deletion;
 - require signed commits/tags if the maintainer can support them consistently;
+- enable immutable releases before publishing any provenance-test or pre-alpha tag;
 - enable Discussions only if maintainers intend to moderate them;
 - disable unused wiki/projects features or configure them intentionally.
 
