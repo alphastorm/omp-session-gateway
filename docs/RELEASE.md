@@ -51,11 +51,17 @@ The workflow creates a draft, uploads the complete asset set, and publishes exac
 - `omp-session-gateway-<version>-bun.tar.sigstore.json`; and
 - `SHA256SUMS.sigstore.json`.
 
-The repository's **Settings → General → Features → Immutable releases** setting must be
-enabled. The workflow checks this setting and refuses to publish otherwise. GitHub applies
-a 24-hour grace period after publication before locking the release, assets, and tag and
-issuing the immutable-release attestation. Treat the release as final at publication;
-publish a new tag to correct it.
+The repository's **Settings → General → Features → Immutable releases** setting is
+enabled and required before tagging. A maintainer can confirm it without using a signing
+secret:
+
+```sh
+gh api repos/alphastorm/omp-session-gateway/immutable-releases --jq .enabled
+```
+
+It must print `true`. GitHub applies a 24-hour grace period after publication before
+locking the release, assets, and tag and issuing the immutable-release attestation. Treat
+the release as final at publication; publish a new tag to correct it.
 
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
 emits `dist/release/omp-session-gateway-0.1.0-bun.tar` plus `SHA256SUMS`; it contains no
