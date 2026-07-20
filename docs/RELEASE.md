@@ -39,16 +39,18 @@ from `main`.
 `.github/workflows/release.yml` runs `bun run check`, builds the deterministic archive,
 checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance systems:
 
-- `actions/attest-build-provenance` publishes GitHub build attestations for the archive
-  and `SHA256SUMS`;
-- Cosign signs both files keylessly and writes a Sigstore bundle beside each one; and
+- `actions/attest-build-provenance` publishes GitHub build attestations for the archive,
+  deterministic SPDX 2.3 SBOM, and `SHA256SUMS`;
+- Cosign signs all three files keylessly and writes a Sigstore bundle beside each one; and
 - no repository signing key or long-lived signing secret exists.
 
 The workflow creates a draft, uploads the complete asset set, and publishes exactly once:
 
 - `omp-session-gateway-<version>-bun.tar`;
+- `omp-session-gateway-<version>.spdx.json`;
 - `SHA256SUMS`;
-- `omp-session-gateway-<version>-bun.tar.sigstore.json`; and
+- `omp-session-gateway-<version>-bun.tar.sigstore.json`;
+- `omp-session-gateway-<version>.spdx.json.sigstore.json`; and
 - `SHA256SUMS.sigstore.json`.
 
 The repository's **Settings → General → Features → Immutable releases** setting is
@@ -64,9 +66,9 @@ signed release attestation. Treat the release as final at publication; publish a
 to correct it.
 
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
-emits `dist/release/omp-session-gateway-0.1.0-bun.tar` plus `SHA256SUMS`; it contains no
-source maps. This runtime-neutral Bun archive is not a substitute for qualified platform
-installers.
+emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
+inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
+This runtime-neutral Bun archive is not a substitute for qualified platform installers.
 
 Do not upload source maps, logs, test recordings, or diagnostics that might contain
 fixture capabilities unless the leak scanner has verified them.
@@ -80,6 +82,7 @@ directory:
 REPO=alphastorm/omp-session-gateway
 TAG=provenance-test-v0.1.0.5
 ARCHIVE=omp-session-gateway-0.1.0-bun.tar
+SBOM=omp-session-gateway-0.1.0.spdx.json
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
@@ -93,8 +96,10 @@ release is not immutable or the downloaded asset is not part of the attested rel
 gh release verify "$TAG" --repo "$REPO"
 for asset in \
   "$ARCHIVE" \
+  "$SBOM" \
   SHA256SUMS \
   "$ARCHIVE.sigstore.json" \
+  "$SBOM.sigstore.json" \
   SHA256SUMS.sigstore.json
 do
   gh release verify-asset "$TAG" "$asset" --repo "$REPO"
@@ -110,7 +115,7 @@ sha256sum --check SHA256SUMS
 Verify GitHub build provenance against the exact repository, workflow, and tag ref:
 
 ```sh
-for artifact in "$ARCHIVE" SHA256SUMS
+for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   gh attestation verify "$artifact" \
     --repo "$REPO" \
@@ -124,7 +129,7 @@ workflow-ref certificate identity:
 
 ```sh
 CERTIFICATE_IDENTITY="https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$TAG"
-for artifact in "$ARCHIVE" SHA256SUMS
+for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   cosign verify-blob \
     --bundle "$artifact.sigstore.json" \

@@ -8,8 +8,8 @@ It:
 1. makes one `CollabController` own manual and automatic collaboration;
 2. adds backward-compatible `collab.autoStart` and local-only `collab.registryEndpoint` settings;
 3. publishes view/control capabilities to the authenticated local registry without blocking normal OMP operation;
-4. revokes the prior generation before active-session replacement and on stop, shutdown, or fatal host failure; and
-5. adds controller, publisher-safety, and setting-default tests.
+4. revokes generation N before active-session mutation, publishes generation N+1 only after the replacement is active, and unregisters on stop, shutdown, or fatal host failure; and
+5. adds controller, publisher-safety, setting-default, and session-mutation ordering tests.
 
 Apply from the OMP repository root:
 
@@ -18,7 +18,8 @@ git apply --check /path/to/0001-collab-controller-autostart-registry.patch
 git apply /path/to/0001-collab-controller-autostart-registry.patch
 bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/collab/registry-publisher.test.ts \
-  packages/coding-agent/test/config/collab-settings.test.ts
+  packages/coding-agent/test/config/collab-settings.test.ts \
+  packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 ```
 
 The patch was applied and qualified in a complete checkout at the pinned commit. `bun run ci:check:full`

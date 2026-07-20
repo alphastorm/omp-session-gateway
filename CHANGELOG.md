@@ -15,9 +15,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Pinned OMP collab-web source with direct in-memory one-time `MessageChannel` capability bootstrap.
 - Apply-ready OMP `CollabController`, auto-start, local publisher, lifecycle revocation, and test patch.
 - Cross-platform user-service definitions and management commands for install, uninstall, status, doctor, token rotation, and Serve guidance.
-- Deterministic redacted diagnostics archives and deterministic Bun-runtime release archives with SHA-256 manifests.
+- Deterministic redacted diagnostics archives and Bun-runtime release archives with SPDX 2.3 dependency inventories and SHA-256 manifests.
 - Keyless GitHub OIDC build attestations and Cosign signatures with immutable tag-triggered pre-alpha releases and documented verification.
 - Unit/integration coverage for protocol, registry, IPC, HTTP authorization and launch, config permissions, services, diagnostics, and capability leaks.
+- Explicit compatibility/support matrices and a release-status gate ledger separating implemented, smoke-tested, qualified, and supported claims.
 
 ### Changed
 
@@ -29,3 +30,6 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 ### Fixed
 
 - Kept Bun's HTTP idle timeout above the SSE keepalive interval so live updates do not cycle through reconnect state.
+- Force a fresh collab relay transport after mobile foreground, BFCache restore, and online transitions so suspended sockets cannot remain silently stale.
+- Revoke the active OMP collaboration generation before session mutation and publish its replacement only after the new session or tree state is active.
+- Harden Windows config and publisher-token paths with current-user/SYSTEM-only ACLs, write Task Scheduler XML as UTF-16, and use an authenticated loopback shutdown so reinstall and uninstall cannot orphan the gateway process.

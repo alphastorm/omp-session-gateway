@@ -5,8 +5,8 @@ import {
   parseJsonFrame,
   parseLaunchRequest,
 } from "@omp-session-gateway/protocol";
-import { authorizeHttpRequest, requestHasValidMutationContext, type RequestPeer } from "./auth.ts";
-import type { GatewayConfig } from "./config.ts";
+import { authorizeHttpRequest, isLoopbackAddress, requestHasValidMutationContext, type RequestPeer } from "./auth.ts";
+import { publisherTokenMatches, type GatewayConfig } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
 import { StaticAssetStore } from "./static.ts";
@@ -150,11 +150,17 @@ function eventStream(registry: SessionRegistry): Response {
   );
 }
 
+interface ShutdownControl {
+  readonly token: string;
+  readonly request: () => void;
+}
+
 export function createHttpHandler(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
   readonly logger?: SafeLogger;
+  readonly shutdown?: ShutdownControl;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
@@ -166,6 +172,25 @@ export function createHttpHandler(options: {
       url = new URL(request.url);
     } catch {
       return problem(400, "bad_request", "Invalid request");
+    }
+
+    if (url.pathname === "/_internal/v1/shutdown" && request.method === "POST" && options.shutdown !== undefined) {
+      const authorization = request.headers.get("Authorization");
+      const candidate = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+      const contentLength = request.headers.get("Content-Length");
+      if (
+        peer === undefined ||
+        !isLoopbackAddress(peer.address) ||
+        url.search !== "" ||
+        (contentLength !== null && contentLength !== "0") ||
+        !requestHasValidMutationContext(request, config.http.publicOrigin) ||
+        request.body !== null ||
+        !publisherTokenMatches(options.shutdown.token, candidate)
+      ) {
+        return problem(403, "forbidden", "Forbidden");
+      }
+      setTimeout(options.shutdown.request, 50);
+      return withSecurityHeaders(Response.json({ status: "stopping" }, { status: 202 }), true);
     }
 
     if (url.pathname === "/api/v1/health" && request.method === "GET") {
@@ -234,6 +259,7 @@ export function startHttpServer(options: {
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
   readonly logger?: SafeLogger;
+  readonly shutdown?: ShutdownControl;
 }): Bun.Server<undefined> {
   const handler = createHttpHandler(options);
   const server = Bun.serve({
