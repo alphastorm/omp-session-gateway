@@ -41,9 +41,9 @@ Recommended card behavior:
 
 - tapping the card body opens **View**;
 - a distinct **Control** button is present only when the OMP process published control capability;
-- opening occurs in the same standalone PWA where feasible;
-- prefer mounting the pinned collab client with an in-memory capability bootstrap;
-- when a separate page is required, open `/client/` synchronously during the tap, then transfer the capability through a same-origin `MessageChannel`;
+- mount the pinned collab client in the current standalone PWA document through its in-memory capability bootstrap;
+- do not depend on `window.open`/`window.opener` in an installed Android PWA because Chrome may reuse the standalone window;
+- only an ordinary browser context that preserves an exact same-origin opener may use the separate `/client/` `MessageChannel` fallback;
 - never put the capability in a URL, DOM attribute, clipboard, or persistent state;
 - show a short, non-sensitive error if the generation changed or process ended;
 - never show or copy the raw link by default.

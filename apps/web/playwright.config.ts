@@ -6,7 +6,7 @@ const androidUserAgent =
 
 export default defineConfig({
   testDir: fileURLToPath(new URL("./e2e", import.meta.url)),
-  testMatch: "notifications.e2e.ts",
+  testMatch: "*.e2e.ts",
   fullyParallel: false,
   workers: 1,
   reporter: [["line"]],

@@ -1,20 +1,25 @@
-import { createRoot, type Root } from "react-dom/client";
-import { App } from "./app";
-import "./styles/tokens.css";
-import "./styles/base.css";
+type StartCollabWithCapability = (
+	container: HTMLElement,
+	capability: string,
+	onDispose: () => void,
+) => () => void;
+
+interface CollabClientModule {
+	startCollabWithCapability: StartCollabWithCapability;
+}
+
+declare const __COLLAB_CLIENT_MODULE__: string;
+
+function importCollabClient(moduleUrl: string): Promise<CollabClientModule> {
+	return import(moduleUrl) as Promise<CollabClientModule>;
+}
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("missing #root element");
 const rootContainer: HTMLElement = rootElement;
 const handoff = new URL(location.href).searchParams.get("handoff");
-let root: Root | undefined;
+let disposeCollab: (() => void) | undefined;
 let activePort: MessagePort | undefined;
-
-export function startCollabWithCapability(capability: string, onDispose: () => void): void {
-	if (root !== undefined) throw new Error("collaboration client already started");
-	root = createRoot(rootContainer);
-	root.render(<App capability={capability} onDispose={onDispose} />);
-}
 
 if (handoff === null || handoff.length === 0 || handoff.length > 128 || window.opener === null) {
 	window.location.replace("/");
@@ -47,8 +52,9 @@ if (handoff === null || handoff.length === 0 || handoff.length > 128 || window.o
 		clearTimeout(abortTimer);
 		const port = event.ports[0];
 		if (port === undefined) return;
+		const collabClient = importCollabClient(__COLLAB_CLIENT_MODULE__);
 		activePort = port;
-		port.onmessage = portEvent => {
+		port.onmessage = async portEvent => {
 			const payload = portEvent.data as Record<string, unknown> | null;
 			if (
 				payload?.type !== "omp-client-capability" ||
@@ -60,13 +66,18 @@ if (handoff === null || handoff.length === 0 || handoff.length > 128 || window.o
 				window.close();
 				return;
 			}
-			startCollabWithCapability(payload.capability, () => {
-				root?.unmount();
-				root = undefined;
-			});
-			port.postMessage({ type: "omp-client-accepted", handoff });
-			port.close();
-			activePort = undefined;
+			try {
+				const { startCollabWithCapability } = await collabClient;
+				disposeCollab = startCollabWithCapability(rootContainer, payload.capability, () => {
+					disposeCollab = undefined;
+				});
+				port.postMessage({ type: "omp-client-accepted", handoff });
+			} catch {
+				window.close();
+			} finally {
+				port.close();
+				activePort = undefined;
+			}
 		};
 		port.start();
 	};
@@ -75,8 +86,8 @@ if (handoff === null || handoff.length === 0 || handoff.length > 128 || window.o
 
 window.addEventListener("pagehide", () => {
 	activePort?.close();
-	root?.unmount();
-	root = undefined;
+	disposeCollab?.();
+	disposeCollab = undefined;
 });
 
 window.addEventListener("pageshow", (event: PageTransitionEvent) => {

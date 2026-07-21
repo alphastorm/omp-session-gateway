@@ -43,27 +43,39 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(assetRoot, { recursive: true });
 await mkdir(temporaryRoot, { recursive: true });
 
-const webBuild = await buildEntrypoint(join(webSource, "app.ts"), join(temporaryRoot, "web"));
+const collabBuild = await buildEntrypoint(
+  join(clientSource, "upstream", "src", "embed.ts"),
+  join(temporaryRoot, "collab"),
+);
+let clientModule: string | undefined;
+let clientStylesheet: string | undefined;
+for (const output of collabBuild) {
+  if (extname(output) === ".js") clientModule = await moveHashedAsset(output, "collab-client");
+  if (extname(output) === ".css") clientStylesheet = await moveHashedAsset(output, "collab-client");
+}
+if (clientModule === undefined || clientStylesheet === undefined) {
+  throw new Error("collab client build did not emit JavaScript and CSS");
+}
+
+const clientBuild = await buildEntrypoint(
+  join(clientSource, "upstream", "src", "main.tsx"),
+  join(temporaryRoot, "client"),
+  { __COLLAB_CLIENT_MODULE__: JSON.stringify(clientModule) },
+);
+const clientScriptSource = clientBuild.find(path => extname(path) === ".js");
+if (clientScriptSource === undefined) throw new Error("client bootstrap build did not emit JavaScript");
+const clientScript = await moveHashedAsset(clientScriptSource, "collab-bootstrap");
+
+const webBuild = await buildEntrypoint(join(webSource, "app.ts"), join(temporaryRoot, "web"), {
+  __COLLAB_CLIENT_MODULE__: JSON.stringify(clientModule),
+  __COLLAB_CLIENT_STYLESHEET__: JSON.stringify(clientStylesheet),
+});
 const webScriptSource = webBuild.find(path => extname(path) === ".js");
 if (webScriptSource === undefined) throw new Error("web build did not emit JavaScript");
 const webScript = await moveHashedAsset(webScriptSource, "app");
 const stylesheetSource = await readFile(join(webSource, "styles.css"));
 const stylesheet = `/assets/app.${digest(stylesheetSource)}.css`;
 await writeFile(join(outputRoot, stylesheet.slice(1)), stylesheetSource);
-
-const clientBuild = await buildEntrypoint(
-  join(clientSource, "upstream", "src", "main.tsx"),
-  join(temporaryRoot, "client"),
-);
-let clientScript: string | undefined;
-let clientStylesheet: string | undefined;
-for (const output of clientBuild) {
-  if (extname(output) === ".js") clientScript = await moveHashedAsset(output, "collab-client");
-  if (extname(output) === ".css") clientStylesheet = await moveHashedAsset(output, "collab-client");
-}
-if (clientScript === undefined || clientStylesheet === undefined) {
-  throw new Error("collab client build did not emit JavaScript and CSS");
-}
 
 const indexTemplate = await readFile(join(webSource, "index.html"), "utf8");
 const indexHtml = indexTemplate
@@ -99,4 +111,4 @@ if (workerSource === undefined) throw new Error("service worker build did not em
 await rename(workerSource, join(outputRoot, "service-worker.js"));
 
 await rm(temporaryRoot, { recursive: true, force: true });
-console.log(`built PWA and pinned collab client (${webScript}, ${clientScript})`);
+console.log(`built PWA and pinned collab client (${webScript}, ${clientModule})`);

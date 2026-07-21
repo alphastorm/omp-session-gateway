@@ -4,6 +4,13 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [0.1.0-prealpha.4] - 2026-07-21
+
+### Fixed
+
+- Mount the collaboration client in the installed PWA's current document so Android Chrome cannot discard the in-memory capability handoff by reusing a standalone window without `window.opener`.
+- Preserve the separate same-origin `MessageChannel` bootstrap only as an ordinary-browser fallback, with Android-sized View/Control launch, back-navigation, URL, history, storage, cache, and no-popup regression coverage.
+
 ## [0.1.0-prealpha.3] - 2026-07-21
 ### Added
 
