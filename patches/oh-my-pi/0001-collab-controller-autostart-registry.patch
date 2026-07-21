@@ -318,10 +318,10 @@ index 74a021a806488dde912581a9c8eb077cf602c170..8e19799c51c767ed8af9f91727355177
  	}
 diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..66dd006b6cf04e819a78e1f62fc84ff900b1fbef
+index 0000000000000000000000000000000000000000..f9c07dc75e01d2017de64a1458061391d623deb1
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -0,0 +1,593 @@
+@@ -0,0 +1,602 @@
 +import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 +import { lstat, readFile } from "node:fs/promises";
 +import { homedir, tmpdir } from "node:os";
@@ -488,6 +488,15 @@ index 0000000000000000000000000000000000000000..66dd006b6cf04e819a78e1f62fc84ff9
 +	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "omp-session-gateway");
 +}
 +
++function publisherTokenPath(): string {
++	const configured = process.env.OMP_GATEWAY_PUBLISHER_TOKEN_PATH;
++	if (configured === undefined) return join(configDirectory(), "publisher-token");
++	if (!isAbsolute(configured)) {
++		throw new Error("OMP_GATEWAY_PUBLISHER_TOKEN_PATH must be an absolute local file path");
++	}
++	return configured;
++}
++
 +function automaticEndpoint(): string {
 +	if (process.platform === "win32") {
 +		const identity =
@@ -628,7 +637,7 @@ index 0000000000000000000000000000000000000000..66dd006b6cf04e819a78e1f62fc84ff9
 +}
 +
 +async function readPublisherToken(): Promise<Buffer> {
-+	const tokenPath = join(configDirectory(), "publisher-token");
++	const tokenPath = publisherTokenPath();
 +	const info = await lstat(tokenPath);
 +	if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe OMP Session Gateway publisher token file");
 +	if (info.size < 43 || info.size > 45) throw new Error("invalid OMP Session Gateway publisher token");
@@ -1678,12 +1687,50 @@ index 84a7dc00622d675fcd5d8b0db919156bda7ee382..0fa169eab061f6ac555da69685349f08
  	} as unknown as InteractiveModeContext;
  	const nextPrompt = (): Promise<{ from?: string }> => {
  		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
+diff --git a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..32674dbd83af68febfe0c7e011f346da13e57492
+--- /dev/null
++++ b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
+@@ -0,0 +1,32 @@
++import { CollabRegistryPublisher } from "../../src/collab/registry-publisher";
++
++const endpoint = process.env.OMP_GATEWAY_TEST_ENDPOINT;
++if (!endpoint) throw new Error("OMP_GATEWAY_TEST_ENDPOINT is required");
++
++const generation = 1;
++const publisher = new CollabRegistryPublisher({
++	instanceId: "publisher-explicit-token-instance",
++	pid: process.pid,
++	endpointSetting: endpoint,
++	onSecurityError(message) {
++		throw new Error(message);
++	},
++});
++
++publisher.publish({
++	instanceId: "publisher-explicit-token-instance",
++	generation,
++	pid: process.pid,
++	sessionId: "publisher-explicit-token-session",
++	startedAt: "2026-07-21T00:00:00.000Z",
++	viewLink: "VIEW_CAPABILITY_FIXTURE",
++	controlLink: "CONTROL_CAPABILITY_FIXTURE",
++});
++
++const shutdown = () => {
++	publisher.shutdown(generation);
++	process.exit();
++};
++process.on("SIGINT", shutdown);
++process.on("SIGTERM", shutdown);
++await new Promise(() => {});
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b40fb9e343d14ffe41c44bafb88337f2e9da78d7
+index 0000000000000000000000000000000000000000..b59e8bfd04930665bd0e58db4dd7d72ef5982c8a
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,573 @@
 +import { expect, test, vi } from "bun:test";
 +import { createHmac, randomBytes } from "node:crypto";
 +import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -2005,6 +2052,39 @@ index 0000000000000000000000000000000000000000..b40fb9e343d14ffe41c44bafb88337f2
 +		publisher.shutdown(record.generation);
 +	} finally {
 +		server.stop(true);
++		await cleanupPublisherFixture(fixture);
++	}
++});
++
++test("publisher token path override preserves the ambient XDG configuration", async () => {
++	const fixture = await createPublisherFixture("explicit-token-path");
++	const token = "A".repeat(43);
++	const explicitTokenPath = join(fixture.root, "publisher-token");
++	await writeFile(explicitTokenPath, `${token}\n`, { mode: 0o600 });
++	await secureWindowsPublisherToken(explicitTokenPath);
++	await writeFile(fixture.tokenPath, `${"B".repeat(43)}\n`, { mode: 0o600 });
++	const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
++	await prepareServerEndpoint(fixture.endpoint);
++	const subprocess = Bun.spawn(
++		[process.execPath, join(import.meta.dir, "registry-publisher-explicit-token.fixture.ts")],
++		{
++			env: {
++				...process.env,
++				OMP_GATEWAY_PUBLISHER_TOKEN_PATH: explicitTokenPath,
++				OMP_GATEWAY_TEST_ENDPOINT: fixture.endpoint,
++			},
++			stdin: "ignore",
++			stdout: "ignore",
++			stderr: "pipe",
++		},
++	);
++	try {
++		await beforeTimeout(server.upsertReceived, "publisher ignored the explicit token path");
++		expect(server.frames.at(-1)?.op).toBe("upsert");
++	} finally {
++		subprocess.kill();
++		await subprocess.exited;
++		server.server.stop(true);
 +		await cleanupPublisherFixture(fixture);
 +	}
 +});

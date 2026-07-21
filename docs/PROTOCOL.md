@@ -169,12 +169,11 @@ Rules:
   "v": 1,
   "op": "heartbeat",
   "instanceId": "0190d9ad-example",
-  "generation": 3,
-  "observedAt": "2026-07-19T16:25:10.000Z"
+  "generation": 3
 }
 ```
 
-The daemon uses its own monotonic receipt time for TTL decisions. `observedAt` is optional diagnostic metadata and never controls expiry.
+The daemon uses its own monotonic receipt time for TTL decisions. If the record is already absent or expired, the daemon closes the authenticated connection without a protocol-error payload; the publisher reconnects, re-authenticates, and re-sends its current upsert.
 
 ### `remove`
 

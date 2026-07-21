@@ -151,9 +151,17 @@ export async function startRegistryIpcServer(options: {
 
   const closeTimedOut = (socket: Bun.Socket<ConnectionState>): void => {
     if (socket.data.closed) return;
-    logger.event("warn", "ipc.connection_timed_out", { authenticated: socket.data.authenticated });
+    const authenticated = socket.data.authenticated;
+    logger.event("warn", "ipc.connection_timed_out", { authenticated });
     releaseConnection(socket);
-    socket.end('{"v":1,"op":"error","code":"protocol_error"}\n');
+    socket.end(authenticated ? undefined : '{"v":1,"op":"error","code":"protocol_error"}\n');
+  };
+
+  const closeStalePublisher = (socket: Bun.Socket<ConnectionState>): void => {
+    if (socket.data.closed) return;
+    logger.event("info", "ipc.publisher_state_lost");
+    releaseConnection(socket);
+    socket.end();
   };
 
   const armDeadline = (socket: Bun.Socket<ConnectionState>, timeoutMilliseconds: number): void => {
@@ -238,7 +246,9 @@ export async function startRegistryIpcServer(options: {
     }
     if (message.instanceId !== state.instanceId) throw new ProtocolValidationError();
     if (message.op === "heartbeat") {
-      registry.heartbeat(state.ownerId, message.instanceId, message.generation);
+      if (!registry.heartbeat(state.ownerId, message.instanceId, message.generation)) {
+        closeStalePublisher(socket);
+      }
       return;
     }
     registry.remove(state.ownerId, message.instanceId, message.generation);
