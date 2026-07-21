@@ -37,6 +37,8 @@ const refreshButton = requiredElement<HTMLButtonElement>("#refresh");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 
+const EVENT_LIVENESS_TIMEOUT_MS = 35_000;
+
 const sessions = new Map<string, SessionMetadata>();
 const notificationStates = new Map<string, { generation: number; inputRequired: boolean }>();
 let events: EventSource | undefined;
@@ -46,6 +48,8 @@ let refreshRequests = 0;
 let directoryEpoch = 0;
 let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
+let eventLivenessTimeout: number | undefined;
+let eventStreamStale = false;
 let notificationBaselineSeeded = false;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 
@@ -194,6 +198,30 @@ function setStatus(kind: "ready" | "offline" | "unauthorized" | "expired" | "loa
   statusBanner.dataset.kind = kind;
   statusBanner.textContent = message;
   statusBanner.hidden = kind === "ready";
+}
+
+function clearEventLiveness(): void {
+  if (eventLivenessTimeout === undefined) return;
+  window.clearTimeout(eventLivenessTimeout);
+  eventLivenessTimeout = undefined;
+}
+
+function showTransportFailure(message: string): void {
+  directoryRevision = -1;
+  directoryLoaded = false;
+  sessions.clear();
+  render();
+  setStatus("offline", message);
+}
+
+function armEventLiveness(source: EventSource, epoch: number): void {
+  clearEventLiveness();
+  eventLivenessTimeout = window.setTimeout(() => {
+    eventLivenessTimeout = undefined;
+    if (events !== source || epoch !== directoryEpoch) return;
+    eventStreamStale = true;
+    showTransportFailure("Live updates paused. Reconnecting…");
+  }, EVENT_LIVENESS_TIMEOUT_MS);
 }
 
 function formatStartedAt(value: string): string {
@@ -493,10 +521,17 @@ function connectEvents(epoch: number): void {
     if (events !== source || epoch !== directoryEpoch) return;
     if (opened) directoryRevision = -1;
     opened = true;
+    eventStreamStale = false;
+    armEventLiveness(source, epoch);
   };
   for (const type of ["snapshot", "session_upsert", "session_remove"] as const) {
     source.addEventListener(type, event => {
       if (events !== source || epoch !== directoryEpoch) return;
+      if (eventStreamStale) {
+        void refreshAndConnect();
+        return;
+      }
+      armEventLiveness(source, epoch);
       try {
         if (applyEvent(parseSessionEvent(JSON.parse(event.data)), epoch)) setStatus("ready", "");
       } catch {
@@ -506,14 +541,24 @@ function connectEvents(epoch: number): void {
       }
     });
   }
+  source.addEventListener("keepalive", () => {
+    if (events !== source || epoch !== directoryEpoch) return;
+    if (eventStreamStale) {
+      void refreshAndConnect();
+      return;
+    }
+    armEventLiveness(source, epoch);
+  });
   source.onerror = () => {
     if (events !== source || epoch !== directoryEpoch) return;
-    directoryRevision = -1;
-    directoryLoaded = false;
-    sessions.clear();
-    render();
-    if (authorizationDenied) setStatus("unauthorized", "This tailnet identity is not authorized.");
-    else setStatus("offline", "Live updates paused. Reconnecting…");
+    clearEventLiveness();
+    eventStreamStale = true;
+    if (authorizationDenied) {
+      showTransportFailure("This tailnet identity is not authorized.");
+      setStatus("unauthorized", "This tailnet identity is not authorized.");
+    } else {
+      showTransportFailure("Live updates paused. Reconnecting…");
+    }
   };
 }
 
@@ -525,6 +570,8 @@ async function refreshAndConnect(): Promise<boolean> {
   snapshotController = undefined;
   events?.close();
   events = undefined;
+  clearEventLiveness();
+  eventStreamStale = false;
   const loaded = await loadSnapshot(epoch);
   if (loaded && epoch === directoryEpoch) connectEvents(epoch);
   return loaded && epoch === directoryEpoch;
@@ -541,6 +588,8 @@ window.addEventListener("offline", () => {
   snapshotController?.abort();
   snapshotController = undefined;
   events?.close();
+  clearEventLiveness();
+  eventStreamStale = false;
   events = undefined;
   authorizationDenied = false;
   directoryLoaded = false;
