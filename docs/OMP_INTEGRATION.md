@@ -72,6 +72,11 @@ gateway's current-user named pipe on Windows. A fresh nonce exchange and domain-
 proofs authenticate both the publisher and the daemon before either side sends capability-bearing
 records. The publisher token itself never crosses the IPC connection.
 
+An isolated launcher may set `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` to an absolute token file instead
+of replacing the process-wide XDG configuration root. The override contains only a path and is
+subject to the same regular-file, no-symlink, current-user ownership, mode, ACL, length, and
+alphabet checks as the default token location. Normal installations leave it unset.
+
 ## 3. Process identity and generations
 
 - Create a cryptographically random `instanceId` once per OMP process.
@@ -106,6 +111,7 @@ Rules:
 - Heartbeat every 10 seconds while running.
 - Use capped exponential reconnect (for example 250 ms to 30 s with jitter).
 - Re-send the current upsert after reconnect.
+- If an authenticated connection outlives its registry record—for example after a host suspension longer than TTL—the gateway closes the connection without sending a protocol-error frame; reconnect then re-reads the token and re-sends the current upsert.
 - Send remove before an orderly stop. Do not block process exit indefinitely; cap shutdown flush.
 - If token or endpoint files have unsafe ownership, modes, or ACLs, disable publication and surface one concise security error.
 - Before reading capabilities on POSIX, require a current-user-owned socket in a current-user-owned private parent directory.

@@ -182,3 +182,28 @@ namespace receives only a nonce-bearing hello, stale proofs do not replay, and W
 publication can fail closed on an unauthenticated server instead of remaining disabled. This is a
 clean pre-alpha protocol cutover: old publishers and daemons do not interoperate. Same-user malware
 that can read the private token remains outside the v1 threat boundary.
+
+---
+
+## ADR-014 — Recover publication by reconnecting without replacing ambient tool configuration
+
+**Status:** Accepted
+
+**Context:** A host suspension can outlive the registry TTL while leaving the local IPC socket open.
+The registry then forgets the record, but a heartbeat alone cannot reconstruct capability-bearing
+state. Sending a protocol-error frame after authentication also makes the security-hardened
+publisher disable itself rather than reconnect. Separately, an isolated trial that repoints
+`XDG_CONFIG_HOME` so the publisher can find its token also hides GitHub and other XDG-backed
+credentials from OMP child tools.
+
+**Decision:** When an authenticated publisher exceeds its idle deadline or heartbeats a missing
+record, close its IPC connection without an error payload. The existing bounded reconnect path
+must re-read the token, mutually authenticate, and re-send the current upsert. Permit isolated
+launchers to provide an absolute publisher-token path through
+`OMP_GATEWAY_PUBLISHER_TOKEN_PATH`, while retaining every ownership, mode, ACL, symlink, length,
+and alphabet check and leaving normal installations on the standard per-user token path.
+
+**Consequences:** Gateway and publisher suspension ordering no longer leaves a live OMP session
+permanently absent after TTL. Trial OMP processes retain ambient Git, GitHub, and other XDG-backed
+tool configuration without sharing the gateway token location. Actual OS sleep, wake, and network
+transition still require native-device qualification.
