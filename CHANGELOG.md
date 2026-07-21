@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 ### Changed
 
 - Recorded the signed `v0.1.0-prealpha.2` recovery relay soak as passed after 28,800 seconds, eight room transitions, a live final phase, no restart, and a 720 KiB gateway RSS increase; physical Android relay qualification remains open.
+- Recorded the corrected `v0.1.0-prealpha.4` physical trial on Pixel 10 Pro / Android 17 / Chrome 150: installed-PWA View/Control/Back, exactly-once retained response, attention clearing, metadata-only foreground and lock-screen notification, dashboard-only notification tap, lock/resume, network transition, relay reconnect, generation replacement with stale `409`, and TTL removal/republication passed. Distinct-device denial, deep browser-sink inspection, physical interrupt, remaining switch/branch/resume cases, and signed host release qualification remain deferred.
 
 ## [0.1.0-prealpha.4] - 2026-07-21
 
