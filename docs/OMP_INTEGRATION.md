@@ -106,6 +106,8 @@ interface PublishedSession {
 Rules:
 
 - Redact the working directory to its basename by default.
+- Publish the current title, directory basename, and `provider/model` label at host start and whenever those values change. Metadata-only refreshes reuse the active generation and capabilities; they do not rotate or re-fetch links.
+- Bound each published label to the protocol's 256-code-point maximum before sending so an unusually long name cannot invalidate the whole capability-bearing upsert.
 - Never stringify the full object through the normal logger.
 - Treat `viewLink` and `controlLink` as secret values even though view is less privileged.
 - Heartbeat every 10 seconds while running.
@@ -168,6 +170,8 @@ Add tests for:
 - control mode publishes both capabilities;
 - exactly one host under concurrent command/auto-start calls;
 - session replacement revokes old generation before publishing new;
+- same-generation title, working-directory, and model changes refresh metadata without rotating capabilities;
+- published metadata respects protocol label bounds;
 - `/collab stop` unregisters;
 - daemon absent does not break OMP;
 - malformed endpoint/token fails safely;
