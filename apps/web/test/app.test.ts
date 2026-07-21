@@ -125,6 +125,12 @@ class FakeWindow extends EventTarget {
     return handle;
   }
 
+  runTimers(): void {
+    const callbacks = [...this.timers.values()];
+    this.timers.clear();
+    for (const callback of callbacks) callback();
+  }
+
   open(url?: string | URL): null {
     this.opened.push(String(url));
     return null;
@@ -140,13 +146,14 @@ class FakeEventSource extends EventTarget {
   constructor(readonly url: string) {
     super();
     FakeEventSource.instances.push(this);
+    queueMicrotask(() => this.onopen?.());
   }
 
   close(): void {
     this.closed = true;
   }
 
-  emit(type: "snapshot" | "session_upsert" | "session_remove", payload: unknown): void {
+  emit(type: "snapshot" | "session_upsert" | "session_remove" | "keepalive", payload: unknown): void {
     const event = new Event(type);
     Object.defineProperty(event, "data", { value: JSON.stringify(payload) });
     this.dispatchEvent(event);
@@ -164,14 +171,16 @@ interface BrowserHarness {
     readonly notificationButton: FakeElement;
     readonly notificationDisclosure: FakeElement;
     readonly refreshButton: FakeElement;
+    readonly statusBanner: FakeElement;
   };
   disconnectEvents(): void;
+  expireEventLiveness(): void;
   readonly fetchPaths: string[];
   readonly notificationCalls: NotificationCall[];
   readonly permissionRequests: { count: number };
   readonly workerMessages: unknown[];
   readonly window: FakeWindow;
-  emit(type: "snapshot" | "session_upsert" | "session_remove", payload: unknown): void;
+  emit(type: "snapshot" | "session_upsert" | "session_remove" | "keepalive", payload: unknown): void;
   setList(revision: number, sessions: readonly SessionMetadata[], status?: number): void;
 }
 
@@ -302,7 +311,7 @@ async function bootApp(options: {
   await settleUntil(() => FakeEventSource.instances.length === 1);
 
   return {
-    elements: { sessionList, notificationButton, notificationDisclosure, refreshButton },
+    elements: { sessionList, statusBanner, notificationButton, notificationDisclosure, refreshButton },
     fetchPaths,
     notificationCalls,
     permissionRequests,
@@ -317,6 +326,9 @@ async function bootApp(options: {
       const source = FakeEventSource.instances.at(-1);
       if (source === undefined) throw new Error("missing event source");
       source.onerror?.();
+    },
+    expireEventLiveness(): void {
+      window.runTimers();
     },
     setList(revision, sessions, status = 200): void {
       listRevision = revision;
@@ -375,6 +387,26 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.notificationDisclosure.textContent).toBe(
       "Notifications may show session names on your lock screen.",
     );
+  });
+
+  test("clears stale metadata after missed SSE heartbeats and resyncs when transport resumes", async () => {
+    const base = session("liveness-session-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "sse-liveness",
+      initialSessions: [base],
+    });
+
+    expect(harness.elements.sessionList.childElementCount).toBe(1);
+    harness.expireEventLiveness();
+    expect(harness.elements.sessionList.childElementCount).toBe(0);
+    expect(harness.elements.statusBanner.textContent).toBe("Live updates paused. Reconnecting…");
+
+    harness.setList(2, [base]);
+    harness.emit("keepalive", {});
+    await settleUntil(() => harness.fetchPaths.length === 2);
+    await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
+    expect(harness.elements.statusBanner.hidden).toBe(true);
   });
 
   test("notifies only on accepted same-generation false-to-true transitions after explicit grant", async () => {

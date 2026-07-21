@@ -169,7 +169,7 @@ describe("HTTP boundary", () => {
 
   test("returns ordered metadata-only no-store list and SSE transitions", async () => {
     const registry = populatedRegistry();
-    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets });
+    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 1 });
     const list = await handler(request("/api/v1/sessions"), peer);
     const text = await list.text();
     expect(list.headers.get("Cache-Control")).toContain("no-store");
@@ -187,6 +187,10 @@ describe("HTTP boundary", () => {
     expect(snapshot).not.toContain(viewCapability);
     expect(snapshot).not.toContain("PROMPT_CONTENT_CANARY");
     expect(snapshot).toContain('"inputRequired":false');
+    const keepalive = await readSseEvent(reader);
+    expect(keepalive).toBe("event: keepalive\ndata: {}\n\n");
+    expect(keepalive).not.toContain(viewCapability);
+    expect(keepalive).not.toContain(controlCapability);
 
     registry.upsert("owner", publishedSession("http-instance-000001", true));
     const required = await readSseEvent(reader);

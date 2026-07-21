@@ -347,7 +347,7 @@ This mode is a migration path, not the desired final architecture.
 - Each registry mutation increments a daemon-wide revision.
 - A client starts a new directory epoch by aborting any prior snapshot, closing its prior SSE source, fetching one authenticated snapshot, and only then opening SSE.
 - Within one connected epoch, a response or event with a lower revision is ignored. Duplicate same-revision snapshots remain idempotent.
-- An SSE transport failure clears displayed metadata immediately. A successful reconnect resets revision ordering before its initial snapshot because a daemon restart resets both revision and registry state.
+- The gateway emits a metadata-free `keepalive` SSE event every 15 seconds. A loaded dashboard clears displayed metadata after 35 seconds without any directory event or keepalive; the first event after that silent-partition state forces a fresh authenticated snapshot and SSE epoch before cards return.
 - Launch requests carry the generation observed in the metadata response.
 - A mismatch never returns a capability.
 - Expired and removed records are indistinguishable to remote callers.
