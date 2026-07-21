@@ -219,3 +219,15 @@ transition still require native-device qualification.
 **Decision:** Add a boolean `inputRequired` field to the existing v1 publisher and browser metadata contracts. OMP retains a bounded serializable UI request before any writable guest exists, publishes `true` while at least one admitted host-origin response operation remains unresolved, and replays the request to later Control guests. Concurrent operations use generation-scoped reference-counted leases; no prompt text, options, answers, request IDs, counts, or transcript content leave OMP through the gateway. The dashboard orders attention cards first. An optional explicit permission action enables foreground-only browser notifications for authoritative false-to-true transitions; notification text contains only a fixed title and the already-approved bounded session title or directory label, and a tap opens or focuses `/`.
 
 **Consequences:** The gateway remains a session directory and capability broker rather than a collaboration proxy. View stays read-only. Same-generation metadata can change without rotating capabilities, but old generations cannot mutate or retain attention state. Browser notification permission is browser-managed; application request state and dedupe state remain volatile. Multiple open dashboard tabs may each notify, killed-browser and background Push API delivery are unsupported, and physical Android lock-screen presentation remains a release qualification gate.
+
+---
+
+## ADR-016 — Detect silent dashboard transport loss with observable SSE heartbeats
+
+**Status:** Accepted
+
+**Context:** On physical Android, Tailscale can keep a virtual interface present while the radio path is unavailable. In that state `navigator.onLine` may remain true and an existing `EventSource` TCP connection may emit no error for more than 30 seconds. The gateway's SSE comment pings kept intermediaries alive but were not observable by dashboard JavaScript, so stale session cards could remain visible.
+
+**Decision:** Emit a metadata-free named `keepalive` SSE event every 15 seconds. The loaded dashboard resets a 35-second liveness deadline on every directory event or keepalive. Missing that deadline clears all displayed session metadata and marks the transport unavailable. The next event after a silent partition triggers a fresh authenticated snapshot and a new SSE epoch before cards return.
+
+**Consequences:** Silent partitions now have a bounded stale-display window of 35 seconds. The additive event is ignored safely by older v1 clients and carries no session data or capability. API responses and navigation remain outside service-worker caches; a cold installed-PWA launch while fully offline is intentionally unavailable, while an already loaded shell fails closed without stale metadata.

@@ -119,7 +119,9 @@ async function readBoundedBody(request: Request, maximumBytes: number): Promise<
   return body;
 }
 
-function eventStream(registry: SessionRegistry): Response {
+const SSE_KEEPALIVE_MS = 15_000;
+
+function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS): Response {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
@@ -139,8 +141,10 @@ function eventStream(registry: SessionRegistry): Response {
         send({ type: "snapshot", revision: snapshot.revision, sessions: snapshot.sessions });
         unsubscribe = registry.subscribe(send);
         keepalive = setInterval(() => {
-          if ((controller.desiredSize ?? 1) >= -32) controller.enqueue(encoder.encode(": keepalive\n\n"));
-        }, 15_000);
+          if ((controller.desiredSize ?? 1) >= -32) {
+            controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+          }
+        }, keepaliveMs);
       },
       cancel() {
         unsubscribe?.();
@@ -167,6 +171,7 @@ export function createHttpHandler(options: {
   readonly logger?: SafeLogger;
   readonly readinessToken?: string;
   readonly readinessInstance?: string;
+  readonly sseKeepaliveMs?: number;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
@@ -213,7 +218,9 @@ export function createHttpHandler(options: {
     if (url.pathname === "/api/v1/sessions" && request.method === "GET") {
       return withSecurityHeaders(Response.json(registry.snapshot()), true);
     }
-    if (url.pathname === "/api/v1/events" && request.method === "GET") return eventStream(registry);
+    if (url.pathname === "/api/v1/events" && request.method === "GET") {
+      return eventStream(registry, options.sseKeepaliveMs);
+    }
 
     const launchMatch = /^\/api\/v1\/sessions\/([^/]{1,384})\/launch$/u.exec(url.pathname);
     if (launchMatch !== null && request.method === "POST") {

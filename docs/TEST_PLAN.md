@@ -106,6 +106,7 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 5. Android back returns safely without a reusable secret-bearing history entry.
 6. Explicitly enable foreground notifications in one live dashboard tab; page load never prompts, one false-to-true transition notifies once, and tapping it focuses or opens `/` rather than Control.
 7. Inspect the Android lock-screen notification for only the fixed title and approved session title/directory label; repeat after SSE reconnect and lock/resume.
+8. With live cards visible, remove all radio connectivity while Tailscale's virtual interface remains present; within 35 seconds the loaded dashboard clears every card, and connectivity restoration repopulates only a fresh snapshot without Refresh or duplicates.
 
 ### E. Authorization
 
