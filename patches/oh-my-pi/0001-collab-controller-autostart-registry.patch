@@ -1,9 +1,9 @@
 diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ba774627c5c458d7aec2e6d34adadb7cf4b53bb8
+index 0000000000000000000000000000000000000000..7f838661f99a9ac1975610af2596b0502a0cfee3
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/controller.ts
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,308 @@
 +import { randomUUID } from "node:crypto";
 +import { basename } from "node:path";
 +import type { InteractiveModeContext } from "../modes/types";
@@ -13,6 +13,15 @@ index 0000000000000000000000000000000000000000..ba774627c5c458d7aec2e6d34adadb7c
 +	CollabRegistryPublisher,
 +	type PublishedCapabilityMode,
 +} from "./registry-publisher";
++
++const MAX_PUBLISHED_LABEL_CODEPOINTS = 256;
++
++function truncatePublishedLabel(value: string): string {
++	const codePoints = Array.from(value);
++	return codePoints.length <= MAX_PUBLISHED_LABEL_CODEPOINTS
++		? value
++		: codePoints.slice(0, MAX_PUBLISHED_LABEL_CODEPOINTS).join("");
++}
 +
 +export type CollabControllerState = "stopped" | "starting" | "running" | "stopping" | "faulted";
 +export type CollabControllerEvent = "started" | "updated" | "stopped" | "faulted";
@@ -134,6 +143,16 @@ index 0000000000000000000000000000000000000000..ba774627c5c458d7aec2e6d34adadb7c
 +		});
 +	}
 +
++	refreshMetadata(): Promise<void> {
++		return this.#serialize(async () => {
++			const capabilities = this.#capabilities;
++			const mode = this.#publicationMode;
++			if (!capabilities || mode === "off") return;
++			this.#publish(capabilities, mode);
++			this.#emit("updated", capabilities);
++		});
++	}
++
 +	prepareActiveSessionReplacement(): Promise<void> {
 +		return this.#serialize(async () => {
 +			this.#restartAfterSessionReplacement = this.#restartAfterSessionReplacement || this.#autoMode() !== "off";
@@ -250,8 +269,15 @@ index 0000000000000000000000000000000000000000..ba774627c5c458d7aec2e6d34adadb7c
 +			generation: capabilities.generation,
 +			pid: process.pid,
 +			sessionId: capabilities.sessionId,
-+			...(this.#context.sessionName ? { title: this.#context.sessionName } : {}),
-+			cwdLabel: basename(this.#context.sessionManager.getCwd()),
++			...(this.#context.sessionName ? { title: truncatePublishedLabel(this.#context.sessionName) } : {}),
++			cwdLabel: truncatePublishedLabel(basename(this.#context.sessionManager.getCwd())),
++			...(this.#context.session.model
++				? {
++						model: truncatePublishedLabel(
++							`${this.#context.session.model.provider}/${this.#context.session.model.id}`,
++						),
++					}
++				: {}),
 +			startedAt: capabilities.startedAt,
 +			viewLink: capabilities.viewLink,
 +			...(mode === "control" ? { controlLink: capabilities.controlLink } : {}),
@@ -318,10 +344,10 @@ index 74a021a806488dde912581a9c8eb077cf602c170..8e19799c51c767ed8af9f91727355177
  	}
 diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..f9c07dc75e01d2017de64a1458061391d623deb1
+index 0000000000000000000000000000000000000000..d68c1615b4e019caed5f955f37990c2902e3d73d
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -0,0 +1,602 @@
+@@ -0,0 +1,603 @@
 +import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 +import { lstat, readFile } from "node:fs/promises";
 +import { homedir, tmpdir } from "node:os";
@@ -344,6 +370,7 @@ index 0000000000000000000000000000000000000000..f9c07dc75e01d2017de64a1458061391
 +	readonly sessionId: string;
 +	readonly title?: string;
 +	readonly cwdLabel?: string;
++	readonly model?: string;
 +	readonly startedAt: string;
 +	readonly viewLink: string;
 +	readonly controlLink?: string;
@@ -995,7 +1022,7 @@ index fa75dd615a71c0611ff4e261616ea3fec02cc8cf..4d78bdb2601feb0eba4ca099d64d5be6
  		const remote = host.requestGuestUi(request, signal);
  		if (!remote) return { kind: "unavailable" };
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..49630c7d024fb11a48450c6733c472e4bf0bd1ca 100644
+index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..1aabfe75cd28fb373b448b4a99b0857fc6974a9c 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
 @@ -53,8 +53,8 @@ import {
@@ -1025,7 +1052,15 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..49630c7d024fb11a48450c6733c472e4
  		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
  		// Store pending commands for init() where file commands are loaded async
  		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
-@@ -992,7 +993,14 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -982,6 +983,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			this.sessionManager.onSessionNameChanged(() => {
+ 				setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
+ 				this.#handleSessionAccentInputsChanged();
++				void this.collabController.refreshMetadata();
+ 			}),
+ 		);
+ 		this.#syncEditorMaxHeight();
+@@ -992,7 +994,14 @@ export class InteractiveMode implements InteractiveModeContext {
  		await this.initHooksAndCustomTools();
  
  		// Restore mode from session (e.g. plan mode on resume)
@@ -1041,7 +1076,17 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..49630c7d024fb11a48450c6733c472e4
  		await this.#reconcileModeFromSession();
  
  		// Brand-new sessions optionally start in plan mode when the user has made it
-@@ -1091,6 +1099,9 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1040,6 +1049,9 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			this.session.subscribe(event => {
+ 				void this.#handleGoalSessionEvent(event);
+ 			}),
++			this.sessionManager.onModelChanged(() => {
++				void this.collabController.refreshMetadata();
++			}),
+ 			onStatusLineSessionAccentChanged(() => {
+ 				this.#syncStatusLineSettings();
+ 				this.#handleSessionAccentInputsChanged();
+@@ -1091,6 +1103,9 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.statusLine.watchBranch(() => {
  			this.ui.requestRender();
  		});
@@ -1051,7 +1096,15 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..49630c7d024fb11a48450c6733c472e4
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -3752,6 +3763,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1229,6 +1244,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
+ 		this.statusLine.invalidate();
+ 		this.ui.requestRender();
++		await this.collabController.refreshMetadata();
+ 	}
+ 
+ 	async getUserInput(): Promise<SubmittedUserInput> {
+@@ -3752,6 +3768,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	async shutdown(): Promise<void> {
  		if (this.#isShuttingDown) return;
  		this.#isShuttingDown = true;
@@ -1294,6 +1347,57 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  
  		this.#branchSummaryAbortController = undefined;
  
+diff --git a/packages/coding-agent/src/session/session-manager.ts b/packages/coding-agent/src/session/session-manager.ts
+index 57a71e3cb646d57076274400ceee55e1377203c3..15a9cbc088a87cfc266aab68aa891dc32270e014 100644
+--- a/packages/coding-agent/src/session/session-manager.ts
++++ b/packages/coding-agent/src/session/session-manager.ts
+@@ -447,6 +447,7 @@ export class SessionManager {
+ 
+ 	#suppressBreadcrumb = false;
+ 	#sessionNameChangedCallbacks = new Set<() => void>();
++	#modelChangedCallbacks = new Set<(model: string) => void>();
+ 
+ 	private constructor(cwd: string, sessionDir: string, persist: boolean, storage: SessionStorage) {
+ 		this.#cwd = cwd;
+@@ -899,6 +900,16 @@ export class SessionManager {
+ 		}
+ 	}
+ 
++	#notifyModelChangedListeners(model: string): void {
++		for (const callback of [...this.#modelChangedCallbacks]) {
++			try {
++				callback(model);
++			} catch (err) {
++				logger.warn("SessionManager: model change hook failed", { error: String(err) });
++			}
++		}
++	}
++
+ 	static #cleanTitle(raw: string): string {
+ 		return raw
+ 			.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+@@ -1418,6 +1429,13 @@ export class SessionManager {
+ 		};
+ 	}
+ 
++	onModelChanged(cb: (model: string) => void): () => void {
++		this.#modelChangedCallbacks.add(cb);
++		return () => {
++			this.#modelChangedCallbacks.delete(cb);
++		};
++	}
++
+ 	/**
+ 	 * Set the session display name.
+ 	 * @param source "user" for explicit renames; "auto" for generated titles.
+@@ -1551,6 +1569,7 @@ export class SessionManager {
+ 	appendModelChange(model: string, role?: string): string {
+ 		const entry: ModelChangeEntry = { type: "model_change", ...this.#freshEntryFields(), model, role };
+ 		this.#recordEntry(entry);
++		this.#notifyModelChangedListeners(model);
+ 		return entry.id;
+ 	}
+ 
 diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
 index b564b547197a57b31d431c2897d20e3682902dcc..3c6a1a674fa567cdf0a3785fc3557f79b31fae16 100644
 --- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
@@ -1464,10 +1568,10 @@ index 53d786845209549df40e08773e3135e112212a34..ca6e17e5c6d0644641e03515662b003b
  }
 diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b129e3d45ba1ad7eb194a033305263de1b468dfe
+index 0000000000000000000000000000000000000000..eafda3952b4876fbbf30078b088a55090c1b34d5
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,245 @@
 +import { describe, expect, mock, test } from "bun:test";
 +import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
 +import type { InteractiveModeContext } from "../../src/modes/types";
@@ -1502,18 +1606,29 @@ index 0000000000000000000000000000000000000000..b129e3d45ba1ad7eb194a033305263de
 +		"collab.relayUrl": "wss://relay.example.invalid",
 +		"collab.webUrl": "",
 +	};
++	let sessionName: string | undefined = "Test session";
++	let cwd = "/work/repository";
++	let model: { provider: string; id: string } | undefined = { provider: "anthropic", id: "claude-sonnet-4-5" };
 +	const warnings: string[] = [];
 +	const context = {
 +		settings: { get: (key: string) => values[key] },
 +		sessionManager: {
 +			getSessionId: () => "session-id",
-+			getCwd: () => "/work/repository",
++			getCwd: () => cwd,
 +		},
-+		sessionName: "Test session",
++		session: {
++			get model() {
++				return model;
++			},
++		},
++		get sessionName() {
++			return sessionName;
++		},
 +		showWarning: (message: string) => warnings.push(message),
 +	} as unknown as InteractiveModeContext;
 +	const hosts: FakeHost[] = [];
 +	const events: Array<{ type: string; generation: number }> = [];
++	const published: CollabPublisherRecord[] = [];
 +	const controller = new CollabController(context, {
 +		instanceId: "test-instance-id",
 +		hostFactory: () => {
@@ -1523,6 +1638,7 @@ index 0000000000000000000000000000000000000000..b129e3d45ba1ad7eb194a033305263de
 +		},
 +		publisherFactory: () => ({
 +			publish(record: CollabPublisherRecord) {
++				published.push({ ...record });
 +				events.push({
 +					type: record.controlLink ? "publish-control" : "publish-view",
 +					generation: record.generation,
@@ -1534,7 +1650,19 @@ index 0000000000000000000000000000000000000000..b129e3d45ba1ad7eb194a033305263de
 +			shutdown() {},
 +		}),
 +	});
-+	return { context, controller, hosts, events, warnings };
++	return {
++		context,
++		controller,
++		hosts,
++		events,
++		published,
++		warnings,
++		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
++			if ("sessionName" in next) sessionName = next.sessionName;
++			if ("cwd" in next && next.cwd !== undefined) cwd = next.cwd;
++			if ("model" in next) model = next.model;
++		},
++	};
 +}
 +
 +describe("CollabController", () => {
@@ -1555,6 +1683,60 @@ index 0000000000000000000000000000000000000000..b129e3d45ba1ad7eb194a033305263de
 +		const { controller, events } = harness("view");
 +		await controller.autoStart();
 +		expect(events).toEqual([{ type: "publish-view", generation: 1 }]);
++	});
++
++	test("refreshes same-generation title, cwd, and model metadata without rotating capabilities", async () => {
++		const { controller, events, published, setMetadata } = harness("control");
++		await controller.autoStart();
++		expect(published[0]).toMatchObject({
++			generation: 1,
++			title: "Test session",
++			cwdLabel: "repository",
++			model: "anthropic/claude-sonnet-4-5",
++		});
++
++		setMetadata({
++			sessionName: "Renamed session",
++			cwd: "/work/other-project",
++			model: { provider: "openai", id: "gpt-5.4" },
++		});
++		await controller.refreshMetadata();
++
++		expect(published).toHaveLength(2);
++		expect(published[1]).toMatchObject({
++			instanceId: published[0]?.instanceId,
++			sessionId: published[0]?.sessionId,
++			generation: 1,
++			title: "Renamed session",
++			cwdLabel: "other-project",
++			model: "openai/gpt-5.4",
++			viewLink: "VIEW_CAPABILITY_FIXTURE",
++			controlLink: "CONTROL_CAPABILITY_FIXTURE",
++		});
++		expect(events).toEqual([
++			{ type: "publish-control", generation: 1 },
++			{ type: "publish-control", generation: 1 },
++		]);
++
++		await controller.stop();
++		await controller.refreshMetadata();
++		expect(published).toHaveLength(2);
++		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
++	});
++
++	test("bounds refreshed metadata labels to the gateway protocol limit", async () => {
++		const { controller, published, setMetadata } = harness("control");
++		setMetadata({
++			sessionName: "🙂".repeat(300),
++			cwd: `/work/${"c".repeat(300)}`,
++			model: { provider: "p".repeat(200), id: "m".repeat(200) },
++		});
++		await controller.autoStart();
++
++		const record = published[0];
++		expect(Array.from(record?.title ?? "")).toHaveLength(256);
++		expect(Array.from(record?.cwdLabel ?? "")).toHaveLength(256);
++		expect(Array.from(record?.model ?? "")).toHaveLength(256);
 +	});
 +
 +	test("replacement revokes generation N before session mutation and publishes N+1 afterward", async () => {
@@ -2342,6 +2524,29 @@ index 0000000000000000000000000000000000000000..ac6c9bf0175d71d49c29cb1728d2a8f1
 +	expect(getEnumValues("collab.autoStart")).toEqual(["off", "view", "control"]);
 +	expect(getDefault("collab.registryEndpoint")).toBe("auto");
 +});
+diff --git a/packages/coding-agent/test/session-manager-branch-order.test.ts b/packages/coding-agent/test/session-manager-branch-order.test.ts
+index 435927e6616c465323cb759c246f12b7b2529b84..365fc67b8f18be04fe11bef0a98eb62f6bdc4e06 100644
+--- a/packages/coding-agent/test/session-manager-branch-order.test.ts
++++ b/packages/coding-agent/test/session-manager-branch-order.test.ts
+@@ -55,4 +55,18 @@ describe("SessionManager branch ordering", () => {
+ 		manager.appendModelChange("anthropic/claude-haiku-4-5", "smol");
+ 		expect(manager.getLastModelChangeRole()).toBe("smol");
+ 	});
++
++	it("notifies model-change subscribers after each applied model entry", () => {
++		const manager = SessionManager.inMemory();
++		const models: string[] = [];
++		const unsubscribe = manager.onModelChanged(model => models.push(model));
++
++		manager.appendModelChange("anthropic/claude-sonnet-4-5", "default");
++		manager.appendModelChange("openai/gpt-5.4", "slow");
++		expect(models).toEqual(["anthropic/claude-sonnet-4-5", "openai/gpt-5.4"]);
++
++		unsubscribe();
++		manager.appendModelChange("google/gemini-3-pro", "default");
++		expect(models).toEqual(["anthropic/claude-sonnet-4-5", "openai/gpt-5.4"]);
++	});
+ });
 diff --git a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e071611f43 100644
 --- a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts

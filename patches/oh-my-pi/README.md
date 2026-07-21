@@ -8,8 +8,9 @@ It:
 1. makes one `CollabController` own manual and automatic collaboration;
 2. adds backward-compatible `collab.autoStart` and local-only `collab.registryEndpoint` settings;
 3. publishes view/control capabilities through owner-checked Unix sockets or current-user Windows named pipes only after a nonce-bound, domain-separated mutual HMAC handshake; the publisher key never crosses IPC;
-4. revokes generation N before active-session mutation, publishes generation N+1 only after the replacement is active, keeps manually started hosts stopped when auto-start is off, and unregisters on stop, shutdown, or fatal host failure; and
-5. bounds and cancels pending publisher handshakes, scrubs mutable key/frame buffers, reconnects with a freshly reread token after gateway replacement or lost heartbeat state, permits an absolute launcher-scoped token path without replacing ambient XDG configuration, and adds controller, publisher mutual-authentication/squatter-resistance/reconnect, setting-default, and session-mutation ordering tests.
+4. refreshes the active generation's bounded title, directory basename, and `provider/model` metadata after live name, working-directory, or model changes without rotating capabilities;
+5. revokes generation N before active-session mutation, publishes generation N+1 only after the replacement is active, keeps manually started hosts stopped when auto-start is off, and unregisters on stop, shutdown, or fatal host failure; and
+6. bounds and cancels pending publisher handshakes, scrubs mutable key/frame buffers, reconnects with a freshly reread token after gateway replacement or lost heartbeat state, permits an absolute launcher-scoped token path without replacing ambient XDG configuration, and adds controller, metadata, publisher mutual-authentication/squatter-resistance/reconnect, setting-default, and session-mutation ordering tests.
 
 Apply from the OMP repository root:
 
@@ -19,12 +20,13 @@ git apply /path/to/0001-collab-controller-autostart-registry.patch
 bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/collab/registry-publisher.test.ts \
   packages/coding-agent/test/config/collab-settings.test.ts \
-  packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
+  packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
+  packages/coding-agent/test/session-manager-branch-order.test.ts
 bun test packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 ```
 
-The current focused commands pass 36 controller, publisher, settings, session-ordering, and slash-command tests,
-including the shared HMAC proof vector, a fake named-pipe server that receives no proof or capability,
+The current focused commands pass 41 controller, metadata, publisher, settings, session-ordering, and slash-command tests,
+including same-generation metadata refresh and protocol-label bounds, the shared HMAC proof vector, a fake named-pipe server that receives no proof or capability,
 automatic daemon-restart recovery that rereads a rotated token before republishing, and explicit-token-path publication that preserves ambient XDG configuration. The full coding-agent package typecheck passes. The current mutual-authentication revision also
 passes `bun run ci:check:full`. The preceding lifecycle revision passed the complete official
 TypeScript matrix via `bun run ci:test:ts` with the native `/tmp` root after temporary exclusion of
