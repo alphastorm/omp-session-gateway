@@ -24,10 +24,11 @@ Responsibilities:
 
 - discover the platform IPC endpoint;
 - authenticate both publisher and gateway with fresh nonces and domain-separated HMAC proofs derived from the private per-install key; never transmit that key;
-- publish minimal metadata plus the capabilities permitted by configuration, and refresh the same generation's bounded title, directory basename, and model label when they change;
+- publish minimal metadata plus the capabilities permitted by configuration, and refresh the same generation's bounded title, directory basename, model label, and boolean response-required state when they change;
 - heartbeat and reconnect with bounded jittered backoff;
 - revoke old generations before publishing replacements;
 - remove the entry on stop, shutdown, or fatal host error;
+- retain and replay only bounded serializable host-origin UI requests so a later writable guest can answer once, while View guests and unsafe/custom response surfaces remain local-only;
 - never persist, print, or log capability-bearing objects.
 
 The publisher may live in OMP core initially or in an extension after upstream exposes a supported collaboration API.
@@ -61,10 +62,17 @@ Each card may show only non-secret metadata:
 - model label when configured;
 - process start and last-seen time;
 - health/streaming state if available without transcript data;
+- boolean response-required state, rendered as **Needs attention**, without prompt content, counts, or request identity;
 - **View** as the primary action;
 - **Control** as a distinct action only when available.
 
 The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/sessions` and `GET /api/v1/events`, then requests one capability after an explicit tap.
+
+An explicit dashboard action may enable foreground browser notifications for authoritative
+false-to-true response-required transitions. Permission is never requested on load. Notification
+taps focus or open the metadata directory at `/`; they never launch or prefetch Control. State and
+deduplication remain volatile, so one live dashboard tab is recommended and background or
+killed-browser delivery is not supported.
 
 ### 1.5 Existing OMP collaboration client
 
@@ -113,6 +121,12 @@ The in-memory bootstrap is the target design because fragments can remain in bro
 4. The daemon stores metadata and capabilities in separate in-memory structures.
 5. It increments the directory revision and emits a metadata-only SSE event.
 6. The phone renders the new card.
+
+When an admitted host-origin response operation begins, the controller acquires a
+generation-scoped lease and republishes the same generation with `inputRequired: true`. The daemon
+emits only that boolean with ordinary metadata. The host retains the bounded request until a
+writable guest joins or the local side settles it. The last lease release republishes `false`
+before any generation removal; stale releases from prior generations are ignored.
 
 ### 2.3 View or Control launch
 

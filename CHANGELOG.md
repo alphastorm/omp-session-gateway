@@ -5,6 +5,22 @@ All notable project changes will be documented here.
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
 ## [Unreleased]
+### Added
+
+- Publish a strict metadata-only `inputRequired` boolean, surface attention-first session cards, and retain bounded host-origin response requests so a later Control guest can answer once while View remains read-only.
+- Add explicitly enabled foreground browser notifications for authoritative false-to-true attention transitions; permission is never requested on load, state remains volatile, and notification taps return only to the dashboard.
+- Add deterministic dashboard/service-worker tests and Android-sized Playwright coverage for attention ordering, stale-state clearing, notification dedupe, click routing, and forbidden-content canaries.
+
+### Changed
+
+- Pin the OMP integration and collab-web source to `can1357/oh-my-pi@89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` (nearest release v17.0.6).
+- Split the downstream OMP artifact into four reviewable commits covering controller/publisher integration, bounded pre-writer request retention, generation-scoped response-required publication, and collaboration-aware response UI/startup ordering.
+
+### Security
+
+- Keep prompt text, options, prefills, answers, request IDs/types/counts, and collaboration capabilities out of IPC metadata, list/SSE responses, DOM copy, notifications, service-worker messages, storage, caches, logs, diagnostics, screenshots, and traces.
+- Authenticate Windows named-pipe servers with the same nonce-bound mutual HMAC handshake used on POSIX before the publisher sends any proof or capability-bearing frame.
+
 
 ## [0.1.0-prealpha.2] - 2026-07-21
 

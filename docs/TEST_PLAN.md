@@ -15,6 +15,7 @@
 - socket close and TTL cleanup;
 - duplicate/reconnect upsert idempotence;
 - bounded record/connection counts.
+- same-generation false-to-true-to-false response-required mutations and stale-generation rejection;
 
 ### HTTP/auth
 
@@ -25,6 +26,7 @@
 - exact Origin enforcement;
 - content-type/body-size enforcement;
 - list/SSE metadata schema;
+- metadata-only `inputRequired` in list/SSE with no prompt, option, answer, request, or count content;
 - launch generation mismatch returns 409;
 - expired/missing returns non-enumerating 404;
 - view/control availability enforcement;
@@ -49,6 +51,10 @@ Use distinctive fixture strings for publisher token, view capability, and contro
 
 Fail on any exact fixture or meaningful substring outside its designated source/sink. The publisher authentication key is permitted only in the private token fixture and live HMAC key buffers; it must never appear in captured IPC frames. View/control capabilities are permitted only in authenticated publisher/API response memory and the collab client's in-memory parsed value.
 
+Add distinct prompt, option, prefill, answer, and request canaries. They must be absent from IPC
+logs/errors, list/SSE, DOM, notification title/body/data, service-worker messages, URLs/history,
+browser storage/caches, screenshots/traces, diagnostics, and repository artifacts.
+
 ## 3. Integration tests
 
 - synthetic publisher -> registry -> PWA card -> launch fixture;
@@ -65,6 +71,9 @@ Fail on any exact fixture or meaningful substring outside its designated source/
 - collab-web parse/connect against mock relay;
 - view client write attempt is rejected;
 - control prompt/interrupt against mock/real OMP host.
+- a pending response operation before any writer exists -> metadata attention -> later Control replay -> exactly one settlement -> authoritative clear;
+- concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
+- generation replacement clears attention before removal and cannot be mutated by a stale lease;
 
 ## 4. End-to-end acceptance scenarios
 
@@ -95,6 +104,8 @@ Fail on any exact fixture or meaningful substring outside its designated source/
 3. Client reconnects or gives a clear recovery path.
 4. Switch Wi-Fi/mobile network while Tailscale remains connected.
 5. Android back returns safely without a reusable secret-bearing history entry.
+6. Explicitly enable foreground notifications in one live dashboard tab; page load never prompts, one false-to-true transition notifies once, and tapping it focuses or opens `/` rather than Control.
+7. Inspect the Android lock-screen notification for only the fixed title and approved session title/directory label; repeat after SSE reconnect and lock/resume.
 
 ### E. Authorization
 
