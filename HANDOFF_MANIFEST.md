@@ -10,7 +10,7 @@
 - mutually authenticated, size- and deadline-bounded local IPC with fresh nonces, no raw key on the wire, generation-aware in-memory storage, monotonic TTL expiry, and same-generation attention updates;
 - loopback HTTP, fail-closed Tailscale identity allowlisting, exact-Origin mutation checks, metadata-only SSE, and no-store launch;
 - Android-sized installable PWA with attention-first cards, ordered metadata-only snapshot/SSE states, stale-state clearing, explicit foreground notification opt-in, and a queryless shell-only service-worker cache;
-- OMP `collab-web` pinned to commit `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` and patched for one-time in-memory `MessageChannel` bootstrap plus mobile foreground/online transport replacement;
+- OMP `collab-web` pinned to commit `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` and patched for an installed-PWA same-document in-memory bootstrap, a one-time `MessageChannel` browser fallback, and mobile foreground/online transport replacement;
 - apply-ready four-commit OMP controller/auto-start/publisher patch with mutual HMAC authentication, pre-writer response-request retention, generation-scoped attention leases, collaboration-aware response races, startup-before-hooks ordering, named-pipe squatter resistance, daemon-restart/token-rotation and host-suspension reconnect, ambient child-tool configuration preservation, bounded same-generation metadata refresh, pre-mutation revocation, and post-mutation republish tests;
 - `serve`, content-addressed `install`, rollback-safe `uninstall`, authenticated `status`/`doctor`, redacted `doctor --bundle`, Serve guidance, and fail-closed token rotation;
 - systemd-user, LaunchAgent, and current-user Windows task definitions;
