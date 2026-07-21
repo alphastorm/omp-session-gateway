@@ -4,6 +4,12 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Changed
+
+- Recorded the signed `v0.1.0-prealpha.2` recovery relay soak as passed after 28,800 seconds, eight room transitions, a live final phase, no restart, and a 720 KiB gateway RSS increase; physical Android relay qualification remains open.
+
 ## [0.1.0-prealpha.4] - 2026-07-21
 
 ### Fixed
