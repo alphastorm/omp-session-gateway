@@ -172,6 +172,14 @@ Add tests for:
 - session replacement revokes old generation before publishing new;
 - same-generation title, working-directory, and model changes refresh metadata without rotating capabilities;
 - published metadata respects protocol label bounds;
+- pre-writer retention and reconnect replay for bounded serializable UI requests;
+- no request admission or ID consumption after the host's bounded pending-request cap;
+- View exclusion and first-of-many writable-guest exactly-once settlement;
+- generation-scoped, nested, concurrent, and idempotent `inputRequired` leases;
+- attention clears before stop, fault, replacement, or removal, and stale releases are ignored;
+- local/remote response races abort both sides across ask, select, editor, confirm, and input operations;
+- callback-, disabled-row-, slider-, prompt-style-, custom-, and guest-origin UI remain local and unflagged;
+- collaboration auto-start completes before awaited extension `session_start` response operations;
 - `/collab stop` unregisters;
 - daemon absent does not break OMP;
 - malformed endpoint/token fails safely;
