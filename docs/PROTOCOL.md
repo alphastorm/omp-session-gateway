@@ -323,6 +323,10 @@ Separate-page alternative:
 5. the opener drops its reference immediately after acknowledgement;
 6. the child closes on timeout or origin mismatch.
 
+The separate-page alternative is not valid for installed Android PWA launch: Chrome may reuse the standalone window,
+leaving `/client/` without an opener and destroying the only in-memory sender. Installed mode must use the preferred
+same-document mount.
+
 Do not put the capability in a path, query, fragment, window name, BroadcastChannel, clipboard, or service-worker message.
 
 ## 6. Fragment compatibility mode

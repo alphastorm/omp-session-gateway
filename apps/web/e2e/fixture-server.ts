@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
@@ -33,6 +34,10 @@ export async function startDashboardFixture(
   const streams = new Set<ServerResponse>();
   const requests: string[] = [];
   let revision = 1;
+  const roomId = randomBytes(16).toString("base64url");
+  const roomKey = randomBytes(32);
+  const viewCapability = `${roomId}.${roomKey.toString("base64url")}`;
+  const controlCapability = `${roomId}.${Buffer.concat([roomKey, randomBytes(16)]).toString("base64url")}`;
 
   const snapshotEvent = (): SessionEvent => ({
     type: "snapshot",
@@ -57,6 +62,39 @@ export async function startDashboardFixture(
           Pragma: "no-cache",
         });
         response.end(JSON.stringify({ revision, sessions: [...sessions.values()] }));
+        return;
+      }
+      const launchMatch = /^\/api\/v1\/sessions\/([^/]+)\/launch$/u.exec(url.pathname);
+      if (method === "POST" && launchMatch !== null) {
+        let requestBody = "";
+        for await (const chunk of request) {
+          requestBody += String(chunk);
+          if (requestBody.length > 4_096) {
+            response.writeHead(413).end("Too large");
+            return;
+          }
+        }
+        const instanceId = decodeURIComponent(launchMatch[1] ?? "");
+        const session = sessions.get(instanceId);
+        const parsed = JSON.parse(requestBody) as { generation?: unknown; mode?: unknown };
+        if (
+          session === undefined ||
+          parsed.generation !== session.generation ||
+          (parsed.mode !== "view" && parsed.mode !== "control")
+        ) {
+          response.writeHead(409).end("Expired");
+          return;
+        }
+        response.writeHead(200, {
+          "Cache-Control": "no-store, max-age=0",
+          "Content-Type": "application/json; charset=utf-8",
+          Pragma: "no-cache",
+        });
+        response.end(JSON.stringify({
+          generation: session.generation,
+          mode: parsed.mode,
+          capability: parsed.mode === "view" ? viewCapability : controlCapability,
+        }));
         return;
       }
       if (method === "GET" && url.pathname === "/api/v1/events") {

@@ -144,31 +144,24 @@ describe("collaboration client document recovery", () => {
     expect(browser.historyUrls).toEqual([]);
   });
 
-  test("redirects a disposed BFCache document without retaining the capability", async () => {
+  test("redirects a BFCache-restored fallback document without retaining its handoff", async () => {
     const handoff = "00000000-0000-4000-8000-000000000000";
-    const capability = "synthetic-room.secret-room-key";
     const browser = installBrowser(
       `https://sessions.example/client/?handoff=${handoff}`,
       true,
     );
     // @ts-expect-error Bun supports cache-busting query imports; TypeScript does not resolve them.
-    const entry = await import("../upstream/src/main.tsx?bfcache-recovery-test");
+    await import("../upstream/src/main.tsx?bfcache-recovery-test");
 
     expect(browser.historyUrls).toEqual(["/client/"]);
-    entry.startCollabWithCapability(capability, () => {});
-    expect(roots).toHaveLength(1);
-    expect(roots[0]?.rendered).toBeDefined();
-
-    browser.window.dispatchEvent(new Event("pagehide"));
-    expect(roots[0]?.unmounts).toBe(1);
-    expect(roots[0]?.rendered).toBeUndefined();
+    expect(browser.rootElement.children).toEqual([]);
 
     const pageshow = new Event("pageshow");
     Object.defineProperty(pageshow, "persisted", { value: true });
     browser.window.dispatchEvent(pageshow);
 
     expect(browser.replacements).toEqual(["/"]);
-    expect(JSON.stringify(browser.historyUrls)).not.toContain(capability);
-    expect(JSON.stringify(browser.rootElement.children)).not.toContain(capability);
+    expect(JSON.stringify(browser.historyUrls)).not.toContain(handoff);
+    expect(JSON.stringify(browser.rootElement.children)).not.toContain(handoff);
   });
 });

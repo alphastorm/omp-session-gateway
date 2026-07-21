@@ -11,6 +11,7 @@ const GLOBAL_NAMES = [
   "EventSource",
   "fetch",
   "isSecureContext",
+  "HTMLElement",
 ] as const;
 const nativeGlobals = Object.fromEntries(
   GLOBAL_NAMES.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
@@ -108,6 +109,10 @@ class FakeWindow extends EventTarget {
   readonly opened: string[] = [];
   readonly timers = new Map<number, () => void>();
   #nextTimer = 1;
+
+  matchMedia(): { matches: boolean; addEventListener(): void } {
+    return { matches: false, addEventListener(): void {} };
+  }
 
   clearTimeout(handle: number): void {
     this.timers.delete(handle);
@@ -223,6 +228,7 @@ async function bootApp(options: {
     "#notify-note": notificationDisclosure,
   };
   const document = {
+    documentElement: { dataset: {} as Record<string, string>, style: {} as Record<string, string> },
     querySelector(selector: string): FakeElement | null {
       return bySelector[selector] ?? null;
     },
@@ -287,6 +293,7 @@ async function bootApp(options: {
     EventSource: { configurable: true, value: FakeEventSource },
     fetch: { configurable: true, value: fetch },
     isSecureContext: { configurable: true, value: true },
+    HTMLElement: { configurable: true, value: class extends EventTarget {} },
   });
 
   // app.ts bootstraps at import time, so a cache-busted test module is required for an isolated page.
