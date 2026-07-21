@@ -12,9 +12,9 @@ texts and required attributions are included at the stated archive paths.
 
 ## Bundled runtime dependencies
 
-### @oh-my-pi/pi-wire@17.0.5
+### @oh-my-pi/pi-wire@17.0.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/v17.0.5/packages/wire>
+- Source: <https://github.com/can1357/oh-my-pi/tree/v17.0.6/packages/wire>
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
 - License text: `licenses/runtime/@oh-my-pi__pi-wire/LICENSE`
@@ -58,8 +58,8 @@ texts and required attributions are included at the stated archive paths.
 
 ### @oh-my-pi/collab-web@16.3.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/39c95e5e29b1c8b082059f57421ce445c3dffdd4/packages/collab-web>
-- Pinned source: tag `v17.0.5`, commit `39c95e5e29b1c8b082059f57421ce445c3dffdd4`
+- Source: <https://github.com/can1357/oh-my-pi/tree/89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6/packages/collab-web>
+- Pinned source: tag `v17.0.6`, commit `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
 - License text: `licenses/collab-web/LICENSE`
@@ -73,10 +73,10 @@ texts and required attributions are included at the stated archive paths.
 
 ## Distributed OMP integration patch
 
-### @oh-my-pi/pi-coding-agent patch@17.0.5
+### @oh-my-pi/pi-coding-agent patch@17.0.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/39c95e5e29b1c8b082059f57421ce445c3dffdd4/packages/coding-agent>
-- Pinned source: tag `v17.0.5`, commit `39c95e5e29b1c8b082059f57421ce445c3dffdd4`
+- Source: <https://github.com/can1357/oh-my-pi/tree/89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6/packages/coding-agent>
+- Pinned source: tag `v17.0.6`, commit `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
 - License text: `licenses/oh-my-pi/LICENSE`
