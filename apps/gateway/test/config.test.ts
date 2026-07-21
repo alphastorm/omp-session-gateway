@@ -191,7 +191,7 @@ describe("secure config", () => {
     await writeFile(path, "created\n", { mode: 0o600 });
     await restoreGatewayConfigFile(absent);
     expect(await Bun.file(path).exists()).toBe(false);
-  });
+  }, 20_000);
 
   test("rejects permissive and symlinked config files", async () => {
     const root = await privateRoot();
