@@ -21,12 +21,19 @@ Benefits:
 - theme/background colors chosen by the implementer;
 - minimal service worker caching only versioned static shell files;
 - offline state that says the desktop is unreachable and does not display stale session metadata;
-- no push notifications in v1;
+- no Push API or killed-browser notification delivery in v1; optional foreground notifications require an explicit permission action, keep transition state volatile, and open only the dashboard;
 - Android back behavior: collab client returns to the session directory, with no secret-bearing history entry;
 - account for the virtual keyboard and `visualViewport` behavior in the embedded/pinned collab-web build;
 - test Chrome stable and at least one Chromium-based alternative if supported.
 
 Do not cache API responses or collab client navigations. A PWA does not need to be an offline copy of sensitive runtime state.
+
+Foreground notifications may expose the bounded session title or directory label on the Android
+lock screen. The dashboard must warn about that disclosure before its only permission action,
+never prompt on load, and recommend one live dashboard tab because volatile per-tab dedupe can
+produce one notification per tab. Physical Android qualification must inspect lock-screen text,
+permission behavior, notification taps, lock/resume, and SSE reconnects. Desktop emulation does
+not establish background or killed-browser support.
 
 ## Launch UX
 

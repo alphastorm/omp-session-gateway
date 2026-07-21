@@ -13,7 +13,7 @@ Highest-value assets:
 - full-control collaboration capabilities;
 - view-only collaboration capabilities;
 - transcript/tool/subagent data reachable through those capabilities;
-- session metadata such as project names, models, and activity timing;
+- session metadata such as project names, models, activity timing, and whether human input is required;
 - the local publisher token;
 - tailnet and WebAuthn identity material;
 - release-signing and update infrastructure.
@@ -86,6 +86,14 @@ Mandatory rules:
 - suppress access/body tracing for launch endpoints;
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
+
+`inputRequired` is metadata, not collaboration content. It is restricted to one boolean. Prompt
+text, options, answers, request IDs, request kinds, and pending-operation counts must never enter
+the publisher record, list/SSE response, DOM copy, notification, logs, diagnostics, or metrics.
+After an explicit browser permission action, a foreground notification may contain only the fixed
+product title plus the already-approved bounded session title, falling back to the directory label.
+Its click target is `/`, never a launch endpoint or collaboration client. Permission, transition
+tracking, and dedupe state are not stored by the application.
 
 JavaScript strings cannot be reliably zeroized. Minimize lifetime, copies, closures, global state, and persistence instead of claiming memory erasure.
 
@@ -163,10 +171,10 @@ stops the service.
 
 On POSIX, the publisher also verifies that the registry endpoint is a socket owned by the current
 user and that both the socket and its immediate parent are private before reading capabilities.
-The Windows pre-alpha path still lacks client-side proof of the named-pipe server identity and a
-completed namespace-squatting test. A private server DACL and publisher token do not by themselves
-authenticate a server that pre-creates the expected pipe name. Do not advertise Windows support
-until that boundary is implemented and qualified.
+On Windows, the gateway applies a current-user-and-SYSTEM-only pipe DACL, while the nonce-bound
+mutual HMAC handshake authenticates the server before the publisher sends its proof or any
+capability-bearing frame. Same-user malware that can read the private token remains outside the
+v1 threat boundary.
 
 ## 10. Lost phone and user presence
 
@@ -233,6 +241,7 @@ Before release, prove:
 - list/SSE/static HTML contain no capability canary;
 - launch responses are no-store and absent from logs/traces/caches;
 - browser URL, history, DOM, clipboard, cookies, Local Storage, IndexedDB, Cache Storage, service-worker state, test artifacts, and diagnostics contain no canary after leaving a session;
+- attention metadata and foreground notification text contain no prompt, option, answer, request, count, capability, or other content canary;
 - stopped, expired, and replaced generations cannot launch;
 - view-only mutation attempts are rejected by the OMP host;
 - cross-origin launch and WebAuthn requests fail;

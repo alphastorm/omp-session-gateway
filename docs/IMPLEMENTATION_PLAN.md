@@ -89,9 +89,10 @@ Exit criteria: a maintainer can publish a signed v0.1 release candidate without 
 2. Session naming/favorites that store only metadata.
 3. Self-hosted relay mode after WebSocket soak validation.
 4. TWA wrapper with Digital Asset Links.
-5. Push notifications only after a separate privacy/security design.
+5. Background Push API notifications only after a separate privacy/security design.
 
-Do not combine these with the v1 security-critical patch.
+Do not combine these remaining optional features with the v1 security-critical patch. The
+foreground-only, explicitly enabled attention notification uses no Push API or persistent state.
 
 ## Work split for multiple agents
 

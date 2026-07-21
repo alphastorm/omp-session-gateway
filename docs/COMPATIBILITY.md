@@ -33,10 +33,10 @@ The pre-alpha targets one immutable upstream source revision:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
-| `0.1.0` (unreleased) | `can1357/oh-my-pi@39c95e5e29b1c8b082059f57421ce445c3dffdd4` | `v17.0.5` | coding-agent `17.0.5`; wire `17.0.5` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit pre-alpha qualification only |
+| `0.1.0` (unreleased) | `can1357/oh-my-pi@89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` | `v17.0.6` | coding-agent `17.0.6`; wire `17.0.6` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit pre-alpha qualification only |
 
-`v17.0.5` is the nearest release and package baseline recorded on **2026-07-19**. It is
-not a claim that every checkout or package combination labeled `v17.0.5` is compatible.
+`v17.0.6` is the nearest release and package baseline recorded on **2026-07-21**. It is
+not a claim that every checkout or package combination labeled `v17.0.6` is compatible.
 No earlier or later OMP release, commit, fork, or loose semver range is supported.
 
 The immutable source paths, versions, observation date, and upstream findings live in
@@ -98,8 +98,9 @@ current-user/token protected.
 | `dev-localhost` HTTP mode | Development only | Never a remote, LAN, or production deployment path. |
 | Tailscale Funnel or public reverse tunnel | Unsupported | Must not be enabled or documented as a normal deployment path. |
 
-WebAuthn control gating, a Trusted Web Activity, native Android applications, push
-notifications, and multi-host federation are deferred and carry no compatibility promise.
+WebAuthn control gating, a Trusted Web Activity, native Android applications, background Push API
+delivery, and multi-host federation are deferred and carry no compatibility promise. The PWA's
+explicitly enabled foreground-only attention notifications do not imply background support.
 
 ## Upstream refresh procedure
 
