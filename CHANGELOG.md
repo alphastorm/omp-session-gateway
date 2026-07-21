@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.2] - 2026-07-21
+
+### Fixed
+
+- Recover established collaboration guests across transient relay room replacement with bounded exponential retries while keeping initial missing rooms and exhausted recovery terminal.
+
 ## [0.1.0-prealpha.1] - 2026-07-21
 
 ### Added
