@@ -7,6 +7,22 @@ import {
   type SessionEvent,
   type SessionMetadata,
 } from "@omp-session-gateway/protocol";
+type StartCollabWithCapability = (
+  container: HTMLElement,
+  capability: string,
+  onDispose: () => void,
+) => () => void;
+
+interface CollabClientModule {
+  startCollabWithCapability: StartCollabWithCapability;
+}
+
+declare const __COLLAB_CLIENT_MODULE__: string;
+declare const __COLLAB_CLIENT_STYLESHEET__: string;
+
+function importCollabClient(moduleUrl: string): Promise<CollabClientModule> {
+  return import(moduleUrl) as Promise<CollabClientModule>;
+}
 
 function requiredElement<ElementType extends Element>(selector: string): ElementType {
   const element = document.querySelector<ElementType>(selector);
@@ -268,11 +284,58 @@ function render(): void {
   }
 }
 
-function closeChild(child: Window | null): void {
+async function loadCollabStylesheet(): Promise<HTMLLinkElement> {
+  const existing = document.querySelector<HTMLLinkElement>("link[data-omp-collab-styles]");
+  if (existing !== null) return existing;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = __COLLAB_CLIENT_STYLESHEET__;
+  link.dataset.ompCollabStyles = "true";
+  const loaded = new Promise<HTMLLinkElement>((resolve, reject) => {
+    link.addEventListener("load", () => resolve(link), { once: true });
+    link.addEventListener("error", () => reject(new Error("collaboration client stylesheet failed to load")), {
+      once: true,
+    });
+  });
+  document.head.append(link);
+  return await loaded;
+}
+
+function enterCollabClient(capability: string, startCollabWithCapability: StartCollabWithCapability): void {
+  const container = document.createElement("div");
+  container.id = "root";
+  container.setAttribute("role", "application");
+  container.setAttribute("aria-label", "OMP collaboration session");
+  events?.close();
+  events = undefined;
+  snapshotController?.abort();
+  snapshotController = undefined;
+  history.pushState(null, "", "/client/");
+  document.body.replaceChildren(container);
+  document.title = "OMP collaboration";
+
+  let dispose = (): void => undefined;
+  const removeLifecycleListeners = (): void => {
+    window.removeEventListener("pagehide", handlePageHide);
+    window.removeEventListener("popstate", handlePopState);
+  };
+  const handlePageHide = (): void => {
+    dispose();
+    removeLifecycleListeners();
+  };
+  const handlePopState = (): void => {
+    dispose();
+    removeLifecycleListeners();
+    location.reload();
+  };
+  window.addEventListener("pagehide", handlePageHide);
+  window.addEventListener("popstate", handlePopState);
   try {
-    child?.close();
-  } catch {
-    // Cross-origin navigation is never expected; a browser may still reject close.
+    dispose = startCollabWithCapability(container, capability, removeLifecycleListeners);
+  } catch (error) {
+    removeLifecycleListeners();
+    location.replace("/");
+    throw error;
   }
 }
 
@@ -288,70 +351,25 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLBu
     button.removeAttribute("aria-busy");
     button.textContent = idleLabel;
   };
-
-  const handoff = crypto.randomUUID();
-  const child = window.open(`/client/?handoff=${encodeURIComponent(handoff)}`, "_blank");
-  if (child === null) {
-    resetButton();
-    setStatus("offline", "Allow this site to open the collaboration client, then try again.");
-    return;
-  }
-  const clientWindow = child;
-  const channel = new MessageChannel();
-  const controller = new AbortController();
-  let settled = false;
-  let capability: string | undefined;
-  let timeout = 0;
-  const cleanup = (closeWindow: boolean): void => {
-    window.removeEventListener("message", receiveReady);
-    clearTimeout(timeout);
-    controller.abort();
-    capability = undefined;
-    channel.port1.close();
-    try {
-      channel.port2.close();
-    } catch {
-      // The port may already have been transferred to the client.
-    }
-    if (closeWindow) closeChild(child);
-    resetButton();
-  };
+  let stylesheet: HTMLLinkElement | undefined;
+  let startCollabWithCapability: StartCollabWithCapability;
   const fail = (kind: "offline" | "unauthorized" | "expired", message: string): void => {
-    if (settled) return;
-    settled = true;
-    cleanup(true);
+    stylesheet?.remove();
+    resetButton();
     setStatus(kind, message);
   };
-  function receiveReady(event: MessageEvent): void {
-    const message = event.data as Record<string, unknown> | null;
-    if (
-      event.origin !== location.origin ||
-      event.source !== clientWindow ||
-      message === null ||
-      message.type !== "omp-client-ready" ||
-      message.handoff !== handoff
-    ) {
-      return;
-    }
-    window.removeEventListener("message", receiveReady);
-    try {
-      clientWindow.postMessage({ type: "omp-client-port", handoff }, location.origin, [channel.port2]);
-    } catch {
-      fail("offline", "The collaboration client did not start. Try again.");
-    }
+
+  try {
+    const [loadedStylesheet, collabClient] = await Promise.all([
+      loadCollabStylesheet(),
+      importCollabClient(__COLLAB_CLIENT_MODULE__),
+    ]);
+    stylesheet = loadedStylesheet;
+    startCollabWithCapability = collabClient.startCollabWithCapability;
+  } catch {
+    fail("offline", "The collaboration client did not start. Try again.");
+    return;
   }
-  channel.port1.onmessage = event => {
-    const message = event.data as Record<string, unknown> | null;
-    if (message?.type !== "omp-client-accepted" || message.handoff !== handoff || settled) return;
-    settled = true;
-    cleanup(false);
-    setStatus("ready", "");
-  };
-  window.addEventListener("message", receiveReady);
-  timeout = window.setTimeout(
-    () => fail("offline", "The collaboration client did not start. Try again."),
-    10_000,
-  );
 
   let response: Response;
   try {
@@ -361,10 +379,9 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLBu
       body: JSON.stringify({ mode, generation: session.generation }),
       cache: "no-store",
       credentials: "same-origin",
-      signal: controller.signal,
     });
   } catch {
-    if (!settled) fail("offline", "Gateway unavailable. Check your tailnet connection and try again.");
+    fail("offline", "Gateway unavailable. Check your tailnet connection and try again.");
     return;
   }
 
@@ -382,16 +399,17 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLBu
     return;
   }
 
+  let capability: string | undefined;
   try {
     const payload = parseLaunchResponse(await response.json());
     if (payload.mode !== mode || payload.generation !== session.generation) {
       throw new Error("invalid launch response");
     }
     capability = payload.capability;
-    if (settled) return;
-    channel.port1.postMessage({ type: "omp-client-capability", handoff, mode, capability });
+    enterCollabClient(capability, startCollabWithCapability);
     capability = undefined;
   } catch {
+    capability = undefined;
     fail("offline", "The gateway returned an invalid launch response.");
   }
 }

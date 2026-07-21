@@ -86,7 +86,7 @@ Preferred integration:
 4. dispose of references when leaving the session;
 5. return to the directory on reload because the capability is intentionally not recoverable.
 
-A same-origin child window plus `MessageChannel` is acceptable when keeping the client in a separate page: open `/client/` synchronously during the tap, fetch the capability in the opener, transfer it with a same-origin `postMessage`, and never put it into a URL or DOM attribute.
+A same-origin child window plus `MessageChannel` is acceptable only when the browser preserves a distinct exact-origin opener: open `/client/` synchronously during the tap, fetch the capability in the opener, transfer it with a same-origin `postMessage`, and never put it into a URL or DOM attribute. Installed Android PWA launch must use the preferred same-document mount because Chrome may reuse the standalone window without an opener.
 
 Temporary compatibility fallback only:
 
