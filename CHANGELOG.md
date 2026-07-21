@@ -40,6 +40,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 - Kept Bun's HTTP idle timeout above the SSE keepalive interval so live updates do not cycle through reconnect state.
 - Close authenticated publisher sockets without a protocol-error payload after idle expiry or missing heartbeat state so the existing bounded reconnect path republishes sessions after host suspension; isolated launchers can now select the publisher-token file without replacing child-tool XDG configuration.
+- Refresh the active gateway card's bounded title, directory basename, and `provider/model` metadata after live OMP name, working-directory, or model changes without rotating its generation or capabilities.
 - Redirect direct, reloaded, invalid, and BFCache-restored collaboration client documents to the secret-free session directory; discard stale reconnect sends and emit a fresh guest hello before current-generation frames.
 - Force a fresh collab relay transport after mobile foreground and online transitions so suspended sockets cannot remain silently stale.
 - Revoke the active OMP collaboration generation before session mutation, keep manual hosts stopped when auto-start is off, force explicit relay replacements, and revoke/re-publish same-relay View/Control mode changes.

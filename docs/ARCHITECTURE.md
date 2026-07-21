@@ -24,7 +24,7 @@ Responsibilities:
 
 - discover the platform IPC endpoint;
 - authenticate both publisher and gateway with fresh nonces and domain-separated HMAC proofs derived from the private per-install key; never transmit that key;
-- publish minimal metadata plus the capabilities permitted by configuration;
+- publish minimal metadata plus the capabilities permitted by configuration, and refresh the same generation's bounded title, directory basename, and model label when they change;
 - heartbeat and reconnect with bounded jittered backoff;
 - revoke old generations before publishing replacements;
 - remove the entry on stop, shutdown, or fatal host error;
