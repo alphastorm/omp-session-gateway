@@ -1,13 +1,13 @@
 # Primary-source references
 
-Research date: **2026-07-19**.
+Research date: **2026-07-21**.
 
 These links informed the design snapshot. OMP and Tailscale are active projects; the implementation agent must re-open the current primary sources, pin exact versions/commits, and update `UPSTREAM.lock.json` before coding.
 
 ## Oh My Pi
 
 - Repository and collaboration overview: https://github.com/can1357/oh-my-pi
-- Release baseline observed for this handoff (`v17.0.5`): https://github.com/can1357/oh-my-pi/releases/tag/v17.0.5
+- Release baseline observed for this handoff (`v17.0.6`): https://github.com/can1357/oh-my-pi/releases/tag/v17.0.6
 - Collaboration protocol, link roles, browser client, settings, and relay architecture: https://github.com/can1357/oh-my-pi/blob/main/docs/collab.md
 - Browser collaboration client package: https://github.com/can1357/oh-my-pi/tree/main/packages/collab-web
 - Browser client source: https://github.com/can1357/oh-my-pi/tree/main/packages/collab-web/src

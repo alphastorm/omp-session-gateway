@@ -261,8 +261,8 @@ async function compatibilityArtifactsPresent(): Promise<boolean> {
     const lock = JSON.parse(lockText) as unknown;
     return (
       property(lock, "repository") === "https://github.com/can1357/oh-my-pi" &&
-      property(lock, "commit") === "39c95e5e29b1c8b082059f57421ce445c3dffdd4" &&
-      property(property(lock, "packageVersions"), "@oh-my-pi/pi-coding-agent") === "17.0.5" &&
+      property(lock, "commit") === "89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6" &&
+      property(property(lock, "packageVersions"), "@oh-my-pi/pi-coding-agent") === "17.0.6" &&
       patch.includes("packages/coding-agent/src/collab/controller.ts") &&
       patch.includes("packages/coding-agent/src/collab/registry-publisher.ts")
     );

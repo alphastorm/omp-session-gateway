@@ -30,7 +30,7 @@ The dashboard must remain a session directory and capability broker. Do not turn
 4. Record any design-changing upstream differences in `docs/DECISIONS.md` before coding around them.
 5. Run `bun run check` and keep it green while replacing the handoff-only checks with production lint, typecheck, unit, integration, E2E, and secret-leak tests.
 
-The research baseline is OMP v17.0.5 observed on 2026-07-19. It is not a permanent compatibility promise.
+The implementation baseline is OMP v17.0.6 at `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`, observed on 2026-07-21. It is not a permanent compatibility promise.
 
 ## Product naming
 
