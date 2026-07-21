@@ -1,3 +1,5 @@
+![OMP Session Gateway](assets/banner.png)
+
 # OMP Session Gateway
 
 **Secure, zero-touch mobile access to every running Oh My Pi session.**

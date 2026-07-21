@@ -80,6 +80,14 @@ await writeFile(join(outputRoot, "client", "index.html"), clientHtml);
 
 await copyFile(join(webSource, "manifest.webmanifest"), join(outputRoot, "manifest.webmanifest"));
 await copyFile(join(webSource, "icon.svg"), join(outputRoot, "icon.svg"));
+for (const asset of [
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+  "apple-touch-icon-180.png",
+]) {
+  await copyFile(join(webSource, asset), join(outputRoot, asset));
+}
 const shellAssets = [webScript, stylesheet];
 const cacheName = `omp-sessions-shell-${digest(shellAssets.join("\0"))}`;
 const workerBuild = await buildEntrypoint(join(webSource, "service-worker.ts"), join(temporaryRoot, "worker"), {

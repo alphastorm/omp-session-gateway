@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OMP Sessions">
-  <rect width="512" height="512" rx="116" fill="#0B0E11"></rect>
-  <g transform="translate(97.3 97.3) scale(3.306)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="OMP Sessions">
+  <rect width="96" height="96" rx="22" fill="#0B0E11"></rect>
+  <g transform="translate(13.4 13.4) scale(0.72)">
     <rect x="12" y="16" width="72" height="10" rx="2" fill="#E8ECEF"></rect>
     <rect x="24" y="26" width="10" height="52" rx="2" fill="#E8ECEF"></rect>
     <rect x="62" y="26" width="10" height="52" rx="2" fill="#E8ECEF"></rect>
