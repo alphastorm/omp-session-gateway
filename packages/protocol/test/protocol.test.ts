@@ -53,6 +53,7 @@ function metadata(overrides: Record<string, unknown> = {}): Record<string, unkno
     lastSeenAt: "2026-07-19T00:00:01.000Z",
     canView: true,
     canControl: false,
+    inputRequired: false,
     ...overrides,
   };
 }
@@ -65,7 +66,10 @@ describe("strict protocol validation", () => {
     );
     expect(parseAuthenticateFrame({ v: 1, op: "authenticate", proof: "E".repeat(43) }).op).toBe("authenticate");
     expect(parseHelloOkFrame({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 }).ttlSeconds).toBe(35);
-    expect(parseAuthenticatedPublisherFrame(upsert()).op).toBe("upsert");
+    const parsed = parseAuthenticatedPublisherFrame(upsert());
+    expect(parsed.op).toBe("upsert");
+    if (parsed.op !== "upsert") throw new Error("expected upsert");
+    expect(parsed.session.inputRequired).toBe(false);
   });
 
   test("rejects unknown versions, fields, duplicate keys, and invalid UTF-8", () => {
@@ -83,6 +87,22 @@ describe("strict protocol validation", () => {
     ).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(encoder.encode('{"v":1,"v":1}'))).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(new Uint8Array([0xc3, 0x28]))).toThrow(ProtocolValidationError);
+    for (const inputRequired of ["true", 1, {}, []]) {
+      expect(() =>
+        parseAuthenticatedPublisherFrame({
+          ...upsert(),
+          session: { ...(upsert().session as Record<string, unknown>), inputRequired },
+        }),
+      ).toThrow(ProtocolValidationError);
+    }
+    for (const forbiddenKey of ["prompt", "question", "options", "prefill", "answer", "requestId", "count"]) {
+      expect(() =>
+        parseAuthenticatedPublisherFrame({
+          ...upsert(),
+          session: { ...(upsert().session as Record<string, unknown>), [forbiddenKey]: "CONTENT_CANARY" },
+        }),
+      ).toThrow(ProtocolValidationError);
+    }
   });
 
   test("rejects oversized frames and ambiguous launch bodies", () => {
@@ -96,6 +116,7 @@ describe("strict protocol validation", () => {
     const frame = parseAuthenticatedPublisherFrame(upsert());
     if (frame.op !== "upsert") throw new Error("expected upsert");
     const split = separatePublishedSession(frame.session, "2026-07-19T00:00:01.000Z");
+    expect(split.metadata.inputRequired).toBe(false);
     expect(JSON.stringify(split.metadata)).not.toContain(capability);
     expect(split.secret.view.reveal()).toBe(capability);
     expect(() => JSON.stringify(split.secret)).toThrow("must not be serialized");
@@ -119,6 +140,9 @@ describe("strict protocol validation", () => {
   test("validates browser metadata, events, and one-time launch responses", () => {
     const list = parseSessionListResponse({ revision: 2, sessions: [metadata()] });
     expect(list.sessions[0]?.instanceId).toBe(instanceId);
+    expect(list.sessions[0]?.inputRequired).toBe(false);
+    expect(parseSessionListResponse({ revision: 2, sessions: [metadata({ inputRequired: true })] }).sessions[0])
+      .toMatchObject({ inputRequired: true });
     expect(
       parseSessionEvent({ type: "session_upsert", revision: 3, session: metadata({ generation: 2 }) }).type,
     ).toBe("session_upsert");
@@ -126,6 +150,9 @@ describe("strict protocol validation", () => {
     expect(() => parseSessionListResponse({ revision: 2, sessions: [metadata({ canView: "yes" })] })).toThrow(
       ProtocolValidationError,
     );
+    expect(() =>
+      parseSessionListResponse({ revision: 2, sessions: [metadata({ inputRequired: "true" })] }),
+    ).toThrow(ProtocolValidationError);
     expect(() =>
       parseSessionEvent({ type: "session_remove", revision: 3, instanceId, generation: 2, extra: true }),
     ).toThrow(ProtocolValidationError);

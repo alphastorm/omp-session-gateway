@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: can1357/oh-my-pi
-          ref: 39c95e5e29b1c8b082059f57421ce445c3dffdd4
+          ref: 89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Apply and test the Windows OMP publisher

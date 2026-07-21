@@ -147,6 +147,7 @@ One authenticated connection owns exactly one `instanceId` and cannot mutate ano
     "cwdLabel": "checkout-service",
     "model": "provider/model",
     "startedAt": "2026-07-19T16:25:00.000Z",
+    "inputRequired": true,
     "viewLink": "<generated-view-capability>",
     "controlLink": "<generated-control-capability>"
   }
@@ -158,8 +159,10 @@ Rules:
 - `instanceId` must match the authenticated connection;
 - `generation` must be greater than or equal to the stored generation;
 - repeating the same generation is idempotent only when its immutable session identity matches;
+- same-generation upserts may refresh bounded display labels and `inputRequired` only for the same immutable session identity and capability set;
 - capability strings are parsed/validated using pinned upstream OMP code where possible, not logged or reflected;
 - `controlLink` may be absent when the session is view-only;
+- `inputRequired` is a boolean only; it conveys no prompt text, options, answer, request ID, request type, or pending-operation count;
 - metadata and capabilities must be copied into separate registry structures immediately.
 
 ### `heartbeat`
@@ -220,6 +223,7 @@ Returns metadata only:
       "cwdLabel": "checkout-service",
       "model": "provider/model",
       "startedAt": "2026-07-19T16:25:00.000Z",
+      "inputRequired": true,
       "lastSeenAt": "2026-07-19T16:25:20.000Z",
       "canView": true,
       "canControl": true
@@ -228,7 +232,7 @@ Returns metadata only:
 }
 ```
 
-It must never contain a capability, room key, write token, relay secret, publisher token, transcript, prompt, tool output, or full path by default.
+It must never contain a capability, room key, write token, relay secret, publisher token, transcript, prompt, response option, answer, request identity, pending-operation count, tool output, or full path by default.
 
 ### `GET /api/v1/events`
 

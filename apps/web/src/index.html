@@ -29,7 +29,11 @@
           <h1>Sessions</h1>
           <p class="lede">Live OMP sessions on this computer. View is read-only; Control can steer the session.</p>
         </div>
-        <button id="refresh" class="refresh" type="button">Refresh</button>
+        <div class="masthead-actions">
+          <button id="refresh" class="refresh" type="button">Refresh</button>
+          <button id="notify" class="notify" type="button" data-state="checking" disabled>Checking notifications…</button>
+          <p id="notify-note" class="notify-note">Notifications may show session names on your lock screen.</p>
+        </div>
       </header>
       <div id="status-banner" class="status" data-kind="loading" role="status">Loading sessions…</div>
       <section id="empty-state" class="empty-state" hidden>
