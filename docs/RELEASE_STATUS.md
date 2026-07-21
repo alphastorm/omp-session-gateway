@@ -1,7 +1,7 @@
 # Release status
 
 **Updated:** 2026-07-21<br>
-**Repository version:** `0.1.0` (`v0.1.0-prealpha.4`; no alpha)<br>
+**Repository version:** `0.1.0` (`v0.1.0-prealpha.5`; no alpha)<br>
 **Classification:** implemented pre-alpha<br>
 **Alpha decision:** **NO-GO**<br>
 **Advertised host/client platforms:** none
@@ -71,7 +71,7 @@ native qualification and attach those records to its tag.
 | Release gate | Status | Evidence or missing proof | Required to close |
 |---|---|---|---|
 | Exact OMP and collab-web provenance | **PASS** | Immutable source commit, package versions, relevant paths, local integration, and patch are recorded in `UPSTREAM.lock.json` and `packages/collab-client/upstream/UPSTREAM.json`. | Revalidate unchanged data at the candidate tag. |
-| Repository automated suite | **PASS** | Typechecks, production asset builds, 97 unit/integration tests with 446 assertions across 18 files, handoff checks, capability-leak scanning, and four Android-sized Playwright cases passed. The attention suite proves strict metadata-only transitions, stale-state clearing, volatile notification dedupe, dashboard-only notification clicks, and no-popup same-document View/Control launch. | Repeat from clean CI for every subsequent candidate. |
+| Repository automated suite | **PASS** | Typechecks, production asset builds, 98 unit/integration tests with 453 assertions across 18 files, handoff checks, capability-leak scanning, and four Android-sized Playwright cases passed. The suite proves strict metadata-only attention transitions, stale-state clearing after a 35-second SSE liveness deadline, fresh-snapshot recovery, volatile notification dedupe, dashboard-only notification clicks, and no-popup same-document View/Control launch. | Repeat from clean CI for every subsequent candidate. |
 | OMP patch compatibility | **PASS** | Patch apply-check, 114 focused attention/lifecycle fixtures, the coding-agent package typecheck, and `bun run ci:check:full` passed against the exact pin. Every non-baseline official TypeScript test passed; five failures reproduce unchanged on the pristine pin. | Rerun from the exact pin at the candidate tag; do not broaden the OMP range. |
 | Fifty-publisher capacity | **PARTIAL** | A real IPC integration test concurrently authenticates 50 same-PID/distinct-instance publishers, upserts 50 sessions, sends one heartbeat per owner, and proves all 50 socket closes remove only their owned records. | Measure sustained candidate-artifact CPU and RSS at the normal heartbeat cadence; the integration test does not qualify “without material CPU usage.” |
 | Capability non-persistence | **PARTIAL** | Automated scans and desktop Chromium storage/history/cache checks passed. | Complete Android lifecycle checks and scan release CI artifacts, recordings, diagnostics, browser state, and all forbidden sinks with canary capabilities. |

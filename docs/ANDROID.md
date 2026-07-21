@@ -20,13 +20,15 @@ Benefits:
 - maskable and standard icons generated specifically for this project;
 - theme/background colors chosen by the implementer;
 - minimal service worker caching only versioned static shell files;
-- offline state that says the desktop is unreachable and does not display stale session metadata;
+- loaded-shell offline state that says the desktop is unreachable and removes session metadata after the bounded SSE liveness deadline;
 - no Push API or killed-browser notification delivery in v1; optional foreground notifications require an explicit permission action, keep transition state volatile, and open only the dashboard;
 - Android back behavior: collab client returns to the session directory, with no secret-bearing history entry;
 - account for the virtual keyboard and `visualViewport` behavior in the embedded/pinned collab-web build;
 - test Chrome stable and at least one Chromium-based alternative if supported.
 
 Do not cache API responses or collab client navigations. A PWA does not need to be an offline copy of sensitive runtime state.
+
+Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline is intentionally unavailable and may remain on the browser's OS splash until connectivity returns. An already loaded dashboard receives metadata-free SSE heartbeats every 15 seconds, clears all cards after 35 seconds without a heartbeat or directory event, and requires a fresh authenticated snapshot before showing recovered sessions.
 
 Foreground notifications may expose the bounded session title or directory label on the Android
 lock screen. The dashboard must warn about that disclosure before its only permission action,
