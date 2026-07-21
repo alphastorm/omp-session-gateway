@@ -60,7 +60,11 @@ function createMetadataLine(label: string, value: string | undefined): HTMLEleme
 
 function render(): void {
   sessionList.replaceChildren();
-  const ordered = [...sessions.values()].sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+  const ordered = [...sessions.values()].sort((left, right) => {
+    if (left.inputRequired !== right.inputRequired) return left.inputRequired ? -1 : 1;
+    const started = right.startedAt.localeCompare(left.startedAt);
+    return started === 0 ? left.instanceId.localeCompare(right.instanceId) : started;
+  });
   emptyState.hidden = !directoryLoaded || ordered.length !== 0;
   for (const session of ordered) {
     const article = document.createElement("article");
@@ -73,6 +77,15 @@ function render(): void {
     const project = createMetadataLine("Project", session.cwdLabel);
     const model = createMetadataLine("Model", session.model);
     const timing = createMetadataLine("", formatStartedAt(session.startedAt));
+    const attention = session.inputRequired ? document.createElement("p") : undefined;
+    const attentionId = `attention-${session.instanceId}`;
+    if (attention !== undefined) {
+      attention.id = attentionId;
+      attention.className = "attention";
+      attention.textContent = session.canControl
+        ? "Needs attention"
+        : "Needs attention — Control unavailable";
+    }
 
     const actions = document.createElement("div");
     actions.className = "session-actions";
@@ -82,6 +95,7 @@ function render(): void {
     view.textContent = "View";
     view.setAttribute("aria-label", `View ${sessionLabel}`);
     view.disabled = !session.canView;
+    if (attention !== undefined) view.setAttribute("aria-describedby", attentionId);
     view.addEventListener("click", () => void launch(session, "view", view));
     actions.append(view);
 
@@ -91,6 +105,7 @@ function render(): void {
       control.className = "action action-control";
       control.textContent = "Control";
       control.setAttribute("aria-label", `Control ${sessionLabel}`);
+      if (attention !== undefined) control.setAttribute("aria-describedby", attentionId);
       control.addEventListener("click", () => void launch(session, "control", control));
       actions.append(control);
     }
@@ -100,6 +115,7 @@ function render(): void {
     if (project !== undefined) article.append(project);
     if (model !== undefined) article.append(model);
     if (timing !== undefined) article.append(timing);
+    if (attention !== undefined) article.append(attention);
     article.append(actions);
     sessionList.append(article);
   }
