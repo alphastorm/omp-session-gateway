@@ -1,7 +1,7 @@
 # Release status
 
 **Updated:** 2026-07-21<br>
-**Repository version:** `0.1.0` (`v0.1.0-prealpha.2`; no alpha)<br>
+**Repository version:** `0.1.0` (`v0.1.0-prealpha.3`; no alpha)<br>
 **Classification:** implemented pre-alpha<br>
 **Alpha decision:** **NO-GO**<br>
 **Advertised host/client platforms:** none

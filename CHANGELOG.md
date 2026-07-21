@@ -4,7 +4,7 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [0.1.0-prealpha.3] - 2026-07-21
 ### Added
 
 - Publish a strict metadata-only `inputRequired` boolean, surface attention-first session cards, and retain bounded host-origin response requests so a later Control guest can answer once while View remains read-only.
