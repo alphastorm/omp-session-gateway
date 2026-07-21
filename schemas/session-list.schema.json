@@ -25,7 +25,8 @@
           "startedAt",
           "lastSeenAt",
           "canView",
-          "canControl"
+          "canControl",
+          "inputRequired"
         ],
         "properties": {
           "instanceId": {
@@ -61,6 +62,9 @@
             "type": "boolean"
           },
           "canControl": {
+            "type": "boolean"
+          },
+          "inputRequired": {
             "type": "boolean"
           }
         }

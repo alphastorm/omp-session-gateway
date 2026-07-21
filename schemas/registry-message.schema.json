@@ -184,6 +184,9 @@
         "model": {
           "$ref": "#/$defs/label"
         },
+        "inputRequired": {
+          "type": "boolean"
+        },
         "startedAt": {
           "type": "string",
           "format": "date-time"

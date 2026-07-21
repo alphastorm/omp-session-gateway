@@ -263,28 +263,81 @@ test("IPC authenticates before accepting capability-bearing frames and removes o
 
     const socket = await connect(config.paths.socketPath);
     await authenticatePublisher(socket, token, "ipc-instance-valid-01", 200);
+    const oldPublisherSession = {
+      instanceId: "ipc-instance-valid-01",
+      generation: 1,
+      pid: 200,
+      sessionId: "ipc-session",
+      title: "IPC session",
+      startedAt: "2026-07-19T00:00:00.000Z",
+      viewLink: capability,
+    };
     const upserted = nextRegistryEvent(registry, "session_upsert");
+    socket.write(`${JSON.stringify({ v: 1, op: "upsert", session: oldPublisherSession })}\n`);
+    const inserted = await upserted;
+    expect(inserted).toMatchObject({
+      type: "session_upsert",
+      revision: 1,
+      session: { inputRequired: false },
+    });
+
+    const required = nextRegistryEvent(registry, "session_upsert");
     socket.write(
       `${JSON.stringify({
         v: 1,
         op: "upsert",
-        session: {
-          instanceId: "ipc-instance-valid-01",
-          generation: 1,
-          pid: 200,
-          sessionId: "ipc-session",
-          title: "IPC session",
-          startedAt: "2026-07-19T00:00:00.000Z",
-          viewLink: capability,
-        },
+        session: { ...oldPublisherSession, inputRequired: true },
       })}\n`,
     );
-    await upserted;
+    expect(await required).toMatchObject({
+      type: "session_upsert",
+      revision: 2,
+      session: { inputRequired: true },
+    });
+
+    const cleared = nextRegistryEvent(registry, "session_upsert");
+    socket.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "upsert",
+        session: { ...oldPublisherSession, inputRequired: false },
+      })}\n`,
+    );
+    expect(await cleared).toMatchObject({
+      type: "session_upsert",
+      revision: 3,
+      session: { inputRequired: false },
+    });
+    expect(registry.lookupCapability("ipc-instance-valid-01", 1, "view")).toMatchObject({ status: "ok" });
     expect(JSON.stringify(registry.snapshot())).not.toContain(capability);
     expect(logs.join("\n")).not.toContain(capability);
     const removed = nextRegistryEvent(registry, "session_remove");
     socket.end();
     await removed;
+    await waitFor(() => server.publishers === 0);
+
+    const contentCanary = "PROMPT_CONTENT_CANARY";
+    const malformed = await connect(config.paths.socketPath);
+    await authenticatePublisher(malformed, token, "ipc-instance-invalid-01", 201);
+    const unexpectedEvents: SessionEvent[] = [];
+    const unsubscribe = registry.subscribe(event => unexpectedEvents.push(event));
+    malformed.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "upsert",
+        session: {
+          ...oldPublisherSession,
+          instanceId: "ipc-instance-invalid-01",
+          pid: 201,
+          prompt: contentCanary,
+        },
+      })}\n`,
+    );
+    await waitForText(malformed, "protocol_error");
+    unsubscribe();
+    expect(unexpectedEvents).toEqual([]);
+    expect(logs.join("\n")).not.toContain(contentCanary);
+    malformed.end();
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });
@@ -334,6 +387,7 @@ test("IPC isolates concurrent same-process publishers and enforces capacity", as
             sessionId: `ipc-concurrent-session-${index + 1}`,
             title: `Concurrent IPC session ${index + 1}`,
             startedAt: `2026-07-19T00:0${index}:00.000Z`,
+            inputRequired: false,
             viewLink: `CONCURRENT_VIEW_${index}_${"V".repeat(20)}`,
           },
         })}\n`,
@@ -353,6 +407,7 @@ test("IPC isolates concurrent same-process publishers and enforces capacity", as
           sessionId: "ipc-concurrent-session-1-replacement",
           title: "Concurrent IPC session 1 replacement",
           startedAt: "2026-07-19T00:03:00.000Z",
+          inputRequired: false,
           viewLink: `CONCURRENT_VIEW_REPLACEMENT_${"R".repeat(20)}`,
         },
       })}\n`,
@@ -447,6 +502,7 @@ test("IPC supports fifty authenticated publishers through upsert and cleanup", a
             sessionId: `ipc-load-session-${index + 1}`,
             title: `IPC load session ${index + 1}`,
             startedAt: "2026-07-19T00:00:00.000Z",
+            inputRequired: false,
             viewLink: `LOAD_VIEW_${index}_${"V".repeat(20)}`,
           },
         })}\n`,
@@ -537,6 +593,7 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
         sessionId: "ipc-session-fragmented",
         title: "Fragmented IPC session",
         startedAt: "2026-07-19T00:00:00.000Z",
+        inputRequired: false,
         viewLink: `FRAGMENTED_${"V".repeat(2_048)}`,
       },
     })}\n`;
@@ -589,6 +646,7 @@ test("IPC closes authenticated publishers when heartbeat state is absent", async
           pid: 600,
           sessionId: "ipc-session-expired",
           startedAt: "2026-07-21T00:00:00.000Z",
+          inputRequired: false,
           viewLink: `EXPIRED_VIEW_${"V".repeat(20)}`,
         },
       })}\n`,
