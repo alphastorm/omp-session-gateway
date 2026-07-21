@@ -18,7 +18,7 @@ body:
     id: omp-version
     attributes:
       label: OMP version or commit
-      placeholder: v17.0.5 or exact commit SHA
+      placeholder: v17.0.6 or exact commit SHA
     validations:
       required: true
   - type: dropdown

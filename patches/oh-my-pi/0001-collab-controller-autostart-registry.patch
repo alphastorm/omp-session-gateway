@@ -1,6 +1,42 @@
+From ff82b33ae6411818da7d6bd61615d2a327a98413 Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Tue, 21 Jul 2026 10:22:26 -0400
+Subject: [PATCH 1/4] feat: add gateway collaboration controller
+
+---
+ .../coding-agent/src/collab/controller.ts     | 308 +++++++++
+ packages/coding-agent/src/collab/host.ts      |   5 +-
+ .../src/collab/registry-publisher.ts          | 603 ++++++++++++++++++
+ .../src/config/settings-schema.ts             |  28 +
+ .../controllers/extension-ui-controller.ts    |   6 +-
+ .../src/modes/interactive-mode.ts             |  23 +-
+ packages/coding-agent/src/modes/types.ts      |   4 +-
+ .../coding-agent/src/session/agent-session.ts |  46 +-
+ .../src/session/session-manager.ts            |  19 +
+ .../src/slash-commands/builtin-registry.ts    |  52 +-
+ ...ent-session-bash-session-ownership.test.ts |  17 +
+ .../test/collab/chunked-welcome.test.ts       |   1 -
+ .../test/collab/controller.test.ts            | 245 +++++++
+ .../test/collab/guest-ui-request.test.ts      |   8 +-
+ .../test/collab/read-only.test.ts             |   1 -
+ ...gistry-publisher-explicit-token.fixture.ts |  32 +
+ .../test/collab/registry-publisher.test.ts    | 573 +++++++++++++++++
+ .../test/collab/replication-shrink.test.ts    |   1 -
+ .../test/collab/steer-queue.test.ts           |   1 -
+ .../test/config/collab-settings.test.ts       |   8 +
+ .../test/session-manager-branch-order.test.ts |  14 +
+ .../test/slash-commands/collab-qrcode.test.ts |  79 ++-
+ 22 files changed, 1996 insertions(+), 78 deletions(-)
+ create mode 100644 packages/coding-agent/src/collab/controller.ts
+ create mode 100644 packages/coding-agent/src/collab/registry-publisher.ts
+ create mode 100644 packages/coding-agent/test/collab/controller.test.ts
+ create mode 100644 packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
+ create mode 100644 packages/coding-agent/test/collab/registry-publisher.test.ts
+ create mode 100644 packages/coding-agent/test/config/collab-settings.test.ts
+
 diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7f838661f99a9ac1975610af2596b0502a0cfee3
+index 000000000..7f838661f
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/controller.ts
 @@ -0,0 +1,308 @@
@@ -313,7 +349,7 @@ index 0000000000000000000000000000000000000000..7f838661f99a9ac1975610af2596b050
 +	}
 +}
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 74a021a806488dde912581a9c8eb077cf602c170..8e19799c51c767ed8af9f917273551770c74918f 100644
+index 74a021a80..8e19799c5 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
 @@ -138,6 +138,8 @@ export class CollabHost {
@@ -344,7 +380,7 @@ index 74a021a806488dde912581a9c8eb077cf602c170..8e19799c51c767ed8af9f91727355177
  	}
 diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d68c1615b4e019caed5f955f37990c2902e3d73d
+index 000000000..d68c1615b
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
 @@ -0,0 +1,603 @@
@@ -952,7 +988,7 @@ index 0000000000000000000000000000000000000000..d68c1615b4e019caed5f955f37990c29
 +	}
 +}
 diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
-index 23b0e68009c7051ee97af19fefd4d14a70634929..78cfefa7c4fbc3fdbef8354ea511b76dd6eb6aab 100644
+index 23b0e6800..78cfefa7c 100644
 --- a/packages/coding-agent/src/config/settings-schema.ts
 +++ b/packages/coding-agent/src/config/settings-schema.ts
 @@ -1830,6 +1830,34 @@ export const SETTINGS_SCHEMA = {
@@ -991,7 +1027,7 @@ index 23b0e68009c7051ee97af19fefd4d14a70634929..78cfefa7c4fbc3fdbef8354ea511b76d
  		type: "string",
  		default: DEFAULT_RELAY_URL,
 diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-index fa75dd615a71c0611ff4e261616ea3fec02cc8cf..4d78bdb2601feb0eba4ca099d64d5be69dab8101 100644
+index fa75dd615..4d78bdb26 100644
 --- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 @@ -563,7 +563,7 @@ export class ExtensionUiController {
@@ -1022,10 +1058,10 @@ index fa75dd615a71c0611ff4e261616ea3fec02cc8cf..4d78bdb2601feb0eba4ca099d64d5be6
  		const remote = host.requestGuestUi(request, signal);
  		if (!remote) return { kind: "unavailable" };
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..1aabfe75cd28fb373b448b4a99b0857fc6974a9c 100644
+index c2008d51f..dbfd2d96d 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -53,8 +53,8 @@ import {
+@@ -52,8 +52,8 @@ import {
  } from "@oh-my-pi/pi-utils";
  import chalk from "chalk";
  import { reset as resetCapabilities } from "../capability";
@@ -1035,7 +1071,7 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..1aabfe75cd28fb373b448b4a99b0857f
  import { KeybindingsManager } from "../config/keybindings";
  import type { ResolvedModelRoleValue } from "../config/model-resolver";
  import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
-@@ -532,7 +532,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -525,7 +525,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	fileSlashCommands: Set<string> = new Set();
  	skillCommands: Map<string, Skill> = new Map();
  	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
@@ -1104,7 +1140,7 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..1aabfe75cd28fb373b448b4a99b0857f
  	}
  
  	async getUserInput(): Promise<SubmittedUserInput> {
-@@ -3752,6 +3768,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -3762,6 +3778,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	async shutdown(): Promise<void> {
  		if (this.#isShuttingDown) return;
  		this.#isShuttingDown = true;
@@ -1113,7 +1149,7 @@ index 9d3a2a59a4406a56cacc25cc8b5607d20d381ec7..1aabfe75cd28fb373b448b4a99b0857f
  		this.#btwController.dispose();
  		this.#omfgController.dispose();
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 57ed56bb371bcdf35028ec4dc51af92356664832..8d22f181a14ab06a317cf1be17431ebd1935998d 100644
+index 57ed56bb3..8d22f181a 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
 @@ -2,8 +2,8 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
@@ -1136,10 +1172,10 @@ index 57ed56bb371bcdf35028ec4dc51af92356664832..8d22f181a14ab06a317cf1be17431ebd
  	eventController: EventController;
  	eventBus?: EventBus;
 diff --git a/packages/coding-agent/src/session/agent-session.ts b/packages/coding-agent/src/session/agent-session.ts
-index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01f32b0012 100644
+index 28f4ee31d..216ea5dea 100644
 --- a/packages/coding-agent/src/session/agent-session.ts
 +++ b/packages/coding-agent/src/session/agent-session.ts
-@@ -3937,12 +3937,24 @@ export class AgentSession {
+@@ -3955,12 +3955,24 @@ export class AgentSession {
  		this.#planProposalHandler = handler ?? undefined;
  	}
  
@@ -1166,7 +1202,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  	/** Provider-scoped mutable state store for transport/session caches. */
  	get providerSessionState(): Map<string, ProviderSessionState> {
  		return this.#providerSessionState;
-@@ -9894,6 +9906,7 @@ export class AgentSession {
+@@ -9955,6 +9967,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1174,7 +1210,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		this.#disconnectFromAgent();
  		await this.abort();
  		this.#cancelOwnAsyncJobs();
-@@ -9927,6 +9940,7 @@ export class AgentSession {
+@@ -9988,6 +10001,7 @@ export class AgentSession {
  			sessionTransitioned = true;
  		} finally {
  			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
@@ -1182,7 +1218,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		}
  
  		this.#clearCheckpointRuntimeState();
-@@ -9951,6 +9965,7 @@ export class AgentSession {
+@@ -10012,6 +10026,7 @@ export class AgentSession {
  		this.#planReferencePath = "local://PLAN.md";
  		this.#resetAdvisorSessionState();
  		this.#reconnectToAgent();
@@ -1190,7 +1226,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  
  		// Emit session_switch event with reason "new" to hooks
  		if (this.#extensionRunner) {
-@@ -9993,6 +10008,7 @@ export class AgentSession {
+@@ -10054,6 +10069,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1198,7 +1234,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		await this.#flushPendingBashMessages();
  		// Flush current session to ensure all entries are written
  		await this.sessionManager.flush();
-@@ -10004,10 +10020,12 @@ export class AgentSession {
+@@ -10065,10 +10081,12 @@ export class AgentSession {
  			forkResult = await this.sessionManager.fork();
  		} catch (error) {
  			this.#finishBashSessionTransition(bashTransition, false);
@@ -1211,7 +1247,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			return false;
  		}
  		this.#markBashSessionTransition(bashTransition);
-@@ -10039,6 +10057,7 @@ export class AgentSession {
+@@ -10100,6 +10118,7 @@ export class AgentSession {
  		this.#rekeyHindsightMemoryForCurrentSessionId();
  		this.#rekeyMnemopiMemoryForCurrentSessionId();
  		await this.#resetMemoryContextForNewTranscript();
@@ -1219,7 +1255,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  
  		// Emit session_switch event with reason "fork" to hooks
  		if (this.#extensionRunner) {
-@@ -11394,6 +11413,7 @@ export class AgentSession {
+@@ -11458,6 +11477,7 @@ export class AgentSession {
  					return undefined;
  				}
  			}
@@ -1227,7 +1263,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			await this.#flushPendingBashMessages();
  			await this.sessionManager.flush();
  			const bashTransition = this.#beginBashSessionTransition();
-@@ -11407,6 +11427,7 @@ export class AgentSession {
+@@ -11471,6 +11491,7 @@ export class AgentSession {
  				sessionTransitioned = true;
  			} finally {
  				this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
@@ -1235,7 +1271,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			}
  
  			this.#clearCheckpointRuntimeState();
-@@ -11461,6 +11482,7 @@ export class AgentSession {
+@@ -11525,6 +11546,7 @@ export class AgentSession {
  			this.agent.replaceMessages(sessionContext.messages);
  			this.#resetAllAdvisorRuntimes();
  			this.#syncTodoPhasesFromBranch();
@@ -1243,7 +1279,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			if (this.#extensionRunner) {
  				await this.#extensionRunner.emit({
  					type: "session_switch",
-@@ -16532,6 +16554,7 @@ export class AgentSession {
+@@ -16596,6 +16618,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1251,7 +1287,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		this.#disconnectFromAgent();
  		await this.abort({ goalReason: "internal" });
  
-@@ -16710,14 +16733,7 @@ export class AgentSession {
+@@ -16774,14 +16797,7 @@ export class AgentSession {
  				await this.#resetMemoryContextForNewTranscript();
  			}
  			this.#reconnectToAgent();
@@ -1267,7 +1303,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			this.#finishBashSessionTransition(bashTransition, true);
  			return true;
  		} catch (error) {
-@@ -16750,6 +16766,7 @@ export class AgentSession {
+@@ -16814,6 +16830,7 @@ export class AgentSession {
  			this.#syncTodoPhasesFromBranch();
  			this.#resetAllAdvisorRuntimes();
  			this.#reconnectToAgent();
@@ -1275,7 +1311,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  			this.#finishBashSessionTransition(bashTransition, false);
  			throw error;
  		}
-@@ -16792,6 +16809,7 @@ export class AgentSession {
+@@ -16856,6 +16873,7 @@ export class AgentSession {
  			skipConversationRestore = result?.skipConversationRestore ?? false;
  		}
  
@@ -1283,7 +1319,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		// Clear pending messages (bound to old session state)
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
-@@ -16815,6 +16833,7 @@ export class AgentSession {
+@@ -16879,6 +16897,7 @@ export class AgentSession {
  			sessionTransitioned = true;
  		} finally {
  			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
@@ -1291,7 +1327,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		}
  		this.#rehydrateCheckpointRewindState();
  		this.#syncTodoPhasesFromBranch();
-@@ -16841,6 +16860,7 @@ export class AgentSession {
+@@ -16905,6 +16924,7 @@ export class AgentSession {
  			this.#resetAdvisorSessionState();
  			this.#closeCodexProviderSessionsForHistoryRewrite();
  		}
@@ -1299,7 +1335,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  
  		return { selectedText, cancelled: false };
  	}
-@@ -16891,6 +16911,7 @@ export class AgentSession {
+@@ -16955,6 +16975,7 @@ export class AgentSession {
  			throw new Error("Cannot branch /btw while session maintenance or user work is still running");
  		}
  
@@ -1307,7 +1343,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
  		this.agent.replaceQueues([], []);
-@@ -16912,6 +16933,7 @@ export class AgentSession {
+@@ -16976,6 +16997,7 @@ export class AgentSession {
  			sessionTransitioned = true;
  		} finally {
  			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
@@ -1315,7 +1351,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		}
  
  		this.#rehydrateCheckpointRewindState();
-@@ -16940,6 +16962,7 @@ export class AgentSession {
+@@ -17004,6 +17026,7 @@ export class AgentSession {
  		this.agent.replaceMessages(sessionContext.messages);
  		this.#resetAdvisorSessionState();
  		this.#closeCodexProviderSessionsForHistoryRewrite();
@@ -1323,7 +1359,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  
  		return { cancelled: false, sessionFile: this.sessionFile };
  	}
-@@ -17094,6 +17117,7 @@ export class AgentSession {
+@@ -17158,6 +17181,7 @@ export class AgentSession {
  			newLeafId = targetId;
  		}
  
@@ -1331,7 +1367,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		// Switch leaf (with or without summary)
  		// Summary is attached at the navigation target position (newLeafId), not the old branch
  		const bashTransition = this.#beginBashSessionTransition();
-@@ -17118,6 +17142,7 @@ export class AgentSession {
+@@ -17182,6 +17206,7 @@ export class AgentSession {
  			branchTransitioned = true;
  		} finally {
  			this.#finishBashSessionTransition(bashTransition, branchTransitioned);
@@ -1339,7 +1375,7 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		}
  
  		// Update agent state — build display context to populate agent messages.
-@@ -17128,6 +17153,7 @@ export class AgentSession {
+@@ -17192,6 +17217,7 @@ export class AgentSession {
  		this.#resetAdvisorSessionState();
  		this.#syncTodoPhasesFromBranch();
  		this.#closeCodexProviderSessionsForHistoryRewrite();
@@ -1348,18 +1384,18 @@ index e39ca813de72517da39067a3a62a65a33fc1580b..0977103245dfeda368bc96680e07ae01
  		this.#branchSummaryAbortController = undefined;
  
 diff --git a/packages/coding-agent/src/session/session-manager.ts b/packages/coding-agent/src/session/session-manager.ts
-index 57a71e3cb646d57076274400ceee55e1377203c3..15a9cbc088a87cfc266aab68aa891dc32270e014 100644
+index ef78771d4..3923459d2 100644
 --- a/packages/coding-agent/src/session/session-manager.ts
 +++ b/packages/coding-agent/src/session/session-manager.ts
-@@ -447,6 +447,7 @@ export class SessionManager {
- 
- 	#suppressBreadcrumb = false;
+@@ -454,6 +454,7 @@ export class SessionManager {
+ 	 */
+ 	#breadcrumbFresh = false;
  	#sessionNameChangedCallbacks = new Set<() => void>();
 +	#modelChangedCallbacks = new Set<(model: string) => void>();
  
  	private constructor(cwd: string, sessionDir: string, persist: boolean, storage: SessionStorage) {
  		this.#cwd = cwd;
-@@ -899,6 +900,16 @@ export class SessionManager {
+@@ -918,6 +919,16 @@ export class SessionManager {
  		}
  	}
  
@@ -1376,7 +1412,7 @@ index 57a71e3cb646d57076274400ceee55e1377203c3..15a9cbc088a87cfc266aab68aa891dc3
  	static #cleanTitle(raw: string): string {
  		return raw
  			.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-@@ -1418,6 +1429,13 @@ export class SessionManager {
+@@ -1437,6 +1448,13 @@ export class SessionManager {
  		};
  	}
  
@@ -1390,7 +1426,7 @@ index 57a71e3cb646d57076274400ceee55e1377203c3..15a9cbc088a87cfc266aab68aa891dc3
  	/**
  	 * Set the session display name.
  	 * @param source "user" for explicit renames; "auto" for generated titles.
-@@ -1551,6 +1569,7 @@ export class SessionManager {
+@@ -1570,6 +1588,7 @@ export class SessionManager {
  	appendModelChange(model: string, role?: string): string {
  		const entry: ModelChangeEntry = { type: "model_change", ...this.#freshEntryFields(), model, role };
  		this.#recordEntry(entry);
@@ -1399,7 +1435,7 @@ index 57a71e3cb646d57076274400ceee55e1377203c3..15a9cbc088a87cfc266aab68aa891dc3
  	}
  
 diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
-index b564b547197a57b31d431c2897d20e3682902dcc..3c6a1a674fa567cdf0a3785fc3557f79b31fae16 100644
+index b564b5471..3c6a1a674 100644
 --- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
 +++ b/packages/coding-agent/src/slash-commands/builtin-registry.ts
 @@ -6,7 +6,7 @@ import { type AutocompleteItem, Spacer } from "@oh-my-pi/pi-tui";
@@ -1527,7 +1563,7 @@ index b564b547197a57b31d431c2897d20e3682902dcc..3c6a1a674fa567cdf0a3785fc3557f79
  				return;
  			}
 diff --git a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
-index 46e02e9958972e345e74ddb2ecd588b51db22665..50d52a1e53253a9e80cd25009d5f83667835a881 100644
+index 46e02e995..50d52a1e5 100644
 --- a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 +++ b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 @@ -113,6 +113,23 @@ describe("AgentSession bash session ownership", () => {
@@ -1555,7 +1591,7 @@ index 46e02e9958972e345e74ddb2ecd588b51db22665..50d52a1e53253a9e80cd25009d5f8366
  		const sessionManager = SessionManager.inMemory(tempDir.path());
  		let returnEmptyStop = true;
 diff --git a/packages/coding-agent/test/collab/chunked-welcome.test.ts b/packages/coding-agent/test/collab/chunked-welcome.test.ts
-index 53d786845209549df40e08773e3135e112212a34..ca6e17e5c6d0644641e03515662b003beacaf4f9 100644
+index 53d786845..ca6e17e5c 100644
 --- a/packages/coding-agent/test/collab/chunked-welcome.test.ts
 +++ b/packages/coding-agent/test/collab/chunked-welcome.test.ts
 @@ -82,7 +82,6 @@ function makeHostContext(snapshot: SizedSnapshot): InteractiveModeContext {
@@ -1568,7 +1604,7 @@ index 53d786845209549df40e08773e3135e112212a34..ca6e17e5c6d0644641e03515662b003b
  }
 diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..eafda3952b4876fbbf30078b088a55090c1b34d5
+index 000000000..eafda3952
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/controller.test.ts
 @@ -0,0 +1,245 @@
@@ -1818,7 +1854,7 @@ index 0000000000000000000000000000000000000000..eafda3952b4876fbbf30078b088a5509
 +	});
 +});
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 76330b0d3e7a7a8794056e54d644c07080a1f8f9..94b31988281444338df282a411ee05f079e9759c 100644
+index 76330b0d3..94b319882 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -472,7 +472,7 @@ function makeHostContext(): InteractiveModeContext {
@@ -1858,7 +1894,7 @@ index 76330b0d3e7a7a8794056e54d644c07080a1f8f9..94b31988281444338df282a411ee05f0
  		try {
  			const guest = await joinRawGuest(host.link, COLLAB_PROTO);
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 84a7dc00622d675fcd5d8b0db919156bda7ee382..0fa169eab061f6ac555da69685349f08471598eb 100644
+index 84a7dc006..0fa169eab 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
 @@ -73,7 +73,6 @@ function makeHostContext(): HostHarness {
@@ -1871,7 +1907,7 @@ index 84a7dc00622d675fcd5d8b0db919156bda7ee382..0fa169eab061f6ac555da69685349f08
  		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
 diff --git a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..32674dbd83af68febfe0c7e011f346da13e57492
+index 000000000..32674dbd8
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
 @@ -0,0 +1,32 @@
@@ -1909,7 +1945,7 @@ index 0000000000000000000000000000000000000000..32674dbd83af68febfe0c7e011f346da
 +await new Promise(() => {});
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b59e8bfd04930665bd0e58db4dd7d72ef5982c8a
+index 000000000..b59e8bfd0
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
 @@ -0,0 +1,573 @@
@@ -2487,7 +2523,7 @@ index 0000000000000000000000000000000000000000..b59e8bfd04930665bd0e58db4dd7d72e
 +	publisher.shutdown(record.generation);
 +});
 diff --git a/packages/coding-agent/test/collab/replication-shrink.test.ts b/packages/coding-agent/test/collab/replication-shrink.test.ts
-index 9087cbfa7e3a467554fa09d90652355f9a3fd710..3f5196133f535662084b352aef5251ba2b279d91 100644
+index 9087cbfa7..3f5196133 100644
 --- a/packages/coding-agent/test/collab/replication-shrink.test.ts
 +++ b/packages/coding-agent/test/collab/replication-shrink.test.ts
 @@ -178,7 +178,6 @@ function makeHostContext(snapshot: OversizedSnapshot): HostHarness {
@@ -2499,7 +2535,7 @@ index 9087cbfa7e3a467554fa09d90652355f9a3fd710..3f5196133f535662084b352aef5251ba
  	return { ctx, statusMessages };
  }
 diff --git a/packages/coding-agent/test/collab/steer-queue.test.ts b/packages/coding-agent/test/collab/steer-queue.test.ts
-index 0f76299fddf3cffa0d41f78b79ac858aba91aea1..1dc189e262e92ef0aa7d2669ea593e6b64f248ad 100644
+index 0f76299fd..1dc189e26 100644
 --- a/packages/coding-agent/test/collab/steer-queue.test.ts
 +++ b/packages/coding-agent/test/collab/steer-queue.test.ts
 @@ -127,7 +127,6 @@ function makeStreamingHostContext(): StreamingHostHarness {
@@ -2512,7 +2548,7 @@ index 0f76299fddf3cffa0d41f78b79ac858aba91aea1..1dc189e262e92ef0aa7d2669ea593e6b
  		const { promise, resolve } = Promise.withResolvers<CapturedPrompt>();
 diff --git a/packages/coding-agent/test/config/collab-settings.test.ts b/packages/coding-agent/test/config/collab-settings.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ac6c9bf0175d71d49c29cb1728d2a8f16a9857d2
+index 000000000..ac6c9bf01
 --- /dev/null
 +++ b/packages/coding-agent/test/config/collab-settings.test.ts
 @@ -0,0 +1,8 @@
@@ -2525,7 +2561,7 @@ index 0000000000000000000000000000000000000000..ac6c9bf0175d71d49c29cb1728d2a8f1
 +	expect(getDefault("collab.registryEndpoint")).toBe("auto");
 +});
 diff --git a/packages/coding-agent/test/session-manager-branch-order.test.ts b/packages/coding-agent/test/session-manager-branch-order.test.ts
-index 435927e6616c465323cb759c246f12b7b2529b84..365fc67b8f18be04fe11bef0a98eb62f6bdc4e06 100644
+index 435927e66..365fc67b8 100644
 --- a/packages/coding-agent/test/session-manager-branch-order.test.ts
 +++ b/packages/coding-agent/test/session-manager-branch-order.test.ts
 @@ -55,4 +55,18 @@ describe("SessionManager branch ordering", () => {
@@ -2548,15 +2584,17 @@ index 435927e6616c465323cb759c246f12b7b2529b84..365fc67b8f18be04fe11bef0a98eb62f
 +	});
  });
 diff --git a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e071611f43 100644
+index 8a63482d0..65c08959d 100644
 --- a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 +++ b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-@@ -1,4 +1,5 @@
+@@ -1,5 +1,6 @@
  import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
+-import { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
 +import type { CollabController } from "@oh-my-pi/pi-coding-agent/collab/controller";
- import { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
++import type { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
  import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
  import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+ import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
 @@ -24,20 +25,17 @@ afterAll(() => {
  	resetSettingsForTest();
  });
@@ -2581,7 +2619,7 @@ index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e0
  	const setText = vi.fn();
  	const showStatus = vi.fn();
  	const showError = vi.fn();
-@@ -47,16 +45,36 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+@@ -47,16 +45,38 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
  		if (key === "collab.webUrl") return "";
  		return "";
  	});
@@ -2599,16 +2637,18 @@ index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e0
 +		get host() {
 +			return collabHost;
 +		},
-+		async start(startOptions: {
++		start(startOptions: {
 +			relayUrl?: string;
 +			webUrl?: string;
 +			publish?: "view" | "control";
 +			forceReplacement?: boolean;
 +		}) {
 +			start(startOptions);
-+			const next = new CollabHost(ctx);
-+			await next.start(startOptions.relayUrl ?? "", startOptions.webUrl);
-+			collabHost = next;
++			collabHost = fakeHost({
++				webLink: "https://my.omp.sh/#started-full",
++				webViewLink: "https://my.omp.sh/#started-view",
++			});
++			return Promise.resolve();
 +		},
 +		stop: vi.fn(),
 +	} as unknown as CollabController;
@@ -2619,41 +2659,68 @@ index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e0
  		setText,
  		showStatus,
  		showError,
-@@ -88,7 +106,12 @@ describe("/collab slash command QR code rendering", () => {
+@@ -65,30 +85,19 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+ 	};
+ }
+ 
+-function mockStartedHostLinks() {
+-	return vi.spyOn(CollabHost.prototype, "start").mockImplementation(function (this: CollabHost): Promise<void> {
+-		Object.defineProperties(this, {
+-			link: { value: "relay.example.com/r/full-control", configurable: true },
+-			viewLink: { value: "relay.example.com/r/read-only", configurable: true },
+-			webLink: { value: "https://my.omp.sh/#started-full", configurable: true },
+-			webViewLink: { value: "https://my.omp.sh/#started-view", configurable: true },
+-			participants: { value: [{ name: "host", role: "host" as const }], configurable: true },
+-		});
+-		return Promise.resolve();
+-	});
+-}
+-
+ describe("/collab slash command QR code rendering", () => {
+ 	it("starts hosting and prints a one-shot full-control QR", async () => {
+-		const startSpy = mockStartedHostLinks();
+ 		const harness = createRuntimeHarness();
+ 
+ 		const handled = await executeBuiltinSlashCommand("/collab", harness.runtime);
+ 
  		expect(handled).toBe(true);
  		expect(harness.setText).toHaveBeenCalledWith("");
- 		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
+-		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
 -		expect(harness.ctx.collabHost).toBeInstanceOf(CollabHost);
 +		expect(harness.start).toHaveBeenCalledWith({
 +			relayUrl: "wss://relay.example.com",
 +			webUrl: "",
 +			publish: "control",
 +		});
-+		expect(harness.ctx.collabController.host).toBeInstanceOf(CollabHost);
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-full");
  		const presented = harness.present.mock.calls[0]?.[0] as readonly unknown[];
-@@ -107,7 +130,12 @@ describe("/collab slash command QR code rendering", () => {
+@@ -100,14 +109,16 @@ describe("/collab slash command QR code rendering", () => {
+ 	});
+ 
+ 	it("starts hosting and prints a one-shot read-only QR", async () => {
+-		const startSpy = mockStartedHostLinks();
+ 		const harness = createRuntimeHarness();
+ 
+ 		const handled = await executeBuiltinSlashCommand("/collab view", harness.runtime);
  
  		expect(handled).toBe(true);
- 		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
+-		expect(startSpy).toHaveBeenCalledWith("wss://relay.example.com", "");
 -		expect(harness.ctx.collabHost).toBeInstanceOf(CollabHost);
 +		expect(harness.start).toHaveBeenCalledWith({
 +			relayUrl: "wss://relay.example.com",
 +			webUrl: "",
 +			publish: "view",
 +		});
-+		expect(harness.ctx.collabController.host).toBeInstanceOf(CollabHost);
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-view");
  		expect(statusText).not.toContain("my.omp.sh/#started-full");
-@@ -151,4 +179,19 @@ describe("/collab slash command QR code rendering", () => {
+@@ -151,4 +162,18 @@ describe("/collab slash command QR code rendering", () => {
  		expect(component.url).toBe(webViewLink);
  		expect(component.render(10).join("\n")).toContain("QR code hidden");
  	});
 +
 +	it("forces replacement when an explicit relay matches the active relay", async () => {
-+		mockStartedHostLinks();
 +		const harness = createRuntimeHarness({ collabHost: fakeHost() });
 +
 +		const handled = await executeBuiltinSlashCommand("/collab wss://relay.example.com", harness.runtime);
@@ -2667,3 +2734,1458 @@ index 8a63482d0c7156f8af2c4ae8979104633386d4e2..5ef7f3b606273af78e2ea42ffc6202e0
 +		});
 +	});
  });
+-- 
+2.50.1 (Apple Git-155)
+
+
+From 1026379ab598d7c4326f56ba77e11fbb28b2c1fd Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Tue, 21 Jul 2026 11:25:56 -0400
+Subject: [PATCH 2/4] fix(collab): retain UI requests until a writer joins
+
+---
+ packages/coding-agent/src/collab/host.ts      | 11 +--
+ .../test/collab/guest-ui-request.test.ts      | 10 +-
+ .../test/collab/read-only.test.ts             | 95 +++++++++++++++++++
+ 3 files changed, 104 insertions(+), 12 deletions(-)
+
+diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
+index 8e19799c5..1f8eae359 100644
+--- a/packages/coding-agent/src/collab/host.ts
++++ b/packages/coding-agent/src/collab/host.ts
+@@ -110,6 +110,7 @@ const TRANSCRIPT_ENTRY_TOO_LARGE_ERROR = `transcript entry exceeds transcript fe
+  * ship in a chunk of their own.
+  */
+ const SNAPSHOT_CHUNK_BYTES = 512 * 1024;
++const MAX_PENDING_UI_REQUESTS = 64;
+ /**
+  * Outcome of {@link CollabHost.requestGuestUi}. `answered` carries the guest's
+  * response (an `undefined` value is a genuine guest cancel); `unavailable`
+@@ -173,7 +174,7 @@ export class CollabHost {
+ 	}
+ 
+ 	requestGuestUi(request: CollabUiRequestDraft, signal?: AbortSignal): Promise<CollabGuestUiResult> | null {
+-		if (!this.#socket || !this.#hasWritablePeers()) return null;
++		if (!this.#socket || signal?.aborted || this.#pendingUi.size >= MAX_PENDING_UI_REQUESTS) return null;
+ 		const reqId = ++this.#uiReqSeq;
+ 		const fullRequest: CollabUiRequest = { ...request, reqId };
+ 		const { promise, resolve } = Promise.withResolvers<CollabGuestUiResult>();
+@@ -187,20 +188,12 @@ export class CollabHost {
+ 			resolve(result);
+ 		};
+ 		const onAbort = (): void => settle({ kind: "unavailable" });
+-		if (signal?.aborted) return Promise.resolve({ kind: "unavailable" });
+ 		signal?.addEventListener("abort", onAbort, { once: true });
+ 		this.#pendingUi.set(reqId, { request: fullRequest, settle });
+ 		this.#sendWritablePeers({ t: "ui-request", request: fullRequest });
+ 		return promise;
+ 	}
+ 
+-	#hasWritablePeers(): boolean {
+-		for (const peer of this.#peers.values()) {
+-			if (peer.canWrite) return true;
+-		}
+-		return false;
+-	}
+-
+ 	#sendWritablePeers(frame: CollabFrame): void {
+ 		const socket = this.#socket;
+ 		if (!socket) return;
+diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+index 94b319882..8a2b8f0e9 100644
+--- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
++++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+@@ -528,10 +528,14 @@ describe("collab proto handshake (#4049)", () => {
+ 			expect(reply.message).toContain("protocol mismatch");
+ 			expect(reply.message).toContain(`host speaks v${COLLAB_PROTO}`);
+ 			expect(reply.message).toContain(`guest sent v${COLLAB_PROTO - 1}`);
+-			// The rejected guest was never admitted: no participant entry, and a
+-			// host ask finds no writable peer to route to.
++			// The rejected guest was never admitted. A host ask is retained for a
++			// later writer instead of being exposed to the stale peer.
+ 			expect(host.participants.filter(p => p.role !== "host")).toEqual([]);
+-			expect(host.requestGuestUi({ kind: "select", title: "anyone?", options: ["Yes"] })).toBeNull();
++			const abort = new AbortController();
++			const pending = host.requestGuestUi({ kind: "select", title: "anyone?", options: ["Yes"] }, abort.signal);
++			if (!pending) throw new Error("expected retained UI request");
++			abort.abort();
++			expect(await pending).toEqual({ kind: "unavailable" });
+ 		} finally {
+ 			guest.socket.close();
+ 			await host.stop("test done");
+diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
+index 0fa169eab..805d56bbb 100644
+--- a/packages/coding-agent/test/collab/read-only.test.ts
++++ b/packages/coding-agent/test/collab/read-only.test.ts
+@@ -166,6 +166,101 @@ afterAll(async () => {
+ });
+ 
+ describe("collab read-only links", () => {
++	it("retains host UI before any writer joins and replays it only to a later writer", async () => {
++		const abort = new AbortController();
++		const pending = host.requestGuestUi(
++			{ kind: "select", title: "Retained before join?", options: ["Yes"] },
++			abort.signal,
++		);
++		if (!pending) throw new Error("expected retained UI request");
++		try {
++			const viewer = await joinAsGuest(host.viewLink, "retained-viewer");
++			guestCleanups.push(() => viewer.socket.close());
++			const viewerWelcome = await viewer.nextFrame();
++			if (viewerWelcome.t !== "welcome") throw new Error(`expected welcome, got ${viewerWelcome.t}`);
++			expect(viewerWelcome.readOnly).toBe(true);
++
++			const writer = await joinAsGuest(host.link, "retained-writer");
++			guestCleanups.push(() => writer.socket.close());
++			const writerWelcome = await writer.nextFrame();
++			if (writerWelcome.t !== "welcome") throw new Error(`expected welcome, got ${writerWelcome.t}`);
++			const request = await writer.nextFrame();
++			if (request.t !== "ui-request") throw new Error(`expected ui-request, got ${request.t}`);
++			expect(request.request).toMatchObject({ title: "Retained before join?", options: ["Yes"] });
++
++			writer.socket.send({ t: "ui-response", reqId: request.request.reqId, value: "Yes" });
++			expect(await pending).toEqual({ kind: "answered", value: "Yes" });
++			expect(await writer.nextFrame()).toEqual({ t: "ui-request-end", reqId: request.request.reqId });
++		} finally {
++			abort.abort();
++		}
++	});
++
++	it("rejects a pre-aborted request without consuming a request ID", async () => {
++		const firstAbort = new AbortController();
++		const secondAbort = new AbortController();
++		const first = host.requestGuestUi({ kind: "editor", title: "First" }, firstAbort.signal);
++		if (!first) throw new Error("expected first retained request");
++		const preAborted = new AbortController();
++		preAborted.abort();
++		expect(host.requestGuestUi({ kind: "editor", title: "Rejected" }, preAborted.signal)).toBeNull();
++		const second = host.requestGuestUi({ kind: "editor", title: "Second" }, secondAbort.signal);
++		if (!second) throw new Error("expected second retained request");
++		try {
++			const writer = await joinAsGuest(host.link, "pre-abort-writer");
++			guestCleanups.push(() => writer.socket.close());
++			const welcome = await writer.nextFrame();
++			if (welcome.t !== "welcome") throw new Error(`expected welcome, got ${welcome.t}`);
++			const firstFrame = await writer.nextFrame();
++			const secondFrame = await writer.nextFrame();
++			if (firstFrame.t !== "ui-request" || secondFrame.t !== "ui-request") {
++				throw new Error("expected retained ui-request frames");
++			}
++			expect(secondFrame.request.reqId).toBe(firstFrame.request.reqId + 1);
++		} finally {
++			firstAbort.abort();
++			secondAbort.abort();
++			await Promise.all([first, second]);
++		}
++	});
++
++	it("caps retained host UI at 64 without consuming an ID for the rejected request", async () => {
++		const aborts = Array.from({ length: 64 }, () => new AbortController());
++		const pending = aborts.map((abort, index) => {
++			const request = host.requestGuestUi({ kind: "editor", title: `Pending ${index}` }, abort.signal);
++			if (!request) throw new Error(`request ${index} was rejected before the cap`);
++			return request;
++		});
++		const replacementAbort = new AbortController();
++		let replacement: Promise<unknown> | null = null;
++		try {
++			expect(host.requestGuestUi({ kind: "editor", title: "Overflow" })).toBeNull();
++			aborts[0]?.abort();
++			expect(await pending[0]).toEqual({ kind: "unavailable" });
++			replacement = host.requestGuestUi({ kind: "editor", title: "Replacement" }, replacementAbort.signal);
++			if (!replacement) throw new Error("expected replacement after releasing one request");
++
++			const writer = await joinAsGuest(host.link, "cap-writer");
++			guestCleanups.push(() => writer.socket.close());
++			const welcome = await writer.nextFrame();
++			if (welcome.t !== "welcome") throw new Error(`expected welcome, got ${welcome.t}`);
++			const requestIds: number[] = [];
++			for (let index = 0; index < 64; index += 1) {
++				const frame = await writer.nextFrame();
++				if (frame.t !== "ui-request") throw new Error(`expected ui-request, got ${frame.t}`);
++				requestIds.push(frame.request.reqId);
++			}
++			for (let index = 1; index < requestIds.length; index += 1) {
++				expect(requestIds[index]).toBe((requestIds[index - 1] ?? 0) + 1);
++			}
++		} finally {
++			for (const abort of aborts) abort.abort();
++			replacementAbort.abort();
++			await Promise.all(pending);
++			if (replacement) await replacement;
++		}
++	});
++
+ 	it("welcomes view-link guests read-only and refuses their mutating frames", async () => {
+ 		const { prompts, aborts } = harness;
+ 		expect(host.viewLink).not.toBe(host.link);
+-- 
+2.50.1 (Apple Git-155)
+
+
+From 37b77ca6b223bdb9a1fdf33a479aea9b84b155d4 Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Tue, 21 Jul 2026 11:31:08 -0400
+Subject: [PATCH 3/4] feat(collab): publish response-required state
+
+---
+ .../coding-agent/src/collab/controller.ts     | 49 ++++++++++++
+ .../src/collab/registry-publisher.ts          |  1 +
+ .../test/collab/controller.test.ts            | 76 ++++++++++++++++++-
+ ...gistry-publisher-explicit-token.fixture.ts |  1 +
+ .../test/collab/registry-publisher.test.ts    | 19 +++++
+ 5 files changed, 145 insertions(+), 1 deletion(-)
+
+diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
+index 7f838661f..fb60f06cd 100644
+--- a/packages/coding-agent/src/collab/controller.ts
++++ b/packages/coding-agent/src/collab/controller.ts
+@@ -66,6 +66,9 @@ export class CollabController {
+ 	#capabilities: CollabCapabilities | undefined;
+ 	#queue: Promise<void> = Promise.resolve();
+ 	#generation = 0;
++	#inputRequired = false;
++	#inputRequiredLeaseCount = 0;
++	#inputRequiredEpoch = 0;
+ 	#manualSuspended = false;
+ 	#restartAfterSessionReplacement = false;
+ 	#state: CollabControllerState = "stopped";
+@@ -103,6 +106,20 @@ export class CollabController {
+ 		listeners.add(listener);
+ 		return () => listeners?.delete(listener);
+ 	}
++	beginInputRequired(): () => void {
++		if (this.#state !== "running" || !this.#capabilities) return () => {};
++		const epoch = this.#inputRequiredEpoch;
++		this.#inputRequiredLeaseCount += 1;
++		if (this.#inputRequiredLeaseCount === 1) this.#transitionInputRequired(epoch, true);
++		let released = false;
++		return () => {
++			if (released) return;
++			released = true;
++			if (epoch !== this.#inputRequiredEpoch || this.#inputRequiredLeaseCount === 0) return;
++			this.#inputRequiredLeaseCount -= 1;
++			if (this.#inputRequiredLeaseCount === 0) this.#transitionInputRequired(epoch, false);
++		};
++	}
+ 
+ 	start(
+ 		options: {
+@@ -238,8 +255,11 @@ export class CollabController {
+ 	async #stop(reason: string, publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted"): Promise<void> {
+ 		const host = this.#host;
+ 		const capabilities = this.#capabilities;
++		const publicationMode = this.#publicationMode;
++		this.#resetInputRequired(capabilities, publicationMode);
+ 		if (!host || !capabilities) {
+ 			this.#state = "stopped";
++			this.#publicationMode = "off";
+ 			return;
+ 		}
+ 		this.#state = "stopping";
+@@ -273,6 +293,7 @@ export class CollabController {
+ 					}
+ 				: {}),
+ 			startedAt: capabilities.startedAt,
++			inputRequired: this.#inputRequired,
+ 			viewLink: capabilities.viewLink,
+ 			...(mode === "control" ? { controlLink: capabilities.controlLink } : {}),
+ 		});
+@@ -285,14 +306,42 @@ export class CollabController {
+ 	#handleFatal(host: HostLike, generation: number, _reason: string): Promise<void> {
+ 		return this.#serialize(async () => {
+ 			if (this.#host !== host || this.#capabilities?.generation !== generation) return;
++			const capabilities = this.#capabilities;
++			this.#resetInputRequired(capabilities, this.#publicationMode);
+ 			this.#publisher?.remove(generation, "faulted");
+ 			this.#host = undefined;
+ 			this.#capabilities = undefined;
++			this.#publicationMode = "off";
+ 			this.#state = "faulted";
+ 			this.#emit("faulted");
+ 		});
+ 	}
+ 
++	#transitionInputRequired(epoch: number, desired: boolean): void {
++		if (epoch !== this.#inputRequiredEpoch || desired === this.#inputRequired) return;
++		this.#inputRequired = desired;
++		void this.#serialize(async () => {
++			const capabilities = this.#capabilities;
++			const mode = this.#publicationMode;
++			if (epoch !== this.#inputRequiredEpoch || this.#inputRequired !== desired || !capabilities || mode === "off") {
++				return;
++			}
++			this.#publish(capabilities, mode);
++			this.#emit("updated", capabilities);
++		});
++	}
++
++	#resetInputRequired(capabilities: CollabCapabilities | undefined, mode: PublishedCapabilityMode): void {
++		const changed = this.#inputRequired;
++		this.#inputRequiredEpoch += 1;
++		this.#inputRequiredLeaseCount = 0;
++		this.#inputRequired = false;
++		if (changed && capabilities && mode !== "off") {
++			this.#publish(capabilities, mode);
++			this.#emit("updated", capabilities);
++		}
++	}
++
+ 	#emit(event: CollabControllerEvent, capabilities?: CollabCapabilities): void {
+ 		for (const listener of this.#listeners.get(event) ?? []) listener(capabilities);
+ 	}
+diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
+index d68c1615b..55c34e7aa 100644
+--- a/packages/coding-agent/src/collab/registry-publisher.ts
++++ b/packages/coding-agent/src/collab/registry-publisher.ts
+@@ -22,6 +22,7 @@ export interface CollabPublisherRecord {
+ 	readonly cwdLabel?: string;
+ 	readonly model?: string;
+ 	readonly startedAt: string;
++	readonly inputRequired: boolean;
+ 	readonly viewLink: string;
+ 	readonly controlLink?: string;
+ }
+diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
+index eafda3952..514db763c 100644
+--- a/packages/coding-agent/test/collab/controller.test.ts
++++ b/packages/coding-agent/test/collab/controller.test.ts
+@@ -55,6 +55,9 @@ function harness(autoStart: "off" | "view" | "control") {
+ 	const hosts: FakeHost[] = [];
+ 	const events: Array<{ type: string; generation: number }> = [];
+ 	const published: CollabPublisherRecord[] = [];
++	const operations: Array<
++		{ type: "publish"; record: CollabPublisherRecord } | { type: "remove"; generation: number }
++	> = [];
+ 	const controller = new CollabController(context, {
+ 		instanceId: "test-instance-id",
+ 		hostFactory: () => {
+@@ -65,6 +68,7 @@ function harness(autoStart: "off" | "view" | "control") {
+ 		publisherFactory: () => ({
+ 			publish(record: CollabPublisherRecord) {
+ 				published.push({ ...record });
++				operations.push({ type: "publish", record: { ...record } });
+ 				events.push({
+ 					type: record.controlLink ? "publish-control" : "publish-view",
+ 					generation: record.generation,
+@@ -72,6 +76,7 @@ function harness(autoStart: "off" | "view" | "control") {
+ 			},
+ 			remove(generation: number) {
+ 				events.push({ type: "remove", generation });
++				operations.push({ type: "remove", generation });
+ 			},
+ 			shutdown() {},
+ 		}),
+@@ -82,6 +87,7 @@ function harness(autoStart: "off" | "view" | "control") {
+ 		hosts,
+ 		events,
+ 		published,
++		operations,
+ 		warnings,
+ 		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
+ 			if ("sessionName" in next) sessionName = next.sessionName;
+@@ -90,6 +96,15 @@ function harness(autoStart: "off" | "view" | "control") {
+ 		},
+ 	};
+ }
++function nextUpdated(controller: InstanceType<typeof CollabController>): Promise<void> {
++	const { promise, resolve } = Promise.withResolvers<void>();
++	let unsubscribe = (): void => {};
++	unsubscribe = controller.on("updated", () => {
++		unsubscribe();
++		resolve();
++	});
++	return promise;
++}
+ 
+ describe("CollabController", () => {
+ 	test("off preserves startup behavior", async () => {
+@@ -110,6 +125,53 @@ describe("CollabController", () => {
+ 		await controller.autoStart();
+ 		expect(events).toEqual([{ type: "publish-view", generation: 1 }]);
+ 	});
++	test("publishes only first and last generation-scoped input-required lease transitions", async () => {
++		const { controller, published } = harness("control");
++		await controller.autoStart();
++		expect(published.map(record => record.inputRequired)).toEqual([false]);
++
++		const required = nextUpdated(controller);
++		const releaseFirst = controller.beginInputRequired();
++		const releaseSecond = controller.beginInputRequired();
++		await required;
++		expect(published.map(record => record.inputRequired)).toEqual([false, true]);
++
++		await controller.refreshMetadata();
++		expect(published.at(-1)?.inputRequired).toBe(true);
++		const beforeIntermediateRelease = published.length;
++		releaseFirst();
++		expect(published).toHaveLength(beforeIntermediateRelease);
++
++		const cleared = nextUpdated(controller);
++		releaseSecond();
++		await cleared;
++		expect(published.at(-1)?.inputRequired).toBe(false);
++		const afterClear = published.length;
++		releaseSecond();
++		expect(published).toHaveLength(afterClear);
++	});
++
++	test("clears before replacement removal and ignores a stale generation lease release", async () => {
++		const { controller, operations, published } = harness("control");
++		await controller.autoStart();
++		const required = nextUpdated(controller);
++		const staleRelease = controller.beginInputRequired();
++		await required;
++
++		await controller.prepareActiveSessionReplacement();
++		expect(published.map(record => record.inputRequired)).toEqual([false, true, false]);
++		expect(operations.at(-2)).toMatchObject({
++			type: "publish",
++			record: { generation: 1, inputRequired: false },
++		});
++		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
++
++		await controller.restoreActiveSession();
++		expect(published.at(-1)).toMatchObject({ generation: 2, inputRequired: false });
++		const beforeStaleRelease = published.length;
++		staleRelease();
++		expect(published).toHaveLength(beforeStaleRelease);
++	});
+ 
+ 	test("refreshes same-generation title, cwd, and model metadata without rotating capabilities", async () => {
+ 		const { controller, events, published, setMetadata } = harness("control");
+@@ -233,13 +295,25 @@ describe("CollabController", () => {
+ 	});
+ 
+ 	test("fatal host closure unregisters immediately", async () => {
+-		const { controller, hosts, events } = harness("control");
++		const { controller, hosts, events, operations, published } = harness("control");
+ 		await controller.autoStart();
++		const required = nextUpdated(controller);
++		const staleRelease = controller.beginInputRequired();
++		await required;
+ 		const faulted = Promise.withResolvers<void>();
+ 		controller.on("faulted", () => faulted.resolve());
+ 		hosts[0]?.onFatal?.("relay failed");
+ 		await faulted.promise;
++		expect(published.at(-1)?.inputRequired).toBe(false);
++		expect(operations.at(-2)).toMatchObject({
++			type: "publish",
++			record: { generation: 1, inputRequired: false },
++		});
++		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
+ 		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
+ 		expect(controller.state).toBe("faulted");
++		const beforeStaleRelease = published.length;
++		staleRelease();
++		expect(published).toHaveLength(beforeStaleRelease);
+ 	});
+ });
+diff --git a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
+index 32674dbd8..0f27bf06b 100644
+--- a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
++++ b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
+@@ -19,6 +19,7 @@ publisher.publish({
+ 	pid: process.pid,
+ 	sessionId: "publisher-explicit-token-session",
+ 	startedAt: "2026-07-21T00:00:00.000Z",
++	inputRequired: false,
+ 	viewLink: "VIEW_CAPABILITY_FIXTURE",
+ 	controlLink: "CONTROL_CAPABILITY_FIXTURE",
+ });
+diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
+index b59e8bfd0..a15e79666 100644
+--- a/packages/coding-agent/test/collab/registry-publisher.test.ts
++++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
+@@ -11,6 +11,7 @@ const record = {
+ 	pid: process.pid,
+ 	sessionId: "publisher-test-session",
+ 	startedAt: "2026-07-19T00:00:00.000Z",
++	inputRequired: false,
+ 	viewLink: "VIEW_CAPABILITY_FIXTURE",
+ 	controlLink: "CONTROL_CAPABILITY_FIXTURE",
+ };
+@@ -27,6 +28,7 @@ interface AuthenticatedRegistryServer {
+ 	readonly frames: Array<Record<string, unknown>>;
+ 	readonly binding: () => AuthBinding | undefined;
+ 	readonly upsertReceived: Promise<void>;
++	readonly nextUpsert: () => Promise<Record<string, unknown>>;
+ }
+ 
+ interface PublisherFixture {
+@@ -108,6 +110,15 @@ function startAuthenticatedRegistryServer(
+ ): AuthenticatedRegistryServer {
+ 	const frames: Array<Record<string, unknown>> = [];
+ 	const upsertReceived = Promise.withResolvers<void>();
++	const upserts: Array<Record<string, unknown>> = [];
++	const upsertWaiters: Array<(frame: Record<string, unknown>) => void> = [];
++	const nextUpsert = (): Promise<Record<string, unknown>> => {
++		const queued = upserts.shift();
++		if (queued) return Promise.resolve(queued);
++		const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
++		upsertWaiters.push(resolve);
++		return promise;
++	};
+ 	let binding: AuthBinding | undefined;
+ 	let activeSocket: Bun.Socket<{ buffer: string }> | undefined;
+ 	const server = Bun.listen<{ buffer: string }>({
+@@ -144,6 +155,9 @@ function startAuthenticatedRegistryServer(
+ 						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
+ 					} else if (frame.op === "upsert") {
+ 						upsertReceived.resolve();
++						const waiter = upsertWaiters.shift();
++						if (waiter) waiter(frame);
++						else upserts.push(frame);
+ 					}
+ 				}
+ 			},
+@@ -158,6 +172,7 @@ function startAuthenticatedRegistryServer(
+ 		frames,
+ 		binding: () => binding,
+ 		upsertReceived: upsertReceived.promise,
++		nextUpsert,
+ 	};
+ }
+ 
+@@ -382,6 +397,9 @@ test("publisher reconnects after registry restart and rereads the rotated token"
+ 			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
+ 		);
+ 		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", false);
++		publisher.publish({ ...record, inputRequired: true });
++		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", true);
+ 
+ 		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+ 			callback: (...callbackArguments: unknown[]) => void,
+@@ -414,6 +432,7 @@ test("publisher reconnects after registry restart and rereads the rotated token"
+ 			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
+ 		);
+ 		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++		expect(second.frames[2]).toHaveProperty("session.inputRequired", true);
+ 		expect(warnings).toEqual([]);
+ 		const wire = JSON.stringify([...first.frames, ...second.frames]);
+ 		expect(wire).not.toContain(initialToken);
+-- 
+2.50.1 (Apple Git-155)
+
+
+From ac5b7153c31ea7b6b1299f35928827c6630388b4 Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Tue, 21 Jul 2026 11:45:28 -0400
+Subject: [PATCH 4/4] feat(collab): mirror response UI safely
+
+---
+ packages/coding-agent/src/collab/guest.ts     |  14 +-
+ .../controllers/extension-ui-controller.ts    | 245 ++++++++++++------
+ .../src/modes/interactive-mode.ts             |  24 +-
+ packages/coding-agent/src/modes/types.ts      |  10 +-
+ .../test/collab/guest-ui-request.test.ts      | 204 ++++++++++++++-
+ .../coding-agent/test/hook-editor.test.ts     |   3 +-
+ ...interactive-mode-default-plan-mode.test.ts |  15 ++
+ 7 files changed, 409 insertions(+), 106 deletions(-)
+
+diff --git a/packages/coding-agent/src/collab/guest.ts b/packages/coding-agent/src/collab/guest.ts
+index 2ae87719e..6a2d15ce0 100644
+--- a/packages/coding-agent/src/collab/guest.ts
++++ b/packages/coding-agent/src/collab/guest.ts
+@@ -625,18 +625,8 @@ export class CollabGuestLink {
+ 		if (this.#readOnly || this.#pendingUiRequests.has(request.reqId)) return;
+ 		const abort = new AbortController();
+ 		this.#pendingUiRequests.set(request.reqId, abort);
+-		const dialog =
+-			request.kind === "select"
+-				? this.#ctx.showHookSelector(request.title, request.options, {
+-						signal: abort.signal,
+-						initialIndex: request.initialIndex,
+-						selectionMarker: request.selectionMarker,
+-						checkedIndices: request.checkedIndices,
+-						markableCount: request.markableCount,
+-						helpText: request.helpText,
+-					})
+-				: this.#ctx.showHookEditor(request.title, request.prefill, { signal: abort.signal });
+-		dialog
++		void this.#ctx
++			.presentCollabGuestUi(request, abort.signal)
+ 			.then(value => {
+ 				// Identity check: only the presentation that still owns the reqId
+ 				// may respond. An abort from #endUiRequest / #clearUiRequests
+diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+index 4d78bdb26..3dbd19965 100644
+--- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+@@ -1,6 +1,6 @@
+ import type { Component, OverlayHandle, TUI } from "@oh-my-pi/pi-tui";
+ import { Container, Spacer, Text } from "@oh-my-pi/pi-tui";
+-import type { CollabUiRequestDraft, CollabUiSelectItem } from "@oh-my-pi/pi-wire";
++import type { CollabUiRequest, CollabUiRequestDraft, CollabUiSelectItem } from "@oh-my-pi/pi-wire";
+ import { KeybindingsManager } from "../../config/keybindings";
+ import type {
+ 	CompactOptions,
+@@ -79,8 +79,8 @@ export class ExtensionUiController {
+ 		// Create and set hook & tool UI context
+ 		const uiContext: ExtensionUIContext = {
+ 			timeoutStartsOnPresentation: true,
+-			select: (title, options, dialogOptions) => this.showCollabAwareSelector(title, options, dialogOptions),
+-			confirm: (title, message, _dialogOptions) => this.showHookConfirm(title, message),
++			select: (title, options, dialogOptions) => this.showHookSelector(title, options, dialogOptions),
++			confirm: (title, message, dialogOptions) => this.showHookConfirm(title, message, dialogOptions),
+ 			input: (title, placeholder, dialogOptions) => this.showHookInput(title, placeholder, dialogOptions),
+ 			askDialog: (questions, dialogOptions) => this.showAskDialog(questions, dialogOptions),
+ 			notify: (message, type) => this.showHookNotify(message, type),
+@@ -100,7 +100,7 @@ export class ExtensionUiController {
+ 			},
+ 			getEditorText: () => this.ctx.editor.getText(),
+ 			editor: (title, prefill, dialogOptions, editorOptions) =>
+-				this.showCollabAwareEditor(title, prefill, dialogOptions, editorOptions),
++				this.showHookEditor(title, prefill, dialogOptions, editorOptions),
+ 			addAutocompleteProvider: factory => this.ctx.addAutocompleteProvider(factory),
+ 			get theme() {
+ 				return theme;
+@@ -526,60 +526,46 @@ export class ExtensionUiController {
+ 		this.ctx.ui.requestRender();
+ 	}
+ 
+-	async showCollabAwareSelector(
+-		title: string,
+-		options: ExtensionUISelectItem[],
+-		dialogOptions?: InteractiveSelectorDialogOptions,
+-		extra?: { slider?: HookSelectorSlider },
+-	): Promise<string | undefined> {
+-		const request: CollabUiRequestDraft = {
+-			kind: "select",
+-			title,
+-			options: toWireSelectOptions(options),
+-			initialIndex: dialogOptions?.initialIndex,
+-			selectionMarker: dialogOptions?.selectionMarker,
+-			checkedIndices: dialogOptions?.checkedIndices ? [...dialogOptions.checkedIndices] : undefined,
+-			markableCount: dialogOptions?.markableCount,
+-			helpText: dialogOptions?.helpText,
++	async #withInputRequired<Result>(operation: (markAccepted: () => void) => Promise<Result>): Promise<Result> {
++		let release: (() => void) | undefined;
++		const markAccepted = (): void => {
++			release ??= this.ctx.collabController.beginInputRequired();
+ 		};
+-		return this.#raceCollabDialog(request, dialogOptions?.signal, signal =>
+-			this.showHookSelector(title, options, { ...dialogOptions, signal }, extra),
+-		);
+-	}
+-
+-	async showCollabAwareEditor(
+-		title: string,
+-		prefill?: string,
+-		dialogOptions?: ExtensionUIDialogOptions,
+-		editorOptions?: { promptStyle?: boolean },
+-	): Promise<string | undefined> {
+-		const request: CollabUiRequestDraft = { kind: "editor", title, prefill };
+-		return this.#raceCollabDialog(request, dialogOptions?.signal, signal =>
+-			this.showHookEditor(title, prefill, { ...dialogOptions, signal }, editorOptions),
+-		);
++		try {
++			return await operation(markAccepted);
++		} finally {
++			release?.();
++		}
+ 	}
+ 
+ 	async showAskDialog(
+ 		questions: ExtensionAskDialogQuestion[],
+ 		dialogOptions?: ExtensionUIDialogOptions,
+ 	): Promise<ExtensionAskDialogResult | undefined> {
+-		const host = this.ctx.collabController.host;
+-		if (!host) return this.#showLocalAskDialog(questions, dialogOptions);
+-		const localAbort = new AbortController();
+-		const remoteAbort = new AbortController();
+-		const parentSignal = dialogOptions?.signal;
+-		const localSignal = parentSignal ? AbortSignal.any([parentSignal, localAbort.signal]) : localAbort.signal;
+-		const remoteSignal = parentSignal ? AbortSignal.any([parentSignal, remoteAbort.signal]) : remoteAbort.signal;
+-		const localWinner = this.#showLocalAskDialog(questions, { ...dialogOptions, signal: localSignal }).then(
+-			(value): CollabAskDialogWinner => ({ source: "local", value }),
+-		);
+-		const remoteWinner: Promise<CollabAskDialogWinner> = this.#runGuestAskDialog(questions, remoteSignal).then(
+-			result => (result === "unavailable" ? localWinner : { source: "remote", value: result }),
+-		);
+-		const winner = await Promise.race([localWinner, remoteWinner]);
+-		if (winner.source === "remote") localAbort.abort();
+-		else remoteAbort.abort();
+-		return winner.value;
++		return this.#withInputRequired(async markAccepted => {
++			const host = this.ctx.collabController.host;
++			if (!host) return this.#showLocalAskDialog(questions, dialogOptions);
++			const localAbort = new AbortController();
++			const remoteAbort = new AbortController();
++			const parentSignal = dialogOptions?.signal;
++			const localSignal = parentSignal ? AbortSignal.any([parentSignal, localAbort.signal]) : localAbort.signal;
++			const remoteSignal = parentSignal ? AbortSignal.any([parentSignal, remoteAbort.signal]) : remoteAbort.signal;
++			try {
++				const localWinner = this.#showLocalAskDialog(questions, { ...dialogOptions, signal: localSignal }).then(
++					(value): CollabAskDialogWinner => ({ source: "local", value }),
++				);
++				const remoteWinner: Promise<CollabAskDialogWinner> = this.#runGuestAskDialog(
++					questions,
++					remoteSignal,
++					markAccepted,
++				).then(result => (result === "unavailable" ? localWinner : { source: "remote", value: result }));
++				const winner = await Promise.race([localWinner, remoteWinner]);
++				return winner.value;
++			} finally {
++				localAbort.abort();
++				remoteAbort.abort();
++			}
++		});
+ 	}
+ 
+ 	#showLocalAskDialog(
+@@ -671,34 +657,41 @@ export class ExtensionUiController {
+ 		signal: AbortSignal | undefined,
+ 		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
+ 	): Promise<string | undefined> {
+-		const host = this.ctx.collabController.host;
+-		if (!host) return local(signal);
+-		const localAbort = new AbortController();
+-		const remoteAbort = new AbortController();
+-		const remote = host.requestGuestUi(
+-			request,
+-			signal ? AbortSignal.any([signal, remoteAbort.signal]) : remoteAbort.signal,
+-		);
+-		if (!remote) return local(signal);
+-		const localWinner = local(signal ? AbortSignal.any([signal, localAbort.signal]) : localAbort.signal).then(
+-			(value): CollabDialogWinner => ({ source: "local", value }),
+-		);
+-		const remoteWinner: Promise<CollabDialogWinner> = remote.then(result =>
+-			result.kind === "answered" ? { source: "remote", value: result.value } : localWinner,
+-		);
+-		const winner = await Promise.race([localWinner, remoteWinner]);
+-		if (winner.source === "remote") localAbort.abort();
+-		else remoteAbort.abort();
+-		return winner.value;
++		return this.#withInputRequired(async markAccepted => {
++			const host = this.ctx.collabController.host;
++			if (!host) return local(signal);
++			const localAbort = new AbortController();
++			const remoteAbort = new AbortController();
++			try {
++				const remote = host.requestGuestUi(
++					request,
++					signal ? AbortSignal.any([signal, remoteAbort.signal]) : remoteAbort.signal,
++				);
++				if (!remote) return local(signal);
++				markAccepted();
++				const localWinner = local(signal ? AbortSignal.any([signal, localAbort.signal]) : localAbort.signal).then(
++					(value): CollabDialogWinner => ({ source: "local", value }),
++				);
++				const remoteWinner: Promise<CollabDialogWinner> = remote.then(result =>
++					result.kind === "answered" ? { source: "remote", value: result.value } : localWinner,
++				);
++				const winner = await Promise.race([localWinner, remoteWinner]);
++				return winner.value;
++			} finally {
++				localAbort.abort();
++				remoteAbort.abort();
++			}
++		});
+ 	}
+ 
+ 	async #runGuestAskDialog(
+ 		questions: ExtensionAskDialogQuestion[],
+ 		signal: AbortSignal,
++		markAccepted: () => void,
+ 	): Promise<ExtensionAskDialogResult | "unavailable" | undefined> {
+ 		const results: ExtensionAskDialogResultItem[] = [];
+ 		for (const question of questions) {
+-			const result = await this.#runGuestAskQuestion(question, signal);
++			const result = await this.#runGuestAskQuestion(question, signal, markAccepted);
+ 			if (result === "unavailable" || result === undefined) return result;
+ 			if (result === "chat") return { kind: "chat" };
+ 			results.push(result);
+@@ -709,6 +702,7 @@ export class ExtensionUiController {
+ 	async #runGuestAskQuestion(
+ 		question: ExtensionAskDialogQuestion,
+ 		signal: AbortSignal,
++		markAccepted: () => void,
+ 	): Promise<ExtensionAskDialogResultItem | "chat" | "unavailable" | undefined> {
+ 		const selected = new Set<string>();
+ 		let customInput: string | undefined;
+@@ -742,6 +736,7 @@ export class ExtensionUiController {
+ 							: "up/down navigate  enter toggle  esc cancel",
+ 					},
+ 					signal,
++					markAccepted,
+ 				);
+ 				if (choice.kind === "unavailable") return "unavailable";
+ 				if (choice.kind === "cancelled") return undefined;
+@@ -751,6 +746,7 @@ export class ExtensionUiController {
+ 					const input = await this.#requestGuestUiString(
+ 						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
+ 						signal,
++						markAccepted,
+ 					);
+ 					if (input.kind === "unavailable") return "unavailable";
+ 					// Guest cancelled the Other editor: keep the ask open and
+@@ -780,6 +776,7 @@ export class ExtensionUiController {
+ 						helpText: "up/down navigate  enter select  esc cancel",
+ 					},
+ 					signal,
++					markAccepted,
+ 				);
+ 				if (choice.kind === "unavailable") return "unavailable";
+ 				if (choice.kind === "cancelled") return undefined;
+@@ -788,6 +785,7 @@ export class ExtensionUiController {
+ 					const input = await this.#requestGuestUiString(
+ 						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
+ 						signal,
++						markAccepted,
+ 					);
+ 					if (input.kind === "unavailable") return "unavailable";
+ 					// Guest cancelled the Other editor: re-show the select list
+@@ -810,11 +808,16 @@ export class ExtensionUiController {
+ 		};
+ 	}
+ 
+-	async #requestGuestUiString(request: CollabUiRequestDraft, signal: AbortSignal): Promise<GuestUiResult> {
++	async #requestGuestUiString(
++		request: CollabUiRequestDraft,
++		signal: AbortSignal,
++		markAccepted: () => void,
++	): Promise<GuestUiResult> {
+ 		const host = this.ctx.collabController.host;
+ 		if (!host) return { kind: "unavailable" };
+ 		const remote = host.requestGuestUi(request, signal);
+ 		if (!remote) return { kind: "unavailable" };
++		markAccepted();
+ 		const result = await remote;
+ 		if (result.kind === "unavailable") return { kind: "unavailable" };
+ 		return typeof result.value === "string" ? { kind: "answered", value: result.value } : { kind: "cancelled" };
+@@ -828,6 +831,61 @@ export class ExtensionUiController {
+ 		options: ExtensionUISelectItem[],
+ 		dialogOptions?: InteractiveSelectorDialogOptions,
+ 		extra?: { slider?: HookSelectorSlider },
++	): Promise<string | undefined> {
++		if (!this.#canMirrorSelector(dialogOptions, extra)) {
++			return this.showLocalSelector(title, options, dialogOptions, extra);
++		}
++		const request: CollabUiRequestDraft = {
++			kind: "select",
++			title,
++			options: toWireSelectOptions(options),
++			...(dialogOptions?.initialIndex === undefined ? {} : { initialIndex: dialogOptions.initialIndex }),
++			...(dialogOptions?.selectionMarker === undefined ? {} : { selectionMarker: dialogOptions.selectionMarker }),
++			...(dialogOptions?.checkedIndices === undefined ? {} : { checkedIndices: [...dialogOptions.checkedIndices] }),
++			...(dialogOptions?.markableCount === undefined ? {} : { markableCount: dialogOptions.markableCount }),
++			...(dialogOptions?.helpText === undefined ? {} : { helpText: dialogOptions.helpText }),
++		};
++		return this.#raceCollabDialog(request, dialogOptions?.signal, signal =>
++			this.showLocalSelector(title, options, { ...dialogOptions, signal }, extra),
++		);
++	}
++
++	presentCollabGuestUi(request: CollabUiRequest, signal: AbortSignal): Promise<string | undefined> {
++		if (request.kind === "editor") {
++			return this.showLocalEditor(request.title, request.prefill, { signal });
++		}
++		return this.showLocalSelector(request.title, request.options, {
++			signal,
++			...(request.initialIndex === undefined ? {} : { initialIndex: request.initialIndex }),
++			...(request.selectionMarker === undefined ? {} : { selectionMarker: request.selectionMarker }),
++			...(request.checkedIndices === undefined ? {} : { checkedIndices: request.checkedIndices }),
++			...(request.markableCount === undefined ? {} : { markableCount: request.markableCount }),
++			...(request.helpText === undefined ? {} : { helpText: request.helpText }),
++		});
++	}
++
++	#canMirrorSelector(
++		dialogOptions: InteractiveSelectorDialogOptions | undefined,
++		extra: { slider?: HookSelectorSlider } | undefined,
++	): boolean {
++		return (
++			dialogOptions?.timeout === undefined &&
++			dialogOptions?.onTimeout === undefined &&
++			dialogOptions?.onTimeoutStart === undefined &&
++			dialogOptions?.onTimeoutReset === undefined &&
++			dialogOptions?.onLeft === undefined &&
++			dialogOptions?.onRight === undefined &&
++			dialogOptions?.onExternalEditor === undefined &&
++			dialogOptions?.disabledIndices === undefined &&
++			extra?.slider === undefined
++		);
++	}
++
++	protected showLocalSelector(
++		title: string,
++		options: ExtensionUISelectItem[],
++		dialogOptions?: InteractiveSelectorDialogOptions,
++		extra?: { slider?: HookSelectorSlider },
+ 	): Promise<string | undefined> {
+ 		return this.#presentDialog(dialogOptions?.signal, settle => {
+ 			const maxVisible = Math.max(4, Math.min(15, this.ctx.ui.terminal.rows - 12));
+@@ -888,8 +946,8 @@ export class ExtensionUiController {
+ 	/**
+ 	 * Show a confirmation dialog for hooks.
+ 	 */
+-	async showHookConfirm(title: string, message: string): Promise<boolean> {
+-		const result = await this.showHookSelector(`${title}\n${message}`, ["Yes", "No"]);
++	async showHookConfirm(title: string, message: string, dialogOptions?: ExtensionUIDialogOptions): Promise<boolean> {
++		const result = await this.showHookSelector(`${title}\n${message}`, ["Yes", "No"], dialogOptions);
+ 		return result === "Yes";
+ 	}
+ 
+@@ -900,6 +958,17 @@ export class ExtensionUiController {
+ 		title: string,
+ 		placeholder?: string,
+ 		dialogOptions?: ExtensionUIDialogOptions,
++	): Promise<string | undefined> {
++		if (!this.#canMirrorDialog(dialogOptions)) return this.showLocalInput(title, placeholder, dialogOptions);
++		return this.#raceCollabDialog({ kind: "editor", title }, dialogOptions?.signal, signal =>
++			this.showLocalInput(title, placeholder, { ...dialogOptions, signal }),
++		);
++	}
++
++	protected showLocalInput(
++		title: string,
++		placeholder?: string,
++		dialogOptions?: ExtensionUIDialogOptions,
+ 	): Promise<string | undefined> {
+ 		return this.#presentDialog(dialogOptions?.signal, settle => {
+ 			this.ctx.hookInput = new HookInputComponent(
+@@ -941,6 +1010,34 @@ export class ExtensionUiController {
+ 		prefill?: string,
+ 		dialogOptions?: ExtensionUIDialogOptions,
+ 		editorOptions?: { promptStyle?: boolean },
++	): Promise<string | undefined> {
++		if (!this.#canMirrorDialog(dialogOptions) || editorOptions?.promptStyle) {
++			return this.showLocalEditor(title, prefill, dialogOptions, editorOptions);
++		}
++		const request: CollabUiRequestDraft = {
++			kind: "editor",
++			title,
++			...(prefill === undefined ? {} : { prefill }),
++		};
++		return this.#raceCollabDialog(request, dialogOptions?.signal, signal =>
++			this.showLocalEditor(title, prefill, { ...dialogOptions, signal }, editorOptions),
++		);
++	}
++
++	#canMirrorDialog(dialogOptions: ExtensionUIDialogOptions | undefined): boolean {
++		return (
++			dialogOptions?.timeout === undefined &&
++			dialogOptions?.onTimeout === undefined &&
++			dialogOptions?.onTimeoutStart === undefined &&
++			dialogOptions?.onTimeoutReset === undefined
++		);
++	}
++
++	protected showLocalEditor(
++		title: string,
++		prefill?: string,
++		dialogOptions?: ExtensionUIDialogOptions,
++		editorOptions?: { promptStyle?: boolean },
+ 	): Promise<string | undefined> {
+ 		return this.#presentDialog(dialogOptions?.signal, settle => {
+ 			this.ctx.hookEditor = new HookEditorComponent(
+diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
+index dbfd2d96d..344fe9f18 100644
+--- a/packages/coding-agent/src/modes/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive-mode.ts
+@@ -50,6 +50,7 @@ import {
+ 	prompt,
+ 	setProjectDir,
+ } from "@oh-my-pi/pi-utils";
++import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
+ import chalk from "chalk";
+ import { reset as resetCapabilities } from "../capability";
+ import { CollabController } from "../collab/controller";
+@@ -990,6 +991,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		this.isInitialized = true;
+ 		this.ui.requestRender(true);
+ 
++		// Collaboration starts once the interactive context and session are ready,
++		// before extension startup hooks can present response-producing UI.
++		await this.collabController.autoStart();
++
+ 		// Initialize hooks with TUI-based UI context
+ 		await this.initHooksAndCustomTools();
+ 
+@@ -1103,9 +1108,6 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		this.statusLine.watchBranch(() => {
+ 			this.ui.requestRender();
+ 		});
+-
+-		// Collaboration starts only after the interactive context and session are ready.
+-		await this.collabController.autoStart();
+ 	}
+ 
+ 	/** Reload the title-generation system prompt override for the provided working
+@@ -4499,8 +4501,8 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		return runProviderSetupWizard(this);
+ 	}
+ 
+-	showHookConfirm(title: string, message: string): Promise<boolean> {
+-		return this.#extensionUiController.showHookConfirm(title, message);
++	showHookConfirm(title: string, message: string, dialogOptions?: ExtensionUIDialogOptions): Promise<boolean> {
++		return this.#extensionUiController.showHookConfirm(title, message, dialogOptions);
+ 	}
+ 
+ 	// Input handling
+@@ -4680,8 +4682,12 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		this.#extensionUiController.hideHookSelector();
+ 	}
+ 
+-	showHookInput(title: string, placeholder?: string): Promise<string | undefined> {
+-		return this.#extensionUiController.showHookInput(title, placeholder);
++	showHookInput(
++		title: string,
++		placeholder?: string,
++		dialogOptions?: ExtensionUIDialogOptions,
++	): Promise<string | undefined> {
++		return this.#extensionUiController.showHookInput(title, placeholder, dialogOptions);
+ 	}
+ 
+ 	hideHookInput(): void {
+@@ -4697,6 +4703,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		return this.#extensionUiController.showHookEditor(title, prefill, dialogOptions, editorOptions);
+ 	}
+ 
++	presentCollabGuestUi(request: CollabUiRequest, signal: AbortSignal): Promise<string | undefined> {
++		return this.#extensionUiController.presentCollabGuestUi(request, signal);
++	}
++
+ 	hideHookEditor(): void {
+ 		this.#extensionUiController.hideHookEditor();
+ 	}
+diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
+index 8d22f181a..6481398df 100644
+--- a/packages/coding-agent/src/modes/types.ts
++++ b/packages/coding-agent/src/modes/types.ts
+@@ -2,6 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+ import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
+ import type { AssistantMessage, ImageContent, Message, Usage, UsageReport } from "@oh-my-pi/pi-ai";
+ import type { Component, Container, EditorTheme, Loader, Spacer, Text, TUI } from "@oh-my-pi/pi-tui";
++import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
+ import type { CollabController } from "../collab/controller";
+ import type { CollabGuestLink } from "../collab/guest";
+ import type { KeybindingsManager } from "../config/keybindings";
+@@ -377,7 +378,7 @@ export interface InteractiveModeContext {
+ 	showOAuthSelector(mode: "login" | "logout", providerId?: string): Promise<void>;
+ 	showResetUsageSelector(): Promise<void>;
+ 	showProviderSetup(): Promise<void>;
+-	showHookConfirm(title: string, message: string): Promise<boolean>;
++	showHookConfirm(title: string, message: string, dialogOptions?: ExtensionUIDialogOptions): Promise<boolean>;
+ 	showDebugSelector(): Promise<void>;
+ 	showAgentHub(options?: { requireContent?: boolean; armCloseTap?: boolean }): void;
+ 	resetObserverRegistry(): void;
+@@ -434,7 +435,11 @@ export interface InteractiveModeContext {
+ 		dialogOptions?: InteractiveSelectorDialogOptions,
+ 	): Promise<string | undefined>;
+ 	hideHookSelector(): void;
+-	showHookInput(title: string, placeholder?: string): Promise<string | undefined>;
++	showHookInput(
++		title: string,
++		placeholder?: string,
++		dialogOptions?: ExtensionUIDialogOptions,
++	): Promise<string | undefined>;
+ 	hideHookInput(): void;
+ 	showHookEditor(
+ 		title: string,
+@@ -442,6 +447,7 @@ export interface InteractiveModeContext {
+ 		dialogOptions?: ExtensionUIDialogOptions,
+ 		editorOptions?: { promptStyle?: boolean },
+ 	): Promise<string | undefined>;
++	presentCollabGuestUi(request: CollabUiRequest, signal: AbortSignal): Promise<string | undefined>;
+ 	hideHookEditor(): void;
+ 	showHookNotify(message: string, type?: "info" | "warning" | "error"): void;
+ 	showHookCustom<T>(
+diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+index 8a2b8f0e9..e18711bf9 100644
+--- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
++++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+@@ -11,10 +11,10 @@
+  * drives a real CollabGuestLink over the in-memory relay so every guest→host
+  * frame is observable.
+  */
+-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
++import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+ import { generateRoomKey, importRoomKey } from "@oh-my-pi/pi-coding-agent/collab/crypto";
+ import { CollabGuestLink } from "@oh-my-pi/pi-coding-agent/collab/guest";
+-import { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
++import { type CollabGuestUiResult, CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
+ import {
+ 	COLLAB_PROTO,
+ 	type CollabFrame,
+@@ -30,6 +30,7 @@ import type {
+ } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
+ import { ExtensionUiController } from "@oh-my-pi/pi-coding-agent/modes/controllers/extension-ui-controller";
+ import type { InteractiveModeContext, InteractiveSelectorDialogOptions } from "@oh-my-pi/pi-coding-agent/modes/types";
++import type { CollabUiRequest, CollabUiRequestDraft } from "@oh-my-pi/pi-wire";
+ import { installInMemoryRelay, uninstallInMemoryRelay } from "./helpers/in-memory-relay";
+ 
+ // In-memory transport: shared FakeWebSocket + InMemoryRelay harness (see
+@@ -251,6 +252,27 @@ async function makeHarness(opts?: { readOnly?: boolean }): Promise<GuestUiHarnes
+ 			prefill?: string,
+ 			dialogOptions?: ExtensionUIDialogOptions,
+ 		): Promise<string | undefined> => presentStub({ kind: "editor", title, prefill, dialogOptions }),
++		presentCollabGuestUi: (request: CollabUiRequest, signal: AbortSignal): Promise<string | undefined> =>
++			request.kind === "select"
++				? presentStub({
++						kind: "select",
++						title: request.title,
++						options: request.options,
++						dialogOptions: {
++							signal,
++							...(request.initialIndex === undefined ? {} : { initialIndex: request.initialIndex }),
++							...(request.selectionMarker === undefined ? {} : { selectionMarker: request.selectionMarker }),
++							...(request.checkedIndices === undefined ? {} : { checkedIndices: request.checkedIndices }),
++							...(request.markableCount === undefined ? {} : { markableCount: request.markableCount }),
++							...(request.helpText === undefined ? {} : { helpText: request.helpText }),
++						},
++					})
++				: presentStub({
++						kind: "editor",
++						title: request.title,
++						prefill: request.prefill,
++						dialogOptions: { signal },
++					}),
+ 	} as unknown as InteractiveModeContext;
+ 
+ 	const guest = new CollabGuestLink(ctx);
+@@ -440,8 +462,13 @@ describe("collab TUI guest ui-request handling (#4049)", () => {
+ // join must fail fast with the host's reason instead of hanging until the
+ // welcome timeout.
+ 
++type LeaseTrackedContext = InteractiveModeContext & {
++	readonly attentionLeases: { begun: number; released: number };
++};
++
+ /** Minimal InteractiveModeContext double: only the members CollabHost touches. */
+-function makeHostContext(): InteractiveModeContext {
++function makeHostContext(): LeaseTrackedContext {
++	const attentionLeases = { begun: 0, released: 0 };
+ 	return {
+ 		settings: { get: () => "" },
+ 		sessionManager: {
+@@ -472,8 +499,20 @@ function makeHostContext(): InteractiveModeContext {
+ 		},
+ 		ui: { requestRender: () => {} },
+ 		showStatus: () => {},
+-		collabController: { host: undefined },
+-	} as unknown as InteractiveModeContext;
++		collabController: {
++			host: undefined,
++			beginInputRequired: () => {
++				attentionLeases.begun += 1;
++				let released = false;
++				return () => {
++					if (released) return;
++					released = true;
++					attentionLeases.released += 1;
++				};
++			},
++		},
++		attentionLeases,
++	} as unknown as LeaseTrackedContext;
+ }
+ 
+ /** Raw wire-speaking guest with a configurable hello proto. */
+@@ -623,7 +662,7 @@ interface LocalDialogStub {
+ class StubDialogController extends ExtensionUiController {
+ 	readonly localDialogs: LocalDialogStub[] = [];
+ 
+-	override showHookSelector(
++	protected override showLocalSelector(
+ 		title: string,
+ 		_options: ExtensionUISelectItem[],
+ 		dialogOptions?: InteractiveSelectorDialogOptions,
+@@ -641,6 +680,31 @@ class StubDialogController extends ExtensionUiController {
+ 	}
+ }
+ 
++class ImmediateDialogController extends ExtensionUiController {
++	protected override showLocalSelector(
++		_title: string,
++		options: ExtensionUISelectItem[],
++		_dialogOptions?: InteractiveSelectorDialogOptions,
++	): Promise<string | undefined> {
++		const first = options[0];
++		return Promise.resolve(typeof first === "string" ? first : first?.label);
++	}
++
++	protected override showLocalInput(): Promise<string | undefined> {
++		return Promise.resolve("local input");
++	}
++
++	protected override showLocalEditor(): Promise<string | undefined> {
++		return Promise.resolve("local editor");
++	}
++}
++
++class RejectingDialogController extends ImmediateDialogController {
++	protected override showLocalSelector(): Promise<string | undefined> {
++		return Promise.reject(new Error("local dialog failed"));
++	}
++}
++
+ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 	async function openRace(): Promise<{
+ 		host: CollabHost;
+@@ -649,6 +713,7 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 		result: Promise<string | undefined>;
+ 		dialog: LocalDialogStub;
+ 		requestFrame: CollabFrame & { t: "ui-request" };
++		ctx: LeaseTrackedContext;
+ 		cleanup(): Promise<void>;
+ 	}> {
+ 		const ctx = makeHostContext();
+@@ -660,7 +725,7 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 		const welcome = await guest.nextFrame();
+ 		if (welcome.t !== "welcome") throw new Error(`expected welcome, got ${welcome.t}`);
+ 
+-		const result = controller.showCollabAwareSelector("Deploy?", ["Yes", "No"]);
++		const result = controller.showHookSelector("Deploy?", ["Yes", "No"]);
+ 		const requestFrame = await guest.nextFrame();
+ 		if (requestFrame.t !== "ui-request") throw new Error(`expected ui-request, got ${requestFrame.t}`);
+ 		const dialog = controller.localDialogs[0];
+@@ -672,6 +737,7 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 			result,
+ 			dialog,
+ 			requestFrame,
++			ctx,
+ 			cleanup: async () => {
+ 				guest.socket.close();
+ 				await host.stop("test done");
+@@ -689,8 +755,10 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 			// the local dialog live, so `result` stays pending until it
+ 			// settles and wins with its value.
+ 			race.dialog.settle("stay-local");
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
+ 			expect(await race.result).toBe("stay-local");
+-			expect(race.dialog.signal?.aborted).toBe(false);
++			expect(race.dialog.signal?.aborted).toBe(true);
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
+ 		} finally {
+ 			await race.cleanup();
+ 		}
+@@ -700,8 +768,10 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 		const race = await openRace();
+ 		try {
+ 			race.guest.socket.send({ t: "ui-response", reqId: race.requestFrame.request.reqId, value: undefined });
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
+ 			expect(await race.result).toBeUndefined();
+ 			expect(race.dialog.signal?.aborted).toBe(true);
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
+ 		} finally {
+ 			await race.cleanup();
+ 		}
+@@ -711,12 +781,123 @@ describe("collab host dialog vs teardown (#4049 follow-up)", () => {
+ 		const race = await openRace();
+ 		try {
+ 			race.guest.socket.send({ t: "ui-response", reqId: race.requestFrame.request.reqId, value: "No" });
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
+ 			expect(await race.result).toBe("No");
+ 			expect(race.dialog.signal?.aborted).toBe(true);
++			expect(race.ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
+ 		} finally {
+ 			await race.cleanup();
+ 		}
+ 	});
++
++	it("does not acquire attention when no writable guest accepts the request", async () => {
++		const ctx = makeHostContext();
++		const requestGuestUi = mock(() => null);
++		Object.assign(ctx.collabController, { host: { requestGuestUi } as unknown as CollabHost });
++		const controller = new ImmediateDialogController(ctx);
++
++		expect(await controller.showHookSelector("Local only?", ["Yes", "No"])).toBe("Yes");
++		expect(requestGuestUi).toHaveBeenCalledTimes(1);
++		expect(ctx.attentionLeases).toEqual({ begun: 0, released: 0 });
++	});
++
++	it("does not acquire attention when the retained-request cap refuses admission", async () => {
++		const ctx = makeHostContext();
++		const host = new CollabHost(ctx);
++		await host.start("ws://localhost:8787");
++		Object.assign(ctx.collabController, { host });
++		const guest = await joinRawGuest(host.link, COLLAB_PROTO);
++		const welcome = await guest.nextFrame();
++		if (welcome.t !== "welcome") throw new Error(`expected welcome, got ${welcome.t}`);
++		const abort = new AbortController();
++		const retained = Array.from({ length: 64 }, (_, index) =>
++			host.requestGuestUi({ kind: "select", title: `Pending ${index}`, options: ["Yes"] }, abort.signal),
++		);
++		expect(retained.every(request => request !== null)).toBe(true);
++		const controller = new StubDialogController(ctx);
++		try {
++			const result = controller.showHookSelector("Over capacity?", ["Local"]);
++			const dialog = controller.localDialogs[0];
++			if (!dialog) throw new Error("expected local dialog");
++			expect(ctx.attentionLeases).toEqual({ begun: 0, released: 0 });
++			dialog.settle("Local");
++			expect(await result).toBe("Local");
++			expect(ctx.attentionLeases).toEqual({ begun: 0, released: 0 });
++		} finally {
++			abort.abort();
++			guest.socket.close();
++			await host.stop("test done");
++			await Promise.all(retained.filter(request => request !== null));
++		}
++	});
++
++	it("keeps callback, timeout, disabled, slider, and prompt-style dialogs local-only", async () => {
++		const ctx = makeHostContext();
++		const requestGuestUi = mock(() => Promise.resolve({ kind: "answered", value: "remote" } as const));
++		Object.assign(ctx.collabController, { host: { requestGuestUi } as unknown as CollabHost });
++		const controller = new ImmediateDialogController(ctx);
++
++		expect(await controller.showHookSelector("Callback?", ["Yes"], { onLeft: () => {} })).toBe("Yes");
++		expect(await controller.showHookSelector("Timeout?", ["Yes"], { timeout: 10 })).toBe("Yes");
++		expect(await controller.showHookSelector("Disabled?", ["Yes"], { disabledIndices: [0] })).toBe("Yes");
++		expect(
++			await controller.showHookSelector("Slider?", ["Yes"], undefined, {
++				slider: { segments: [{ label: "Low" }, { label: "High" }], index: 1 },
++			}),
++		).toBe("Yes");
++		expect(await controller.showHookInput("Input?", undefined, { timeout: 10 })).toBe("local input");
++		expect(await controller.showHookEditor("Editor?", undefined, undefined, { promptStyle: true })).toBe(
++			"local editor",
++		);
++		expect(await controller.showHookConfirm("Confirm?", "Proceed?", { timeout: 10 })).toBe(true);
++
++		expect(requestGuestUi).not.toHaveBeenCalled();
++		expect(ctx.attentionLeases).toEqual({ begun: 0, released: 0 });
++	});
++
++	it("brackets safe selector, input, editor, and confirm responses with one lease each", async () => {
++		const ctx = makeHostContext();
++		const requestGuestUi = mock(() => Promise.resolve({ kind: "unavailable" } as const));
++		Object.assign(ctx.collabController, { host: { requestGuestUi } as unknown as CollabHost });
++		const controller = new ImmediateDialogController(ctx);
++
++		expect(await controller.showHookSelector("Select?", ["Yes"])).toBe("Yes");
++		expect(await controller.showHookInput("Input?")).toBe("local input");
++		expect(await controller.showHookEditor("Editor?")).toBe("local editor");
++		expect(await controller.showHookConfirm("Confirm?", "Proceed?")).toBe(true);
++
++		expect(requestGuestUi).toHaveBeenCalledTimes(4);
++		expect(ctx.attentionLeases).toEqual({ begun: 4, released: 4 });
++	});
++
++	it("aborts both race sides and releases attention when the remote side rejects", async () => {
++		const ctx = makeHostContext();
++		const requestGuestUi = mock(() => Promise.reject(new Error("remote request failed")));
++		Object.assign(ctx.collabController, { host: { requestGuestUi } as unknown as CollabHost });
++		const controller = new StubDialogController(ctx);
++
++		const result = controller.showHookSelector("Failure?", ["Yes"]);
++		const dialog = controller.localDialogs[0];
++		if (!dialog) throw new Error("expected local dialog");
++		await expect(result).rejects.toThrow("remote request failed");
++		expect(dialog.signal?.aborted).toBe(true);
++		expect(ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
++	});
++
++	it("aborts both race sides and releases attention when the local side rejects", async () => {
++		const ctx = makeHostContext();
++		let remoteSignal: AbortSignal | undefined;
++		const requestGuestUi = mock((_request: CollabUiRequestDraft, signal: AbortSignal) => {
++			remoteSignal = signal;
++			return new Promise<CollabGuestUiResult>(() => {});
++		});
++		Object.assign(ctx.collabController, { host: { requestGuestUi } as unknown as CollabHost });
++		const controller = new RejectingDialogController(ctx);
++
++		await expect(controller.showHookSelector("Failure?", ["Yes"])).rejects.toThrow("local dialog failed");
++		expect(remoteSignal?.aborted).toBe(true);
++		expect(ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
++	});
+ });
+ 
+ // ── Guest ask "unavailable" literal answer (#4375: tagged guest results) ────
+@@ -774,7 +955,7 @@ describe("guest ask unavailable literal answer (#4375)", () => {
+  *  mounting the local AskDialogComponent. The local dialog is never driven
+  *  (no input), so it never settles and the remote guest wins the race.
+  *  Reuses makeHostContext for the CollabHost-facing members. */
+-function makeAskHostContext(): InteractiveModeContext {
++function makeAskHostContext(): LeaseTrackedContext {
+ 	const base = makeHostContext();
+ 	// Stub only the surface the local ask-dialog mount path calls: container
+ 	// clear/addChild, ui focus/render, and editor (dispose path). The real
+@@ -792,7 +973,7 @@ function makeAskHostContext(): InteractiveModeContext {
+ 			addInputListener: () => () => {},
+ 		},
+ 	};
+-	return stub as unknown as InteractiveModeContext;
++	return stub as unknown as LeaseTrackedContext;
+ }
+ 
+ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", () => {
+@@ -838,6 +1019,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 
+ 			// First ui-request: Next must be absent (no answer yet).
+ 			const first = await nextUiRequest(guest);
++			expect(ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
+ 			const firstLabels = selectLabels(first);
+ 			expect(firstLabels).not.toContain("Next →");
+ 			expect(firstLabels).toContain("Option A");
+@@ -849,6 +1031,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 
+ 			// Second ui-request: Next must now be present.
+ 			const second = await nextUiRequest(guest);
++			expect(ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
+ 			const secondLabels = selectLabels(second);
+ 			expect(secondLabels).toContain("Next →");
+ 			expect(secondLabels).toContain("Option A");
+@@ -856,6 +1039,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 			// Guest selects Next to submit.
+ 			guest.socket.send({ t: "ui-response", reqId: second.request.reqId, value: "Next →" });
+ 			const settled = await result;
++			expect(ctx.attentionLeases).toEqual({ begun: 1, released: 1 });
+ 			expect(settled?.kind).toBe("submit");
+ 			if (settled?.kind === "submit") {
+ 				expect(settled.results[0]?.selectedOptions).toEqual(["Option A"]);
+diff --git a/packages/coding-agent/test/hook-editor.test.ts b/packages/coding-agent/test/hook-editor.test.ts
+index 06ff5d95b..928202ad6 100644
+--- a/packages/coding-agent/test/hook-editor.test.ts
++++ b/packages/coding-agent/test/hook-editor.test.ts
+@@ -65,7 +65,7 @@ function createControllerContext() {
+ 		setFocus: vi.fn(),
+ 		start: vi.fn(),
+ 		stop: vi.fn(),
+-		terminal: { columns: 120 },
++		terminal: { columns: 120, rows: 40 },
+ 	} as unknown as TestContext["ui"] & {
+ 		setFocus: Mock<any>;
+ 		requestRender: Mock<any>;
+@@ -74,6 +74,7 @@ function createControllerContext() {
+ 		editor,
+ 		editorContainer,
+ 		ui,
++		collabController: { host: undefined, beginInputRequired: () => () => {} },
+ 		hookEditor: undefined,
+ 	} as unknown as TestContext;
+ 
+diff --git a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
+index 308f58b79..6e51e0f82 100644
+--- a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
++++ b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
+@@ -118,6 +118,21 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
+ 		return mode;
+ 	}
+ 
++	it("starts collaboration before extension startup hooks can present UI", async () => {
++		const created = createHarness(Settings.isolated({ "compaction.enabled": false }));
++		const order: string[] = [];
++		vi.spyOn(created.collabController, "autoStart").mockImplementation(async () => {
++			order.push("collaboration");
++		});
++		vi.spyOn(created, "initHooksAndCustomTools").mockImplementation(async () => {
++			order.push("hooks");
++		});
++
++		await created.init({ suppressWelcomeIntro: true });
++
++		expect(order).toEqual(["collaboration", "hooks"]);
++	});
++
+ 	it("enters plan mode at startup when the setting is enabled", async () => {
+ 		const created = createHarness(Settings.isolated({ "plan.defaultOnStartup": true, "compaction.enabled": false }));
+ 
+-- 
+2.50.1 (Apple Git-155)
+

@@ -16,9 +16,11 @@
     "test": "bun test",
     "check:capability-leaks": "bun scripts/check-capability-leaks.ts",
     "release:build": "bun scripts/build-release.ts",
-    "qualify:relay-soak": "bun scripts/relay-soak.ts"
+    "qualify:relay-soak": "bun scripts/relay-soak.ts",
+    "test:browser": "bun run build && bunx playwright test -c apps/web/playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@types/bun": "1.3.14",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",

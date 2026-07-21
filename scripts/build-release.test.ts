@@ -18,7 +18,7 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedRuntimeDependencies = [
-  "@oh-my-pi/pi-wire@17.0.5",
+  "@oh-my-pi/pi-wire@17.0.6",
   "lucide-react@1.24.0",
   "marked@18.0.6",
   "react@19.2.7",
@@ -95,7 +95,7 @@ test("third-party notices and checked-in license texts cover every bundled compo
   expect(() => validateThirdPartyNotices(notices, dependencies)).not.toThrow();
   expect(notices).not.toContain("No production dependencies");
   expect(notices).toContain("@oh-my-pi/collab-web@16.3.6");
-  expect(notices).toContain("@oh-my-pi/pi-coding-agent patch@17.0.5");
+  expect(notices).toContain("@oh-my-pi/pi-coding-agent patch@17.0.6");
   expect((await readFile(join(root, "licenses/oh-my-pi/LICENSE"), "utf8")).length).toBeGreaterThan(100);
   for (const dependency of dependencies) {
     const licensePath = RUNTIME_LICENSES[dependency.name]?.licensePath;
@@ -123,7 +123,7 @@ test("SPDX namespace, lock digest, and creation time bind reproducibly to releas
   expect(document.packages.map(pkg => `${pkg.name}@${pkg.versionInfo}`)).toEqual([
     `omp-session-gateway@${PRODUCT_VERSION}`,
     "@oh-my-pi/collab-web@16.3.6",
-    "@oh-my-pi/pi-coding-agent-patch@17.0.5",
+    "@oh-my-pi/pi-coding-agent-patch@17.0.6",
     ...expectedRuntimeDependencies,
   ]);
   expect(document.packages[0]?.sourceInfo).toContain(lockSha256);

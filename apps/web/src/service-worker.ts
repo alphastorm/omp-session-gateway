@@ -4,6 +4,46 @@ declare const __CACHE_NAME__: string;
 const shellAssets = new Set(__SHELL_ASSETS__);
 const worker = globalThis as unknown as ServiceWorkerGlobalScope;
 
+function isNotificationSupportRequest(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("version") &&
+    record.type === "omp-notification-support-request" &&
+    record.version === 1
+  );
+}
+
+worker.addEventListener("message", event => {
+  if (!isNotificationSupportRequest(event.data)) return;
+  event.ports[0]?.postMessage({ type: "omp-notification-support-response", version: 1 });
+});
+
+worker.addEventListener("notificationclick", event => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const dashboard = windows.find(client => {
+        const url = new URL(client.url);
+        return url.origin === worker.location.origin && url.pathname === "/";
+      });
+      if (dashboard !== undefined) {
+        try {
+          const focused = await dashboard.focus();
+          if (focused !== null) return;
+        } catch {
+          // Fall through to a fresh dashboard window.
+        }
+      }
+      await worker.clients.openWindow("/");
+    })(),
+  );
+});
+
 worker.addEventListener("install", event => {
   event.waitUntil(caches.open(__CACHE_NAME__).then(cache => cache.addAll(__SHELL_ASSETS__)));
 });

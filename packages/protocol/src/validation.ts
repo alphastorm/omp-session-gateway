@@ -257,13 +257,16 @@ function parsePublishedSession(value: unknown): PublishedSessionInput {
   requireExactKeys(
     record,
     ["instanceId", "generation", "pid", "sessionId", "startedAt", "viewLink"],
-    ["title", "cwdLabel", "model", "controlLink"],
+    ["title", "cwdLabel", "model", "inputRequired", "controlLink"],
   );
   if (typeof record.sessionId !== "string" || !SESSION_ID_PATTERN.test(record.sessionId)) {
     throw new ProtocolValidationError();
   }
   if (typeof record.viewLink !== "string") throw new ProtocolValidationError();
   if (record.controlLink !== undefined && typeof record.controlLink !== "string") throw new ProtocolValidationError();
+  if (record.inputRequired !== undefined && typeof record.inputRequired !== "boolean") {
+    throw new ProtocolValidationError();
+  }
   const title = optionalLabel(record.title);
   const cwdLabel = optionalLabel(record.cwdLabel);
   const model = optionalLabel(record.model);
@@ -274,6 +277,7 @@ function parsePublishedSession(value: unknown): PublishedSessionInput {
     sessionId: record.sessionId,
     startedAt: requireDateTime(record.startedAt),
     viewLink: record.viewLink,
+    inputRequired: record.inputRequired ?? false,
     ...(record.controlLink === undefined ? {} : { controlLink: record.controlLink }),
     ...(title === undefined ? {} : { title }),
     ...(cwdLabel === undefined ? {} : { cwdLabel }),
@@ -326,9 +330,13 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
   requireExactKeys(
     record,
     ["instanceId", "generation", "startedAt", "lastSeenAt", "canView", "canControl"],
-    ["title", "cwdLabel", "model"],
+    ["title", "cwdLabel", "model", "inputRequired"],
   );
-  if (typeof record.canView !== "boolean" || typeof record.canControl !== "boolean") {
+  if (
+    typeof record.canView !== "boolean" ||
+    typeof record.canControl !== "boolean" ||
+    (record.inputRequired !== undefined && typeof record.inputRequired !== "boolean")
+  ) {
     throw new ProtocolValidationError();
   }
   const title = optionalLabel(record.title);
@@ -344,6 +352,7 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
     lastSeenAt: requireDateTime(record.lastSeenAt),
     canView: record.canView,
     canControl: record.canControl,
+    inputRequired: record.inputRequired ?? false,
   };
 }
 
@@ -419,6 +428,7 @@ export function separatePublishedSession(
       lastSeenAt,
       canView: true,
       canControl: control !== undefined,
+      inputRequired: input.inputRequired ?? false,
     },
     secret: {
       instanceId: input.instanceId,

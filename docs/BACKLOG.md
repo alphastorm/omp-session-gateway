@@ -33,6 +33,6 @@
 
 - [ ] Self-hosted relay deployment mode.
 - [ ] TWA Android wrapper.
-- [ ] Push notification design.
+- [ ] Background Push API notification design and delivery qualification.
 - [ ] Multiple desktop hosts in one dashboard, with explicit host grouping.
 - [ ] Read-only shared family/team dashboard roles.

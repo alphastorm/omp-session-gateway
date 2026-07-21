@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-07-19",
+  "observedAt": "2026-07-21",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v17.0.5",
-  "commit": "39c95e5e29b1c8b082059f57421ce445c3dffdd4",
-  "packageVersion": "17.0.5",
+  "tag": "v17.0.6",
+  "commit": "89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6",
+  "packageVersion": "17.0.6",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "17.0.5",
-    "@oh-my-pi/pi-wire": "17.0.5",
+    "@oh-my-pi/pi-coding-agent": "17.0.6",
+    "@oh-my-pi/pi-wire": "17.0.6",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.3.14",
@@ -17,14 +17,18 @@
     "docs/extensions.md",
     "package.json",
     "packages/coding-agent/src/collab/host.ts",
+    "packages/coding-agent/src/modes/controllers/extension-ui-controller.ts",
     "packages/coding-agent/src/modes/types.ts",
     "packages/coding-agent/src/config/settings-schema.ts",
     "packages/coding-agent/src/slash-commands/builtin-registry.ts",
+    "packages/wire/src/index.ts",
     "packages/collab-web",
-    "packages/collab-web/src/app.tsx"
+    "packages/collab-web/src/app.tsx",
+    "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Pinned to upstream main as observed on 2026-07-19; v17.0.5 is the nearest released tag and package baseline.",
+    "Pinned to upstream main as observed on 2026-07-21; v17.0.6 is the nearest released tag and package baseline.",
+    "Relevant host, extension UI, wire v3, guest client, and collab-web client blocks are byte-identical to the prior pin; upstream interactive-mode plan/token-rate work is preserved by the rebased patch.",
     "No supported extension collaboration controller exists at this commit; the slash command directly owns CollabHost.",
     "The collab-web connect path writes the capability to location.hash, so the gateway integration requires a reviewed in-memory bootstrap patch."
   ]

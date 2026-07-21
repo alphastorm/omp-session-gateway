@@ -1,4 +1,5 @@
 import {
+  MAX_SESSIONS,
   parseLaunchResponse,
   parseSessionEvent,
   parseSessionListResponse,
@@ -17,8 +18,11 @@ const sessionList = requiredElement<HTMLElement>("#session-list");
 const emptyState = requiredElement<HTMLElement>("#empty-state");
 const statusBanner = requiredElement<HTMLElement>("#status-banner");
 const refreshButton = requiredElement<HTMLButtonElement>("#refresh");
+const notificationButton = requiredElement<HTMLButtonElement>("#notify");
+const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 
 const sessions = new Map<string, SessionMetadata>();
+const notificationStates = new Map<string, { generation: number; inputRequired: boolean }>();
 let events: EventSource | undefined;
 let directoryLoaded = false;
 let authorizationDenied = false;
@@ -26,6 +30,149 @@ let refreshRequests = 0;
 let directoryEpoch = 0;
 let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
+let notificationBaselineSeeded = false;
+let notificationRegistration: ServiceWorkerRegistration | undefined;
+
+type NotificationControlState = "checking" | "idle" | "enabling" | "enabled" | "blocked" | "unavailable";
+
+const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
+  checking: "Checking notifications…",
+  idle: "Enable notifications",
+  enabling: "Enabling…",
+  enabled: "Notifications enabled",
+  blocked: "Notifications blocked",
+  unavailable: "Notifications unavailable",
+};
+
+function setNotificationControl(state: NotificationControlState): void {
+  notificationButton.dataset.state = state;
+  notificationButton.textContent = notificationLabels[state];
+  notificationButton.disabled = state !== "idle";
+  notificationDisclosure.textContent =
+    state === "blocked"
+      ? "Notifications are blocked. Enable them in this site's browser settings."
+      : "Notifications may show session names on your lock screen.";
+}
+
+function isNotificationSupportResponse(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("version") &&
+    record.type === "omp-notification-support-response" &&
+    record.version === 1
+  );
+}
+
+async function checkNotificationWorker(registration: ServiceWorkerRegistration): Promise<boolean> {
+  const active = registration.active;
+  if (active === null) return false;
+  const channel = new MessageChannel();
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  let settled = false;
+  const finish = (supported: boolean): void => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timeout);
+    channel.port1.close();
+    try {
+      channel.port2.close();
+    } catch {
+      // The worker may already own the transferred port.
+    }
+    resolve(supported);
+  };
+  const timeout = window.setTimeout(() => finish(false), 2_000);
+  channel.port1.onmessage = event => finish(isNotificationSupportResponse(event.data));
+  channel.port1.start();
+  try {
+    active.postMessage({ type: "omp-notification-support-request", version: 1 }, [channel.port2]);
+  } catch {
+    finish(false);
+  }
+  return promise;
+}
+
+function syncNotificationPermissionState(): void {
+  if (Notification.permission === "granted") setNotificationControl("enabled");
+  else if (Notification.permission === "denied") setNotificationControl("blocked");
+  else setNotificationControl("idle");
+}
+
+async function initializeNotifications(): Promise<void> {
+  setNotificationControl("checking");
+  if (!isSecureContext || typeof Notification === "undefined" || !("serviceWorker" in navigator)) {
+    setNotificationControl("unavailable");
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+    if (typeof registration.showNotification !== "function" || !(await checkNotificationWorker(registration))) {
+      setNotificationControl("unavailable");
+      return;
+    }
+    notificationRegistration = registration;
+    syncNotificationPermissionState();
+  } catch {
+    setNotificationControl("unavailable");
+  }
+}
+
+async function requestNotificationPermission(): Promise<void> {
+  if (notificationRegistration === undefined || Notification.permission !== "default") {
+    if (notificationRegistration !== undefined) syncNotificationPermissionState();
+    return;
+  }
+  setNotificationControl("enabling");
+  try {
+    await Notification.requestPermission();
+    syncNotificationPermissionState();
+  } catch {
+    setNotificationControl("unavailable");
+  }
+}
+
+async function showAttentionNotification(session: SessionMetadata): Promise<void> {
+  const registration = notificationRegistration;
+  if (registration === undefined || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    await registration.showNotification("OMP session needs attention", {
+      ...(session.title ? { body: session.title } : session.cwdLabel ? { body: session.cwdLabel } : {}),
+    });
+  } catch {
+    // Foreground notifications are best effort and are never retried or logged with content.
+  }
+}
+
+function acceptNotificationSessions(incoming: readonly SessionMetadata[], notify: boolean): void {
+  for (const session of incoming) {
+    const previous = notificationStates.get(session.instanceId);
+    if (
+      notify &&
+      previous?.generation === session.generation &&
+      !previous.inputRequired &&
+      session.inputRequired
+    ) {
+      void showAttentionNotification(session);
+    }
+    if (previous === undefined && notificationStates.size >= MAX_SESSIONS) {
+      const oldest = notificationStates.keys().next().value;
+      if (oldest !== undefined) notificationStates.delete(oldest);
+    }
+    notificationStates.set(session.instanceId, {
+      generation: session.generation,
+      inputRequired: session.inputRequired,
+    });
+  }
+}
+
+function clearNotificationTracking(): void {
+  notificationStates.clear();
+  notificationBaselineSeeded = false;
+}
 
 function setStatus(kind: "ready" | "offline" | "unauthorized" | "expired" | "loading", message: string): void {
   statusBanner.dataset.kind = kind;
@@ -60,7 +207,11 @@ function createMetadataLine(label: string, value: string | undefined): HTMLEleme
 
 function render(): void {
   sessionList.replaceChildren();
-  const ordered = [...sessions.values()].sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+  const ordered = [...sessions.values()].sort((left, right) => {
+    if (left.inputRequired !== right.inputRequired) return left.inputRequired ? -1 : 1;
+    const started = right.startedAt.localeCompare(left.startedAt);
+    return started === 0 ? left.instanceId.localeCompare(right.instanceId) : started;
+  });
   emptyState.hidden = !directoryLoaded || ordered.length !== 0;
   for (const session of ordered) {
     const article = document.createElement("article");
@@ -73,6 +224,15 @@ function render(): void {
     const project = createMetadataLine("Project", session.cwdLabel);
     const model = createMetadataLine("Model", session.model);
     const timing = createMetadataLine("", formatStartedAt(session.startedAt));
+    const attention = session.inputRequired ? document.createElement("p") : undefined;
+    const attentionId = `attention-${session.instanceId}`;
+    if (attention !== undefined) {
+      attention.id = attentionId;
+      attention.className = "attention";
+      attention.textContent = session.canControl
+        ? "Needs attention"
+        : "Needs attention — Control unavailable";
+    }
 
     const actions = document.createElement("div");
     actions.className = "session-actions";
@@ -82,6 +242,7 @@ function render(): void {
     view.textContent = "View";
     view.setAttribute("aria-label", `View ${sessionLabel}`);
     view.disabled = !session.canView;
+    if (attention !== undefined) view.setAttribute("aria-describedby", attentionId);
     view.addEventListener("click", () => void launch(session, "view", view));
     actions.append(view);
 
@@ -91,6 +252,7 @@ function render(): void {
       control.className = "action action-control";
       control.textContent = "Control";
       control.setAttribute("aria-label", `Control ${sessionLabel}`);
+      if (attention !== undefined) control.setAttribute("aria-describedby", attentionId);
       control.addEventListener("click", () => void launch(session, "control", control));
       actions.append(control);
     }
@@ -100,6 +262,7 @@ function render(): void {
     if (project !== undefined) article.append(project);
     if (model !== undefined) article.append(model);
     if (timing !== undefined) article.append(timing);
+    if (attention !== undefined) article.append(attention);
     article.append(actions);
     sessionList.append(article);
   }
@@ -208,6 +371,7 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLBu
   if (!response.ok) {
     if (response.status === 403) {
       authorizationDenied = true;
+      clearNotificationTracking();
       fail("unauthorized", "This tailnet identity is not authorized.");
     } else if (response.status === 404 || response.status === 409) {
       fail("expired", "That session changed or expired. Refreshing the list…");
@@ -238,9 +402,11 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
   authorizationDenied = false;
   directoryLoaded = true;
   if (event.type === "snapshot") {
+    acceptNotificationSessions(event.sessions, true);
     sessions.clear();
     for (const session of event.sessions) sessions.set(session.instanceId, session);
   } else if (event.type === "session_upsert") {
+    acceptNotificationSessions([event.session], true);
     sessions.set(event.session.instanceId, event.session);
   } else {
     const current = sessions.get(event.instanceId);
@@ -267,6 +433,7 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
       authorizationDenied = true;
       directoryLoaded = false;
       sessions.clear();
+      clearNotificationTracking();
       render();
       setStatus("unauthorized", "This tailnet identity is not authorized.");
       return false;
@@ -274,6 +441,8 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     if (!response.ok) throw new Error("snapshot failed");
     const payload = parseSessionListResponse(await response.json());
     if (epoch !== directoryEpoch || payload.revision < directoryRevision) return false;
+    acceptNotificationSessions(payload.sessions, notificationBaselineSeeded);
+    notificationBaselineSeeded = true;
     directoryRevision = payload.revision;
     authorizationDenied = false;
     directoryLoaded = true;
@@ -343,6 +512,7 @@ async function refreshAndConnect(): Promise<boolean> {
   return loaded && epoch === directoryEpoch;
 }
 refreshButton.addEventListener("click", () => void refreshAndConnect());
+notificationButton.addEventListener("click", () => void requestNotificationPermission());
 window.addEventListener("pageshow", event => {
   if (event.persisted) void refreshAndConnect();
 });
@@ -361,5 +531,5 @@ window.addEventListener("offline", () => {
   setStatus("offline", "Offline. Sessions are not available without the gateway.");
 });
 
-if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+void initializeNotifications();
 await refreshAndConnect();

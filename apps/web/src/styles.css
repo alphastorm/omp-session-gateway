@@ -154,6 +154,53 @@ h1 {
   opacity: 0.55;
 }
 
+.masthead-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.notify {
+  min-height: 2.75rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--body);
+  background: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.notify:hover:not(:disabled),
+.notify:focus-visible {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+.notify:disabled {
+  cursor: default;
+  border-color: var(--border-subtle);
+  color: var(--muted);
+}
+
+.notify[data-state="checking"],
+.notify[data-state="enabling"] {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.notify-note {
+  margin: 0;
+  max-width: 15rem;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
 .status {
   display: flex;
   align-items: center;
@@ -319,6 +366,33 @@ h1 {
   border-color: var(--control);
 }
 
+/* Needs-attention pill — static, metadata-only; sits below .session-meta,
+   above .session-actions. Card border is NOT changed. See ATTENTION_SPEC.md */
+.attention {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.65rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.4rem;
+  background: rgba(201, 155, 69, 0.06);
+  color: var(--control);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.attention::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--control);
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -390,9 +464,25 @@ footer {
     display: block;
   }
 
-  .refresh {
-    width: 100%;
+  .masthead-actions {
     margin-top: 1.1rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .refresh {
+    flex: 1 1 7rem;
+  }
+
+  .notify {
+    flex: 1.6 1 11rem;
+  }
+
+  .notify-note {
+    width: 100%;
+    max-width: none;
+    text-align: left;
   }
 
   footer {

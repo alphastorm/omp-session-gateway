@@ -17,10 +17,11 @@ This is a community project and is not affiliated with or endorsed by the Oh My 
 OMP's `/collab` feature already provides an excellent browser experience, but each running session must currently be started and opened individually. A user with several terminal sessions wants one secure page on an Android phone that:
 
 - lists every live OMP session automatically;
+- surfaces a metadata-only **Needs attention** state when a session is waiting for human input;
 - requires no per-session command, QR scan, or link copy;
 - opens either read-only or full-control collaboration;
 - removes stale sessions automatically; and
-- does not expose collaboration capabilities to the public Internet, logs, or persistent browser storage.
+- does not expose collaboration capabilities to the public Internet, logs, notifications, or persistent browser storage.
 
 ## User experience
 
@@ -29,9 +30,10 @@ After installation and tailnet configuration:
 1. `omp-gatewayd` starts automatically when the desktop user logs in; `omp-gateway serve` may provide an equivalent foreground/development entry point.
 2. Tailscale Serve exposes only the loopback dashboard/API to approved tailnet identities.
 3. Each interactive `omp` process automatically starts collaboration when configured and registers its current view/control capability through authenticated local IPC.
-4. The Android PWA lists every live process within a few seconds.
-5. Tapping **View** or **Control** launches the pinned OMP browser client.
-6. Session switches, exits, crashes, and daemon restarts reconcile without manual cleanup.
+4. The Android PWA lists every live process within a few seconds and orders sessions waiting for human input first.
+5. Tapping **View** or **Control** launches the pinned OMP browser client. A later Control launch can answer an already-pending request; View remains read-only.
+6. An explicit dashboard action may enable generic foreground notifications. Permission is never requested on load, and notification taps return only to the dashboard.
+7. Session switches, exits, crashes, and daemon restarts reconcile without manual cleanup.
 
 ## Architecture
 
@@ -153,8 +155,8 @@ has passed on the advertised platforms.
 
 ## Current upstream baseline
 
-Pinned OMP commit: `39c95e5e29b1c8b082059f57421ce445c3dffdd4`, observed on **2026-07-19** with
-**v17.0.5** as the nearest release. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
+Pinned OMP commit: `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`, observed on **2026-07-21** with
+**v17.0.6** as the nearest release. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
 source paths.
 
 ## Contributing and releases

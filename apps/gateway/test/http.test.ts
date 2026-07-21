@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { PublishedSessionInput } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { SafeLogger } from "../src/logger.ts";
@@ -42,9 +43,8 @@ function request(path: string, init: RequestInit = {}, identity = "allowed@examp
   return new Request(`${origin}${path}`, { ...init, headers });
 }
 
-function populatedRegistry(instanceId = "http-instance-000001"): SessionRegistry {
-  const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
-  registry.upsert("owner", {
+function publishedSession(instanceId = "http-instance-000001", inputRequired = false): PublishedSessionInput {
+  return {
     instanceId,
     generation: 3,
     pid: 1234,
@@ -53,9 +53,15 @@ function populatedRegistry(instanceId = "http-instance-000001"): SessionRegistry
     cwdLabel: "repository",
     model: "fixture/model",
     startedAt: "2026-07-19T00:00:00.000Z",
+    inputRequired,
     viewLink: viewCapability,
     controlLink: controlCapability,
-  });
+  };
+}
+
+function populatedRegistry(instanceId = "http-instance-000001"): SessionRegistry {
+  const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+  registry.upsert("owner", publishedSession(instanceId));
   return registry;
 }
 
@@ -69,6 +75,17 @@ function launchRequest(
     headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
     body: JSON.stringify({ mode, generation }),
   });
+}
+
+async function readSseEvent(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  while (!text.includes("\n\n")) {
+    const next = await reader.read();
+    if (next.done) throw new Error("SSE stream ended before an event");
+    text += decoder.decode(next.value, { stream: true });
+  }
+  return text.slice(0, text.indexOf("\n\n") + 2);
 }
 
 beforeAll(async () => {
@@ -150,22 +167,40 @@ describe("HTTP boundary", () => {
     expect(response.status).toBe(404);
   });
 
-  test("returns metadata-only no-store list and SSE", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+  test("returns ordered metadata-only no-store list and SSE transitions", async () => {
+    const registry = populatedRegistry();
+    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets });
     const list = await handler(request("/api/v1/sessions"), peer);
     const text = await list.text();
     expect(list.headers.get("Cache-Control")).toContain("no-store");
     expect(text).not.toContain(viewCapability);
     expect(text).not.toContain(controlCapability);
+    expect(text).not.toContain("PROMPT_CONTENT_CANARY");
     expect(text).toContain("Safe session");
+    expect(text).toContain('"inputRequired":false');
 
     const sse = await handler(request("/api/v1/events"), peer);
     const reader = sse.body?.getReader();
-    const first = await reader?.read();
-    const eventText = first?.value === undefined ? "" : new TextDecoder().decode(first.value);
-    expect(eventText).toContain("event: snapshot");
-    expect(eventText).not.toContain(viewCapability);
-    await reader?.cancel();
+    if (reader === undefined) throw new Error("missing SSE body");
+    const snapshot = await readSseEvent(reader);
+    expect(snapshot).toContain("event: snapshot");
+    expect(snapshot).not.toContain(viewCapability);
+    expect(snapshot).not.toContain("PROMPT_CONTENT_CANARY");
+    expect(snapshot).toContain('"inputRequired":false');
+
+    registry.upsert("owner", publishedSession("http-instance-000001", true));
+    const required = await readSseEvent(reader);
+    expect(required).toContain("event: session_upsert");
+    expect(required).toContain('"revision":2');
+    expect(required).toContain('"inputRequired":true');
+    expect(required).not.toContain(viewCapability);
+
+    registry.upsert("owner", publishedSession("http-instance-000001", false));
+    const cleared = await readSseEvent(reader);
+    expect(cleared).toContain('"revision":3');
+    expect(cleared).toContain('"inputRequired":false');
+    expect((await handler(launchRequest(), peer)).status).toBe(200);
+    await reader.cancel();
   });
 
   test("releases exactly one requested capability with no-store", async () => {
