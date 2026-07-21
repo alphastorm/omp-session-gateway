@@ -26,6 +26,7 @@ import { SessionRegistry } from "../src/registry.ts";
 
 interface ClientData {
   text: string;
+  closed: boolean;
   waiters: Array<{ needle: string; resolve(): void }>;
 }
 
@@ -176,7 +177,7 @@ function testConfig(root: string): GatewayConfig {
 async function connect(endpoint: string): Promise<Bun.Socket<ClientData>> {
   return Bun.connect<ClientData>({
     unix: endpoint,
-    data: { text: "", waiters: [] },
+    data: { text: "", closed: false, waiters: [] },
     socket: {
       data(socket, chunk) {
         socket.data.text += Buffer.from(chunk).toString("utf8");
@@ -186,7 +187,9 @@ async function connect(endpoint: string): Promise<Bun.Socket<ClientData>> {
         }
       },
       open() {},
-      close() {},
+      close(socket) {
+        socket.data.closed = true;
+      },
       error() {},
     },
   });
@@ -547,10 +550,59 @@ test("IPC deadlines free publisher capacity and preserve fragmented frames", asy
     const replacementIdleDeadline = deadlineScheduler.onlyActive(idleTimeoutMilliseconds);
     expect(replacementIdleDeadline).not.toBe(firstIdleDeadline);
     replacementIdleDeadline.fire();
+    await waitFor(() => socket.data.closed);
     expect(registry.size).toBe(0);
     expect(server.publishers).toBe(0);
+    expect(socket.data.text).not.toContain("protocol_error");
     stalled.end();
     socket.end();
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("IPC closes authenticated publishers when heartbeat state is absent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-expired-"));
+  const config = testConfig(root);
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
+  const token = "T".repeat(43);
+  const server = await startRegistryIpcServer({
+    config,
+    token,
+    registry,
+    logger: new SafeLogger({ write() {} }),
+  });
+
+  try {
+    const socket = await connect(config.paths.socketPath);
+    const instanceId = "ipc-instance-expired";
+    await authenticatePublisher(socket, token, instanceId, 600);
+    socket.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "upsert",
+        session: {
+          instanceId,
+          generation: 1,
+          pid: 600,
+          sessionId: "ipc-session-expired",
+          startedAt: "2026-07-21T00:00:00.000Z",
+          viewLink: `EXPIRED_VIEW_${"V".repeat(20)}`,
+        },
+      })}\n`,
+    );
+    await waitFor(() => registry.size === 1);
+
+    socket.write(
+      `${JSON.stringify({ v: 1, op: "remove", instanceId, generation: 1, reason: "stopped" })}\n`,
+    );
+    await waitFor(() => registry.size === 0);
+    socket.write(`${JSON.stringify({ v: 1, op: "heartbeat", instanceId, generation: 1 })}\n`);
+
+    await waitFor(() => socket.data.closed && server.publishers === 0);
+    expect(socket.data.text).not.toContain("protocol_error");
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });
