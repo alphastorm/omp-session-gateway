@@ -33,6 +33,7 @@ function published(generation = 1, overrides: Partial<PublishedSessionInput> = {
     cwdLabel: "repository",
     model: "fixture/model",
     startedAt: "2026-07-19T00:00:00.000Z",
+    inputRequired: false,
     viewLink: viewCapability,
     controlLink: controlCapability,
     ...overrides,
@@ -48,6 +49,30 @@ describe("SessionRegistry", () => {
     expect(JSON.stringify(snapshot)).not.toContain(viewCapability);
     expect(JSON.stringify(snapshot)).not.toContain(controlCapability);
     expect(registry.lookupCapability("registry-instance-0001", 1, "view")).toMatchObject({ status: "ok" });
+  });
+
+  test("publishes ordered same-generation input-required transitions without changing capabilities", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const events: SessionEvent[] = [];
+    registry.subscribe(event => events.push(event));
+
+    registry.upsert("owner-a", published());
+    registry.upsert("owner-a", published(1, { inputRequired: true }));
+    registry.upsert("owner-a", published(1, { inputRequired: false }));
+
+    expect(
+      events.map(event => [
+        event.revision,
+        event.type === "session_upsert" ? event.session.inputRequired : undefined,
+      ]),
+    ).toEqual([
+      [1, false],
+      [2, true],
+      [3, false],
+    ]);
+    expect(registry.snapshot().sessions[0]?.inputRequired).toBe(false);
+    expect(registry.lookupCapability("registry-instance-0001", 1, "view")).toMatchObject({ status: "ok" });
+    expect(registry.lookupCapability("registry-instance-0001", 1, "control")).toMatchObject({ status: "ok" });
   });
 
   test("revokes an old generation before replacement becomes observable", () => {

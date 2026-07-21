@@ -53,6 +53,7 @@ export interface PublishedSessionInput {
   readonly cwdLabel?: string;
   readonly model?: string;
   readonly startedAt: string;
+  readonly inputRequired?: boolean;
   readonly viewLink: string;
   readonly controlLink?: string;
 }
@@ -92,6 +93,7 @@ export interface SessionMetadata {
   readonly lastSeenAt: string;
   readonly canView: boolean;
   readonly canControl: boolean;
+  readonly inputRequired: boolean;
 }
 
 export interface SessionListResponse {

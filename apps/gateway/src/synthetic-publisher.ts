@@ -97,6 +97,7 @@ for (let index = 0; index < count; index += 1) {
                 cwdLabel: `fixture-${connection.data.index + 1}`,
                 model: "fixture/model",
                 startedAt: new Date(Date.now() - connection.data.index * 60_000).toISOString(),
+                inputRequired: false,
                 viewLink: connection.data.viewLink,
                 controlLink: connection.data.controlLink,
               },
