@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 - Recorded the signed `v0.1.0-prealpha.2` recovery relay soak as passed after 28,800 seconds, eight room transitions, a live final phase, no restart, and a 720 KiB gateway RSS increase; physical Android relay qualification remains open.
 - Recorded the corrected `v0.1.0-prealpha.4` physical trial on Pixel 10 Pro / Android 17 / Chrome 150: installed-PWA View/Control/Back, exactly-once retained response, attention clearing, metadata-only foreground and lock-screen notification, dashboard-only notification tap, lock/resume, network transition, relay reconnect, generation replacement with stale `409`, and TTL removal/republication passed. Distinct-device denial, deep browser-sink inspection, physical interrupt, remaining switch/branch/resume cases, and signed host release qualification remain deferred.
+- Recorded the signed `v0.1.0-prealpha.5` physical Android three-process and silent-partition trial plus a 50-publisher capacity run: all three real OMP cards appeared automatically, Airplane mode cleared them by the 40-second observation after the configured 35-second deadline, and recovery restored exactly three, while 50 normal-cadence publishers averaged 0.125% of one CPU core and stayed below 63 MiB observed daemon RSS.
 
 ## [0.1.0-prealpha.5] - 2026-07-21
 
