@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.1] - 2026-07-21
+
 ### Added
 
 - Versioned protocol package with strict publisher, metadata, SSE, launch, and secret-separation validation.
@@ -33,6 +35,7 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Published and independently verified immutable provenance-test `provenance-test-v0.1.0.9` from protected `main`, including the mutual-authentication and reconnect hardening, current hosted Windows qualification, byte-identical exact-tag archive/SBOM/checksum reproduction, GitHub build attestations, Cosign bundles, and a signed-artifact macOS packaging/runtime smoke through Tailscale Serve; native lifecycle and physical Android gates remain open.
 - Published and independently verified corrected immutable provenance-test `provenance-test-v0.1.0.10` from protected `main`, including host-suspension reconnect recovery, current hosted Windows qualification, byte-identical exact-tag archive/SBOM/checksum reproduction, GitHub build attestations, Cosign bundles, and signed-artifact macOS Serve, restart, patched-publisher, and finite-suspension smoke; native lifecycle and physical Android gates remain open.
 - Documented the distinct product boundaries and best-fit workflows for OMP Session Gateway and `omp-deck` without presenting either as a universal replacement.
+- Adopted the dark-first Gate visual identity across the PWA and repository, including installable platform icons, accessible View/Control hierarchy, branded social artwork, and a normative brand specification.
 
 - Made production install a config/service/runtime transaction with prior-endpoint checks, instance-bound HMAC readiness, verified legacy-runtime rollback, exact external Serve-port guidance, and recovery uninstall that does not require a readable application config.
 

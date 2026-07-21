@@ -1,15 +1,16 @@
 # Release status
 
-**Updated:** 2026-07-20  
-**Repository version:** `0.1.0` (provenance-test artifact only; no alpha)  
-**Classification:** implemented pre-alpha  
-**Alpha decision:** **NO-GO**  
+**Updated:** 2026-07-21<br>
+**Repository version:** `0.1.0` (`v0.1.0-prealpha.1`; no alpha)<br>
+**Classification:** implemented pre-alpha<br>
+**Alpha decision:** **NO-GO**<br>
 **Advertised host/client platforms:** none
 
-The repository implements the intended v1 path and publishes a deterministic Bun-runtime
-archive only as a provenance exercise. It is not production-qualified, no alpha artifact is
+The repository implements the intended v1 path and may publish deterministic Bun-runtime
+pre-alpha archives for evaluation. It is not production-qualified, no alpha artifact is
 approved for publication, and no operating system, browser, or Android device is currently
-supported. Repository commits and provenance-test archives are engineering inputs for qualification only.
+supported. Repository commits, pre-alpha archives, and provenance-test archives are engineering
+inputs for qualification only.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
