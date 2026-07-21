@@ -3,24 +3,28 @@
  * of `@oh-my-pi/pi-coding-agent/src/collab/relay-client.ts` semantics).
  *
  * Connects to a relay room, seals/opens AES-GCM frames in strict order, and
- * reconnects with exponential backoff on transient drops. Fatal relay close
- * codes (room gone, host conflict, room full) and decryption failures never
- * reconnect.
+ * reconnects with exponential backoff on transient drops. Established guests
+ * also recover across bounded relay room replacement; initial missing rooms,
+ * host conflicts, room capacity, and decryption failures remain terminal.
  */
 
 import type { GuestFrame, HostFrame, RelayControlMessage } from "@oh-my-pi/pi-wire";
 import { open, seal } from "./codec";
 import { packEnvelope, unpackEnvelope } from "./link";
 
-const FATAL_CLOSE_REASONS: Record<number, string> = {
+const ROOM_CLOSE_REASONS: Record<number, string> = {
 	4001: "room closed",
 	4004: "no such room",
+};
+
+const FATAL_CLOSE_REASONS: Record<number, string> = {
 	4009: "a host is already connected for this room",
 	4029: "room is full",
 };
 
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
+const MAX_ROOM_RECOVERY_RETRIES = 6;
 /** Max enveloped frames buffered while a reconnect is pending; overflow is dropped. */
 const MAX_PENDING_SENDS = 256;
 
@@ -56,6 +60,10 @@ export class CollabSocket {
 	#sendGeneration = 0;
 	/** Every opened guest transport must emit its hello before application frames. */
 	#awaitingHello = false;
+	/** A valid welcome proves this guest capability previously addressed a live room. */
+	#roomEstablished = false;
+	/** Bounded independently from ordinary transport reconnects, which reset on WebSocket open. */
+	#roomRecoveryAttempts = 0;
 
 	constructor(opts: CollabSocketOptions) {
 		this.#opts = opts;
@@ -65,11 +73,20 @@ export class CollabSocket {
 		return this.#ws?.readyState === WebSocket.OPEN;
 	}
 
+	/** Confirm that this guest transport received and applied a valid host welcome. */
+	markRoomWelcomed(): void {
+		if (this.#opts.role !== "guest" || this.#closed) return;
+		this.#roomEstablished = true;
+		this.#roomRecoveryAttempts = 0;
+	}
+
 	connect(): void {
 		if (this.#ws || this.#retryTimer) return;
 		this.#closed = false;
 		this.#resetSendsForNewTransport();
 		this.#attempt = 0;
+		this.#roomEstablished = false;
+		this.#roomRecoveryAttempts = 0;
 		this.#openSocket();
 	}
 
@@ -207,6 +224,22 @@ export class CollabSocket {
 	#handleClose(code: number, reason: string): void {
 		if (this.#closed) return;
 		this.#resetSendsForNewTransport();
+		const roomCloseReason = ROOM_CLOSE_REASONS[code];
+		if (roomCloseReason !== undefined) {
+			if (
+				this.#opts.role === "guest" &&
+				this.#roomEstablished &&
+				this.#roomRecoveryAttempts < MAX_ROOM_RECOVERY_RETRIES
+			) {
+				const recoveryAttempt = this.#roomRecoveryAttempts++;
+				this.onClose?.(roomCloseReason, true);
+				this.#scheduleRetry(recoveryAttempt);
+				return;
+			}
+			this.#closed = true;
+			this.onClose?.(roomCloseReason, false);
+			return;
+		}
 		const fatalReason = FATAL_CLOSE_REASONS[code];
 		if (fatalReason !== undefined) {
 			this.#closed = true;
@@ -214,7 +247,7 @@ export class CollabSocket {
 			return;
 		}
 		this.onClose?.(reason || `connection lost (code ${code})`, true);
-		this.#scheduleRetry();
+		this.#scheduleRetry(this.#attempt++);
 	}
 
 	/** Decryption failure: wrong key or corrupted frame. Never reconnect. */
@@ -235,9 +268,8 @@ export class CollabSocket {
 		this.onClose?.(reason, false);
 	}
 
-	#scheduleRetry(): void {
-		const base = Math.min(BACKOFF_BASE_MS * 2 ** this.#attempt, BACKOFF_MAX_MS);
-		this.#attempt++;
+	#scheduleRetry(attempt: number): void {
+		const base = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
 		const delay = base * (0.75 + Math.random() * 0.5);
 		this.#retryTimer = setTimeout(() => {
 			this.#retryTimer = undefined;

@@ -61,6 +61,46 @@ class FakeWebSocket {
   }
 }
 
+interface FakeTimerHarness {
+  pendingDelays(): number[];
+  runNext(): void;
+  restore(): void;
+}
+
+function installFakeTimers(): FakeTimerHarness {
+  const nativeSetTimeout = globalThis.setTimeout;
+  const nativeClearTimeout = globalThis.clearTimeout;
+  const nativeRandom = Math.random;
+  const timers = new Map<number, { handler: TimerHandler; delay: number }>();
+  let nextTimer = 0;
+  globalThis.setTimeout = ((handler: TimerHandler, delay?: number) => {
+    nextTimer += 1;
+    timers.set(nextTimer, { handler, delay: delay ?? 0 });
+    return nextTimer;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((timer: number | Timer | undefined) => {
+    if (typeof timer === "number") timers.delete(timer);
+  }) as typeof clearTimeout;
+  Math.random = () => 0.5;
+  return {
+    pendingDelays: () => [...timers.values()].map(timer => timer.delay).sort((left, right) => left - right),
+    runNext() {
+      const next = [...timers.entries()].sort(([, left], [, right]) => left.delay - right.delay)[0];
+      if (next === undefined) throw new Error("no fake timer is pending");
+      const [id, timer] = next;
+      timers.delete(id);
+      if (typeof timer.handler !== "function") throw new Error("string timer handlers are unsupported");
+      timer.handler();
+    },
+    restore() {
+      globalThis.setTimeout = nativeSetTimeout;
+      globalThis.clearTimeout = nativeClearTimeout;
+      Math.random = nativeRandom;
+      timers.clear();
+    },
+  };
+}
+
 async function decodeFrames(socket: FakeWebSocket, key: CryptoKey): Promise<Array<Record<string, unknown>>> {
   return Promise.all(
     socket.sent.map(async bytes => {
@@ -253,6 +293,91 @@ describe("CollabSocket browser lifecycle recovery", () => {
     expect(initial.sent).toHaveLength(1);
     expect(replacement.sent).toHaveLength(2);
     socket.close();
+  });
+
+  test("recovers an established guest after the relay replaces its room", () => {
+    const timers = installFakeTimers();
+    try {
+      const client = new GuestClient(TEST_LINK, "test guest");
+      client.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      client.applyFrameForTest(TEST_WELCOME);
+      expect(client.getSnapshot().phase).toBe("live");
+
+      initial.onmessage?.({ data: JSON.stringify({ t: "room-closed" }) } as MessageEvent);
+      expect(client.getSnapshot().phase).toBe("live");
+      initial.close(4001);
+      expect(client.getSnapshot().phase).toBe("reconnecting");
+      expect(timers.pendingDelays()).toEqual([1_000]);
+
+      timers.runNext();
+      const missingRoom = FakeWebSocket.instances[1];
+      if (missingRoom === undefined) throw new Error("missing-room WebSocket was not created");
+      missingRoom.open();
+      missingRoom.close(4004);
+      expect(client.getSnapshot().phase).toBe("reconnecting");
+      expect(timers.pendingDelays()).toEqual([2_000]);
+
+      timers.runNext();
+      const recovered = FakeWebSocket.instances[2];
+      if (recovered === undefined) throw new Error("recovered WebSocket was not created");
+      recovered.open();
+      client.applyFrameForTest(TEST_WELCOME);
+      expect(client.getSnapshot().phase).toBe("live");
+      expect(client.getSnapshot().endedReason).toBeNull();
+      expect(timers.pendingDelays()).toEqual([]);
+      client.close();
+    } finally {
+      timers.restore();
+    }
+  });
+
+  test("ends room recovery after six exponential retries", () => {
+    const timers = installFakeTimers();
+    try {
+      const client = new GuestClient(TEST_LINK, "test guest");
+      client.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      client.applyFrameForTest(TEST_WELCOME);
+      initial.close(4001);
+
+      const observedDelays: number[] = [];
+      for (let retry = 0; retry < 6; retry += 1) {
+        const [delay] = timers.pendingDelays();
+        if (delay === undefined) throw new Error(`room recovery retry ${retry + 1} was not scheduled`);
+        observedDelays.push(delay);
+        timers.runNext();
+        const replacement = FakeWebSocket.instances.at(-1);
+        if (replacement === undefined) throw new Error("replacement WebSocket was not created");
+        replacement.open();
+        replacement.close(4004);
+      }
+
+      expect(observedDelays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000]);
+      expect(FakeWebSocket.instances).toHaveLength(7);
+      expect(timers.pendingDelays()).toEqual([]);
+      expect(client.getSnapshot().phase).toBe("ended");
+      expect(client.getSnapshot().endedReason).toBe("no such room");
+    } finally {
+      timers.restore();
+    }
+  });
+
+  test("keeps an initially missing room terminal", () => {
+    const client = new GuestClient(TEST_LINK, "test guest");
+    client.connect();
+    const initial = FakeWebSocket.instances[0];
+    if (initial === undefined) throw new Error("initial WebSocket was not created");
+    initial.open();
+    initial.close(4004);
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(client.getSnapshot().phase).toBe("ended");
+    expect(client.getSnapshot().endedReason).toBe("no such room");
   });
 
 });
