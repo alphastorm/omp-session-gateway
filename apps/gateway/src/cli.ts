@@ -21,6 +21,7 @@ import { startHttpServer } from "./http.ts";
 import { activateRuntime, currentInstalledRuntime, stageRuntimePayload } from "./installation.ts";
 import { startRegistryIpcServer } from "./ipc.ts";
 import { SafeLogger } from "./logger.ts";
+import { PushService } from "./push.ts";
 import { SessionRegistry } from "./registry.ts";
 import {
   assertServiceInstallPreflight,
@@ -122,6 +123,7 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   const staticAssets = await StaticAssetStore.load(webRoot);
   const logger = new SafeLogger();
   const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: config.registry.maxSessions });
+  const pushService = await PushService.open({ config, registry, logger });
   const ipc = await startRegistryIpcServer({ config, token, registry, logger });
   let stopping = false;
   let resolveStop: () => void = () => undefined;
@@ -143,6 +145,7 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
       registry,
       staticAssets,
       logger,
+      pushService,
       readinessToken: token,
       ...(readinessInstance === undefined ? {} : { readinessInstance }),
     });
@@ -158,7 +161,11 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
     try {
       http?.stop(true);
     } finally {
-      await ipc.stop();
+      try {
+        await ipc.stop();
+      } finally {
+        await pushService.stop();
+      }
     }
   }
 }

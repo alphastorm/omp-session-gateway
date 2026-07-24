@@ -16,6 +16,7 @@ Highest-value assets:
 - session metadata such as project names, models, activity timing, and whether human input is required;
 - the local publisher token;
 - tailnet and WebAuthn identity material;
+- private VAPID key material and browser push subscription endpoints/keys;
 - release-signing and update infrastructure.
 
 ## 3. Threat model
@@ -66,6 +67,12 @@ API requests.
 
 Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
 
+Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
+No inbound public gateway route is required. Web Push encrypts the payload for the browser
+subscription, while the push service still observes the endpoint, source IP, size, and delivery
+timing. Treat subscription endpoints and keys as sensitive private state even though they cannot
+grant collaboration access.
+
 ## 5. Relay exposure
 
 OMP encrypts collaboration frames client-side. The relay can observe room identifiers, connection/routing metadata, participant counts, timing, and ciphertext sizes, but should not receive plaintext payloads or room keys.
@@ -87,13 +94,19 @@ Mandatory rules:
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
 
-`inputRequired` is metadata, not collaboration content. It is restricted to one boolean. Prompt
-text, options, answers, request IDs, request kinds, and pending-operation counts must never enter
-the publisher record, list/SSE response, DOM copy, notification, logs, diagnostics, or metrics.
-After an explicit browser permission action, a foreground notification may contain only the fixed
-product title plus the already-approved bounded session title, falling back to the directory label.
-Its click target is `/`, never a launch endpoint or collaboration client. Permission, transition
-tracking, and dedupe state are not stored by the application.
+`inputRequired` is metadata, not collaboration content. It remains one boolean; prompt text,
+options, answers, request IDs/kinds/counts, and transcript content never enter the publisher record,
+list/SSE, DOM copy, push state/payload, visible notification, logs, diagnostics, or metrics.
+
+After an explicit permission/subscription action, the gateway may persist a user-only VAPID key
+pair and bounded browser subscription set. It sends only protocol version, message type,
+`instanceId`, and generation. The visible notification uses the fixed title
+`OMP session needs attention` and no body. A notification tap may act as the explicit Control
+action only through `/attention/:instanceId/:generation`: synchronously replace that metadata-only
+route with `/`, fetch a current authenticated snapshot, require the exact generation plus
+`inputRequired: true` and Control availability, and then use the existing no-store launch POST.
+Never put a collaboration capability in the payload, notification data, route, history,
+service-worker message, or persisted push state.
 
 JavaScript strings cannot be reliably zeroized. Minimize lifetime, copies, closures, global state, and persistence instead of claiming memory erasure.
 
@@ -118,7 +131,8 @@ Additional requirements:
 - all metadata rendered as text, never unsanitized HTML;
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
-- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/` bootstrap, navigation, query-bearing URLs, and all non-GET requests;
+- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/` bootstrap, `/attention/`, navigation, query-bearing URLs, and all non-GET requests;
+- service worker Push handling accepts exact metadata-only `attention`/`resolved` envelopes, uses fixed visible text, tags by exact generation, and never fetches or receives a collaboration capability;
 - clear session metadata and disable launch actions whenever the directory transport fails; repopulate only from a current authenticated snapshot/SSE epoch and ignore lower revisions within that epoch;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, or performance marks;
 - external links use `rel="noopener noreferrer"`;
@@ -241,7 +255,7 @@ Before release, prove:
 - list/SSE/static HTML contain no capability canary;
 - launch responses are no-store and absent from logs/traces/caches;
 - browser URL, history, DOM, clipboard, cookies, Local Storage, IndexedDB, Cache Storage, service-worker state, test artifacts, and diagnostics contain no canary after leaving a session;
-- attention metadata and foreground notification text contain no prompt, option, answer, request, count, capability, or other content canary;
+- attention metadata, persisted push state, encrypted push payloads, visible notifications, and notification routes contain no prompt, option, answer, request, count, label, path, capability, or other content canary;
 - stopped, expired, and replaced generations cannot launch;
 - view-only mutation attempts are rejected by the OMP host;
 - cross-origin launch and WebAuthn requests fail;

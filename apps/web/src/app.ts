@@ -1,6 +1,8 @@
 import {
-  MAX_SESSIONS,
+  PUSH_API_VERSION,
   parseLaunchResponse,
+  parsePushConfigResponse,
+  parsePushSubscriptionRequest,
   parseSessionEvent,
   parseSessionListResponse,
   type LaunchMode,
@@ -40,7 +42,6 @@ const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 const EVENT_LIVENESS_TIMEOUT_MS = 35_000;
 
 const sessions = new Map<string, SessionMetadata>();
-const notificationStates = new Map<string, { generation: number; inputRequired: boolean }>();
 let events: EventSource | undefined;
 let directoryLoaded = false;
 let authorizationDenied = false;
@@ -50,28 +51,47 @@ let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
 let eventLivenessTimeout: number | undefined;
 let eventStreamStale = false;
-let notificationBaselineSeeded = false;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
+let applicationServerKey: string | undefined;
 
-type NotificationControlState = "checking" | "idle" | "enabling" | "enabled" | "blocked" | "unavailable";
+
+type NotificationControlState =
+  | "checking"
+  | "idle"
+  | "enabling"
+  | "disabling"
+  | "enabled"
+  | "blocked"
+  | "unavailable";
+
+interface PendingAttentionLaunch {
+  readonly instanceId: string;
+  readonly generation: number;
+}
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
-  checking: "Checking notifications…",
-  idle: "Enable notifications",
+  checking: "Checking background alerts…",
+  idle: "Enable background alerts",
   enabling: "Enabling…",
-  enabled: "Notifications enabled",
+  disabling: "Disabling…",
+  enabled: "Disable background alerts",
   blocked: "Notifications blocked",
-  unavailable: "Notifications unavailable",
+  unavailable: "Background alerts unavailable",
 };
 
 function setNotificationControl(state: NotificationControlState): void {
   notificationButton.dataset.state = state;
   notificationButton.textContent = notificationLabels[state];
-  notificationButton.disabled = state !== "idle";
+  notificationButton.disabled =
+    state === "checking" ||
+    state === "enabling" ||
+    state === "disabling" ||
+    state === "blocked" ||
+    state === "unavailable";
   notificationDisclosure.textContent =
     state === "blocked"
       ? "Notifications are blocked. Enable them in this site's browser settings."
-      : "Notifications may show session names on your lock screen.";
+      : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
 }
 
 function isNotificationSupportResponse(value: unknown): boolean {
@@ -116,83 +136,139 @@ async function checkNotificationWorker(registration: ServiceWorkerRegistration):
   return promise;
 }
 
-function syncNotificationPermissionState(): void {
-  if (Notification.permission === "granted") setNotificationControl("enabled");
-  else if (Notification.permission === "denied") setNotificationControl("blocked");
-  else setNotificationControl("idle");
+async function savePushSubscription(subscription: PushSubscription): Promise<void> {
+  const request = parsePushSubscriptionRequest({
+    version: PUSH_API_VERSION,
+    subscription: subscription.toJSON(),
+  });
+  const response = await fetch("/api/v1/push/subscription", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw new Error("push subscription was rejected");
 }
 
 async function initializeNotifications(): Promise<void> {
   setNotificationControl("checking");
-  if (!isSecureContext || typeof Notification === "undefined" || !("serviceWorker" in navigator)) {
+  if (
+    !isSecureContext ||
+    typeof Notification === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    typeof PushManager === "undefined"
+  ) {
     setNotificationControl("unavailable");
     return;
   }
   try {
-    const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
-    if (typeof registration.showNotification !== "function" || !(await checkNotificationWorker(registration))) {
+    const [registered, configResponse] = await Promise.all([
+      navigator.serviceWorker.register("/service-worker.js", { scope: "/" }),
+      fetch("/api/v1/push/config", { cache: "no-store", credentials: "same-origin" }),
+    ]);
+    const registration = registered.active === null ? await navigator.serviceWorker.ready : registered;
+    if (
+      !configResponse.ok ||
+      typeof registration.showNotification !== "function" ||
+      !(await checkNotificationWorker(registration))
+    ) {
       setNotificationControl("unavailable");
       return;
     }
+    const config = parsePushConfigResponse(await configResponse.json());
     notificationRegistration = registration;
-    syncNotificationPermissionState();
+    applicationServerKey = config.applicationServerKey;
+    if (Notification.permission === "denied") {
+      setNotificationControl("blocked");
+      return;
+    }
+    const existing = await registration.pushManager.getSubscription();
+    if (existing === null) {
+      setNotificationControl("idle");
+      return;
+    }
+    await savePushSubscription(existing);
+    setNotificationControl("enabled");
   } catch {
     setNotificationControl("unavailable");
   }
 }
 
-async function requestNotificationPermission(): Promise<void> {
-  if (notificationRegistration === undefined || Notification.permission !== "default") {
-    if (notificationRegistration !== undefined) syncNotificationPermissionState();
+async function toggleBackgroundNotifications(): Promise<void> {
+  const registration = notificationRegistration;
+  const publicKey = applicationServerKey;
+  if (registration === undefined || publicKey === undefined) return;
+  const existing = await registration.pushManager.getSubscription();
+  if (existing !== null) {
+    setNotificationControl("disabling");
+    const endpoint = existing.endpoint;
+    try {
+      await existing.unsubscribe();
+      await fetch("/api/v1/push/subscription", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: PUSH_API_VERSION, endpoint }),
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      setNotificationControl("idle");
+    } catch {
+      setNotificationControl("unavailable");
+    }
     return;
   }
+
   setNotificationControl("enabling");
   try {
-    await Notification.requestPermission();
-    syncNotificationPermissionState();
+    const permission =
+      Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+    if (permission !== "granted") {
+      setNotificationControl(permission === "denied" ? "blocked" : "idle");
+      return;
+    }
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: publicKey,
+    });
+    try {
+      await savePushSubscription(subscription);
+    } catch (error) {
+      await subscription.unsubscribe().catch(() => false);
+      throw error;
+    }
+    setNotificationControl("enabled");
   } catch {
-    setNotificationControl("unavailable");
+    setNotificationControl(Notification.permission === "denied" ? "blocked" : "unavailable");
   }
 }
 
-async function showAttentionNotification(session: SessionMetadata): Promise<void> {
-  const registration = notificationRegistration;
-  if (registration === undefined || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
+  const match = /^\/attention\/([^/]{1,384})\/([1-9]\d*)$/u.exec(location.pathname);
+  if (match === null) return undefined;
+  history.replaceState(null, "", "/");
+  const encodedInstanceId = match[1];
+  const generationText = match[2];
+  if (encodedInstanceId === undefined || generationText === undefined) return undefined;
+  let instanceId: string;
   try {
-    await registration.showNotification("OMP session needs attention", {
-      ...(session.title ? { body: session.title } : session.cwdLabel ? { body: session.cwdLabel } : {}),
-    });
+    instanceId = decodeURIComponent(encodedInstanceId);
   } catch {
-    // Foreground notifications are best effort and are never retried or logged with content.
+    return undefined;
   }
+  const generation = Number(generationText);
+  if (
+    !/^[A-Za-z0-9._:-]{16,128}$/u.test(instanceId) ||
+    !Number.isSafeInteger(generation) ||
+    generation < 1
+  ) {
+    return undefined;
+  }
+  return { instanceId, generation };
 }
 
-function acceptNotificationSessions(incoming: readonly SessionMetadata[], notify: boolean): void {
-  for (const session of incoming) {
-    const previous = notificationStates.get(session.instanceId);
-    if (
-      notify &&
-      previous?.generation === session.generation &&
-      !previous.inputRequired &&
-      session.inputRequired
-    ) {
-      void showAttentionNotification(session);
-    }
-    if (previous === undefined && notificationStates.size >= MAX_SESSIONS) {
-      const oldest = notificationStates.keys().next().value;
-      if (oldest !== undefined) notificationStates.delete(oldest);
-    }
-    notificationStates.set(session.instanceId, {
-      generation: session.generation,
-      inputRequired: session.inputRequired,
-    });
-  }
-}
-
-function clearNotificationTracking(): void {
-  notificationStates.clear();
-  notificationBaselineSeeded = false;
-}
+const pendingAttentionLaunch = readPendingAttentionLaunch();
+let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
 function setStatus(kind: "ready" | "offline" | "unauthorized" | "expired" | "loading", message: string): void {
   statusBanner.dataset.kind = kind;
@@ -367,13 +443,18 @@ function enterCollabClient(capability: string, startCollabWithCapability: StartC
   }
 }
 
-async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLButtonElement): Promise<void> {
-  const idleLabel = button.textContent ?? (mode === "view" ? "View" : "Control");
-  button.disabled = true;
-  button.dataset.busy = "true";
-  button.setAttribute("aria-busy", "true");
-  button.textContent = mode === "view" ? "Opening view…" : "Opening control…";
+async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLButtonElement): Promise<void> {
+  const idleLabel = button?.textContent ?? (mode === "view" ? "View" : "Control");
+  if (button !== undefined) {
+    button.disabled = true;
+    button.dataset.busy = "true";
+    button.setAttribute("aria-busy", "true");
+    button.textContent = mode === "view" ? "Opening view…" : "Opening control…";
+  } else {
+    setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
+  }
   const resetButton = (): void => {
+    if (button === undefined) return;
     button.disabled = mode === "view" && !session.canView;
     delete button.dataset.busy;
     button.removeAttribute("aria-busy");
@@ -416,7 +497,6 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button: HTMLBu
   if (!response.ok) {
     if (response.status === 403) {
       authorizationDenied = true;
-      clearNotificationTracking();
       fail("unauthorized", "This tailnet identity is not authorized.");
     } else if (response.status === 404 || response.status === 409) {
       fail("expired", "That session changed or expired. Refreshing the list…");
@@ -448,11 +528,9 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
   authorizationDenied = false;
   directoryLoaded = true;
   if (event.type === "snapshot") {
-    acceptNotificationSessions(event.sessions, true);
     sessions.clear();
     for (const session of event.sessions) sessions.set(session.instanceId, session);
   } else if (event.type === "session_upsert") {
-    acceptNotificationSessions([event.session], true);
     sessions.set(event.session.instanceId, event.session);
   } else {
     const current = sessions.get(event.instanceId);
@@ -479,7 +557,6 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
       authorizationDenied = true;
       directoryLoaded = false;
       sessions.clear();
-      clearNotificationTracking();
       render();
       setStatus("unauthorized", "This tailnet identity is not authorized.");
       return false;
@@ -487,8 +564,6 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     if (!response.ok) throw new Error("snapshot failed");
     const payload = parseSessionListResponse(await response.json());
     if (epoch !== directoryEpoch || payload.revision < directoryRevision) return false;
-    acceptNotificationSessions(payload.sessions, notificationBaselineSeeded);
-    notificationBaselineSeeded = true;
     directoryRevision = payload.revision;
     authorizationDenied = false;
     directoryLoaded = true;
@@ -533,7 +608,9 @@ function connectEvents(epoch: number): void {
       }
       armEventLiveness(source, epoch);
       try {
-        if (applyEvent(parseSessionEvent(JSON.parse(event.data)), epoch)) setStatus("ready", "");
+        if (applyEvent(parseSessionEvent(JSON.parse(event.data)), epoch) && !attentionRouteStatusLocked) {
+          setStatus("ready", "");
+        }
       } catch {
         source.close();
         if (events === source) events = undefined;
@@ -576,8 +653,11 @@ async function refreshAndConnect(): Promise<boolean> {
   if (loaded && epoch === directoryEpoch) connectEvents(epoch);
   return loaded && epoch === directoryEpoch;
 }
-refreshButton.addEventListener("click", () => void refreshAndConnect());
-notificationButton.addEventListener("click", () => void requestNotificationPermission());
+refreshButton.addEventListener("click", () => {
+  attentionRouteStatusLocked = false;
+  void refreshAndConnect();
+});
+notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 window.addEventListener("pageshow", event => {
   if (event.persisted) void refreshAndConnect();
 });
@@ -599,4 +679,18 @@ window.addEventListener("offline", () => {
 });
 
 void initializeNotifications();
-await refreshAndConnect();
+if (await refreshAndConnect()) {
+  if (pendingAttentionLaunch !== undefined) {
+    const session = sessions.get(pendingAttentionLaunch.instanceId);
+    if (
+      session !== undefined &&
+      session.generation === pendingAttentionLaunch.generation &&
+      session.inputRequired &&
+      session.canControl
+    ) {
+      await launch(session, "control");
+    } else {
+      setStatus("expired", "That attention request was already resolved or the session changed.");
+    }
+  }
+}

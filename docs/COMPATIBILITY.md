@@ -98,9 +98,10 @@ current-user/token protected.
 | `dev-localhost` HTTP mode | Development only | Never a remote, LAN, or production deployment path. |
 | Tailscale Funnel or public reverse tunnel | Unsupported | Must not be enabled or documented as a normal deployment path. |
 
-WebAuthn control gating, a Trusted Web Activity, native Android applications, background Push API
-delivery, and multi-host federation are deferred and carry no compatibility promise. The PWA's
-explicitly enabled foreground-only attention notifications do not imply background support.
+WebAuthn control gating, a Trusted Web Activity, native Android applications, and multi-host
+federation remain deferred. Background Web Push delivery is implemented with repository tests and
+a desktop Chromium closed-page smoke, but has no compatibility promise until the physical Android
+background, lock-screen, tap, stale-generation, force-stop, and network-change matrix passes.
 
 ## Upstream refresh procedure
 

@@ -32,7 +32,7 @@ After installation and tailnet configuration:
 3. Each interactive `omp` process automatically starts collaboration when configured and registers its current view/control capability through authenticated local IPC.
 4. The Android PWA lists every live process within a few seconds and orders sessions waiting for human input first.
 5. Tapping **View** or **Control** launches the pinned OMP browser client. A later Control launch can answer an already-pending request; View remains read-only.
-6. An explicit dashboard action may enable generic foreground notifications. Permission is never requested on load, and notification taps return only to the dashboard.
+6. An explicit dashboard action enables background Web Push alerts. A tap revalidates the exact live attention generation and opens Control through the ordinary no-store, in-memory launch path; no collaboration capability enters the push payload or URL.
 7. Session switches, exits, crashes, and daemon restarts reconcile without manual cleanup.
 
 ## Architecture
@@ -49,7 +49,10 @@ flowchart LR
     PHONE -->|encrypted collaboration frames| RELAY[OMP relay]
     OMP1 -->|encrypted collaboration frames| RELAY
     OMP2 -->|encrypted collaboration frames| RELAY
+    GATEWAY -->|encrypted metadata-only push| PUSH[Browser push service]
+    PUSH -->|wake service worker| PHONE
 ```
+
 
 The recommended v1 keeps OMP's existing end-to-end-encrypted relay and uses the gateway only for private discovery and just-in-time capability delivery. A self-hosted relay remains an optional later deployment mode.
 
