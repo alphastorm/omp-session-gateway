@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.7] - 2026-07-24
+
+### Fixed
+
+- Correct the release install/upgrade and rollback instructions to include the CLI's required `--origin` and `--allow` values. The signed `v0.1.0-prealpha.6` artifact remains valid, but its published install command was incomplete.
+
 ## [0.1.0-prealpha.6] - 2026-07-24
 
 ### Added
