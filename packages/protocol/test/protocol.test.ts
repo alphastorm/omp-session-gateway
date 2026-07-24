@@ -11,6 +11,10 @@ import {
   parseJsonFrame,
   parseLaunchRequest,
   parseLaunchResponse,
+  parseAttentionPushMessage,
+  parsePushConfigResponse,
+  parsePushSubscriptionRequest,
+  parsePushUnsubscribeRequest,
   parseSessionEvent,
   parseSessionListResponse,
   separatePublishedSession,
@@ -160,4 +164,40 @@ describe("strict protocol validation", () => {
       ProtocolValidationError,
     );
   });
+  test("validates strict metadata-only Web Push contracts", () => {
+    const subscription = {
+      endpoint: "https://push.example.test/send/subscription-1",
+      expirationTime: null,
+      keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
+    };
+    expect(parsePushSubscriptionRequest({ version: 1, subscription }).subscription).toEqual(subscription);
+    expect(
+      parsePushUnsubscribeRequest({ version: 1, endpoint: subscription.endpoint }).endpoint,
+    ).toBe(subscription.endpoint);
+    expect(
+      parsePushConfigResponse({ version: 1, applicationServerKey: "V".repeat(87) }).applicationServerKey,
+    ).toHaveLength(87);
+    expect(
+      parseAttentionPushMessage({ version: 1, type: "attention", instanceId, generation: 3 }),
+    ).toEqual({ version: 1, type: "attention", instanceId, generation: 3 });
+
+    for (const invalid of [
+      { version: 2, subscription },
+      { version: 1, subscription: { ...subscription, endpoint: "http://push.example.test/send" } },
+      { version: 1, subscription: { ...subscription, keys: { ...subscription.keys, auth: "short" } } },
+      { version: 1, subscription: { ...subscription, prompt: "PROMPT_CONTENT_CANARY" } },
+    ]) {
+      expect(() => parsePushSubscriptionRequest(invalid)).toThrow(ProtocolValidationError);
+    }
+    expect(() =>
+      parseAttentionPushMessage({
+        version: 1,
+        type: "attention",
+        instanceId,
+        generation: 3,
+        prompt: "PROMPT_CONTENT_CANARY",
+      }),
+    ).toThrow(ProtocolValidationError);
+  });
+
 });

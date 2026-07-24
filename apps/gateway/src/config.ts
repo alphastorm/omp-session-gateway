@@ -381,7 +381,19 @@ export interface GatewayConfigFileSnapshot {
   readonly content: string | undefined;
 }
 
-async function writePrivateTextFile(path: string, content: string): Promise<void> {
+export async function readPrivateTextFile(path: string, maximumBytes: number): Promise<string | undefined> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) throw new Error("invalid private file size limit");
+  try {
+    const bytes = await assertPrivateRegularFile(path);
+    if (bytes > maximumBytes) throw new Error(`private file exceeds size limit: ${path}`);
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export async function writePrivateTextFile(path: string, content: string): Promise<void> {
   const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {

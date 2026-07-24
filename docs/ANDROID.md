@@ -21,7 +21,7 @@ Benefits:
 - theme/background colors chosen by the implementer;
 - minimal service worker caching only versioned static shell files;
 - loaded-shell offline state that says the desktop is unreachable and removes session metadata after the bounded SSE liveness deadline;
-- no Push API or killed-browser notification delivery in v1; optional foreground notifications require an explicit permission action, keep transition state volatile, and open only the dashboard;
+- explicitly enabled background Web Push with fixed visible text, metadata-only payloads, exact-generation revalidation, and one-tap Control; delivery remains best effort and requires physical qualification;
 - Android back behavior: collab client returns to the session directory, with no secret-bearing history entry;
 - account for the virtual keyboard and `visualViewport` behavior in the embedded/pinned collab-web build;
 - test Chrome stable and at least one Chromium-based alternative if supported.
@@ -30,12 +30,14 @@ Do not cache API responses or collab client navigations. A PWA does not need to 
 
 Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline is intentionally unavailable and may remain on the browser's OS splash until connectivity returns. An already loaded dashboard receives metadata-free SSE heartbeats every 15 seconds, clears all cards after 35 seconds without a heartbeat or directory event, and requires a fresh authenticated snapshot before showing recovered sessions.
 
-Foreground notifications may expose the bounded session title or directory label on the Android
-lock screen. The dashboard must warn about that disclosure before its only permission action,
-never prompt on load, and recommend one live dashboard tab because volatile per-tab dedupe can
-produce one notification per tab. Physical Android qualification must inspect lock-screen text,
-permission behavior, notification taps, lock/resume, and SSE reconnects. Desktop emulation does
-not establish background or killed-browser support.
+Background notification payloads contain only message type, `instanceId`, and generation. Visible
+text is the fixed title `OMP session needs attention` with no body, so session labels and prompt
+content do not enter Android notification history. Permission is requested only after the dashboard
+action. A tap opens a metadata-only attention route, scrubs it immediately, and launches Control
+only after exact current-state validation. Physical qualification must cover a closed PWA,
+lock-screen text, tap-to-Control, stale/resolved notifications, browser force-stop, permission
+revocation, lock/resume, battery policy, and Wi-Fi/cellular transitions. Desktop smoke evidence
+does not establish Android support.
 
 ## Launch UX
 
@@ -68,7 +70,7 @@ The TWA should load the same owned HTTPS PWA and be verified with Digital Asset 
 
 ## When a fully native app might be justified
 
-Only reconsider a native UI if requirements emerge that cannot be delivered adequately by the browser, such as reliable background push workflows, deep OS integration, advanced notification actions, or enterprise mobile-device-management APIs. Even then, prefer embedding/reusing the web collaboration client rather than independently implementing the OMP wire protocol.
+Only reconsider a native UI if the qualified Web Push path proves inadequate for required delivery or OS integration. Even then, prefer a native/TWA shell that reuses the web collaboration client rather than independently implementing the OMP wire protocol.
 
 ## Why not a generic WebView wrapper?
 

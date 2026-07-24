@@ -1,13 +1,17 @@
 import { ProtocolValidationError, SecretCapability, type SecretSessionRecord } from "./secret.ts";
 import {
-  MAX_FRAME_BYTES,
   IPC_AUTH_VALUE_LENGTH,
+  MAX_FRAME_BYTES,
   MAX_INSTANCE_ID_BYTES,
-  MAX_SESSIONS,
   MAX_LABEL_CODEPOINTS,
+  MAX_PUSH_ENDPOINT_BYTES,
+  MAX_SESSIONS,
   PROTOCOL_VERSION,
+  PUSH_API_VERSION,
+  type AttentionPushMessage,
   type AuthenticatedPublisherFrame,
   type AuthenticateFrame,
+  type BrowserPushSubscription,
   type ChallengeFrame,
   type HeartbeatFrame,
   type HelloFrame,
@@ -15,6 +19,9 @@ import {
   type LaunchRequest,
   type LaunchResponse,
   type PublishedSessionInput,
+  type PushConfigResponse,
+  type PushSubscriptionRequest,
+  type PushUnsubscribeRequest,
   type RemoveFrame,
   type SessionEvent,
   type SessionListResponse,
@@ -26,6 +33,8 @@ const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
 const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
 const IPC_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const DISALLOWED_LABEL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu;
+const PUSH_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
+
 const REMOVE_REASONS: Record<RemoveFrame["reason"], true> = {
   stopped: true,
   shutdown: true,
@@ -324,6 +333,105 @@ export function parseLaunchRequest(value: unknown): LaunchRequest {
   if (record.mode !== "view" && record.mode !== "control") throw new ProtocolValidationError();
   return { mode: record.mode, generation: requireInteger(record.generation, 1) };
 }
+function requirePushEndpoint(value: unknown): string {
+  if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > MAX_PUSH_ENDPOINT_BYTES) {
+    throw new ProtocolValidationError();
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new ProtocolValidationError();
+  }
+  if (
+    endpoint.protocol !== "https:" ||
+    endpoint.username !== "" ||
+    endpoint.password !== "" ||
+    endpoint.hash !== "" ||
+    endpoint.href !== value
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return value;
+}
+
+function requirePushKey(value: unknown, minimumLength: number, maximumLength: number): string {
+  if (
+    typeof value !== "string" ||
+    value.length < minimumLength ||
+    value.length > maximumLength ||
+    !PUSH_KEY_PATTERN.test(value)
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return value;
+}
+
+function parseBrowserPushSubscription(value: unknown): BrowserPushSubscription {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["endpoint", "expirationTime", "keys"]);
+  const keys = requireRecord(record.keys);
+  requireExactKeys(keys, ["p256dh", "auth"]);
+  if (
+    record.expirationTime !== null &&
+    (!Number.isSafeInteger(record.expirationTime) || (record.expirationTime as number) < 0)
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return {
+    endpoint: requirePushEndpoint(record.endpoint),
+    expirationTime: record.expirationTime as number | null,
+    keys: {
+      p256dh: requirePushKey(keys.p256dh, 80, 128),
+      auth: requirePushKey(keys.auth, 20, 64),
+    },
+  };
+}
+
+export function parsePushSubscriptionRequest(value: unknown): PushSubscriptionRequest {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["version", "subscription"]);
+  if (record.version !== PUSH_API_VERSION) throw new ProtocolValidationError();
+  return {
+    version: PUSH_API_VERSION,
+    subscription: parseBrowserPushSubscription(record.subscription),
+  };
+}
+
+export function parsePushUnsubscribeRequest(value: unknown): PushUnsubscribeRequest {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["version", "endpoint"]);
+  if (record.version !== PUSH_API_VERSION) throw new ProtocolValidationError();
+  return { version: PUSH_API_VERSION, endpoint: requirePushEndpoint(record.endpoint) };
+}
+
+export function parsePushConfigResponse(value: unknown): PushConfigResponse {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["version", "applicationServerKey"]);
+  if (record.version !== PUSH_API_VERSION) throw new ProtocolValidationError();
+  return {
+    version: PUSH_API_VERSION,
+    applicationServerKey: requirePushKey(record.applicationServerKey, 80, 128),
+  };
+}
+
+export function parseAttentionPushMessage(value: unknown): AttentionPushMessage {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["version", "type", "instanceId", "generation"]);
+  if (
+    record.version !== PUSH_API_VERSION ||
+    (record.type !== "attention" && record.type !== "resolved")
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return {
+    version: PUSH_API_VERSION,
+    type: record.type,
+    instanceId: requireInstanceId(record.instanceId),
+    generation: requireInteger(record.generation, 1),
+  };
+}
+
 
 function parseSessionMetadata(value: unknown): SessionMetadata {
   const record = requireRecord(value);

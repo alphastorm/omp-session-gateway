@@ -47,6 +47,7 @@ Responsibilities:
 - stream metadata-only updates with SSE;
 - start at desktop login and recover cleanly from restart;
 - embed or serve a pinned build/integration of OMP's existing `collab-web` client;
+- persist private VAPID/subscription material separately from the memory-only session registry and send metadata-only Web Push attention/resolution envelopes;
 - provide `install`, `status`, `doctor`, token rotation, and `uninstall` through `omp-gateway`.
 
 The registry is intentionally empty after daemon restart. Live OMP publishers repopulate it; no capability database exists.
@@ -68,11 +69,12 @@ Each card may show only non-secret metadata:
 
 The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/sessions` and `GET /api/v1/events`, then requests one capability after an explicit tap.
 
-An explicit dashboard action may enable foreground browser notifications for authoritative
-false-to-true response-required transitions. Permission is never requested on load. Notification
-taps focus or open the metadata directory at `/`; they never launch or prefetch Control. State and
-deduplication remain volatile, so one live dashboard tab is recommended and background or
-killed-browser delivery is not supported.
+An explicit dashboard action enables background Web Push. Permission is never requested on load.
+The gateway sends only strict instance/generation attention metadata to the browser-provided push
+endpoint; visible text is fixed and contains no session label or prompt content. A tap opens a
+metadata-only attention route, which is synchronously scrubbed before the exact generation and
+current attention state are revalidated. Valid taps request Control through the ordinary no-store,
+in-memory launch flow; stale taps remain on the directory.
 
 ### 1.5 Existing OMP collaboration client
 
@@ -128,7 +130,19 @@ emits only that boolean with ordinary metadata. The host retains the bounded req
 writable guest joins or the local side settles it. The last lease release republishes `false`
 before any generation removal; stale releases from prior generations are ignored.
 
-### 2.3 View or Control launch
+### 2.3 Background attention push
+
+1. The user explicitly grants notification permission and subscribes through
+   `POST /api/v1/push/subscription`.
+2. The gateway persists only the VAPID key pair, browser endpoint/keys, and authenticated identity
+   in a private state file.
+3. A Control-capable attention transition queues an encrypted metadata-only `attention` message;
+   a clear/removal queues `resolved` under the same coalescing topic.
+4. The browser push service wakes the installed PWA's service worker even when no page is open.
+5. Tapping opens `/attention/:instanceId/:generation`; the app replaces the route with `/`, fetches
+   current authenticated metadata, and launches Control only for an exact actionable match.
+
+### 2.4 View or Control launch
 
 1. The user taps **View** or **Control**.
 2. For a separate client page, browser code opens `/client/` synchronously to preserve the user gesture; for an integrated SPA, it reserves the client route in memory.
@@ -139,7 +153,7 @@ before any generation removal; stale releases from prior generations are ignored
 7. The client connects directly to the relay encoded by OMP's parser.
 8. Leaving the client drops capability references and returns to the metadata directory. Reload does not reconnect automatically.
 
-### 2.4 Session switch, resume, or branch
+### 2.5 Session switch, resume, or branch
 
 Treat any lifecycle transition that invalidates OMP's current collaboration host as a generation change:
 
@@ -152,7 +166,7 @@ Treat any lifecycle transition that invalidates OMP's current collaboration host
 
 If steps 2 or 3 fail, do not publish N+1 until the local publisher state guarantees the old generation cannot be launched through the gateway.
 
-### 2.5 Crash and stale cleanup
+### 2.6 Crash and stale cleanup
 
 The daemon records receipt time using a monotonic clock. A sweeper removes entries after the configured TTL; a recommended baseline is a 10-second heartbeat and 35-second TTL. Socket close may remove immediately, but TTL remains the crash and partial-failure safety net.
 
@@ -178,6 +192,7 @@ flowchart TB
 
     HTTP <--> SERVE
     OMP <--> RELAY[Content-blind relay]
+    GATEWAY --> PUSH[Browser push service] --> PHONE
     PHONE <--> RELAY
 ```
 
@@ -200,3 +215,4 @@ The documented extension lifecycle can observe session events, but the handoff c
 - Gateway restart: it starts empty; live publishers reconnect and repopulate.
 - OMP crash: socket closure or TTL removes the card and capability.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.
+- Browser push service unavailable or delivery delayed: the dashboard and collaboration paths continue normally; alerts are best effort and never bypass current-state validation.
