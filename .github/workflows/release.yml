@@ -126,16 +126,12 @@ jobs:
             echo "Release $GITHUB_REF_NAME already exists; refusing to mutate it." >&2
             exit 1
           fi
-          if [[ "$GITHUB_REF_NAME" == provenance-test-* ]]; then
-            status="Provenance workflow test; not an alpha release"
-          else
-            status="Pre-alpha; not platform- or Android-qualified"
-          fi
           notes="$RUNNER_TEMP/release-notes.md"
-          cat > "$notes" <<EOF
-          ## $status
+          if [[ "$GITHUB_REF_NAME" == provenance-test-* ]]; then
+            cat > "$notes" <<EOF
+          ## Provenance workflow test; not an alpha release
 
-          This release exists to exercise the pre-alpha build and keyless provenance path. It is not an alpha or production-qualified release. Platform, Android, and remaining security gates in [docs/TEST_PLAN.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/TEST_PLAN.md) remain release blockers.
+          This release exercises the pre-alpha build and keyless provenance path. It is not an alpha or production-qualified release.
 
           - Source commit: \`$GITHUB_SHA\`
           - OMP baseline: \`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6\` (nearest release v17.0.6)
@@ -143,6 +139,42 @@ jobs:
           - Registry protocol: 1
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
+          else
+            cat > "$notes" <<EOF
+          ## Pre-alpha; physical background-push qualification pending
+
+          This release adds opt-in background Web Push to the installed **OMP Sessions** PWA. It is not an alpha or production-qualified release.
+
+          ### User-visible changes
+
+          - **Enable background alerts** creates a browser Push subscription only after an explicit tap.
+          - A background notification uses fixed text and carries only instance/generation metadata.
+          - Tapping a current notification revalidates the exact attention generation and opens Control through the existing no-store, in-memory capability launch.
+          - Resolution, generation replacement, and stale endpoints remove obsolete notifications or subscriptions.
+
+          ### Security
+
+          Collaboration capabilities, prompt content, session labels, paths, and transcripts never enter Push payloads, notification text, routes, logs, or persisted Push state. The per-install VAPID private key and bounded browser subscriptions use the existing private state-directory permissions.
+
+          ### Install or upgrade
+
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install\` from the extracted directory. Active reinstall preserves the existing gateway configuration and publisher token. Reload or reopen the canonical PWA, then tap **Enable background alerts** and accept the browser permission prompt.
+
+          ### Compatibility and known issues
+
+          - Source commit: \`$GITHUB_SHA\`
+          - Exact release baseline: OMP v17.0.6 at \`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6\` with the included patch.
+          - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 1.
+          - Chrome/Android delivery uses the browser vendor's Push service and requires outbound Internet access.
+          - Closed-PWA, lock-screen, force-stop, notification-tap, stale-generation, and network-change behavior remains unqualified on physical Android for this candidate.
+
+          ### Rollback
+
+          Reinstall the signed \`v0.1.0-prealpha.5\` archive with the same command. The older gateway ignores the private Push state; existing configuration and publisher credentials remain valid.
+
+          Verification instructions: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md).
+          EOF
+          fi
           gh release create "$GITHUB_REF_NAME" \
             "$ARCHIVE_PATH" \
             "$SBOM_PATH" \
