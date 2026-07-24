@@ -158,7 +158,7 @@ jobs:
 
           ### Install or upgrade
 
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install\` from the extracted directory. Active reinstall preserves the existing gateway configuration and publisher token. Reload or reopen the canonical PWA, then tap **Enable background alerts** and accept the browser permission prompt.
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` from the extracted directory, replacing both values with the existing canonical origin and allowed identity. Repeat \`--allow\` for additional identities. Active reinstall with the same values preserves the publisher token. Reload or reopen the canonical PWA, then tap **Enable background alerts** and accept the browser permission prompt.
 
           ### Compatibility and known issues
 
@@ -170,7 +170,7 @@ jobs:
 
           ### Rollback
 
-          Reinstall the signed \`v0.1.0-prealpha.5\` archive with the same command. The older gateway ignores the private Push state; existing configuration and publisher credentials remain valid.
+          To remove background Push, reinstall the signed \`v0.1.0-prealpha.5\` archive with \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\`, using the deployment's real values. The older gateway ignores the private Push state; existing publisher credentials remain valid.
 
           Verification instructions: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md).
           EOF
