@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Record the user-reported physical Android `v0.1.0-prealpha.7` core background-Push flow as partial evidence while keeping exact-version lock-screen, force-stop, stale-generation, network-change, and forbidden-sink qualification open.
+
 ## [0.1.0-prealpha.7] - 2026-07-24
 
 ### Fixed
