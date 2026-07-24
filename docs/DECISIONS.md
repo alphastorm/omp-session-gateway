@@ -231,3 +231,35 @@ transition still require native-device qualification.
 **Decision:** Emit a metadata-free named `keepalive` SSE event every 15 seconds. The loaded dashboard resets a 35-second liveness deadline on every directory event or keepalive. Missing that deadline clears all displayed session metadata and marks the transport unavailable. The next event after a silent partition triggers a fresh authenticated snapshot and a new SSE epoch before cards return.
 
 **Consequences:** Silent partitions now have a bounded stale-display window of 35 seconds. The additive event is ignored safely by older v1 clients and carries no session data or capability. API responses and navigation remain outside service-worker caches; a cold installed-PWA launch while fully offline is intentionally unavailable, while an already loaded shell fails closed without stale metadata.
+
+---
+
+## ADR-017 — Deliver actionable attention through metadata-only Web Push
+
+**Status:** Accepted
+
+**Context:** Foreground SSE notifications cannot reach an installed PWA after its page closes. The
+phone user needs an actionable alert that reaches the exact live session with one tap, without
+placing a collaboration capability or prompt content in a notification, URL, or persistent browser
+state. A native Android/FCM wrapper would retain the same server-side delivery work while adding an
+APK, signing, Digital Asset Links, distribution, and native lifecycle surface.
+
+**Decision:** Use standard Web Push from the loopback gateway to each browser-provided push endpoint.
+Persist one per-install VAPID key pair and at most eight authenticated browser subscriptions in a
+user-only state file; this state is separate from the in-memory session registry and never contains
+session metadata or collaboration capabilities. Send only strict `attention`/`resolved` envelopes
+containing protocol version, `instanceId`, and generation, encrypted by Web Push, with a short TTL,
+high urgency, and a per-generation coalescing topic. Visible notifications use a fixed title and no
+body. After explicit opt-in, the notification tap is the explicit Control action: open a
+metadata-only attention route, synchronously scrub it to `/`, authenticate through the normal
+Tailscale path, validate exact generation plus current `inputRequired`/Control availability, and
+then use the existing no-store in-memory launch flow. Stale taps fail closed to the directory.
+
+**Consequences:** Closed-page delivery works without public gateway ingress or a custom cloud broker,
+but the browser push service observes endpoint and delivery timing and remains an availability
+dependency; payload content is encrypted. Browser force-stop, notification settings, power policy,
+offline devices, or a sleeping desktop may delay or prevent delivery. Push state now has a narrowly
+scoped private persistence exception, while collaboration capabilities and the session registry
+remain memory-only. Physical Android background, lock-screen, tap, force-stop, and network-change
+qualification is release-blocking. A native FCM wrapper remains a fallback only if this path fails
+that qualification.

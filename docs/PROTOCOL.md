@@ -247,6 +247,67 @@ Recommended event types:
 
 Use a bounded revision history or send a fresh snapshot on reconnect. Never send heartbeat events merely to expose timestamps more precisely than the UI needs.
 
+### `GET /api/v1/push/config`
+
+Returns the public half of the per-install VAPID key:
+
+```json
+{
+  "version": 1,
+  "applicationServerKey": "<url-safe-P-256-public-key>"
+}
+```
+
+The response is authenticated and no-store. The VAPID private key never leaves the gateway's
+user-only state file and process memory.
+
+### `POST /api/v1/push/subscription`
+
+After an explicit permission action, the browser registers its subscription:
+
+```json
+{
+  "version": 1,
+  "subscription": {
+    "endpoint": "https://push.example.invalid/send/device",
+    "expirationTime": null,
+    "keys": {
+      "p256dh": "<browser-public-key>",
+      "auth": "<browser-auth-secret>"
+    }
+  }
+}
+```
+
+Require exact same-origin mutation context, `application/json`, strict keys, HTTPS endpoint without
+credentials or fragment, bounded key/endpoint/body sizes, authenticated identity, rate limits, and
+at most eight stored subscriptions. Persist the endpoint/keys, identity, and VAPID pair only in a
+private atomic state file. This file is not the session registry and contains no session metadata
+or collaboration capability.
+
+`DELETE /api/v1/push/subscription` accepts exactly `{ "version": 1, "endpoint": "..." }`. Browser
+unsubscribe is authoritative; a failed delete leaves an unusable endpoint that the gateway removes
+when delivery returns `404` or `410`.
+
+### Web Push attention envelope
+
+The encrypted payload is exactly one of:
+
+```json
+{ "version": 1, "type": "attention", "instanceId": "metadata-instance-id", "generation": 3 }
+{ "version": 1, "type": "resolved", "instanceId": "metadata-instance-id", "generation": 3 }
+```
+
+No title, directory label, prompt, request identity, response data, path, transcript content, or
+collaboration capability is permitted. Send with high urgency, a five-minute TTL, and a
+generation-derived coalescing topic. The service worker shows a fixed-title, bodyless notification
+for `attention` and closes the matching tag for `resolved`.
+
+The click route `/attention/:instanceId/:generation` contains metadata only and returns the
+no-store application shell. The app synchronously replaces it with `/`, loads current authenticated
+metadata, and performs the ordinary Control launch POST only when the exact generation remains
+actionable and controllable.
+
 ### `POST /api/v1/sessions/:instanceId/launch`
 
 Request:

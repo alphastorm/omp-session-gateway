@@ -6,6 +6,10 @@ export const MAX_SESSIONS = 1_000;
 export const MAX_INSTANCE_ID_BYTES = 128;
 export const IPC_AUTH_NONCE_BYTES = 32;
 export const IPC_AUTH_VALUE_LENGTH = 43;
+export const PUSH_API_VERSION = 1 as const;
+export const MAX_PUSH_ENDPOINT_BYTES = 4 * 1024;
+export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024;
+
 
 export type LaunchMode = "view" | "control";
 export type RemoveReason =
@@ -110,6 +114,47 @@ export type SessionEvent =
       readonly instanceId: string;
       readonly generation: number;
     };
+export interface PushSubscriptionKeys {
+  readonly p256dh: string;
+  readonly auth: string;
+}
+
+export interface BrowserPushSubscription {
+  readonly endpoint: string;
+  readonly expirationTime: number | null;
+  readonly keys: PushSubscriptionKeys;
+}
+
+export interface PushSubscriptionRequest {
+  readonly version: typeof PUSH_API_VERSION;
+  readonly subscription: BrowserPushSubscription;
+}
+
+export interface PushUnsubscribeRequest {
+  readonly version: typeof PUSH_API_VERSION;
+  readonly endpoint: string;
+}
+
+export interface PushConfigResponse {
+  readonly version: typeof PUSH_API_VERSION;
+  readonly applicationServerKey: string;
+}
+
+/** Metadata-only message encrypted for one browser push subscription. */
+export type AttentionPushMessage =
+  | {
+      readonly version: typeof PUSH_API_VERSION;
+      readonly type: "attention";
+      readonly instanceId: string;
+      readonly generation: number;
+    }
+  | {
+      readonly version: typeof PUSH_API_VERSION;
+      readonly type: "resolved";
+      readonly instanceId: string;
+      readonly generation: number;
+    };
+
 
 export interface LaunchRequest {
   readonly mode: LaunchMode;

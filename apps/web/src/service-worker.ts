@@ -1,3 +1,5 @@
+import { parseAttentionPushMessage, type AttentionPushMessage } from "@omp-session-gateway/protocol";
+
 declare const __SHELL_ASSETS__: readonly string[];
 declare const __CACHE_NAME__: string;
 
@@ -22,24 +24,66 @@ worker.addEventListener("message", event => {
   event.ports[0]?.postMessage({ type: "omp-notification-support-response", version: 1 });
 });
 
+function notificationTag(message: AttentionPushMessage): string {
+  return `omp-attention-${message.instanceId}-${message.generation}`;
+}
+
+worker.addEventListener("push", event => {
+  let message: AttentionPushMessage;
+  try {
+    if (event.data === null) return;
+    message = parseAttentionPushMessage(event.data.json());
+  } catch {
+    return;
+  }
+  const tag = notificationTag(message);
+  event.waitUntil(
+    message.type === "resolved"
+      ? worker.registration
+          .getNotifications({ tag })
+          .then(notifications => {
+            for (const notification of notifications) notification.close();
+          })
+      : worker.registration.showNotification("OMP session needs attention", {
+          tag,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          data: message,
+        }),
+  );
+});
+
 worker.addEventListener("notificationclick", event => {
   event.notification.close();
+  let path = "/";
+  try {
+    const message = parseAttentionPushMessage(event.notification.data);
+    if (message.type === "attention") {
+      path = `/attention/${encodeURIComponent(message.instanceId)}/${message.generation}`;
+    }
+  } catch {
+    // Invalid or legacy notification data returns to the non-secret directory.
+  }
   event.waitUntil(
     (async () => {
       const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
       const dashboard = windows.find(client => {
         const url = new URL(client.url);
-        return url.origin === worker.location.origin && url.pathname === "/";
+        return (
+          url.origin === worker.location.origin &&
+          (url.pathname === "/" || url.pathname.startsWith("/attention/"))
+        );
       });
       if (dashboard !== undefined) {
         try {
-          const focused = await dashboard.focus();
-          if (focused !== null) return;
+          const navigated = await dashboard.navigate(path);
+          const focused = await navigated?.focus();
+          if (focused !== null && focused !== undefined) return;
         } catch {
           // Fall through to a fresh dashboard window.
         }
       }
-      await worker.clients.openWindow("/");
+      await worker.clients.openWindow(path);
     })(),
   );
 });

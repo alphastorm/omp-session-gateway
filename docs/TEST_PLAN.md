@@ -32,6 +32,8 @@
 - view/control availability enforcement;
 - all API responses no-store;
 - CSP and security headers.
+- strict push config/subscription/unsubscribe schemas, exact-origin mutation enforcement, private persistence, subscription bounds, and stale-endpoint removal;
+- ordered metadata-only attention/resolved delivery with duplicate suppression and generation-safe resolution;
 
 ### OMP patch
 
@@ -54,6 +56,7 @@ Fail on any exact fixture or meaningful substring outside its designated source/
 Add distinct prompt, option, prefill, answer, and request canaries. They must be absent from IPC
 logs/errors, list/SSE, DOM, notification title/body/data, service-worker messages, URLs/history,
 browser storage/caches, screenshots/traces, diagnostics, and repository artifacts.
+- scan the private push state, intercepted encrypted-payload plaintext before transport, visible notification title/body/data, notification tags, and attention-route history; allow only synthetic VAPID/subscription fixtures and strict instance/generation metadata in their designated sinks;
 
 ## 3. Integration tests
 
@@ -75,6 +78,9 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 - concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
 - generation replacement clears attention before removal and cannot be mutated by a stale lease;
 
+- browser subscription -> gateway private state -> false-to-true registry transition -> push transport -> service-worker notification;
+- true-to-false/removal closes the exact notification tag; `404`/`410` transport responses remove the endpoint;
+- notification route revalidates exact current generation and attention state before the ordinary Control launch;
 ## 4. End-to-end acceptance scenarios
 
 ### A. Automatic discovery
@@ -104,9 +110,11 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 3. Client reconnects or gives a clear recovery path.
 4. Switch Wi-Fi/mobile network while Tailscale remains connected.
 5. Android back returns safely without a reusable secret-bearing history entry.
-6. Explicitly enable foreground notifications in one live dashboard tab; page load never prompts, one false-to-true transition notifies once, and tapping it focuses or opens `/` rather than Control.
-7. Inspect the Android lock-screen notification for only the fixed title and approved session title/directory label; repeat after SSE reconnect and lock/resume.
+6. Explicitly enable background alerts; page load never prompts, closing/navigating away from the PWA still permits an actionable false-to-true push, and visible text is exactly the fixed title with no body.
+7. Tap the notification; the metadata-only attention route is immediately scrubbed, exact current state is revalidated, and one tap opens Control only for that still-actionable generation.
 8. With live cards visible, remove all radio connectivity while Tailscale's virtual interface remains present; within 35 seconds the loaded dashboard clears every card, and connectivity restoration repopulates only a fresh snapshot without Refresh or duplicates.
+9. Resolve, replace, and expire the session before tapping delayed notifications; each stays on the dashboard with no capability request for a newer generation.
+10. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
 
 ### E. Authorization
 
