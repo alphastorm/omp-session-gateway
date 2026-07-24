@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.6] - 2026-07-24
+
 ### Added
 
 - Add explicitly enabled background Web Push using private persisted VAPID/subscription state, strict metadata-only attention/resolution payloads, duplicate collapse, resolution cleanup, and stale-endpoint pruning.
