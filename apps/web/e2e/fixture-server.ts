@@ -64,6 +64,29 @@ export async function startDashboardFixture(
         response.end(JSON.stringify({ revision, sessions: [...sessions.values()] }));
         return;
       }
+      if (method === "GET" && url.pathname === "/api/v1/push/config") {
+        response.writeHead(200, {
+          "Cache-Control": "no-store, max-age=0",
+          "Content-Type": "application/json; charset=utf-8",
+          Pragma: "no-cache",
+        });
+        response.end(JSON.stringify({ version: 1, applicationServerKey: "V".repeat(87) }));
+        return;
+      }
+      if (
+        (method === "POST" || method === "DELETE") &&
+        url.pathname === "/api/v1/push/subscription"
+      ) {
+        for await (const _chunk of request) {
+          // Consume the request so the browser can reuse the connection.
+        }
+        response.writeHead(204, {
+          "Cache-Control": "no-store, max-age=0",
+          Pragma: "no-cache",
+        });
+        response.end();
+        return;
+      }
       const launchMatch = /^\/api\/v1\/sessions\/([^/]+)\/launch$/u.exec(url.pathname);
       if (method === "POST" && launchMatch !== null) {
         let requestBody = "";
