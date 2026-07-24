@@ -126,9 +126,9 @@ It does not promote untested rows or broaden the pinned OMP range.
 - Same-desktop-user malware, a compromised browser/OS, and an unlocked authorized phone are
   outside or inherited trust boundaries described in `SECURITY.md`.
 - Tagged Tailscale source devices, Tailscale Funnel, public/LAN HTTP, self-hosted relays,
-  WebAuthn gating, TWA/native clients, background Push API delivery, and multi-host federation are
-  not supported by this release line. Foreground attention notifications remain unqualified on
-  physical Android and may duplicate once per simultaneously open dashboard tab.
+  WebAuthn gating, TWA/native clients, and multi-host federation are not supported by this release
+  line. Background Web Push is implemented but remains unqualified until the physical Android
+  closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop, and network matrix passes.
 - No production upgrade or rollback path has completed cross-platform qualification.
 
 ## Updating this ledger

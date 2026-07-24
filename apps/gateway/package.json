@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@omp-session-gateway/protocol": "workspace:*"
+    "@omp-session-gateway/protocol": "workspace:*",
+    "web-push": "3.6.7"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
   }
 }

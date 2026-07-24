@@ -1,15 +1,20 @@
 import { createHmac } from "node:crypto";
 import {
   MAX_FRAME_BYTES,
+  MAX_PUSH_SUBSCRIPTION_BYTES,
   ProtocolValidationError,
   type SessionEvent,
   parseJsonFrame,
   parseLaunchRequest,
+  parsePushSubscriptionRequest,
+  parsePushUnsubscribeRequest,
 } from "@omp-session-gateway/protocol";
 import { authorizeHttpRequest, isLoopbackAddress, requestHasValidMutationContext, type RequestPeer } from "./auth.ts";
 import type { GatewayConfig } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
+import type { PushService } from "./push.ts";
+
 import { StaticAssetStore } from "./static.ts";
 
 const API_HEADERS: Record<string, string> = {
@@ -87,6 +92,19 @@ function isValidClientBootstrap(url: URL): boolean {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(entries[0][1])
   );
 }
+function isValidAttentionBootstrap(url: URL): boolean {
+  const match = /^\/attention\/([^/]{1,384})\/([1-9]\d*)$/u.exec(url.pathname);
+  if (match === null) return false;
+  const encodedInstanceId = match[1];
+  const generation = Number(match[2]);
+  if (encodedInstanceId === undefined || !Number.isSafeInteger(generation) || generation < 1) return false;
+  try {
+    return /^[A-Za-z0-9._:-]{16,128}$/u.test(decodeURIComponent(encodedInstanceId));
+  } catch {
+    return false;
+  }
+}
+
 
 
 async function readBoundedBody(request: Request, maximumBytes: number): Promise<Uint8Array> {
@@ -168,6 +186,7 @@ export function createHttpHandler(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
+  readonly pushService?: PushService;
   readonly logger?: SafeLogger;
   readonly readinessToken?: string;
   readonly readinessInstance?: string;
@@ -184,6 +203,7 @@ export function createHttpHandler(options: {
       return problem(400, "bad_request", "Invalid request");
     }
     const clientBootstrap = isValidClientBootstrap(url);
+    const attentionBootstrap = request.method === "GET" && isValidAttentionBootstrap(url);
     if (url.search !== "" && !clientBootstrap) {
       return problem(400, "bad_request", "Query parameters are not accepted");
     }
@@ -221,6 +241,53 @@ export function createHttpHandler(options: {
     if (url.pathname === "/api/v1/events" && request.method === "GET") {
       return eventStream(registry, options.sseKeepaliveMs);
     }
+    if (url.pathname === "/api/v1/push/config" && request.method === "GET" && options.pushService !== undefined) {
+      return withSecurityHeaders(Response.json(options.pushService.configResponse()), true);
+    }
+    if (
+      url.pathname === "/api/v1/push/subscription" &&
+      (request.method === "POST" || request.method === "DELETE") &&
+      options.pushService !== undefined
+    ) {
+      if (!requestHasValidMutationContext(request, config.http.publicOrigin)) {
+        return problem(403, "forbidden", "Forbidden");
+      }
+      if (request.headers.get("Content-Type")?.toLowerCase() !== "application/json") {
+        return problem(415, "unsupported_media_type", "Expected application/json");
+      }
+      if (!limiter.allow(`${authorization.identityKey}\0push`)) {
+        return problem(429, "rate_limited", "Too many requests");
+      }
+      let body: unknown;
+      try {
+        body = parseJsonFrame(await readBoundedBody(request, MAX_PUSH_SUBSCRIPTION_BYTES));
+      } catch {
+        return problem(400, "bad_request", "Invalid request");
+      }
+      if (request.method === "POST") {
+        let subscriptionRequest;
+        try {
+          subscriptionRequest = parsePushSubscriptionRequest(body);
+        } catch {
+          return problem(400, "bad_request", "Invalid request");
+        }
+        try {
+          await options.pushService.subscribe(authorization.identityKey, subscriptionRequest);
+        } catch {
+          return problem(409, "subscription_rejected", "Push subscription could not be saved");
+        }
+      } else {
+        let unsubscribeRequest;
+        try {
+          unsubscribeRequest = parsePushUnsubscribeRequest(body);
+        } catch {
+          return problem(400, "bad_request", "Invalid request");
+        }
+        await options.pushService.unsubscribe(authorization.identityKey, unsubscribeRequest);
+      }
+      return withSecurityHeaders(new Response(null, { status: 204 }), true);
+    }
+
 
     const launchMatch = /^\/api\/v1\/sessions\/([^/]{1,384})\/launch$/u.exec(url.pathname);
     if (launchMatch !== null && request.method === "POST") {
@@ -265,8 +332,11 @@ export function createHttpHandler(options: {
     }
 
     if (url.pathname.startsWith("/api/")) return problem(404, "not_found", "Not found");
-    const staticResponse = staticAssets.response(url.pathname);
-    return withSecurityHeaders(staticResponse ?? new Response("Not found", { status: 404 }), clientBootstrap);
+    const staticResponse = staticAssets.response(attentionBootstrap ? "/" : url.pathname);
+    return withSecurityHeaders(
+      staticResponse ?? new Response("Not found", { status: 404 }),
+      clientBootstrap || attentionBootstrap,
+    );
   };
 }
 
@@ -274,6 +344,7 @@ export function startHttpServer(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
   readonly staticAssets: StaticAssetStore;
+  readonly pushService?: PushService;
   readonly logger?: SafeLogger;
   readonly readinessToken: string;
   readonly readinessInstance?: string;

@@ -8,6 +8,8 @@ const GLOBAL_NAMES = [
   "navigator",
   "Notification",
   "MessageChannel",
+  "PushManager",
+  "history",
   "EventSource",
   "fetch",
   "isSecureContext",
@@ -160,10 +162,6 @@ class FakeEventSource extends EventTarget {
   }
 }
 
-interface NotificationCall {
-  readonly title: string;
-  readonly options: NotificationOptions;
-}
 
 interface BrowserHarness {
   readonly elements: {
@@ -176,9 +174,12 @@ interface BrowserHarness {
   disconnectEvents(): void;
   expireEventLiveness(): void;
   readonly fetchPaths: string[];
-  readonly notificationCalls: NotificationCall[];
   readonly permissionRequests: { count: number };
+  readonly subscriptionRequests: unknown[];
+  readonly unsubscribeRequests: unknown[];
+  readonly subscriptionCalls: { subscribe: number; unsubscribe: number };
   readonly workerMessages: unknown[];
+  readonly replacedPaths: readonly string[];
   readonly window: FakeWindow;
   emit(type: "snapshot" | "session_upsert" | "session_remove" | "keepalive", payload: unknown): void;
   setList(revision: number, sessions: readonly SessionMetadata[], status?: number): void;
@@ -216,6 +217,8 @@ async function bootApp(options: {
   readonly initialSessions: readonly SessionMetadata[];
   readonly workerResponse?: unknown;
   readonly permissionResult?: NotificationPermission;
+  readonly existingSubscription?: boolean;
+  readonly pathname?: string;
   readonly suffix: string;
 }): Promise<BrowserHarness> {
   FakeEventSource.instances.length = 0;
@@ -225,7 +228,7 @@ async function bootApp(options: {
   const refreshButton = new FakeElement("button");
   refreshButton.textContent = "Refresh";
   const notificationButton = new FakeElement("button");
-  notificationButton.textContent = "Checking notifications…";
+  notificationButton.textContent = "Checking background alerts…";
   notificationButton.disabled = true;
   const notificationDisclosure = new FakeElement("p");
   const bySelector: Record<string, FakeElement> = {
@@ -246,20 +249,68 @@ async function bootApp(options: {
     },
   };
   const window = new FakeWindow();
-  const location = { origin: "https://sessions.example" };
+  const location = {
+    origin: "https://sessions.example",
+    pathname: options.pathname ?? "/",
+    reload(): void {},
+    replace(): void {},
+  };
+  const history = {
+    replaced: [] as string[],
+    replaceState(_data: unknown, _unused: string, path: string): void {
+      this.replaced.push(path);
+      location.pathname = path;
+    },
+    pushState(): void {},
+  };
   const fetchPaths: string[] = [];
   let listRevision = 1;
   let listSessions = [...options.initialSessions];
   let listStatus = 200;
-  const notificationCalls: NotificationCall[] = [];
   const workerMessages: unknown[] = [];
   const permissionRequests = { count: 0 };
+  const subscriptionRequests: unknown[] = [];
+  const unsubscribeRequests: unknown[] = [];
+  const subscriptionCalls = { subscribe: 0, unsubscribe: 0 };
   const notificationApi = {
     permission: options.permission,
     async requestPermission(): Promise<NotificationPermission> {
       permissionRequests.count += 1;
       this.permission = options.permissionResult ?? "granted";
       return this.permission;
+    },
+  };
+  const pushSubscriptionJson = {
+    endpoint: "https://push.example.test/send/browser-device",
+    expirationTime: null,
+    keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
+  };
+  let currentSubscription: PushSubscription | null = null;
+  const createPushSubscription = (): PushSubscription => ({
+    endpoint: pushSubscriptionJson.endpoint,
+    expirationTime: null,
+    options: { userVisibleOnly: true, applicationServerKey: null },
+    getKey(): ArrayBuffer | null {
+      return null;
+    },
+    toJSON(): PushSubscriptionJSON {
+      return pushSubscriptionJson;
+    },
+    async unsubscribe(): Promise<boolean> {
+      subscriptionCalls.unsubscribe += 1;
+      currentSubscription = null;
+      return true;
+    },
+  });
+  if (options.existingSubscription === true) currentSubscription = createPushSubscription();
+  const pushManager = {
+    async getSubscription(): Promise<PushSubscription | null> {
+      return currentSubscription;
+    },
+    async subscribe(): Promise<PushSubscription> {
+      subscriptionCalls.subscribe += 1;
+      currentSubscription = createPushSubscription();
+      return currentSubscription;
     },
   };
   const registration = {
@@ -273,9 +324,8 @@ async function bootApp(options: {
         transfer[0]?.postMessage(response);
       },
     },
-    async showNotification(title: string, notificationOptions: NotificationOptions = {}): Promise<void> {
-      notificationCalls.push({ title, options: notificationOptions });
-    },
+    pushManager,
+    async showNotification(): Promise<void> {},
   };
   const navigator = {
     serviceWorker: {
@@ -284,9 +334,18 @@ async function bootApp(options: {
       },
     },
   };
-  const fetch = async (input: RequestInfo | URL): Promise<Response> => {
+  const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
     fetchPaths.push(path);
+    if (path === "/api/v1/push/config") {
+      return Response.json({ version: 1, applicationServerKey: "V".repeat(87) });
+    }
+    if (path === "/api/v1/push/subscription") {
+      const body = typeof init.body === "string" ? JSON.parse(init.body) as unknown : undefined;
+      if (init.method === "DELETE") unsubscribeRequests.push(body);
+      else subscriptionRequests.push(body);
+      return new Response(null, { status: 204 });
+    }
     if (path !== "/api/v1/sessions") throw new Error(`unexpected fetch: ${path}`);
     if (listStatus !== 200) return new Response("", { status: listStatus });
     return Response.json({ revision: listRevision, sessions: listSessions });
@@ -296,8 +355,10 @@ async function bootApp(options: {
     window: { configurable: true, value: window },
     document: { configurable: true, value: document },
     location: { configurable: true, value: location },
+    history: { configurable: true, value: history },
     navigator: { configurable: true, value: navigator },
     Notification: { configurable: true, value: notificationApi },
+    PushManager: { configurable: true, value: class {} },
     MessageChannel: { configurable: true, value: FakeMessageChannel },
     EventSource: { configurable: true, value: FakeEventSource },
     fetch: { configurable: true, value: fetch },
@@ -307,15 +368,18 @@ async function bootApp(options: {
 
   // app.ts bootstraps at import time, so a cache-busted test module is required for an isolated page.
   await import(`../src/app.ts?${options.suffix}`);
-  await settleUntil(() => notificationButton.textContent !== "Checking notifications…");
+  await settleUntil(() => notificationButton.textContent !== "Checking background alerts…");
   await settleUntil(() => FakeEventSource.instances.length === 1);
 
   return {
     elements: { sessionList, statusBanner, notificationButton, notificationDisclosure, refreshButton },
     fetchPaths,
-    notificationCalls,
     permissionRequests,
+    subscriptionRequests,
+    unsubscribeRequests,
+    subscriptionCalls,
     workerMessages,
+    replacedPaths: history.replaced,
     window,
     emit(type, payload): void {
       const source = FakeEventSource.instances.at(-1);
@@ -380,13 +444,29 @@ describe("dashboard attention and notifications", () => {
     ).toEqual([firstPill?.id ?? null, firstPill?.id ?? null]);
     expect(firstPill?.id).toBe("attention-attention-control-0001");
     expect(harness.permissionRequests.count).toBe(0);
-    expect(harness.notificationCalls).toEqual([]);
     expect(harness.workerMessages).toEqual([{ type: "omp-notification-support-request", version: 1 }]);
-    expect(harness.elements.notificationButton.textContent).toBe("Enable notifications");
+    expect(harness.elements.notificationButton.textContent).toBe("Enable background alerts");
     expect(harness.elements.notificationButton.dataset.state).toBe("idle");
     expect(harness.elements.notificationDisclosure.textContent).toBe(
-      "Notifications may show session names on your lock screen.",
+      "Alerts work with the app closed. Tapping one opens current Control after revalidation.",
     );
+  });
+
+  test("scrubs stale notification routes and keeps their expired state visible", async () => {
+    const harness = await bootApp({
+      permission: "denied",
+      pathname: "/attention/stale-attention-0001/7",
+      suffix: "stale-attention-route",
+      initialSessions: [],
+    });
+
+    expect(harness.replacedPaths).toEqual(["/"]);
+    expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
+    expect(harness.elements.statusBanner.textContent).toBe(
+      "That attention request was already resolved or the session changed.",
+    );
+    harness.emit("snapshot", { type: "snapshot", revision: 2, sessions: [] });
+    expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
   });
 
   test("clears stale metadata after missed SSE heartbeats and resyncs when transport resumes", async () => {
@@ -404,98 +484,70 @@ describe("dashboard attention and notifications", () => {
 
     harness.setList(2, [base]);
     harness.emit("keepalive", {});
-    await settleUntil(() => harness.fetchPaths.length === 2);
+    await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
     await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });
 
-  test("notifies only on accepted same-generation false-to-true transitions after explicit grant", async () => {
-    const base = session("transition-session-001", { title: "Safe title" });
+  test("creates and removes a persistent push subscription only after explicit user actions", async () => {
+    const base = session("transition-session-001", { title: "PROMPT_CONTENT_CANARY" });
     const harness = await bootApp({
       permission: "default",
       permissionResult: "granted",
-      suffix: "notification-transitions",
+      suffix: "background-subscription",
       initialSessions: [base],
     });
 
+    expect(harness.subscriptionRequests).toHaveLength(0);
     harness.elements.notificationButton.dispatchEvent(new Event("click"));
-    expect(harness.elements.notificationButton.dataset.state).toBe("enabling");
-    await settleUntil(() => harness.elements.notificationButton.textContent === "Notifications enabled");
+    await settleUntil(() => harness.elements.notificationButton.textContent === "Disable background alerts");
     expect(harness.elements.notificationButton.dataset.state).toBe("enabled");
+    expect(harness.elements.notificationButton.disabled).toBeFalse();
     expect(harness.permissionRequests.count).toBe(1);
+    expect(harness.subscriptionCalls.subscribe).toBe(1);
+    expect(harness.subscriptionRequests).toHaveLength(1);
+    expect(JSON.stringify(harness.subscriptionRequests)).not.toContain("CONTENT_CANARY");
 
-    harness.emit("session_upsert", { type: "session_upsert", revision: 2, session: { ...base, inputRequired: true } });
-    await settleUntil(() => harness.notificationCalls.length === 1);
-    harness.emit("session_upsert", { type: "session_upsert", revision: 3, session: { ...base, inputRequired: true } });
-    harness.emit("session_upsert", { type: "session_upsert", revision: 1, session: { ...base, inputRequired: false } });
-    expect(harness.notificationCalls).toEqual([
-      { title: "OMP session needs attention", options: { body: "Safe title" } },
-    ]);
-
-    harness.emit("session_upsert", { type: "session_upsert", revision: 4, session: base });
-    harness.emit("session_remove", {
-      type: "session_remove",
-      revision: 5,
-      instanceId: base.instanceId,
-      generation: base.generation,
-    });
-    harness.emit("session_upsert", { type: "session_upsert", revision: 6, session: { ...base, inputRequired: true } });
-    await settleUntil(() => harness.notificationCalls.length === 2);
-
-    const replacement = { ...base, generation: 2, inputRequired: true };
-    harness.emit("session_upsert", { type: "session_upsert", revision: 7, session: replacement });
-    expect(harness.notificationCalls).toHaveLength(2);
-    harness.emit("session_upsert", { type: "session_upsert", revision: 8, session: { ...replacement, inputRequired: false } });
-    harness.emit("session_upsert", { type: "session_upsert", revision: 9, session: replacement });
-    await settleUntil(() => harness.notificationCalls.length === 3);
-    expect(harness.fetchPaths).toEqual(["/api/v1/sessions"]);
-
-    const { title: _cwdTitle, ...cwdOnly } = session("cwd-only-session-001", { cwdLabel: "Safe project" });
-    harness.emit("session_upsert", { type: "session_upsert", revision: 10, session: cwdOnly });
     harness.emit("session_upsert", {
       type: "session_upsert",
-      revision: 11,
-      session: { ...cwdOnly, inputRequired: true },
+      revision: 2,
+      session: { ...base, inputRequired: true },
     });
-    await settleUntil(() => harness.notificationCalls.length === 4);
-    const { title: _unlabeledTitle, cwdLabel: _unlabeledCwd, ...unlabeled } = session("unlabeled-session-01");
-    harness.emit("session_upsert", { type: "session_upsert", revision: 12, session: unlabeled });
     harness.emit("session_upsert", {
       type: "session_upsert",
-      revision: 13,
-      session: { ...unlabeled, inputRequired: true },
+      revision: 3,
+      session: { ...base, inputRequired: false },
     });
-    await settleUntil(() => harness.notificationCalls.length === 5);
-    expect(harness.notificationCalls.slice(-2)).toEqual([
-      { title: "OMP session needs attention", options: { body: "Safe project" } },
-      { title: "OMP session needs attention", options: {} },
+    await Promise.resolve();
+    expect(harness.subscriptionRequests).toHaveLength(1);
+
+    harness.elements.notificationButton.dispatchEvent(new Event("click"));
+    await settleUntil(() => harness.elements.notificationButton.textContent === "Enable background alerts");
+    expect(harness.subscriptionCalls.unsubscribe).toBe(1);
+    expect(harness.unsubscribeRequests).toEqual([
+      { version: 1, endpoint: "https://push.example.test/send/browser-device" },
     ]);
-    expect(harness.window.opened).toEqual([]);
   });
 
-  test("preserves reconnect transitions but clears notification history after authorization failure", async () => {
+  test("restores an existing browser subscription without requesting permission again", async () => {
     const base = session("reconnect-session-001");
     const harness = await bootApp({
       permission: "granted",
-      suffix: "notification-reconnect",
+      existingSubscription: true,
+      suffix: "background-subscription-restore",
       initialSessions: [base],
     });
+
+    expect(harness.elements.notificationButton.textContent).toBe("Disable background alerts");
+    expect(harness.permissionRequests.count).toBe(0);
+    expect(harness.subscriptionCalls.subscribe).toBe(0);
+    expect(harness.subscriptionRequests).toHaveLength(1);
 
     harness.disconnectEvents();
     harness.setList(2, [{ ...base, inputRequired: true }]);
     harness.elements.refreshButton.dispatchEvent(new Event("click"));
-    await settleUntil(() => harness.notificationCalls.length === 1);
     await settleUntil(() => !harness.elements.refreshButton.disabled);
-
-    harness.emit("session_upsert", { type: "session_upsert", revision: 3, session: base });
-    harness.setList(4, [], 403);
-    harness.elements.refreshButton.dispatchEvent(new Event("click"));
-    await settleUntil(() => harness.fetchPaths.length === 3 && !harness.elements.refreshButton.disabled);
-
-    harness.setList(5, [{ ...base, inputRequired: true }]);
-    harness.elements.refreshButton.dispatchEvent(new Event("click"));
-    await settleUntil(() => harness.fetchPaths.length === 4 && !harness.elements.refreshButton.disabled);
-    expect(harness.notificationCalls).toHaveLength(1);
+    expect(harness.subscriptionRequests).toHaveLength(1);
   });
 
   test("uses only bounded metadata bodies and fails closed for denied or invalid worker support", async () => {
@@ -517,9 +569,8 @@ describe("dashboard attention and notifications", () => {
       suffix: "notifications-invalid-worker",
       initialSessions: [session("unavailable-session-01")],
     });
-    expect(unavailable.elements.notificationButton.textContent).toBe("Notifications unavailable");
+    expect(unavailable.elements.notificationButton.textContent).toBe("Background alerts unavailable");
     expect(unavailable.elements.notificationButton.dataset.state).toBe("unavailable");
     expect(unavailable.elements.notificationButton.disabled).toBeTrue();
-    expect(unavailable.notificationCalls).toEqual([]);
   });
 });

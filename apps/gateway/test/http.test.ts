@@ -7,6 +7,7 @@ import type { PublishedSessionInput } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { SafeLogger } from "../src/logger.ts";
+import { PushService } from "../src/push.ts";
 import { SessionRegistry } from "../src/registry.ts";
 import { StaticAssetStore } from "../src/static.ts";
 
@@ -299,6 +300,63 @@ describe("HTTP boundary", () => {
     ).toBe(400);
   });
 
+  test("authenticates and strictly validates persistent browser push subscriptions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gateway-http-push-"));
+    const base = config();
+    const gatewayConfig: GatewayConfig = {
+      ...base,
+      paths: {
+        configDir: join(root, "config"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+        socketPath: join(root, "run", "registry.sock"),
+        tokenPath: join(root, "config", "publisher-token"),
+        configPath: join(root, "config", "config.json"),
+      },
+    };
+    const registry = populatedRegistry();
+    const pushService = await PushService.open({
+      config: gatewayConfig,
+      registry,
+      transport: { async send(): Promise<void> {} },
+    });
+    const handler = createHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
+    const configResponse = await handler(request("/api/v1/push/config"), peer);
+    expect(configResponse.status).toBe(200);
+    expect(configResponse.headers.get("Cache-Control")).toContain("no-store");
+    expect((await configResponse.json()) as Record<string, unknown>).toMatchObject({
+      version: 1,
+      applicationServerKey: expect.any(String),
+    });
+
+    const body = {
+      version: 1,
+      subscription: {
+        endpoint: "https://push.example.test/send/http-device",
+        expirationTime: null,
+        keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
+      },
+    };
+    const mutation = (value: unknown, requestOrigin = origin): Request =>
+      request("/api/v1/push/subscription", {
+        method: "POST",
+        headers: {
+          Origin: requestOrigin,
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(value),
+      });
+    expect((await handler(mutation(body, "https://evil.example"), peer)).status).toBe(403);
+    expect((await handler(mutation({ ...body, prompt: "PROMPT_CONTENT_CANARY" }), peer)).status).toBe(400);
+    expect((await handler(mutation(body), peer)).status).toBe(204);
+    const state = await Bun.file(join(root, "state", "push-state.json")).text();
+    expect(state).toContain(body.subscription.endpoint);
+    expect(state).not.toContain("PROMPT_CONTENT_CANARY");
+    await pushService.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+
   test("applies security headers to static and API responses", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     for (const response of [await handler(request("/"), peer), await handler(request("/api/v1/sessions"), peer)]) {
@@ -320,6 +378,11 @@ describe("HTTP boundary", () => {
     expect(bootstrap.status).toBe(200);
     expect(bootstrap.headers.get("Cache-Control")).toContain("no-store");
     expect((await handler(request("/client/?handoff=not-a-uuid"), peer)).status).toBe(400);
+    const attention = await handler(request("/attention/http-instance-000001/3"), peer);
+    expect(attention.status).toBe(200);
+    expect(attention.headers.get("Cache-Control")).toContain("no-store");
+    expect(await attention.text()).toContain("OMP Sessions");
+    expect((await handler(request("/attention/short/3"), peer)).status).toBe(404);
   });
 
   test("never writes capability-bearing data to structured logs", async () => {

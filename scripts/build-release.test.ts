@@ -19,11 +19,28 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedRuntimeDependencies = [
   "@oh-my-pi/pi-wire@17.0.6",
+  "agent-base@7.1.4",
+  "asn1.js@5.4.1",
+  "bn.js@4.12.5",
+  "buffer-equal-constant-time@1.0.1",
+  "debug@4.4.3",
+  "ecdsa-sig-formatter@1.0.11",
+  "http_ece@1.2.0",
+  "https-proxy-agent@7.0.6",
+  "inherits@2.0.4",
+  "jwa@2.0.1",
+  "jws@4.0.1",
   "lucide-react@1.24.0",
   "marked@18.0.6",
+  "minimalistic-assert@1.0.1",
+  "minimist@1.2.8",
+  "ms@2.1.3",
   "react@19.2.7",
   "react-dom@19.2.7",
+  "safe-buffer@5.2.1",
+  "safer-buffer@2.1.2",
   "scheduler@0.27.0",
+  "web-push@3.6.7",
 ];
 const deterministicSource = releaseSourceFromEpoch("a".repeat(40), "1700000000");
 

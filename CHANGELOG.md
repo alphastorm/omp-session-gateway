@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Add explicitly enabled background Web Push using private persisted VAPID/subscription state, strict metadata-only attention/resolution payloads, duplicate collapse, resolution cleanup, and stale-endpoint pruning.
+- Add one-tap notification-to-Control routing through a synchronously scrubbed metadata-only path, exact current-generation/attention validation, and the existing no-store in-memory capability launch.
+
+### Security
+
+- Keep prompt/session labels, paths, request data, transcript content, and collaboration capabilities out of push state, payloads, visible notification text, routes, history, service-worker messages, logs, and diagnostics.
+- Treat browser push endpoints/keys and the VAPID private key as bounded user-only state; retain the session registry and collaboration capabilities in memory only.
+
 ### Changed
 
 - Recorded the signed `v0.1.0-prealpha.2` recovery relay soak as passed after 28,800 seconds, eight room transitions, a live final phase, no restart, and a 720 KiB gateway RSS increase; physical Android relay qualification remains open.

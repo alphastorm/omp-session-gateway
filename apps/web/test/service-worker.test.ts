@@ -6,6 +6,7 @@ const GLOBAL_NAMES = [
   "clients",
   "fetch",
   "location",
+  "registration",
   "__SHELL_ASSETS__",
   "__CACHE_NAME__",
 ] as const;
@@ -41,10 +42,17 @@ const caches = {
     return true;
   },
 };
+interface FakeWindowClient {
+  readonly url: string;
+  focus(): Promise<unknown>;
+  navigate?(path: string): Promise<FakeWindowClient | null>;
+}
+
 const clientState = {
-  windows: [] as Array<{ url: string; focus(): Promise<unknown> }>,
+  windows: [] as FakeWindowClient[],
   matchOptions: [] as unknown[],
   opened: [] as string[],
+  navigated: [] as string[],
 };
 const clients = {
   async matchAll(options: unknown): Promise<typeof clientState.windows> {
@@ -56,6 +64,28 @@ const clients = {
     return null;
   },
 };
+const shownNotifications: Array<{
+  readonly title: string;
+  readonly options: NotificationOptions;
+  closed: boolean;
+  close(): void;
+}> = [];
+const registration = {
+  async showNotification(title: string, options: NotificationOptions): Promise<void> {
+    shownNotifications.push({
+      title,
+      options,
+      closed: false,
+      close(): void {
+        this.closed = true;
+      },
+    });
+  },
+  async getNotifications(options: { readonly tag: string }): Promise<typeof shownNotifications> {
+    return shownNotifications.filter(notification => notification.options.tag === options.tag && !notification.closed);
+  },
+};
+
 
 Object.defineProperties(globalThis, {
   addEventListener: {
@@ -68,6 +98,7 @@ Object.defineProperties(globalThis, {
   },
   caches: { configurable: true, value: caches },
   clients: { configurable: true, value: clients },
+  registration: { configurable: true, value: registration },
   fetch: {
     configurable: true,
     async value(request: { url: string }): Promise<Response> {
@@ -119,7 +150,51 @@ describe("notification service worker", () => {
     expect(JSON.stringify(responses)).not.toContain("PROMPT_CANARY");
   });
 
-  test("focuses only an exact same-origin dashboard and never a client page", async () => {
+  test("shows and resolves only strict metadata-only background push messages", async () => {
+    shownNotifications.length = 0;
+    const push = listener("push");
+    const attention = {
+      version: 1,
+      type: "attention",
+      instanceId: "push-instance-000001",
+      generation: 3,
+    };
+    let attentionCompletion: Promise<unknown> | undefined;
+    push({
+      data: { json(): unknown { return attention; } },
+      waitUntil(promise: Promise<unknown>): void { attentionCompletion = promise; },
+    });
+    await attentionCompletion;
+    expect(shownNotifications).toHaveLength(1);
+    expect(shownNotifications[0]).toMatchObject({
+      title: "OMP session needs attention",
+      closed: false,
+      options: {
+        tag: "omp-attention-push-instance-000001-3",
+        data: attention,
+      },
+    });
+    expect(shownNotifications[0]?.options.body).toBeUndefined();
+    expect(JSON.stringify(shownNotifications)).not.toContain("PROMPT_CONTENT_CANARY");
+
+    let malformedWait = false;
+    push({
+      data: { json(): unknown { return { ...attention, prompt: "PROMPT_CONTENT_CANARY" }; } },
+      waitUntil(): void { malformedWait = true; },
+    });
+    expect(malformedWait).toBeFalse();
+    expect(shownNotifications).toHaveLength(1);
+
+    let resolvedCompletion: Promise<unknown> | undefined;
+    push({
+      data: { json(): unknown { return { ...attention, type: "resolved" }; } },
+      waitUntil(promise: Promise<unknown>): void { resolvedCompletion = promise; },
+    });
+    await resolvedCompletion;
+    expect(shownNotifications[0]?.closed).toBeTrue();
+  });
+
+  test("routes a valid alert to same-origin Control bootstrap and never focuses a client page", async () => {
     let dashboardFocuses = 0;
     let clientFocuses = 0;
     clientState.windows = [
@@ -142,14 +217,22 @@ describe("notification service worker", () => {
           dashboardFocuses += 1;
           return this;
         },
+        async navigate(path: string): Promise<FakeWindowClient> {
+          clientState.navigated.push(path);
+          return this;
+        },
       },
     ];
     clientState.matchOptions.length = 0;
     clientState.opened.length = 0;
+    clientState.navigated.length = 0;
     let closed = 0;
     let completion: Promise<void> | undefined;
     listener("notificationclick")({
-      notification: { close(): void { closed += 1; }, data: { url: "/client/" } },
+      notification: {
+        close(): void { closed += 1; },
+        data: { version: 1, type: "attention", instanceId: "push-instance-000001", generation: 3 },
+      },
       waitUntil(promise: Promise<void>): void { completion = promise; },
     });
     await completion;
@@ -159,6 +242,7 @@ describe("notification service worker", () => {
     expect(dashboardFocuses).toBe(1);
     expect(clientFocuses).toBe(0);
     expect(clientState.opened).toEqual([]);
+    expect(clientState.navigated).toEqual(["/attention/push-instance-000001/3"]);
     expect(fetched).toEqual([]);
   });
 
