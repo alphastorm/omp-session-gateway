@@ -69,22 +69,28 @@ test("installed-PWA View and Control mount in the current window without losing 
     });
 
     await page.goto(fixture.origin);
-    const card = page.locator(".session-card");
+    const card = page.locator(".queue-hero");
     await expect(card).toHaveCount(1);
 
-    await card.getByRole("button", { name: "View Android standalone launch" }).click();
+    await card.getByRole("button", { name: "View transcript instead" }).click();
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
+    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".shell-control")).toBeVisible();
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests).toContain("POST /api/v1/sessions/standalone-launch-0001/launch");
 
     await page.goBack();
     await expect(page).toHaveURL(`${fixture.origin}/`);
-    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".queue-hero")).toHaveCount(1);
 
-    await page.locator(".session-card").getByRole("button", { name: "Control Android standalone launch" }).click();
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).click();
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
+    await expect(page.locator(".shell-control")).toBeHidden();
+    fixture.upsert({ ...session(), inputRequired: false });
+    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 1 working");
+    await expect(page.locator(".triage-action")).toHaveText("Sessions");
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests.filter(request => request.endsWith("/launch"))).toHaveLength(2);
 

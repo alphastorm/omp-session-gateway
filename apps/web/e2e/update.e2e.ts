@@ -65,7 +65,7 @@ test("an updated PWA activates and reloads an idle directory automatically", asy
 
   try {
     await page.goto(fixture.origin);
-    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".working-row")).toHaveCount(1);
     await waitForControlledWorker(page);
     expect(await loadCount(page)).toBe(1);
 
@@ -73,7 +73,7 @@ test("an updated PWA activates and reloads an idle directory automatically", asy
 
     await expect.poll(() => loadCount(page)).toBe(2);
     await expect(page).toHaveURL(`${fixture.origin}/`);
-    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".working-row")).toHaveCount(1);
   } finally {
     await fixture.stop();
   }
@@ -128,7 +128,7 @@ test("an updated PWA preserves active collaboration until the user leaves", asyn
     await page.goBack();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect.poll(() => loadCount(page)).toBe(2);
-    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".working-row")).toHaveCount(1);
   } finally {
     await fixture.stop();
   }

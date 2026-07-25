@@ -23,7 +23,7 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
 
   try {
     await page.goto(fixture.origin);
-    await expect(page.locator(".session-card")).toHaveCount(1);
+    await expect(page.locator(".working-row")).toHaveCount(1);
 
     await expect.poll(
       () => fixture.requests.filter(request => request === "GET /api/v1/events").length,
@@ -31,10 +31,10 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
 
     fixture.disconnectEvents();
     await expect(page.locator("#status-banner")).toHaveText("Live updates paused. Reconnecting…");
-    await expect(page.locator(".session-card")).toHaveCount(0);
+    await expect(page.locator(".working-row")).toHaveCount(0);
 
     fixture.setSnapshot([active], 2);
-    await expect(page.locator(".session-card")).toHaveCount(1, { timeout: 6_000 });
+    await expect(page.locator(".working-row")).toHaveCount(1, { timeout: 6_000 });
     await expect(page.locator("#status-banner")).toBeHidden();
     await expect.poll(
       () => fixture.requests.filter(request => request === "GET /api/v1/sessions").length,

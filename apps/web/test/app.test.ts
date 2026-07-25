@@ -170,6 +170,8 @@ interface BrowserHarness {
     readonly notificationDisclosure: FakeElement;
     readonly refreshButton: FakeElement;
     readonly statusBanner: FakeElement;
+    readonly directoryTitle: FakeElement;
+    readonly directoryCount: FakeElement;
   };
   disconnectEvents(): void;
   expireEventLiveness(): void;
@@ -235,6 +237,10 @@ async function bootApp(options: {
   notificationButton.textContent = "Checking background alerts…";
   notificationButton.disabled = true;
   const notificationDisclosure = new FakeElement("p");
+  const directoryTitle = new FakeElement("h1");
+  directoryTitle.textContent = "Sessions";
+  const directoryCount = new FakeElement("p");
+  directoryCount.hidden = true;
   const bySelector: Record<string, FakeElement> = {
     "#session-list": sessionList,
     "#empty-state": emptyState,
@@ -242,6 +248,8 @@ async function bootApp(options: {
     "#refresh": refreshButton,
     "#notify": notificationButton,
     "#notify-note": notificationDisclosure,
+    "#directory-title": directoryTitle,
+    "#directory-count": directoryCount,
   };
   const document = {
     documentElement: { dataset: {} as Record<string, string>, style: {} as Record<string, string> },
@@ -397,7 +405,15 @@ async function bootApp(options: {
   await settleUntil(() => FakeEventSource.instances.length === 1);
 
   return {
-    elements: { sessionList, statusBanner, notificationButton, notificationDisclosure, refreshButton },
+    elements: {
+      sessionList,
+      statusBanner,
+      notificationButton,
+      notificationDisclosure,
+      refreshButton,
+      directoryTitle,
+      directoryCount,
+    },
     fetchPaths,
     permissionRequests,
     subscriptionRequests,
@@ -447,7 +463,7 @@ afterAll(() => {
 });
 
 describe("dashboard attention and notifications", () => {
-  test("renders accessible attention-first cards without prompting or notifying on the initial list", async () => {
+  test("renders the boolean-only triage queue without prompting or notifying on the initial list", async () => {
     const harness = await bootApp({
       permission: "default",
       suffix: "initial-attention",
@@ -462,23 +478,25 @@ describe("dashboard attention and notifications", () => {
       ],
     });
 
-    const cards = harness.elements.sessionList.children;
-    expect(cards.map(card => card.querySelector("h2")?.textContent)).toEqual([
-      "attention-control-0001",
+    expect(harness.elements.directoryTitle.textContent).toBe("Needs you");
+    expect(harness.elements.directoryCount.textContent).toBe("2 waiting");
+    expect(harness.elements.directoryCount.className).toContain("count-pill-waiting");
+    const hero = harness.elements.sessionList.querySelector(".queue-hero");
+    expect(hero?.querySelector("h2")?.textContent).toBe("attention-control-0001");
+    expect(hero?.querySelector(".ask-preview")?.textContent).toBe("Waiting for your input");
+    expect(hero?.querySelector(".action-request")?.textContent).toBe("Open request");
+    expect(hero?.querySelector(".hero-alt")?.textContent).toBe("View transcript instead");
+    const waitingRows = harness.elements.sessionList.querySelectorAll(".queue-row");
+    expect(waitingRows.map(row => row.querySelector(".row-title")?.textContent)).toEqual([
       "attention-viewonly-002",
-      "ordinary-newest-0003",
     ]);
-    expect(cards[0]?.querySelector(".attention")?.textContent).toBe("Needs attention");
-    expect(cards[1]?.querySelector(".attention")?.textContent).toBe(
-      "Needs attention — Control unavailable",
-    );
-    const firstPill = cards[0]?.querySelector(".attention");
-    expect(firstPill?.getAttribute("role")).toBeNull();
-    expect(firstPill?.getAttribute("aria-live")).toBeNull();
+    expect(waitingRows[0]?.getAttribute("aria-label")).toBe("View attention-viewonly-002");
     expect(
-      cards[0]?.querySelectorAll("button").map(button => button.getAttribute("aria-describedby")),
-    ).toEqual([firstPill?.id ?? null, firstPill?.id ?? null]);
-    expect(firstPill?.id).toBe("attention-attention-control-0001");
+      harness.elements.sessionList.querySelectorAll(".working-row").map(
+        row => row.querySelector(".row-title")?.textContent,
+      ),
+    ).toEqual(["ordinary-newest-0003"]);
+    expect(harness.elements.sessionList.querySelector(".attention")).toBeNull();
     expect(harness.permissionRequests.count).toBe(0);
     expect(harness.workerMessages).toEqual([{ type: "omp-notification-support-request", version: 1 }]);
     expect(harness.elements.notificationButton.textContent).toBe("Enable background alerts");
@@ -526,16 +544,16 @@ describe("dashboard attention and notifications", () => {
       initialSessions: [base],
     });
 
-    expect(harness.elements.sessionList.childElementCount).toBe(1);
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
     harness.expireEventLiveness();
-    expect(harness.elements.sessionList.childElementCount).toBe(0);
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(0);
     expect(harness.elements.statusBanner.textContent).toBe("Live updates paused. Reconnecting…");
     expect(FakeEventSource.instances[0]?.closed).toBeTrue();
 
     harness.setList(2, [base]);
     harness.runTimers();
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
-    await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
+    await settleUntil(() => harness.elements.sessionList.querySelectorAll(".working-row").length === 1);
     await settleUntil(() => FakeEventSource.instances.length === 2);
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });
@@ -559,7 +577,7 @@ describe("dashboard attention and notifications", () => {
     harness.setList(2, [base]);
     harness.runTimers();
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 3);
-    await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
+    await settleUntil(() => harness.elements.sessionList.querySelectorAll(".working-row").length === 1);
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });
 
