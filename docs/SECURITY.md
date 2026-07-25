@@ -131,13 +131,14 @@ Additional requirements:
 - all metadata rendered as text, never unsanitized HTML;
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
-- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/` bootstrap, `/attention/`, navigation, query-bearing URLs, and all non-GET requests;
+- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/attention/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
 - service worker Push handling accepts exact metadata-only `attention`/`resolved` envelopes, uses fixed visible text, tags by exact generation, and never fetches or receives a collaboration capability;
 - clear session metadata and disable launch actions whenever the directory transport fails; repopulate only from a current authenticated snapshot/SSE epoch and ignore lower revisions within that epoch;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, or performance marks;
 - external links use `rel="noopener noreferrer"`;
 - production builds disable framework devtools hooks where practical;
 - reload returns to the metadata directory.
+- an activated shell update may navigate only an exact same-origin idle `/` client to the no-store `/update/` bootstrap; the new document synchronously scrubs it to `/`, while launch-pending, attention, and active `/client/` pages are never auto-navigated;
 
 If relay origins are configurable, generate `connect-src` only from administrator-controlled validated origins.
 

@@ -7,8 +7,9 @@ The local patch passes the capability directly into the root `App` component. Th
 component in its current document so Android standalone navigation does not depend on `window.opener`; the separate
 same-origin client page retains a one-time `MessageChannel` fallback for ordinary browser contexts. Both paths return
 to the gateway on leave or reload and never write the capability into a URL, DOM attribute, browser storage, or
-service-worker cache. Foreground, BFCache restore, and online transitions replace a potentially stale relay transport
-before reuse.
+service-worker cache. Foreground, BFCache restore, online, and Network Information transitions replace a potentially
+stale relay transport. While visible, a metadata-free same-origin health probe also forces one replacement after a
+detected gateway outage recovers.
 
 `upstream/UPSTREAM.json` records the exact source path, package version, Bun version, and local patch list.
 `upstream/LICENSE` preserves the upstream license. The build remains a narrow integration; it does not fork the

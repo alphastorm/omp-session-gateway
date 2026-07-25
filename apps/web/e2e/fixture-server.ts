@@ -25,6 +25,7 @@ export interface DashboardFixture {
   setSnapshot(sessions: readonly SessionMetadata[], revision?: number): void;
   stop(): Promise<void>;
   upsert(session: SessionMetadata): void;
+  upgradeServiceWorker(): void;
 }
 
 export async function startDashboardFixture(
@@ -33,6 +34,7 @@ export async function startDashboardFixture(
   const sessions = new Map(initialSessions.map(session => [session.instanceId, session]));
   const streams = new Set<ServerResponse>();
   const requests: string[] = [];
+  let serviceWorkerVersion = 0;
   let revision = 1;
   const roomId = randomBytes(16).toString("base64url");
   const roomKey = randomBytes(32);
@@ -62,6 +64,15 @@ export async function startDashboardFixture(
           Pragma: "no-cache",
         });
         response.end(JSON.stringify({ revision, sessions: [...sessions.values()] }));
+        return;
+      }
+      if (method === "GET" && url.pathname === "/api/v1/health") {
+        response.writeHead(200, {
+          "Cache-Control": "no-store, max-age=0",
+          "Content-Type": "application/json; charset=utf-8",
+          Pragma: "no-cache",
+        });
+        response.end(JSON.stringify({ status: "ok" }));
         return;
       }
       if (method === "GET" && url.pathname === "/api/v1/push/config") {
@@ -143,7 +154,7 @@ export async function startDashboardFixture(
         response.writeHead(404).end("Not found");
         return;
       }
-      const relative = pathname === "/"
+      const relative = pathname === "/" || pathname === "/update/"
         ? "index.html"
         : pathname.endsWith("/")
           ? `${pathname.slice(1)}index.html`
@@ -155,8 +166,14 @@ export async function startDashboardFixture(
       }
       try {
         const body = await readFile(candidate);
-        response.writeHead(200, { "Content-Type": MIME_TYPES[extname(candidate)] ?? "application/octet-stream" });
-        response.end(body);
+        const servedBody = relative === "service-worker.js" && serviceWorkerVersion > 0
+          ? Buffer.concat([body, Buffer.from(`\n// fixture update ${serviceWorkerVersion}\n`)])
+          : body;
+        response.writeHead(200, {
+          "Cache-Control": relative === "service-worker.js" ? "no-cache" : "public, max-age=60",
+          "Content-Type": MIME_TYPES[extname(candidate)] ?? "application/octet-stream",
+        });
+        response.end(servedBody);
       } catch {
         response.writeHead(404).end("Not found");
       }
@@ -198,6 +215,9 @@ export async function startDashboardFixture(
           else rejectClose(error);
         });
       });
+    },
+    upgradeServiceWorker(): void {
+      serviceWorkerVersion += 1;
     },
     upsert(session): void {
       sessions.set(session.instanceId, session);

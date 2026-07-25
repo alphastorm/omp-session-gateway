@@ -126,18 +126,16 @@ test("attention cards and explicit background Web Push stay metadata-only", asyn
     });
 
     await page.goto(fixture.origin);
-    await expect(page.locator(".session-card")).toHaveCount(3);
-    await expect(page.locator(".session-card h2")).toHaveText([
-      "attention-control-0001",
-      "attention-viewonly-002",
-      "ordinary-newest-0003",
+    await expect(page.locator("#directory-title")).toHaveText("Needs you");
+    await expect(page.locator("#directory-count")).toHaveText("2 waiting");
+    await expect(page.locator(".queue-hero h2")).toHaveText("attention-control-0001");
+    await expect(page.locator(".queue-hero .ask-preview")).toHaveText("Waiting for your input");
+    await expect(page.locator(".queue-hero").getByRole("button")).toHaveText([
+      "Open request",
+      "View transcript instead",
     ]);
-    await expect(page.locator(".attention")).toHaveText([
-      "Needs attention",
-      "Needs attention — Control unavailable",
-    ]);
-    await expect(page.locator(".session-card").nth(0).getByRole("button")).toHaveText(["View", "Control"]);
-    await expect(page.locator(".session-card").nth(1).getByRole("button")).toHaveText(["View"]);
+    await expect(page.locator(".queue-row .row-title")).toHaveText(["attention-viewonly-002"]);
+    await expect(page.locator(".working-row .row-title")).toHaveText(["ordinary-newest-0003"]);
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
 
     await page.evaluate(async () => navigator.serviceWorker.ready);

@@ -408,7 +408,8 @@ This mode is a migration path, not the desired final architecture.
 - Each registry mutation increments a daemon-wide revision.
 - A client starts a new directory epoch by aborting any prior snapshot, closing its prior SSE source, fetching one authenticated snapshot, and only then opening SSE.
 - Within one connected epoch, a response or event with a lower revision is ignored. Duplicate same-revision snapshots remain idempotent.
-- The gateway emits a metadata-free `keepalive` SSE event every 15 seconds. A loaded dashboard clears displayed metadata after 35 seconds without any directory event or keepalive; the first event after that silent-partition state forces a fresh authenticated snapshot and SSE epoch before cards return.
+- The gateway emits a metadata-free `keepalive` SSE event every 5 seconds. A loaded dashboard clears displayed metadata and closes the stream after 12 seconds without any directory event or keepalive, then retries a fresh authenticated snapshot with a 4-second request timeout and bounded 1/2/4-second backoff before opening a new SSE epoch.
+- A changed PWA shell caches completely before its worker calls `skipWaiting`. Activation deletes prior shell caches, claims clients, and navigates only an exact same-origin idle `/` directory to no-store `/update/`; the new app synchronously replaces that route with `/`. `/client/`, `/attention/`, launch-pending, query-bearing, and cross-origin clients are never auto-navigated.
 - Launch requests carry the generation observed in the metadata response.
 - A mismatch never returns a capability.
 - Expired and removed records are indistinguishable to remote callers.

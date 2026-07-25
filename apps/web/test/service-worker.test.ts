@@ -9,6 +9,7 @@ const GLOBAL_NAMES = [
   "registration",
   "__SHELL_ASSETS__",
   "__CACHE_NAME__",
+  "skipWaiting",
 ] as const;
 const nativeGlobals = Object.fromEntries(
   GLOBAL_NAMES.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
@@ -53,8 +54,12 @@ const clientState = {
   matchOptions: [] as unknown[],
   opened: [] as string[],
   navigated: [] as string[],
+  claims: 0,
 };
 const clients = {
+  async claim(): Promise<void> {
+    clientState.claims += 1;
+  },
   async matchAll(options: unknown): Promise<typeof clientState.windows> {
     clientState.matchOptions.push(options);
     return clientState.windows;
@@ -104,6 +109,13 @@ Object.defineProperties(globalThis, {
     async value(request: { url: string }): Promise<Response> {
       fetched.push(request.url);
       return new Response("asset", { status: 200 });
+    },
+  },
+  skipWaiting: {
+    configurable: true,
+    async value(): Promise<void> {
+      clientState.claims += 0;
+      clientState.matchOptions.push("skipWaiting");
     },
   },
   location: { configurable: true, value: { origin: "https://sessions.example" } },
@@ -273,15 +285,46 @@ describe("notification service worker", () => {
   });
 
   test("preserves shell-only cache installation, cleanup, and fetch exclusions", async () => {
+    clientState.windows = [
+      {
+        url: "https://sessions.example/",
+        async focus(): Promise<unknown> { return this; },
+        async navigate(path: string): Promise<FakeWindowClient> {
+          clientState.navigated.push(path);
+          return this;
+        },
+      },
+      {
+        url: "https://sessions.example/client/",
+        async focus(): Promise<unknown> { return this; },
+        async navigate(): Promise<FakeWindowClient> {
+          throw new Error("active collaboration must not navigate during an upgrade");
+        },
+      },
+      {
+        url: "https://sessions.example/attention/update-instance/3",
+        async focus(): Promise<unknown> { return this; },
+        async navigate(): Promise<FakeWindowClient> {
+          throw new Error("attention bootstrap must not navigate during an upgrade");
+        },
+      },
+    ];
+    clientState.navigated.length = 0;
+    clientState.claims = 0;
+    clientState.matchOptions.length = 0;
+
     let installCompletion: Promise<void> | undefined;
     listener("install")({ waitUntil(promise: Promise<void>): void { installCompletion = promise; } });
     await installCompletion;
     expect(cacheAdds).toEqual([["/assets/app.0123456789ab.js"]]);
+    expect(clientState.matchOptions).toContain("skipWaiting");
 
     let activateCompletion: Promise<unknown> | undefined;
     listener("activate")({ waitUntil(promise: Promise<unknown>): void { activateCompletion = promise; } });
     await activateCompletion;
     expect(cacheDeletes).toEqual(["omp-sessions-shell-old"]);
+    expect(clientState.claims).toBe(1);
+    expect(clientState.navigated).toEqual(["/update/"]);
 
     const fetchListener = listener("fetch");
     const bypasses = [

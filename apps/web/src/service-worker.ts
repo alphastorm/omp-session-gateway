@@ -5,6 +5,7 @@ declare const __CACHE_NAME__: string;
 
 const shellAssets = new Set(__SHELL_ASSETS__);
 const worker = globalThis as unknown as ServiceWorkerGlobalScope;
+const SHELL_CACHE_PREFIX = "omp-sessions-shell-";
 
 function isNotificationSupportRequest(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -89,14 +90,38 @@ worker.addEventListener("notificationclick", event => {
 });
 
 worker.addEventListener("install", event => {
-  event.waitUntil(caches.open(__CACHE_NAME__).then(cache => cache.addAll(__SHELL_ASSETS__)));
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(__CACHE_NAME__);
+      await cache.addAll(__SHELL_ASSETS__);
+      await worker.skipWaiting();
+    })(),
+  );
 });
 
 worker.addEventListener("activate", event => {
   event.waitUntil(
-    caches
-      .keys()
-      .then(names => Promise.all(names.filter(name => name.startsWith("omp-sessions-shell-") && name !== __CACHE_NAME__).map(name => caches.delete(name)))),
+    (async () => {
+      const names = await caches.keys();
+      const shellUpgrade = names.some(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== __CACHE_NAME__);
+      await Promise.all(
+        names
+          .filter(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== __CACHE_NAME__)
+          .map(name => caches.delete(name)),
+      );
+      await worker.clients.claim();
+      if (!shellUpgrade) return;
+      const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) {
+        try {
+          const url = new URL(client.url);
+          if (url.origin !== worker.location.origin || url.pathname !== "/" || url.search !== "") continue;
+          void client.navigate("/update/").catch(() => undefined);
+        } catch {
+          // Active collaboration and non-directory clients keep their current in-memory state.
+        }
+      }
+    })(),
   );
 });
 

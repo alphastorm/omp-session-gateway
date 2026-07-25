@@ -76,6 +76,12 @@ metadata-only attention route, which is synchronously scrubbed before the exact 
 current attention state are revalidated. Valid taps request Control through the ordinary no-store,
 in-memory launch flow; stale taps remain on the directory.
 
+PWA upgrades activate immediately after the new content-hashed shell is cached. The service worker
+auto-navigates only an idle exact-root directory through the no-store `/update/` bootstrap, which
+the new document synchronously scrubs to `/`. A pending launch reserves `/client/` before any
+asynchronous work; active or pending collaboration is never reloaded. Deferred updates apply when a
+failed launch returns to the directory or when the user naturally leaves the collaboration client.
+
 ### 1.5 Existing OMP collaboration client
 
 Reuse a pinned OMP `packages/collab-web` revision. Do not independently implement the transcript, tool cards, subagent controls, relay protocol, or cryptography.
@@ -212,6 +218,8 @@ The documented extension lifecycle can observe session events, but the handoff c
 - Relay unavailable: cards remain visible, but the client reports relay connectivity failure without exposing the capability.
 - Tailscale unavailable on the phone: there is no public fallback.
 - Desktop asleep or offline: the static shell may show an offline message but no stale session metadata.
+- Dashboard SSE silence: after 12 seconds the PWA fails closed, terminates the half-open stream, and retries bounded snapshots automatically.
+- Collaboration client radio transition: while visible, same-origin health probes and browser network lifecycle signals replace a potentially stale relay WebSocket after the gateway path recovers.
 - Gateway restart: it starts empty; live publishers reconnect and repopulate.
 - OMP crash: socket closure or TTL removes the card and capability.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.

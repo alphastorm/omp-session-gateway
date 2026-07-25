@@ -38,8 +38,13 @@ const statusBanner = requiredElement<HTMLElement>("#status-banner");
 const refreshButton = requiredElement<HTMLButtonElement>("#refresh");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
+const directoryTitle = requiredElement<HTMLElement>("#directory-title");
+const directoryCount = requiredElement<HTMLElement>("#directory-count");
 
-const EVENT_LIVENESS_TIMEOUT_MS = 35_000;
+const EVENT_LIVENESS_TIMEOUT_MS = 12_000;
+const SNAPSHOT_TIMEOUT_MS = 4_000;
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 4_000;
 
 const sessions = new Map<string, SessionMetadata>();
 let events: EventSource | undefined;
@@ -51,8 +56,13 @@ let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
 let eventLivenessTimeout: number | undefined;
 let eventStreamStale = false;
+let reconnectTimeout: number | undefined;
+let reconnectAttempt = 0;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 let applicationServerKey: string | undefined;
+let launchInProgress = false;
+let workerUpdatePending = false;
+let updateReloadTimeout: number | undefined;
 
 
 type NotificationControlState =
@@ -68,6 +78,33 @@ interface PendingAttentionLaunch {
   readonly instanceId: string;
   readonly generation: number;
 }
+
+interface AttentionReceipt {
+  readonly generation: number;
+  readonly receivedAt: number;
+}
+
+interface DashboardSnapshot {
+  readonly children: readonly HTMLElement[];
+  readonly scrollY: number;
+  readonly title: string;
+  readonly bodyClass: string;
+}
+
+interface ActiveCollabShell {
+  readonly instanceId: string;
+  readonly generation: number;
+  readonly openedAttention: boolean;
+  readonly triageBar: HTMLElement;
+  readonly shell: HTMLElement;
+  answerShown: boolean;
+  triageTimeout?: number;
+}
+
+const attentionReceipts = new Map<string, AttentionReceipt>();
+let dashboardSnapshot: DashboardSnapshot | undefined;
+let activeCollabShell: ActiveCollabShell | undefined;
+let disposeActiveCollab: (() => void) | undefined;
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
   checking: "Checking background alerts…",
@@ -151,12 +188,49 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
   if (!response.ok) throw new Error("push subscription was rejected");
 }
 
-async function initializeNotifications(): Promise<void> {
+function clearUpdateReloadTimeout(): void {
+  if (updateReloadTimeout === undefined) return;
+  window.clearTimeout(updateReloadTimeout);
+  updateReloadTimeout = undefined;
+}
+
+function applyActivatedWorkerUpdate(): void {
+  clearUpdateReloadTimeout();
+  if (!workerUpdatePending || launchInProgress || location.pathname === "/client/") return;
+  workerUpdatePending = false;
+  location.reload();
+}
+
+async function initializeApplicationWorker(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!isSecureContext || !("serviceWorker" in navigator)) return undefined;
+  const serviceWorker = navigator.serviceWorker;
+  let currentController = serviceWorker.controller;
+  serviceWorker.addEventListener("controllerchange", () => {
+    const nextController = serviceWorker.controller;
+    if (currentController === null) {
+      currentController = nextController;
+      return;
+    }
+    if (nextController === currentController) return;
+    currentController = nextController;
+    workerUpdatePending = true;
+    clearUpdateReloadTimeout();
+    updateReloadTimeout = window.setTimeout(applyActivatedWorkerUpdate, 1_000);
+  });
+  try {
+    return await serviceWorker.register("/service-worker.js", { scope: "/" });
+  } catch {
+    return undefined;
+  }
+}
+
+async function initializeNotifications(
+  workerRegistration: Promise<ServiceWorkerRegistration | undefined>,
+): Promise<void> {
   setNotificationControl("checking");
   if (
     !isSecureContext ||
     typeof Notification === "undefined" ||
-    !("serviceWorker" in navigator) ||
     typeof PushManager === "undefined"
   ) {
     setNotificationControl("unavailable");
@@ -164,9 +238,13 @@ async function initializeNotifications(): Promise<void> {
   }
   try {
     const [registered, configResponse] = await Promise.all([
-      navigator.serviceWorker.register("/service-worker.js", { scope: "/" }),
+      workerRegistration,
       fetch("/api/v1/push/config", { cache: "no-store", credentials: "same-origin" }),
     ]);
+    if (registered === undefined) {
+      setNotificationControl("unavailable");
+      return;
+    }
     const registration = registered.active === null ? await navigator.serviceWorker.ready : registered;
     if (
       !configResponse.ok ||
@@ -267,6 +345,10 @@ function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
   return { instanceId, generation };
 }
 
+if (location.pathname === "/update/" || location.pathname === "/client/") {
+  history.replaceState(null, "", "/");
+}
+
 const pendingAttentionLaunch = readPendingAttentionLaunch();
 let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
@@ -282,27 +364,48 @@ function clearEventLiveness(): void {
   eventLivenessTimeout = undefined;
 }
 
+function clearReconnectTimeout(): void {
+  if (reconnectTimeout === undefined) return;
+  window.clearTimeout(reconnectTimeout);
+  reconnectTimeout = undefined;
+}
+
 function showTransportFailure(message: string): void {
   directoryRevision = -1;
   directoryLoaded = false;
   sessions.clear();
+  attentionReceipts.clear();
   render();
   setStatus("offline", message);
+}
+
+function scheduleReconnect(): void {
+  if (authorizationDenied || reconnectTimeout !== undefined) return;
+  const exponent = Math.min(reconnectAttempt, 2);
+  const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+  reconnectAttempt = Math.min(reconnectAttempt + 1, 2);
+  reconnectTimeout = window.setTimeout(() => {
+    reconnectTimeout = undefined;
+    void refreshAndConnect(false);
+  }, delay);
+}
+
+function failEventStream(source: EventSource, epoch: number, message: string): void {
+  if (events !== source || epoch !== directoryEpoch) return;
+  source.close();
+  events = undefined;
+  clearEventLiveness();
+  eventStreamStale = true;
+  showTransportFailure(message);
+  scheduleReconnect();
 }
 
 function armEventLiveness(source: EventSource, epoch: number): void {
   clearEventLiveness();
   eventLivenessTimeout = window.setTimeout(() => {
     eventLivenessTimeout = undefined;
-    if (events !== source || epoch !== directoryEpoch) return;
-    eventStreamStale = true;
-    showTransportFailure("Live updates paused. Reconnecting…");
+    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
   }, EVENT_LIVENESS_TIMEOUT_MS);
-}
-
-function formatStartedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? "Started recently" : `Started ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date)}`;
 }
 
 function updateRefreshState(): void {
@@ -312,80 +415,320 @@ function updateRefreshState(): void {
   refreshButton.textContent = busy ? "Refreshing…" : "Refresh";
 }
 
-function createMetadataLine(label: string, value: string | undefined): HTMLElement | undefined {
-  if (value === undefined || value.length === 0) return undefined;
-  const line = document.createElement("p");
-  line.className = "session-meta";
-  const term = document.createElement("span");
-  term.className = "session-meta-label";
-  term.textContent = `${label} `;
-  const content = document.createElement("span");
-  content.textContent = value;
-  line.append(term, content);
-  return line;
+function sessionTitle(session: SessionMetadata): string {
+  return session.title || session.cwdLabel || "OMP session";
+}
+
+function trackSessionAttention(session: SessionMetadata): void {
+  if (!session.inputRequired) {
+    attentionReceipts.delete(session.instanceId);
+    return;
+  }
+  const current = attentionReceipts.get(session.instanceId);
+  if (current?.generation === session.generation) return;
+  attentionReceipts.set(session.instanceId, {
+    generation: session.generation,
+    receivedAt: Date.now(),
+  });
+}
+
+function replaceSessionSnapshot(nextSessions: readonly SessionMetadata[]): void {
+  sessions.clear();
+  const liveInstances = new Set<string>();
+  for (const session of nextSessions) {
+    liveInstances.add(session.instanceId);
+    trackSessionAttention(session);
+    sessions.set(session.instanceId, session);
+  }
+  for (const instanceId of attentionReceipts.keys()) {
+    if (!liveInstances.has(instanceId)) attentionReceipts.delete(instanceId);
+  }
+}
+
+function elapsedLabel(startedAt: number): string {
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60_000));
+  if (elapsedMinutes < 1) return "<1m";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+function waitingLabel(session: SessionMetadata): string {
+  return `waiting ${elapsedLabel(attentionReceipts.get(session.instanceId)?.receivedAt ?? Date.now())}`;
+}
+
+function uptimeLabel(session: SessionMetadata): string {
+  const startedAt = Date.parse(session.startedAt);
+  return `up ${elapsedLabel(Number.isNaN(startedAt) ? Date.now() : startedAt)}`;
+}
+
+function orderedWaitingSessions(): SessionMetadata[] {
+  return [...sessions.values()]
+    .filter(session => session.inputRequired)
+    .sort((left, right) => {
+      const leftSince = attentionReceipts.get(left.instanceId)?.receivedAt ?? 0;
+      const rightSince = attentionReceipts.get(right.instanceId)?.receivedAt ?? 0;
+      return leftSince === rightSince
+        ? left.instanceId.localeCompare(right.instanceId)
+        : leftSince - rightSince;
+    });
+}
+
+function orderedWorkingSessions(): SessionMetadata[] {
+  return [...sessions.values()]
+    .filter(session => !session.inputRequired)
+    .sort((left, right) => {
+      const started = right.startedAt.localeCompare(left.startedAt);
+      return started === 0 ? left.instanceId.localeCompare(right.instanceId) : started;
+    });
+}
+
+function createTextElement(tagName: string, className: string, text: string): HTMLElement {
+  const element = document.createElement(tagName);
+  element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function createQueueKicker(label: string, detail?: string): HTMLElement {
+  const kicker = createTextElement("p", "queue-kicker", label);
+  if (detail !== undefined) {
+    kicker.append(createTextElement("span", "queue-wait", detail));
+  }
+  return kicker;
+}
+
+function createSessionSummary(session: SessionMetadata): HTMLElement {
+  const values = [session.cwdLabel, session.model].filter(
+    (value): value is string => value !== undefined && value.length > 0,
+  );
+  return createTextElement("p", "session-summary", values.join(" · ") || "Live OMP session");
+}
+
+function createWorkingRow(session: SessionMetadata): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "working-row";
+  button.dataset.instanceId = session.instanceId;
+  button.disabled = !session.canView;
+  button.setAttribute("aria-label", `View ${sessionTitle(session)}`);
+  button.append(
+    createTextElement("span", "row-dot row-dot-live", ""),
+    createTextElement("span", "row-title", sessionTitle(session)),
+    createTextElement("span", "row-time", uptimeLabel(session)),
+  );
+  button.addEventListener("click", () => void launch(session, "view", button));
+  return button;
+}
+
+function createWaitingRow(session: SessionMetadata): HTMLButtonElement {
+  const mode: LaunchMode = session.canControl ? "control" : "view";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "queue-row";
+  button.dataset.instanceId = session.instanceId;
+  button.disabled = mode === "control" ? !session.canControl : !session.canView;
+  button.setAttribute(
+    "aria-label",
+    session.canControl ? `Open request in ${sessionTitle(session)}` : `View ${sessionTitle(session)}`,
+  );
+  button.append(
+    createTextElement("span", "row-dot row-dot-waiting", ""),
+    createTextElement("span", "row-title", sessionTitle(session)),
+    createTextElement("span", "row-time", waitingLabel(session)),
+    createTextElement("span", "row-chevron", "›"),
+  );
+  button.addEventListener("click", () => void launch(session, mode, button));
+  return button;
+}
+
+function renderAllClear(working: readonly SessionMetadata[]): void {
+  const summary = document.createElement("div");
+  summary.className = "all-clear-summary";
+  summary.append(
+    createTextElement("span", "all-clear-dot", ""),
+    createTextElement("h2", "all-clear-title", "All clear"),
+    createTextElement(
+      "p",
+      "all-clear-copy",
+      `Nothing needs you — ${working.length} working. You'll get pinged.`,
+    ),
+  );
+  sessionList.append(summary);
+  if (working.length === 0) return;
+  sessionList.append(createQueueKicker(`Working · ${working.length}`));
+  for (const session of working) sessionList.append(createWorkingRow(session));
+}
+
+function renderWaitingQueue(
+  waiting: readonly SessionMetadata[],
+  working: readonly SessionMetadata[],
+): void {
+  const [hero, ...remaining] = waiting;
+  if (hero === undefined) return;
+  sessionList.append(createQueueKicker("Up next", waitingLabel(hero)));
+
+  const article = document.createElement("article");
+  article.className = "queue-hero";
+  article.dataset.instanceId = hero.instanceId;
+  article.append(
+    createTextElement("h2", "", sessionTitle(hero)),
+    createSessionSummary(hero),
+    createTextElement(
+      "p",
+      "ask-preview",
+      hero.canControl ? "Waiting for your input" : "Waiting for your input — Control unavailable",
+    ),
+  );
+
+  const primary = document.createElement("button");
+  primary.type = "button";
+  primary.className = "action action-request";
+  primary.textContent = hero.canControl ? "Open request" : "View transcript";
+  primary.disabled = hero.canControl ? false : !hero.canView;
+  primary.addEventListener("click", () => {
+    void launch(hero, hero.canControl ? "control" : "view", primary);
+  });
+  article.append(primary);
+
+  if (hero.canControl && hero.canView) {
+    const alternate = document.createElement("button");
+    alternate.type = "button";
+    alternate.className = "hero-alt";
+    alternate.textContent = "View transcript instead";
+    alternate.addEventListener("click", () => void launch(hero, "view", alternate));
+    article.append(alternate);
+  }
+  sessionList.append(article);
+
+  if (remaining.length > 0) {
+    sessionList.append(createQueueKicker("Then"));
+    for (const session of remaining) sessionList.append(createWaitingRow(session));
+  }
+  if (working.length > 0) {
+    sessionList.append(createQueueKicker(`Working · ${working.length}`));
+    for (const session of working) sessionList.append(createWorkingRow(session));
+  }
 }
 
 function render(): void {
   sessionList.replaceChildren();
-  const ordered = [...sessions.values()].sort((left, right) => {
-    if (left.inputRequired !== right.inputRequired) return left.inputRequired ? -1 : 1;
-    const started = right.startedAt.localeCompare(left.startedAt);
-    return started === 0 ? left.instanceId.localeCompare(right.instanceId) : started;
-  });
-  emptyState.hidden = !directoryLoaded || ordered.length !== 0;
-  for (const session of ordered) {
-    const article = document.createElement("article");
-    article.className = "session-card";
-    article.dataset.instanceId = session.instanceId;
-
-    const heading = document.createElement("h2");
-    heading.textContent = session.title || session.cwdLabel || "OMP session";
-    const sessionLabel = heading.textContent;
-    const project = createMetadataLine("Project", session.cwdLabel);
-    const model = createMetadataLine("Model", session.model);
-    const timing = createMetadataLine("", formatStartedAt(session.startedAt));
-    const attention = session.inputRequired ? document.createElement("p") : undefined;
-    const attentionId = `attention-${session.instanceId}`;
-    if (attention !== undefined) {
-      attention.id = attentionId;
-      attention.className = "attention";
-      attention.textContent = session.canControl
-        ? "Needs attention"
-        : "Needs attention — Control unavailable";
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "session-actions";
-    const view = document.createElement("button");
-    view.type = "button";
-    view.className = "action action-primary";
-    view.textContent = "View";
-    view.setAttribute("aria-label", `View ${sessionLabel}`);
-    view.disabled = !session.canView;
-    if (attention !== undefined) view.setAttribute("aria-describedby", attentionId);
-    view.addEventListener("click", () => void launch(session, "view", view));
-    actions.append(view);
-
-    if (session.canControl) {
-      const control = document.createElement("button");
-      control.type = "button";
-      control.className = "action action-control";
-      control.textContent = "Control";
-      control.setAttribute("aria-label", `Control ${sessionLabel}`);
-      if (attention !== undefined) control.setAttribute("aria-describedby", attentionId);
-      control.addEventListener("click", () => void launch(session, "control", control));
-      actions.append(control);
-    }
-
-    actions.dataset.count = String(actions.childElementCount);
-    article.append(heading);
-    if (project !== undefined) article.append(project);
-    if (model !== undefined) article.append(model);
-    if (timing !== undefined) article.append(timing);
-    if (attention !== undefined) article.append(attention);
-    article.append(actions);
-    sessionList.append(article);
+  emptyState.hidden = true;
+  if (!directoryLoaded) {
+    directoryTitle.textContent = "Sessions";
+    directoryCount.hidden = true;
+    return;
   }
+
+  const waiting = orderedWaitingSessions();
+  const working = orderedWorkingSessions();
+  directoryCount.hidden = false;
+  if (waiting.length > 0) {
+    directoryTitle.textContent = "Needs you";
+    directoryCount.className = "count-pill count-pill-waiting";
+    directoryCount.textContent = `${waiting.length} waiting`;
+    sessionList.className = "session-list queue";
+    sessionList.setAttribute("aria-label", "Sessions waiting for input");
+    renderWaitingQueue(waiting, working);
+    return;
+  }
+
+  directoryTitle.textContent = "Sessions";
+  directoryCount.className = "count-pill count-pill-live";
+  directoryCount.textContent = `Live · ${working.length}`;
+  sessionList.className = "session-list all-clear";
+  sessionList.setAttribute("aria-label", "Live OMP sessions");
+  renderAllClear(working);
+}
+
+function setConnectionState(chip: HTMLElement, state: "connected" | "reconnecting" | "offline"): void {
+  chip.dataset.state = state;
+  chip.textContent =
+    state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "Offline";
+}
+
+function hideTriageBar(shell: ActiveCollabShell): void {
+  if (shell.triageTimeout !== undefined) {
+    window.clearTimeout(shell.triageTimeout);
+    delete shell.triageTimeout;
+  }
+  shell.triageBar.hidden = true;
+  delete shell.shell.dataset.triageVisible;
+}
+
+function showTriageBar(
+  shell: ActiveCollabShell,
+  kind: "next" | "clear" | "ended",
+  copy: string,
+  actionLabel: string,
+  action: () => void,
+): void {
+  hideTriageBar(shell);
+  shell.triageBar.dataset.kind = kind;
+  const message = createTextElement("span", "triage-copy", copy);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = kind === "next" ? "triage-action triage-action-next" : "triage-action";
+  button.textContent = actionLabel;
+  button.addEventListener("click", action);
+  shell.triageBar.replaceChildren(message, button);
+  shell.triageBar.hidden = false;
+  shell.shell.dataset.triageVisible = "true";
+  if (kind !== "ended") {
+    shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
+  }
+}
+
+function returnToDirectory(): void {
+  const snapshot = dashboardSnapshot;
+  if (snapshot === undefined) {
+    location.replace("/");
+    return;
+  }
+  disposeActiveCollab?.();
+  disposeActiveCollab = undefined;
+  activeCollabShell = undefined;
+  document.body.className = snapshot.bodyClass;
+  document.body.replaceChildren(...snapshot.children);
+  document.title = snapshot.title;
+  dashboardSnapshot = undefined;
+  if (location.pathname !== "/") history.replaceState(null, "", "/");
+  window.scrollTo(0, snapshot.scrollY);
+  void refreshAndConnect();
+  applyActivatedWorkerUpdate();
+}
+
+function reconcileActiveCollabShell(): void {
+  const shell = activeCollabShell;
+  if (shell === undefined || shell.answerShown || !directoryLoaded) return;
+  const current = sessions.get(shell.instanceId);
+  if (current === undefined || current.generation !== shell.generation) {
+    shell.answerShown = true;
+    showTriageBar(shell, "ended", "Session ended", "Back to Sessions", returnToDirectory);
+    return;
+  }
+  if (!shell.openedAttention || current.inputRequired) return;
+
+  shell.answerShown = true;
+  const waiting = orderedWaitingSessions();
+  const next = waiting.find(session => session.canControl);
+  if (waiting.length > 0 && next !== undefined) {
+    const copy =
+      waiting.length === 1
+        ? "✓ Answered — 1 more needs you"
+        : `✓ Answered — ${waiting.length} more need you`;
+    showTriageBar(shell, "next", copy, "Next ask →", () => void launch(next, "control"));
+    return;
+  }
+  const working = orderedWorkingSessions().length;
+  showTriageBar(
+    shell,
+    "clear",
+    `✓ Answered — all clear · ${working} working`,
+    "Sessions",
+    returnToDirectory,
+  );
 }
 
 async function loadCollabStylesheet(): Promise<HTMLLinkElement> {
@@ -405,40 +748,125 @@ async function loadCollabStylesheet(): Promise<HTMLLinkElement> {
   return await loaded;
 }
 
-function enterCollabClient(capability: string, startCollabWithCapability: StartCollabWithCapability): void {
+function enterCollabClient(
+  capability: string,
+  startCollabWithCapability: StartCollabWithCapability,
+  session: SessionMetadata,
+  mode: LaunchMode,
+): void {
+  if (dashboardSnapshot === undefined) {
+    dashboardSnapshot = {
+      children: [...document.body.children] as HTMLElement[],
+      scrollY: window.scrollY,
+      title: document.title,
+      bodyClass: document.body.className,
+    };
+  }
+  disposeActiveCollab?.();
+
+  const shell = document.createElement("div");
+  shell.className = "gateway-shell";
+  const bar = document.createElement("header");
+  bar.className = "shell-bar";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "shell-back";
+  back.textContent = "← Sessions";
+  back.addEventListener("click", () => history.back());
+  const title = createTextElement("span", "shell-title", sessionTitle(session));
+  const control = document.createElement("button");
+  control.type = "button";
+  control.className = "shell-control";
+  control.textContent = "Control";
+  control.hidden = mode === "control" || !session.canControl;
+  control.addEventListener("click", () => void launch(session, "control", control));
+  const connection = createTextElement("span", "conn-chip", "Reconnecting…");
+  connection.dataset.state = "reconnecting";
+  bar.append(back, title, control, connection);
+
   const container = document.createElement("div");
   container.id = "root";
   container.setAttribute("role", "application");
   container.setAttribute("aria-label", "OMP collaboration session");
-  events?.close();
-  events = undefined;
+  const triageBar = document.createElement("aside");
+  triageBar.className = "triage-bar";
+  triageBar.hidden = true;
+  shell.append(bar, container, triageBar);
+
   snapshotController?.abort();
   snapshotController = undefined;
-  history.pushState(null, "", "/client/");
-  document.body.replaceChildren(container);
-  document.title = "OMP collaboration";
+  clearReconnectTimeout();
+  reconnectAttempt = 0;
+  launchInProgress = false;
+  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
+  document.body.className = "collab-shell-active";
+  document.body.replaceChildren(shell);
+  document.title = `${sessionTitle(session)} · OMP Sessions`;
 
-  let dispose = (): void => undefined;
+  const shellState: ActiveCollabShell = {
+    instanceId: session.instanceId,
+    generation: session.generation,
+    openedAttention: mode === "control" && session.inputRequired,
+    triageBar,
+    shell,
+    answerShown: false,
+  };
+  activeCollabShell = shellState;
+
+  let observer: MutationObserver | undefined;
+  const updateConnection = (): void => {
+    if (container.querySelector(".sh-ended") !== null) {
+      setConnectionState(connection, "offline");
+      if (!shellState.answerShown) {
+        shellState.answerShown = true;
+        showTriageBar(shellState, "ended", "Session ended", "Back to Sessions", returnToDirectory);
+      }
+      return;
+    }
+    const banner = container.querySelector(".sh-banner")?.textContent?.toLowerCase() ?? "";
+    setConnectionState(
+      connection,
+      banner.includes("connecting") || banner.includes("joining") || banner.includes("reconnecting")
+        ? "reconnecting"
+        : "connected",
+    );
+  };
+  if ("MutationObserver" in window) {
+    observer = new MutationObserver(updateConnection);
+    observer.observe(container, { childList: true, subtree: true, characterData: true });
+  }
+
+  let disposeClient = (): void => undefined;
   const removeLifecycleListeners = (): void => {
     window.removeEventListener("pagehide", handlePageHide);
     window.removeEventListener("popstate", handlePopState);
+    observer?.disconnect();
+  };
+  const dispose = (): void => {
+    hideTriageBar(shellState);
+    removeLifecycleListeners();
+    disposeClient();
+    disposeClient = (): void => undefined;
+    if (activeCollabShell === shellState) activeCollabShell = undefined;
   };
   const handlePageHide = (): void => {
     dispose();
-    removeLifecycleListeners();
   };
   const handlePopState = (): void => {
-    dispose();
-    removeLifecycleListeners();
-    location.reload();
+    returnToDirectory();
   };
   window.addEventListener("pagehide", handlePageHide);
   window.addEventListener("popstate", handlePopState);
   try {
-    dispose = startCollabWithCapability(container, capability, removeLifecycleListeners);
+    disposeClient = startCollabWithCapability(container, capability, () => {
+      disposeClient = (): void => undefined;
+      removeLifecycleListeners();
+    });
+    disposeActiveCollab = dispose;
+    queueMicrotask(updateConnection);
   } catch (error) {
-    removeLifecycleListeners();
-    location.replace("/");
+    dispose();
+    returnToDirectory();
     throw error;
   }
 }
@@ -453,6 +881,9 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
   } else {
     setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
   }
+  launchInProgress = true;
+  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
+
   const resetButton = (): void => {
     if (button === undefined) return;
     button.disabled = mode === "view" && !session.canView;
@@ -463,9 +894,12 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
   let stylesheet: HTMLLinkElement | undefined;
   let startCollabWithCapability: StartCollabWithCapability;
   const fail = (kind: "offline" | "unauthorized" | "expired", message: string): void => {
+    launchInProgress = false;
+    if (location.pathname === "/client/") history.replaceState(null, "", "/");
     stylesheet?.remove();
     resetButton();
     setStatus(kind, message);
+    applyActivatedWorkerUpdate();
   };
 
   try {
@@ -514,7 +948,7 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
       throw new Error("invalid launch response");
     }
     capability = payload.capability;
-    enterCollabClient(capability, startCollabWithCapability);
+    enterCollabClient(capability, startCollabWithCapability, session, mode);
     capability = undefined;
   } catch {
     capability = undefined;
@@ -528,21 +962,30 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
   authorizationDenied = false;
   directoryLoaded = true;
   if (event.type === "snapshot") {
-    sessions.clear();
-    for (const session of event.sessions) sessions.set(session.instanceId, session);
+    replaceSessionSnapshot(event.sessions);
   } else if (event.type === "session_upsert") {
+    trackSessionAttention(event.session);
     sessions.set(event.session.instanceId, event.session);
   } else {
     const current = sessions.get(event.instanceId);
-    if (current?.generation === event.generation) sessions.delete(event.instanceId);
+    if (current?.generation === event.generation) {
+      sessions.delete(event.instanceId);
+      attentionReceipts.delete(event.instanceId);
+    }
   }
   render();
+  reconcileActiveCollabShell();
   return true;
 }
 
 async function loadSnapshot(epoch: number): Promise<boolean> {
   const controller = new AbortController();
   snapshotController = controller;
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, SNAPSHOT_TIMEOUT_MS);
   refreshRequests += 1;
   updateRefreshState();
   setStatus("loading", "Refreshing sessions…");
@@ -557,6 +1000,7 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
       authorizationDenied = true;
       directoryLoaded = false;
       sessions.clear();
+      attentionReceipts.clear();
       render();
       setStatus("unauthorized", "This tailnet identity is not authorized.");
       return false;
@@ -567,20 +1011,21 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     directoryRevision = payload.revision;
     authorizationDenied = false;
     directoryLoaded = true;
-    sessions.clear();
-    for (const session of payload.sessions) sessions.set(session.instanceId, session);
+    replaceSessionSnapshot(payload.sessions);
     render();
     setStatus("ready", "");
     return true;
   } catch {
-    if (controller.signal.aborted || epoch !== directoryEpoch) return false;
+    if (epoch !== directoryEpoch || (controller.signal.aborted && !timedOut)) return false;
     authorizationDenied = false;
     directoryLoaded = false;
     sessions.clear();
+    attentionReceipts.clear();
     render();
-    setStatus("offline", "Gateway unavailable. Check your tailnet connection.");
+    setStatus("offline", "Gateway unavailable. Reconnecting…");
     return false;
   } finally {
+    window.clearTimeout(timeout);
     if (snapshotController === controller) snapshotController = undefined;
     refreshRequests = Math.max(0, refreshRequests - 1);
     updateRefreshState();
@@ -603,7 +1048,7 @@ function connectEvents(epoch: number): void {
     source.addEventListener(type, event => {
       if (events !== source || epoch !== directoryEpoch) return;
       if (eventStreamStale) {
-        void refreshAndConnect();
+        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
         return;
       }
       armEventLiveness(source, epoch);
@@ -612,34 +1057,26 @@ function connectEvents(epoch: number): void {
           setStatus("ready", "");
         }
       } catch {
-        source.close();
-        if (events === source) events = undefined;
-        void refreshAndConnect();
+        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
       }
     });
   }
   source.addEventListener("keepalive", () => {
     if (events !== source || epoch !== directoryEpoch) return;
     if (eventStreamStale) {
-      void refreshAndConnect();
+      failEventStream(source, epoch, "Live updates paused. Reconnecting…");
       return;
     }
     armEventLiveness(source, epoch);
   });
   source.onerror = () => {
-    if (events !== source || epoch !== directoryEpoch) return;
-    clearEventLiveness();
-    eventStreamStale = true;
-    if (authorizationDenied) {
-      showTransportFailure("This tailnet identity is not authorized.");
-      setStatus("unauthorized", "This tailnet identity is not authorized.");
-    } else {
-      showTransportFailure("Live updates paused. Reconnecting…");
-    }
+    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
   };
 }
 
-async function refreshAndConnect(): Promise<boolean> {
+async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
+  if (resetBackoff) reconnectAttempt = 0;
+  clearReconnectTimeout();
   const epoch = directoryEpoch + 1;
   directoryEpoch = epoch;
   directoryRevision = -1;
@@ -650,8 +1087,13 @@ async function refreshAndConnect(): Promise<boolean> {
   clearEventLiveness();
   eventStreamStale = false;
   const loaded = await loadSnapshot(epoch);
-  if (loaded && epoch === directoryEpoch) connectEvents(epoch);
-  return loaded && epoch === directoryEpoch;
+  if (loaded && epoch === directoryEpoch) {
+    reconnectAttempt = 0;
+    connectEvents(epoch);
+    return true;
+  }
+  if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
+  return false;
 }
 refreshButton.addEventListener("click", () => {
   attentionRouteStatusLocked = false;
@@ -669,16 +1111,20 @@ window.addEventListener("offline", () => {
   snapshotController = undefined;
   events?.close();
   clearEventLiveness();
+  clearReconnectTimeout();
+  reconnectAttempt = 0;
   eventStreamStale = false;
   events = undefined;
   authorizationDenied = false;
   directoryLoaded = false;
   sessions.clear();
+  attentionReceipts.clear();
   render();
   setStatus("offline", "Offline. Sessions are not available without the gateway.");
 });
 
-void initializeNotifications();
+const applicationWorkerRegistration = initializeApplicationWorker();
+void initializeNotifications(applicationWorkerRegistration);
 if (await refreshAndConnect()) {
   if (pendingAttentionLaunch !== undefined) {
     const session = sessions.get(pendingAttentionLaunch.instanceId);
