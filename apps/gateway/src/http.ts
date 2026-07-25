@@ -137,7 +137,7 @@ async function readBoundedBody(request: Request, maximumBytes: number): Promise<
   return body;
 }
 
-const SSE_KEEPALIVE_MS = 15_000;
+const SSE_KEEPALIVE_MS = 5_000;
 
 function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS): Response {
   const encoder = new TextEncoder();
@@ -204,6 +204,7 @@ export function createHttpHandler(options: {
     }
     const clientBootstrap = isValidClientBootstrap(url);
     const attentionBootstrap = request.method === "GET" && isValidAttentionBootstrap(url);
+    const updateBootstrap = request.method === "GET" && url.pathname === "/update/";
     if (url.search !== "" && !clientBootstrap) {
       return problem(400, "bad_request", "Query parameters are not accepted");
     }
@@ -332,10 +333,10 @@ export function createHttpHandler(options: {
     }
 
     if (url.pathname.startsWith("/api/")) return problem(404, "not_found", "Not found");
-    const staticResponse = staticAssets.response(attentionBootstrap ? "/" : url.pathname);
+    const staticResponse = staticAssets.response(attentionBootstrap || updateBootstrap ? "/" : url.pathname);
     return withSecurityHeaders(
       staticResponse ?? new Response("Not found", { status: 404 }),
-      clientBootstrap || attentionBootstrap,
+      clientBootstrap || attentionBootstrap || updateBootstrap,
     );
   };
 }
@@ -353,7 +354,7 @@ export function startHttpServer(options: {
   const server = Bun.serve({
     hostname: options.config.http.hostname,
     port: options.config.http.port,
-    // Must exceed the 15-second SSE keepalive interval or Bun repeatedly closes event streams.
+    // Must exceed the five-second SSE keepalive interval or Bun repeatedly closes event streams.
     idleTimeout: 30,
     fetch(request, bunServer) {
       const address = bunServer.requestIP(request)?.address;

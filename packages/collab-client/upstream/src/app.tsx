@@ -8,6 +8,7 @@ import { HeaderBar } from "./components/shell/HeaderBar";
 import { Toasts } from "./components/shell/Toasts";
 import { Transcript } from "./components/transcript/Transcript";
 import { GuestClient } from "./lib/client";
+import { installBrowserConnectionRecovery } from "./lib/browser-recovery";
 import { useGuestSnapshot } from "./lib/use-guest";
 import type { ToolRenderHost } from "./tool-render";
 import "./components/shell/shell.css";
@@ -108,34 +109,7 @@ export function App({ capability, onDispose }: AppProps): ReactNode {
 
 	useEffect(() => {
 		if (!client) return;
-		let wasHidden = document.visibilityState === "hidden";
-		let lastRefreshAt = 0;
-		const refresh = (): void => {
-			const now = Date.now();
-			if (now - lastRefreshAt < 500) return;
-			lastRefreshAt = now;
-			client.refreshConnection();
-		};
-		const visibilityChanged = (): void => {
-			if (document.visibilityState === "hidden") {
-				wasHidden = true;
-				return;
-			}
-			if (!wasHidden) return;
-			wasHidden = false;
-			refresh();
-		};
-		const pageShown = (event: PageTransitionEvent): void => {
-			if (event.persisted) refresh();
-		};
-		window.addEventListener("online", refresh);
-		window.addEventListener("pageshow", pageShown);
-		document.addEventListener("visibilitychange", visibilityChanged);
-		return () => {
-			window.removeEventListener("online", refresh);
-			window.removeEventListener("pageshow", pageShown);
-			document.removeEventListener("visibilitychange", visibilityChanged);
-		};
+		return installBrowserConnectionRecovery(() => client.refreshConnection());
 	}, [client]);
 
 	useEffect(() => {
