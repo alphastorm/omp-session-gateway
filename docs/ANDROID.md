@@ -28,7 +28,7 @@ Benefits:
 
 Do not cache API responses or collab client navigations. A PWA does not need to be an offline copy of sensitive runtime state.
 
-Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline is intentionally unavailable and may remain on the browser's OS splash until connectivity returns. An already loaded dashboard receives metadata-free SSE heartbeats every 15 seconds, clears all cards after 35 seconds without a heartbeat or directory event, and requires a fresh authenticated snapshot before showing recovered sessions.
+Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline is intentionally unavailable and may remain on the browser's OS splash until connectivity returns. An already loaded dashboard receives metadata-free SSE heartbeats every 5 seconds, clears all cards and closes the silent stream after 12 seconds, then retries 4-second snapshots on bounded 1/2/4-second backoff until a fresh authenticated snapshot succeeds. While a collaboration session is visible, 5-second same-origin health probes and browser network-change signals replace a potentially stale relay connection after Wi-Fi or mobile roaming. Changed shells cache completely and activate automatically: an idle directory reloads through a synchronously scrubbed no-store update route, while active collaboration remains untouched and adopts the update on ordinary Back or Leave.
 
 Background notification payloads contain only message type, `instanceId`, and generation. Visible
 text is the fixed title `OMP session needs attention` with no body, so session labels and prompt

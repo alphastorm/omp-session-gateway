@@ -107,14 +107,15 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 
 1. Open a live session.
 2. Lock phone briefly, unlock, and resume.
-3. Client reconnects or gives a clear recovery path.
-4. Switch Wi-Fi/mobile network while Tailscale remains connected.
+3. Client reconnects automatically without leaving or reopening the session.
+4. Switch Wi-Fi/mobile network while Tailscale remains connected; dashboard and active Control/View recover without Refresh or another user action.
 5. Android back returns safely without a reusable secret-bearing history entry.
 6. Explicitly enable background alerts; page load never prompts, closing/navigating away from the PWA still permits an actionable false-to-true push, and visible text is exactly the fixed title with no body.
 7. Tap the notification; the metadata-only attention route is immediately scrubbed, exact current state is revalidated, and one tap opens Control only for that still-actionable generation.
-8. With live cards visible, remove all radio connectivity while Tailscale's virtual interface remains present; within 35 seconds the loaded dashboard clears every card, and connectivity restoration repopulates only a fresh snapshot without Refresh or duplicates.
+8. With live cards visible, remove all radio connectivity while Tailscale's virtual interface remains present; within 12 seconds the loaded dashboard clears every card, closes the silent stream, and begins bounded snapshot retries. Connectivity restoration repopulates only a fresh snapshot without Refresh or duplicates.
 9. Resolve, replace, and expire the session before tapping delayed notifications; each stays on the dashboard with no capability request for a newer generation.
 10. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
+11. Install a changed shell while the directory is idle; the new worker activates and loads it without Refresh. Repeat during pending/active collaboration; the capability-bearing client remains mounted until ordinary Back/Leave, then the updated directory loads automatically.
 
 ### E. Authorization
 

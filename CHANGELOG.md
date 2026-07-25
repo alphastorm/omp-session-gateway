@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.8] - 2026-07-25
+
+### Fixed
+
+- Recover dashboard sessions automatically across half-open Wi-Fi/Tailscale transitions by closing silent SSE streams after 12 seconds, timing out snapshots after 4 seconds, and retrying on bounded 1/2/4-second backoff.
+- Refresh an active collaboration relay transport after browser network changes or a failed-then-recovered 3-second same-origin health probe, without persisting or transmitting a collaboration capability.
+- Activate changed PWA shells automatically without a manual Refresh: idle directories reload through a scrubbed no-store update route, while pending or active collaboration defers the new document until ordinary failure recovery, Back, or Leave.
+
 ### Changed
 
 - Record the user-reported physical Android `v0.1.0-prealpha.7` core background-Push flow as partial evidence while keeping exact-version lock-screen, force-stop, stale-generation, network-change, and forbidden-sink qualification open.
