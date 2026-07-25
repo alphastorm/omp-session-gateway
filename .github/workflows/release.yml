@@ -143,17 +143,19 @@ jobs:
             cat > "$notes" <<EOF
           ## Pre-alpha; physical Android roaming and upgrade qualification pending
 
-          This release makes Wi-Fi/Tailscale recovery and installed-PWA upgrades automatic. It is not an alpha or production-qualified release.
+          This release makes Wi-Fi/Tailscale recovery and installed-PWA upgrades automatic, and adds the approved ask-first mobile couch flow. It is not an alpha or production-qualified release.
 
           ### User-visible changes
 
           - Silent dashboard transports close after 12 seconds and retry fresh snapshots automatically.
           - Active View/Control detects browser network changes and recovered gateway health, then replaces a potentially stale relay connection.
           - A changed PWA shell activates without Refresh. Idle Sessions reload automatically; active collaboration remains mounted and adopts the update on ordinary Back or Leave.
+          - Sessions waiting for input move into a FIFO triage stack with a full-width Control action; ordinary sessions remain available as compact View rows.
+          - The pinned collaboration client stays untouched inside gateway chrome that provides safe Sessions navigation, View-to-Control upgrade, connection state, and authoritative answer/ended follow-up.
 
           ### Security
 
-          The update bootstrap is same-origin, no-store, contains no session metadata or collaboration capability, and is synchronously scrubbed to \`/\`. Service-worker activation never auto-navigates attention, query-bearing, cross-origin, launch-pending, or active \`/client/\` pages. Health probes use only the generic same-origin readiness endpoint.
+          The update bootstrap is same-origin, no-store, contains no session metadata or collaboration capability, and is synchronously scrubbed to \`/\`. Service-worker activation never auto-navigates attention, query-bearing, cross-origin, launch-pending, or active \`/client/\` pages. Health probes use only the generic same-origin readiness endpoint. The couch flow remains on the boolean-only \`inputRequired\` contract and adds no prompt previews, request IDs, capabilities, URLs, storage, or service-worker payloads.
 
           ### Install or upgrade
 
@@ -166,6 +168,7 @@ jobs:
           - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 1.
           - The exact physical Android \`alpha\`↔\`alpha_2g\` roam and signed-artifact in-place PWA upgrade remain to be recorded for this candidate.
           - Closed-PWA, lock-screen, force-stop, stale-generation, and forbidden-sink behavior remains only partially qualified on physical Android.
+          - Request previews, request-specific deep links, and per-subscription notification detail levels remain deferred because the current gateway contract intentionally exposes only boolean attention metadata.
 
           ### Rollback
 
