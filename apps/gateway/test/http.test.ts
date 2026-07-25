@@ -378,6 +378,10 @@ describe("HTTP boundary", () => {
     expect(bootstrap.status).toBe(200);
     expect(bootstrap.headers.get("Cache-Control")).toContain("no-store");
     expect((await handler(request("/client/?handoff=not-a-uuid"), peer)).status).toBe(400);
+    const update = await handler(request("/update/"), peer);
+    expect(update.status).toBe(200);
+    expect(update.headers.get("Cache-Control")).toContain("no-store");
+    expect(await update.text()).toContain("OMP Sessions");
     const attention = await handler(request("/attention/http-instance-000001/3"), peer);
     expect(attention.status).toBe(200);
     expect(attention.headers.get("Cache-Control")).toContain("no-store");

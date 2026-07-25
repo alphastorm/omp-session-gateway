@@ -173,6 +173,10 @@ interface BrowserHarness {
   };
   disconnectEvents(): void;
   expireEventLiveness(): void;
+  runTimers(): void;
+  hangNextListRequest(): void;
+  activateWorker(): void;
+  readonly reloads: { count: number };
   readonly fetchPaths: string[];
   readonly permissionRequests: { count: number };
   readonly subscriptionRequests: unknown[];
@@ -249,11 +253,12 @@ async function bootApp(options: {
     },
   };
   const window = new FakeWindow();
+  const reloads = { count: 0 };
   const location = {
     origin: "https://sessions.example",
     pathname: options.pathname ?? "/",
-    reload(): void {},
-    replace(): void {},
+    reload(): void { reloads.count += 1; },
+    replace(path: string): void { location.pathname = path; },
   };
   const history = {
     replaced: [] as string[],
@@ -261,13 +266,16 @@ async function bootApp(options: {
       this.replaced.push(path);
       location.pathname = path;
     },
-    pushState(): void {},
+    pushState(_data: unknown, _unused: string, path: string): void {
+      location.pathname = path;
+    },
   };
   const fetchPaths: string[] = [];
   let listRevision = 1;
   let listSessions = [...options.initialSessions];
   let listStatus = 200;
   const workerMessages: unknown[] = [];
+  let hangingListRequests = 0;
   const permissionRequests = { count: 0 };
   const subscriptionRequests: unknown[] = [];
   const unsubscribeRequests: unknown[] = [];
@@ -327,13 +335,21 @@ async function bootApp(options: {
     pushManager,
     async showNotification(): Promise<void> {},
   };
-  const navigator = {
-    serviceWorker: {
-      async register(): Promise<typeof registration> {
+  const serviceWorker = new EventTarget() as EventTarget & {
+    controller: object | null;
+    readonly ready: Promise<typeof registration>;
+    register(): Promise<typeof registration>;
+  };
+  serviceWorker.controller = {};
+  Object.defineProperties(serviceWorker, {
+    ready: { value: Promise.resolve(registration) },
+    register: {
+      async value(): Promise<typeof registration> {
         return registration;
       },
     },
-  };
+  });
+  const navigator = { serviceWorker };
   const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
     fetchPaths.push(path);
@@ -347,6 +363,15 @@ async function bootApp(options: {
       return new Response(null, { status: 204 });
     }
     if (path !== "/api/v1/sessions") throw new Error(`unexpected fetch: ${path}`);
+    if (hangingListRequests > 0) {
+      hangingListRequests -= 1;
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init.signal;
+        const abort = (): void => reject(new DOMException("snapshot timed out", "AbortError"));
+        if (signal?.aborted === true) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+      });
+    }
     if (listStatus !== 200) return new Response("", { status: listStatus });
     return Response.json({ revision: listRevision, sessions: listSessions });
   };
@@ -380,6 +405,7 @@ async function bootApp(options: {
     subscriptionCalls,
     workerMessages,
     replacedPaths: history.replaced,
+    reloads,
     window,
     emit(type, payload): void {
       const source = FakeEventSource.instances.at(-1);
@@ -393,6 +419,16 @@ async function bootApp(options: {
     },
     expireEventLiveness(): void {
       window.runTimers();
+    },
+    runTimers(): void {
+      window.runTimers();
+    },
+    hangNextListRequest(): void {
+      hangingListRequests += 1;
+    },
+    activateWorker(): void {
+      serviceWorker.controller = {};
+      serviceWorker.dispatchEvent(new Event("controllerchange"));
     },
     setList(revision, sessions, status = 200): void {
       listRevision = revision;
@@ -469,7 +505,20 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
   });
 
-  test("clears stale metadata after missed SSE heartbeats and resyncs when transport resumes", async () => {
+  test("reloads an idle directory after an updated worker activates", async () => {
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "worker-activation",
+      initialSessions: [session("worker-update-0001")],
+    });
+
+    harness.activateWorker();
+    expect(harness.reloads.count).toBe(0);
+    harness.runTimers();
+    expect(harness.reloads.count).toBe(1);
+  });
+
+  test("closes a silent SSE stream and resyncs without manual refresh", async () => {
     const base = session("liveness-session-001");
     const harness = await bootApp({
       permission: "denied",
@@ -481,10 +530,35 @@ describe("dashboard attention and notifications", () => {
     harness.expireEventLiveness();
     expect(harness.elements.sessionList.childElementCount).toBe(0);
     expect(harness.elements.statusBanner.textContent).toBe("Live updates paused. Reconnecting…");
+    expect(FakeEventSource.instances[0]?.closed).toBeTrue();
 
     harness.setList(2, [base]);
-    harness.emit("keepalive", {});
+    harness.runTimers();
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
+    await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
+    await settleUntil(() => FakeEventSource.instances.length === 2);
+    expect(harness.elements.statusBanner.hidden).toBe(true);
+  });
+
+  test("times out a hung snapshot and keeps retrying automatically", async () => {
+    const base = session("snapshot-timeout-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "snapshot-timeout",
+      initialSessions: [base],
+    });
+
+    harness.hangNextListRequest();
+    harness.disconnectEvents();
+    harness.runTimers();
+    await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
+
+    harness.runTimers();
+    await settleUntil(() => harness.elements.statusBanner.textContent === "Gateway unavailable. Reconnecting…");
+
+    harness.setList(2, [base]);
+    harness.runTimers();
+    await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 3);
     await settleUntil(() => harness.elements.sessionList.childElementCount === 1);
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });

@@ -39,7 +39,10 @@ const refreshButton = requiredElement<HTMLButtonElement>("#refresh");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 
-const EVENT_LIVENESS_TIMEOUT_MS = 35_000;
+const EVENT_LIVENESS_TIMEOUT_MS = 12_000;
+const SNAPSHOT_TIMEOUT_MS = 4_000;
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 4_000;
 
 const sessions = new Map<string, SessionMetadata>();
 let events: EventSource | undefined;
@@ -51,8 +54,13 @@ let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
 let eventLivenessTimeout: number | undefined;
 let eventStreamStale = false;
+let reconnectTimeout: number | undefined;
+let reconnectAttempt = 0;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 let applicationServerKey: string | undefined;
+let launchInProgress = false;
+let workerUpdatePending = false;
+let updateReloadTimeout: number | undefined;
 
 
 type NotificationControlState =
@@ -151,12 +159,49 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
   if (!response.ok) throw new Error("push subscription was rejected");
 }
 
-async function initializeNotifications(): Promise<void> {
+function clearUpdateReloadTimeout(): void {
+  if (updateReloadTimeout === undefined) return;
+  window.clearTimeout(updateReloadTimeout);
+  updateReloadTimeout = undefined;
+}
+
+function applyActivatedWorkerUpdate(): void {
+  clearUpdateReloadTimeout();
+  if (!workerUpdatePending || launchInProgress || location.pathname === "/client/") return;
+  workerUpdatePending = false;
+  location.reload();
+}
+
+async function initializeApplicationWorker(): Promise<ServiceWorkerRegistration | undefined> {
+  if (!isSecureContext || !("serviceWorker" in navigator)) return undefined;
+  const serviceWorker = navigator.serviceWorker;
+  let currentController = serviceWorker.controller;
+  serviceWorker.addEventListener("controllerchange", () => {
+    const nextController = serviceWorker.controller;
+    if (currentController === null) {
+      currentController = nextController;
+      return;
+    }
+    if (nextController === currentController) return;
+    currentController = nextController;
+    workerUpdatePending = true;
+    clearUpdateReloadTimeout();
+    updateReloadTimeout = window.setTimeout(applyActivatedWorkerUpdate, 1_000);
+  });
+  try {
+    return await serviceWorker.register("/service-worker.js", { scope: "/" });
+  } catch {
+    return undefined;
+  }
+}
+
+async function initializeNotifications(
+  workerRegistration: Promise<ServiceWorkerRegistration | undefined>,
+): Promise<void> {
   setNotificationControl("checking");
   if (
     !isSecureContext ||
     typeof Notification === "undefined" ||
-    !("serviceWorker" in navigator) ||
     typeof PushManager === "undefined"
   ) {
     setNotificationControl("unavailable");
@@ -164,9 +209,13 @@ async function initializeNotifications(): Promise<void> {
   }
   try {
     const [registered, configResponse] = await Promise.all([
-      navigator.serviceWorker.register("/service-worker.js", { scope: "/" }),
+      workerRegistration,
       fetch("/api/v1/push/config", { cache: "no-store", credentials: "same-origin" }),
     ]);
+    if (registered === undefined) {
+      setNotificationControl("unavailable");
+      return;
+    }
     const registration = registered.active === null ? await navigator.serviceWorker.ready : registered;
     if (
       !configResponse.ok ||
@@ -267,6 +316,8 @@ function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
   return { instanceId, generation };
 }
 
+if (location.pathname === "/update/") history.replaceState(null, "", "/");
+
 const pendingAttentionLaunch = readPendingAttentionLaunch();
 let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
@@ -282,6 +333,12 @@ function clearEventLiveness(): void {
   eventLivenessTimeout = undefined;
 }
 
+function clearReconnectTimeout(): void {
+  if (reconnectTimeout === undefined) return;
+  window.clearTimeout(reconnectTimeout);
+  reconnectTimeout = undefined;
+}
+
 function showTransportFailure(message: string): void {
   directoryRevision = -1;
   directoryLoaded = false;
@@ -290,13 +347,32 @@ function showTransportFailure(message: string): void {
   setStatus("offline", message);
 }
 
+function scheduleReconnect(): void {
+  if (authorizationDenied || reconnectTimeout !== undefined) return;
+  const exponent = Math.min(reconnectAttempt, 2);
+  const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+  reconnectAttempt = Math.min(reconnectAttempt + 1, 2);
+  reconnectTimeout = window.setTimeout(() => {
+    reconnectTimeout = undefined;
+    void refreshAndConnect(false);
+  }, delay);
+}
+
+function failEventStream(source: EventSource, epoch: number, message: string): void {
+  if (events !== source || epoch !== directoryEpoch) return;
+  source.close();
+  events = undefined;
+  clearEventLiveness();
+  eventStreamStale = true;
+  showTransportFailure(message);
+  scheduleReconnect();
+}
+
 function armEventLiveness(source: EventSource, epoch: number): void {
   clearEventLiveness();
   eventLivenessTimeout = window.setTimeout(() => {
     eventLivenessTimeout = undefined;
-    if (events !== source || epoch !== directoryEpoch) return;
-    eventStreamStale = true;
-    showTransportFailure("Live updates paused. Reconnecting…");
+    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
   }, EVENT_LIVENESS_TIMEOUT_MS);
 }
 
@@ -414,7 +490,11 @@ function enterCollabClient(capability: string, startCollabWithCapability: StartC
   events = undefined;
   snapshotController?.abort();
   snapshotController = undefined;
-  history.pushState(null, "", "/client/");
+  clearEventLiveness();
+  clearReconnectTimeout();
+  reconnectAttempt = 0;
+  launchInProgress = false;
+  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
   document.body.replaceChildren(container);
   document.title = "OMP collaboration";
 
@@ -453,6 +533,9 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
   } else {
     setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
   }
+  launchInProgress = true;
+  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
+
   const resetButton = (): void => {
     if (button === undefined) return;
     button.disabled = mode === "view" && !session.canView;
@@ -463,9 +546,12 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
   let stylesheet: HTMLLinkElement | undefined;
   let startCollabWithCapability: StartCollabWithCapability;
   const fail = (kind: "offline" | "unauthorized" | "expired", message: string): void => {
+    launchInProgress = false;
+    if (location.pathname === "/client/") history.replaceState(null, "", "/");
     stylesheet?.remove();
     resetButton();
     setStatus(kind, message);
+    applyActivatedWorkerUpdate();
   };
 
   try {
@@ -543,6 +629,11 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
 async function loadSnapshot(epoch: number): Promise<boolean> {
   const controller = new AbortController();
   snapshotController = controller;
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, SNAPSHOT_TIMEOUT_MS);
   refreshRequests += 1;
   updateRefreshState();
   setStatus("loading", "Refreshing sessions…");
@@ -573,14 +664,15 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     setStatus("ready", "");
     return true;
   } catch {
-    if (controller.signal.aborted || epoch !== directoryEpoch) return false;
+    if (epoch !== directoryEpoch || (controller.signal.aborted && !timedOut)) return false;
     authorizationDenied = false;
     directoryLoaded = false;
     sessions.clear();
     render();
-    setStatus("offline", "Gateway unavailable. Check your tailnet connection.");
+    setStatus("offline", "Gateway unavailable. Reconnecting…");
     return false;
   } finally {
+    window.clearTimeout(timeout);
     if (snapshotController === controller) snapshotController = undefined;
     refreshRequests = Math.max(0, refreshRequests - 1);
     updateRefreshState();
@@ -603,7 +695,7 @@ function connectEvents(epoch: number): void {
     source.addEventListener(type, event => {
       if (events !== source || epoch !== directoryEpoch) return;
       if (eventStreamStale) {
-        void refreshAndConnect();
+        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
         return;
       }
       armEventLiveness(source, epoch);
@@ -612,34 +704,26 @@ function connectEvents(epoch: number): void {
           setStatus("ready", "");
         }
       } catch {
-        source.close();
-        if (events === source) events = undefined;
-        void refreshAndConnect();
+        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
       }
     });
   }
   source.addEventListener("keepalive", () => {
     if (events !== source || epoch !== directoryEpoch) return;
     if (eventStreamStale) {
-      void refreshAndConnect();
+      failEventStream(source, epoch, "Live updates paused. Reconnecting…");
       return;
     }
     armEventLiveness(source, epoch);
   });
   source.onerror = () => {
-    if (events !== source || epoch !== directoryEpoch) return;
-    clearEventLiveness();
-    eventStreamStale = true;
-    if (authorizationDenied) {
-      showTransportFailure("This tailnet identity is not authorized.");
-      setStatus("unauthorized", "This tailnet identity is not authorized.");
-    } else {
-      showTransportFailure("Live updates paused. Reconnecting…");
-    }
+    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
   };
 }
 
-async function refreshAndConnect(): Promise<boolean> {
+async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
+  if (resetBackoff) reconnectAttempt = 0;
+  clearReconnectTimeout();
   const epoch = directoryEpoch + 1;
   directoryEpoch = epoch;
   directoryRevision = -1;
@@ -650,8 +734,13 @@ async function refreshAndConnect(): Promise<boolean> {
   clearEventLiveness();
   eventStreamStale = false;
   const loaded = await loadSnapshot(epoch);
-  if (loaded && epoch === directoryEpoch) connectEvents(epoch);
-  return loaded && epoch === directoryEpoch;
+  if (loaded && epoch === directoryEpoch) {
+    reconnectAttempt = 0;
+    connectEvents(epoch);
+    return true;
+  }
+  if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
+  return false;
 }
 refreshButton.addEventListener("click", () => {
   attentionRouteStatusLocked = false;
@@ -669,6 +758,8 @@ window.addEventListener("offline", () => {
   snapshotController = undefined;
   events?.close();
   clearEventLiveness();
+  clearReconnectTimeout();
+  reconnectAttempt = 0;
   eventStreamStale = false;
   events = undefined;
   authorizationDenied = false;
@@ -678,7 +769,8 @@ window.addEventListener("offline", () => {
   setStatus("offline", "Offline. Sessions are not available without the gateway.");
 });
 
-void initializeNotifications();
+const applicationWorkerRegistration = initializeApplicationWorker();
+void initializeNotifications(applicationWorkerRegistration);
 if (await refreshAndConnect()) {
   if (pendingAttentionLaunch !== undefined) {
     const session = sessions.get(pendingAttentionLaunch.instanceId);

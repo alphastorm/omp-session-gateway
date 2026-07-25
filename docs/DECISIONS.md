@@ -228,9 +228,9 @@ transition still require native-device qualification.
 
 **Context:** On physical Android, Tailscale can keep a virtual interface present while the radio path is unavailable. In that state `navigator.onLine` may remain true and an existing `EventSource` TCP connection may emit no error for more than 30 seconds. The gateway's SSE comment pings kept intermediaries alive but were not observable by dashboard JavaScript, so stale session cards could remain visible.
 
-**Decision:** Emit a metadata-free named `keepalive` SSE event every 15 seconds. The loaded dashboard resets a 35-second liveness deadline on every directory event or keepalive. Missing that deadline clears all displayed session metadata and marks the transport unavailable. The next event after a silent partition triggers a fresh authenticated snapshot and a new SSE epoch before cards return.
+**Decision:** Emit a metadata-free named `keepalive` SSE event every 5 seconds. The loaded dashboard resets a 12-second liveness deadline on every directory event or keepalive. Missing that deadline clears all displayed session metadata, closes the potentially half-open `EventSource`, and begins authenticated snapshot retries with a 4-second request timeout and bounded 1/2/4-second backoff. While the collaboration client is visible, probe the same-origin generic health endpoint every 5 seconds with a 3-second timeout and listen for browser online, foreground, BFCache, and Network Information changes. A failed-then-successful probe or explicit network transition replaces the potentially stale relay WebSocket without replacing the logical guest.
 
-**Consequences:** Silent partitions now have a bounded stale-display window of 35 seconds. The additive event is ignored safely by older v1 clients and carries no session data or capability. API responses and navigation remain outside service-worker caches; a cold installed-PWA launch while fully offline is intentionally unavailable, while an already loaded shell fails closed without stale metadata.
+**Consequences:** Silent dashboard partitions now have a bounded 12-second stale-display window and recover without waiting for a half-open transport to emit another event. Each loaded dashboard receives at most twelve metadata-free keepalives per minute; each visible collaboration client makes at most twelve generic health requests per minute. This local/tailnet availability traffic is accepted to avoid manual Refresh after radio roaming. The additive keepalive remains safe for older v1 clients, and probes carry no session metadata or capability. API responses and navigation remain outside service-worker caches; a cold installed-PWA launch while fully offline is intentionally unavailable, while an already loaded shell fails closed without stale metadata.
 
 ---
 
@@ -263,3 +263,15 @@ scoped private persistence exception, while collaboration capabilities and the s
 remain memory-only. Physical Android background, lock-screen, tap, force-stop, and network-change
 qualification is release-blocking. A native FCM wrapper remains a fallback only if this path fails
 that qualification.
+
+---
+
+## ADR-018 — Activate PWA upgrades automatically without interrupting live collaboration
+
+**Status:** Accepted
+
+**Context:** An installed Android PWA can keep an already-loaded JavaScript document and leave a newly installed service worker waiting, so a gateway upgrade previously required a manual Refresh or reopen. Reloading while `/client/` is active would destroy the collaboration capability that intentionally exists only in JavaScript memory.
+
+**Decision:** Build every shell with content-hashed assets and a content-derived cache name. The new service worker caches its complete shell, calls `skipWaiting`, removes prior shell caches during activation, and claims clients. If activation observes a prior shell cache, it navigates only an exact same-origin `/` directory client to the no-store `/update/` bootstrap; the newly loaded app synchronously scrubs that route to `/`. Reserve `/client/` synchronously when a View or Control launch begins, and never auto-navigate `/client/`, `/attention/`, query-bearing, or cross-origin clients. An update-aware page also observes controller replacement and performs a bounded fallback reload only when no capability launch or collaboration client is active. A deferred update applies after a failed launch returns to the directory or when the user naturally leaves collaboration.
+
+**Consequences:** Idle installed PWAs adopt a new build without manual action, including the transition from older clients that do not understand the update protocol. Active collaboration remains uninterrupted and adopts the update on its ordinary return to Sessions. The update route carries no metadata or capability, is synchronously removed from history, is never cached, and adds one authenticated shell navigation per upgrade. A browser that cannot install or activate service workers retains ordinary network-navigation behavior but cannot provide zero-touch in-place upgrades.
