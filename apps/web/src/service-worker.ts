@@ -1,4 +1,8 @@
-import { parseAttentionPushMessage, type AttentionPushMessage } from "@omp-session-gateway/protocol";
+import {
+  PUSH_API_VERSION,
+  parseAttentionPushMessage,
+  type AttentionPushMessage,
+} from "@omp-session-gateway/protocol";
 
 declare const __SHELL_ASSETS__: readonly string[];
 declare const __CACHE_NAME__: string;
@@ -16,17 +20,29 @@ function isNotificationSupportRequest(value: unknown): boolean {
     keys.includes("type") &&
     keys.includes("version") &&
     record.type === "omp-notification-support-request" &&
-    record.version === 1
+    record.version === PUSH_API_VERSION
   );
 }
 
 worker.addEventListener("message", event => {
   if (!isNotificationSupportRequest(event.data)) return;
-  event.ports[0]?.postMessage({ type: "omp-notification-support-response", version: 1 });
+  event.ports[0]?.postMessage({
+    type: "omp-notification-support-response",
+    version: PUSH_API_VERSION,
+  });
 });
 
-function notificationTag(message: AttentionPushMessage): string {
-  return `omp-attention-${message.instanceId}-${message.generation}`;
+
+async function updateAppBadge(pendingAskCount: number): Promise<void> {
+  const badgeNavigator = worker.navigator as Navigator & {
+    clearAppBadge?: () => Promise<void>;
+    setAppBadge?: (contents?: number) => Promise<void>;
+  };
+  if (pendingAskCount === 0) {
+    await badgeNavigator.clearAppBadge?.();
+  } else {
+    await badgeNavigator.setAppBadge?.(pendingAskCount);
+  }
 }
 
 worker.addEventListener("push", event => {
@@ -37,33 +53,49 @@ worker.addEventListener("push", event => {
   } catch {
     return;
   }
-  const tag = notificationTag(message);
+  const tag = `omp-attention-${message.instanceId}`;
   event.waitUntil(
-    message.type === "resolved"
-      ? worker.registration
-          .getNotifications({ tag })
-          .then(notifications => {
-            for (const notification of notifications) notification.close();
-          })
-      : worker.registration.showNotification("OMP session needs attention", {
+    (async () => {
+      if (message.type === "clear") {
+        const notifications = await worker.registration.getNotifications({ tag });
+        for (const notification of notifications) {
+          const data = notification.data as { readonly requestId?: unknown } | undefined;
+          if (data?.requestId === message.requestId) notification.close();
+        }
+      } else {
+        const options = {
           tag,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
-          data: message,
-        }),
+          renotify: false,
+          ...(message.body === undefined ? {} : { body: message.body }),
+          data: {
+            version: message.version,
+            type: message.type,
+            instanceId: message.instanceId,
+            requestId: message.requestId,
+          },
+        } satisfies NotificationOptions & { readonly renotify: boolean };
+        await worker.registration.showNotification(message.title, options);
+      }
+      await updateAppBadge(message.pendingAskCount);
+    })(),
   );
 });
 
 worker.addEventListener("notificationclick", event => {
   event.notification.close();
   let path = "/";
-  try {
-    const message = parseAttentionPushMessage(event.notification.data);
-    if (message.type === "attention") {
-      path = `/attention/${encodeURIComponent(message.instanceId)}/${message.generation}`;
-    }
-  } catch {
-    // Invalid or legacy notification data returns to the non-secret directory.
+  const data = event.notification.data as Record<string, unknown> | undefined;
+  if (
+    data?.version === PUSH_API_VERSION &&
+    data.type === "attention" &&
+    typeof data.instanceId === "string" &&
+    /^[A-Za-z0-9._:-]{16,128}$/u.test(data.instanceId) &&
+    typeof data.requestId === "string" &&
+    /^[A-Za-z0-9_-]{16,128}$/u.test(data.requestId)
+  ) {
+    path = `/collab/${encodeURIComponent(data.instanceId)}?request=${encodeURIComponent(data.requestId)}`;
   }
   event.waitUntil(
     (async () => {
@@ -72,7 +104,7 @@ worker.addEventListener("notificationclick", event => {
         const url = new URL(client.url);
         return (
           url.origin === worker.location.origin &&
-          (url.pathname === "/" || url.pathname.startsWith("/attention/"))
+          (url.pathname === "/" || url.pathname.startsWith("/collab/"))
         );
       });
       if (dashboard !== undefined) {
@@ -135,6 +167,7 @@ worker.addEventListener("fetch", event => {
     url.search !== "" ||
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/client/") ||
+    url.pathname.startsWith("/collab/") ||
     url.pathname.startsWith("/internal/") ||
     !shellAssets.has(url.pathname)
   ) {

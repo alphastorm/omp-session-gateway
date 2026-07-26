@@ -94,19 +94,24 @@ Mandatory rules:
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
 
-`inputRequired` is metadata, not collaboration content. It remains one boolean; prompt text,
-options, answers, request IDs/kinds/counts, and transcript content never enter the publisher record,
-list/SSE, DOM copy, push state/payload, visible notification, logs, diagnostics, or metrics.
+`inputRequired` remains the only attention field accepted from the OMP publisher. The gateway may
+derive an opaque random request ID and receipt timestamp in memory for each false-to-true
+transition, expose them in list/SSE and routing URLs, and destroy them on clear, removal, expiry, or
+generation replacement. They are metadata, not authorization. Prompt text, options, answers, and
+transcript content remain prohibited unless a later publisher protocol explicitly introduces a
+bounded plain-text preview contract; the current implementation always uses the boolean fallback.
 
 After an explicit permission/subscription action, the gateway may persist a user-only VAPID key
-pair and bounded browser subscription set. It sends only protocol version, message type,
-`instanceId`, and generation. The visible notification uses the fixed title
-`OMP session needs attention` and no body. A notification tap may act as the explicit Control
-action only through `/attention/:instanceId/:generation`: synchronously replace that metadata-only
-route with `/`, fetch a current authenticated snapshot, require the exact generation plus
-`inputRequired: true` and Control availability, and then use the existing no-store launch POST.
-Never put a collaboration capability in the payload, notification data, route, history,
-service-worker message, or persisted push state.
+pair, bounded browser subscription set, authenticated identity, and per-device `private`,
+`session`, or `preview` choice. It assembles encrypted push presentation at send time. `private`
+uses the fixed title and no body; `session` may add bounded session/project labels; `preview` may
+also add a bounded preview but falls back to `session` until such data is available. The UI must
+warn that visible notification text can persist in notification history, screenshots, and
+wearables. A tap routes through `/collab/:instanceId?request=:requestId`, fetches a current
+authenticated snapshot, requires the exact current attention identity and Control availability,
+and then uses the existing generation-bound no-store launch POST.
+Never put a collaboration capability in a payload, notification data, route, history,
+service-worker message, persisted push state, badge, or request identifier.
 
 JavaScript strings cannot be reliably zeroized. Minimize lifetime, copies, closures, global state, and persistence instead of claiming memory erasure.
 
@@ -131,14 +136,14 @@ Additional requirements:
 - all metadata rendered as text, never unsanitized HTML;
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
-- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/attention/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
-- service worker Push handling accepts exact metadata-only `attention`/`resolved` envelopes, uses fixed visible text, tags by exact generation, and never fetches or receives a collaboration capability;
-- clear session metadata and disable launch actions whenever the directory transport fails; repopulate only from a current authenticated snapshot/SSE epoch and ignore lower revisions within that epoch;
-- no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, or performance marks;
+- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/collab/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
+- service worker Push handling accepts exact `attention`/`clear` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
+- transient directory transport failure retains the last authenticated metadata only in volatile page memory, marks it stale with the last-fresh timestamp, and disables no actions solely because SSE disconnected; authorization failure clears it;
+- no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, performance marks, history state, or directory snapshots;
 - external links use `rel="noopener noreferrer"`;
 - production builds disable framework devtools hooks where practical;
 - reload returns to the metadata directory.
-- an activated shell update may navigate only an exact same-origin idle `/` client to the no-store `/update/` bootstrap; the new document synchronously scrubs it to `/`, while launch-pending, attention, and active `/client/` pages are never auto-navigated;
+- an activated shell update may navigate only an exact same-origin idle `/` client to the no-store `/update/` bootstrap; the new document synchronously scrubs it to `/`, while launch-pending, request-routed, and active `/client/` pages are never auto-navigated;
 
 If relay origins are configurable, generate `connect-src` only from administrator-controlled validated origins.
 

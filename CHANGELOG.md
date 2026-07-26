@@ -4,7 +4,31 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [0.1.0-prealpha.10] - 2026-07-26
+
+### Added
+
+- Complete the approved Couch Flow handoff with whole-screen waiting/all-clear modes, FIFO ask
+  ordering, boolean fallback, whole-row session actions, exact collaboration-shell triage, and
+  capability-free directory order/scroll restoration.
+- Add per-device Private, Session, and Preview notification detail with a mobile bottom sheet,
+  server-built payloads, exact-request clearing, one notification per session, app badge counts,
+  and notification-to-Control request routing.
+
+### Fixed
+
+- Distinguish phone-offline, tailnet-unreachable, desktop-unreachable, and relay-reconnecting states
+  while retaining the last authenticated directory with a freshness timestamp.
+- Remove the prominent manual Refresh control; liveness detection, bounded reconnect, and PWA
+  activation now own routine recovery.
+
+### Security
+
+- Derive opaque ask identities in gateway memory without changing the capability-bearing publisher
+  contract; revalidate the exact ask and generation before every notification-launched Control.
+- Keep collaboration capabilities out of push state and payloads, notification data, URLs, history,
+  browser storage, caches, logs, and diagnostics while limiting optional visible detail to the
+  level selected for each device.
 
 ## [0.1.0-prealpha.9] - 2026-07-26
 

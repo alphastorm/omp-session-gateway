@@ -132,27 +132,6 @@ h1 {
   line-height: 1.55;
 }
 
-.refresh {
-  min-height: 2.75rem;
-  padding: 0.6rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  color: var(--body);
-  background: none;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.refresh:hover:not(:disabled),
-.refresh:focus-visible {
-  border-color: var(--muted);
-  color: var(--ink);
-}
-
-.refresh:disabled {
-  cursor: progress;
-  opacity: 0.55;
-}
 
 .masthead-actions {
   flex: none;
@@ -216,6 +195,36 @@ h1 {
   line-height: 1.45;
 }
 
+.status-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.status-title {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+}
+
+.status-detail {
+  color: var(--body);
+}
+
+.status-action {
+  flex: none;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.45rem;
+  color: var(--control);
+  background: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .status::before {
   content: "";
   flex: none;
@@ -230,12 +239,18 @@ h1 {
 }
 
 .status[data-kind="offline"],
+.status[data-kind="tailnet"],
+.status[data-kind="desktop"],
+.status[data-kind="relay"],
 .status[data-kind="expired"] {
   border-color: var(--control-border);
   color: var(--control);
 }
 
 .status[data-kind="offline"]::before,
+.status[data-kind="tailnet"]::before,
+.status[data-kind="desktop"]::before,
+.status[data-kind="relay"]::before,
 .status[data-kind="expired"]::before {
   background: var(--control);
 }
@@ -895,6 +910,14 @@ body.collab-shell-active {
   line-height: 1.35;
 }
 
+.triage-bar[data-kind="reconnecting"] {
+  border-color: var(--control-border);
+}
+
+.triage-bar[data-kind="reconnecting"] .triage-copy {
+  color: var(--control);
+}
+
 .triage-action {
   flex: none;
   min-height: 2.75rem;
@@ -915,6 +938,145 @@ body.collab-shell-active {
   background: var(--control);
 }
 
+
+.notification-sheet {
+  width: min(100% - 1rem, 35rem);
+  max-height: min(88dvh, 46rem);
+  margin: auto auto max(0.5rem, env(safe-area-inset-bottom));
+  padding: 0.9rem 1rem max(1rem, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 -1rem 3rem rgba(0, 0, 0, 0.45);
+}
+
+.notification-sheet::backdrop {
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(3px);
+}
+
+.notification-sheet-handle {
+  width: 2.5rem;
+  height: 0.25rem;
+  margin: 0 auto 1rem;
+  border-radius: 999px;
+  background: var(--faint);
+}
+
+.notification-sheet header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sheet-kicker,
+.notification-sheet legend {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.notification-sheet h2 {
+  margin: 0 0 1rem;
+  font-size: 1.35rem;
+}
+
+.sheet-close {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  color: var(--body);
+  background: none;
+  cursor: pointer;
+}
+
+.notification-sheet fieldset {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.detail-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  color: var(--body);
+  background: var(--raised);
+  cursor: pointer;
+}
+
+.detail-option:has(input:checked) {
+  border-color: var(--control);
+  background: rgba(201, 155, 69, 0.06);
+}
+
+.detail-option input {
+  margin-top: 0.2rem;
+  accent-color: var(--control);
+}
+
+.detail-option span,
+.detail-option small {
+  display: block;
+}
+
+.detail-option strong {
+  color: var(--ink);
+}
+
+.detail-option em {
+  margin-left: 0.35rem;
+  padding: 0.12rem 0.35rem;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  color: var(--control);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.detail-option small {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.detail-option .detail-warning {
+  color: var(--control);
+}
+
+.sheet-footnote {
+  margin: 0.85rem 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.notification-disable {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--danger-border);
+  border-radius: 0.5rem;
+  color: var(--danger-text);
+  background: none;
+  font-weight: 600;
+  cursor: pointer;
+}
 @media (max-width: 26rem) {
   main {
     width: min(100% - 1.5rem, 35rem);

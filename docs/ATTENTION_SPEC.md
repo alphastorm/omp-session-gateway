@@ -1,171 +1,129 @@
-# Needs-attention + notification opt-in — design contract
+# Needs-attention and notification detail contract
 
-Normative UI and privacy contract for the implemented `inputRequired` and background Web Push
-features. The static markup, application controller, service worker, gateway sender, and automated
-tests use these class names, state labels, and copy.
-
-Visual reference: `OMP Sessions PWA.dc.html`, addendum section (screens 04–07;
-canonical 01–03 show the updated masthead).
+Normative implementation contract for the Couch Flow directory, authoritative ask loop, and
+per-device background alerts. `docs/COUCH_FLOW_SPEC.md` defines the complete interaction model;
+this document narrows its metadata, push, and privacy behavior.
 
 ## Product boundary
 
-The dashboard is a session directory and capability broker. It never renders
-prompt text, response options, option counts, request IDs, or transcript
-content. A notification tap is an explicit Control action only after opt-in:
-the app revalidates the exact generation and current attention state, then
-uses the ordinary just-in-time, no-store, in-memory launch path.
+The dashboard is a session directory and capability broker, not a second agent UI. It may display
+bounded gateway metadata:
 
-## Feature 1 — attention card
+- session and project labels;
+- `inputRequired`;
+- an opaque request ID and server receipt timestamp;
+- an optional bounded request preview and option count.
 
-When authoritative metadata has `inputRequired: true`:
+It never renders a transcript, response option labels, prefills, answers, or collaboration
+capabilities. Boolean-only publishers remain fully supported: the hero says `Waiting for your
+input` and Control opens the authoritative ask in the pinned collaboration client.
 
-```html
-<div class="session-card">
-  <h2>relay soak harness</h2>
-  <div class="session-meta">…</div>
-  <p class="attention" id="attention-{instanceId}">Needs attention</p>
-  <!-- view-only sessions instead: -->
-  <!-- <p class="attention" id="attention-{instanceId}">Needs attention — Control unavailable</p> -->
-  <div class="session-actions" data-count="2">
-    <button class="action action-primary" aria-describedby="attention-{instanceId}">View</button>
-    <button class="action action-control" aria-describedby="attention-{instanceId}">Control</button>
-  </div>
-</div>
-```
+## Directory behavior
 
-- Pill sits **below the metadata, before the actions**. Omit it entirely when
-  `inputRequired` is false.
-- Exact copy: `Needs attention` / `Needs attention — Control unavailable`
-  (em dash).
-- Gold `--control` / `--control-border` treatment. The **card border does not
-  change** — no gold outline around the card.
-- Static and descriptive: not a button, no pulse/animation, no live region,
-  no alarm decoration. Text carries the meaning, never color alone.
-- Every rendered action button gets `aria-describedby="attention-{instanceId}"`.
-- View first, primary. When Control is unavailable, **omit the Control button
-  entirely** (no disabled placeholder); `data-count="1"` makes View full-width.
-- Attention never clears optimistically when View/Control is launched. It
-  clears only when authoritative metadata returns `inputRequired: false`, or
-  the record is removed by expiry, offline handling, or auth failure.
+The home screen has one whole-screen mode:
 
-### Ordering
+- any waiting session: `Needs you`, FIFO by `ask.since`, with one `Up next` hero, remaining waiting
+  rows under `Then`, and working rows last;
+- no waiting sessions: `Sessions`, one `All clear` summary, then working rows newest-first.
 
-Attention cards sort ahead of ordinary cards. Within each group:
+The hero action is `Open request` when Control is available and `View transcript` otherwise.
+Control-capable heroes also offer `View transcript instead`. Every non-hero waiting or working item
+is a whole-row button. The masthead has no manual Refresh control; snapshots, SSE, liveness checks,
+and bounded retry own directory freshness.
 
-1. Newest `startedAt` first.
-2. `instanceId` as deterministic tie-breaker.
+## Notification control
 
-Reorder only on accepted authoritative updates.
+The masthead control has exactly these labels:
 
-## Feature 2 — background alert control
+| State | Label | Enabled? |
+|---|---|---:|
+| checking | `Checking background alerts…` | No |
+| idle | `Enable background alerts` | Yes |
+| enabling | `Enabling…` | No |
+| disabling | `Disabling…` | No |
+| enabled | `Disable background alerts` | Yes; opens settings |
+| blocked | `Notifications blocked` | No |
+| unavailable | `Background alerts unavailable` | No |
 
-In `index.html` (dashboard chrome, subordinate to the session list — never
-per-card):
+Permission is requested only from the explicit enable action. A previously granted subscription
+may be reconciled on load without prompting.
 
-```html
-<div class="masthead-actions">
-  <button id="refresh" class="refresh" type="button">Refresh</button>
-  <button id="notify" class="notify" type="button" data-state="checking" disabled>Checking background alerts…</button>
-  <p id="notify-note" class="notify-note">Alerts work with the app closed. Tapping one opens current Control after revalidation.</p>
-</div>
-```
+The settings bottom sheet stores one level with each browser endpoint:
 
-`app.ts` drives `#notify` (`data-state` + `disabled` + `textContent`) and
-`#notify-note`. **Enable background alerts** and **Disable background alerts**
-are interactive. Use the exact ellipsis character `…`.
+- `private`: fixed title only;
+- `session` (default): session/project labels;
+- `preview`: session detail plus the bounded ask preview when one exists.
 
-| `data-state` | Label | Enabled? | `#notify-note` copy |
-|---|---|---:|---|
-| `checking` | `Checking background alerts…` | No | default |
-| `idle` | `Enable background alerts` | Yes | default |
-| `enabling` | `Enabling…` | No | default |
-| `disabling` | `Disabling…` | No | default |
-| `enabled` | `Disable background alerts` | Yes | default |
-| `blocked` | `Notifications blocked` | No | `Notifications are blocked. Enable them in this site's browser settings.` |
-| `unavailable` | `Background alerts unavailable` | No | default |
+The sheet warns that Preview may persist in notification history, screenshots, and wearables, and
+states that payloads are built on the gateway at the selected level. The phone does not receive a
+richer payload and redact it locally. Disabling unsubscribes in the browser and removes that
+endpoint from the gateway; delivery `404`/`410` also removes stale state.
 
-Default copy: `Alerts work with the app closed. Tapping one opens current
-Control after revalidation.` The note is always visible; only denied swaps
-its text.
+## Notification lifecycle
 
-- **Never** request permission on page load; the prompt is always
-  user-initiated via the button.
-- A previously granted browser subscription may be re-registered with the
-  gateway on load without prompting again.
-- Enabling creates a browser Push subscription and stores its endpoint/keys
-  plus the per-install VAPID key pair in a private gateway state file.
-- Disabling unsubscribes in the browser and asks the gateway to remove the
-  endpoint; a later `404`/`410` delivery response also removes stale state.
-- Notification failures never degrade the metadata directory.
+The gateway assigns a new opaque request ID and daemon receipt timestamp on each accepted
+`false → true` ask transition. Repeated `true` updates preserve that identity. It sends
+Control-capable attention only; view-only sessions cannot open a resolving Control client.
 
-## Notification firing
-
-The gateway observes authoritative registry metadata. It sends an encrypted
-Web Push message when a Control-capable session becomes actionable:
-
-- first observation of an active `inputRequired: true` generation;
-- same-generation `false → true`; or
-- subscription opt-in while a current Control-capable attention state exists.
-
-Repeated `true` updates do not send again. `true → false`, exact-generation
-removal, and generation replacement send a matching `resolved` message so the
-service worker closes the tagged notification. View-only attention does not
-push because the notification could not open a resolving Control client.
-
-Payloads contain exactly:
+An attention payload is strict Push API version 2:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "type": "attention",
   "instanceId": "metadata-only-instance-id",
-  "generation": 3
+  "generation": 3,
+  "requestId": "opaque-request-identity",
+  "pendingAskCount": 2,
+  "title": "OMP session needs attention",
+  "body": "optional server-built detail"
 }
 ```
 
-`type` may instead be `resolved`. Prompt text, options, labels, paths, request
-identity, transcript content, and collaboration capabilities are forbidden.
-The visible notification is exactly:
+`body` is omitted at `private`. The worker uses one replacement tag per `instanceId`, sets the app
+badge to `pendingAskCount`, and stores only version, type, instance ID, and request ID in
+notification data.
 
-- Title: `OMP session needs attention`
-- Body: omitted
-- Tag: exact instance/generation-derived notification identity
+Resolution, removal, or replacement queues a strict clear payload before any replacement ask:
 
-The gateway requests high-urgency delivery with a five-minute TTL and a
-coalescing topic. Delivery remains best effort: browser force-stop,
-notification settings, device power policy, network loss, or an unavailable
-desktop can delay or prevent it.
+```json
+{
+  "version": 2,
+  "type": "clear",
+  "instanceId": "metadata-only-instance-id",
+  "requestId": "opaque-request-identity",
+  "pendingAskCount": 1
+}
+```
 
-On tap, the worker focuses/navigates an existing same-origin directory window
-or opens `/attention/{instanceId}/{generation}`. The app synchronously
-replaces that metadata-only route with `/`, loads an authenticated snapshot,
-and opens Control only when the exact generation still has
-`inputRequired: true` and `canControl: true`. Otherwise it shows the expired
-state. The capability is fetched later by the existing launch POST and stays
-out of the push payload, URL, history, service-worker messages, and storage.
+A clear closes the notification only when its stored request ID matches, so a delayed clear cannot
+close a rearmed ask. Push delivery uses high urgency, a five-minute TTL, one coalescing topic per
+instance, and remains best effort.
+
+## Notification tap
+
+The worker focuses/navigates an existing same-origin directory client or opens:
+
+`/collab/{instanceId}?request={requestId}`
+
+The app synchronously replaces that routing URL with `/`, loads an authenticated snapshot, and
+opens Control only when the same instance still has the exact request ID, `inputRequired: true`,
+and `canControl: true`. Otherwise it keeps the directory visible and reports the request as
+resolved or changed. The later launch POST revalidates generation and returns the collaboration
+capability through the ordinary no-store, in-memory path.
+
+Opaque request IDs are correlation metadata, not bearer authorization. They may occur transiently
+in push, notification data, the scrubbed route, and capability-free history state. Collaboration
+capabilities remain forbidden from push state/payloads, notifications, URLs, history, service
+worker messages, browser storage, caches, logs, and diagnostics.
 
 ## Acceptance checklist
 
-- [ ] Pill below meta / above actions; both exact labels; no full-card gold
-      border; no animation or live region.
-- [ ] View precedes Control; missing Control ⇒ button omitted, View
-      full-width via `data-count="1"`.
-- [ ] Mixed list puts attention sessions first; ordering rules 1–2; reorders
-      only on authoritative updates; no optimistic clearing.
-- [ ] All seven `#notify` labels exact; enable/disable are the only interactive
-      states; no permission prompt on load.
-- [ ] Browser subscription persists across a closed page; private gateway
-      state contains only VAPID/subscription material, never session content.
-- [ ] Strict attention/resolved payloads contain only version, type,
-      `instanceId`, and generation; visible text has the fixed title and no
-      body.
-- [ ] A tap scrubs the attention route, validates exact current state, and
-      opens Control through the no-store in-memory launch path; stale taps
-      stay on the dashboard.
-- [ ] Duplicate transitions collapse, resolution closes the exact tag, and
-      `404`/`410` endpoints are removed.
-- [ ] 412×915 and 390×844: masthead actions row wraps cleanly; targets
-      ≥44px; all states overflow-free.
-- [ ] No prompt/transcript content, request details, or capability secrets
-      appear in push state, payloads, notifications, URLs/history, dashboard,
-      service-worker messages, storage, caches, logs, or diagnostics.
+- [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
+- [x] Seven exact notification states; permission only after explicit enable.
+- [x] Per-device Private/Session/Preview sheet with default, warning, footnote, and disable action.
+- [x] Strict v2 attention/clear payloads; per-instance replacement; exact-request clear; app badge.
+- [x] Notification tap scrubs and revalidates the exact ask before the no-store Control launch.
+- [x] Last-known metadata survives phone, tailnet, desktop, and relay failures with distinct copy.
+- [x] 412×915 and 390×844 browser checks remain overflow-free with targets at least 44px.
+- [x] Capability-leak scan and focused protocol, registry, HTTP, app, worker, and browser tests pass.
