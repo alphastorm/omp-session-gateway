@@ -1,7 +1,8 @@
 import { SendHorizontal, Square } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestClient, GuestSnapshot } from "../../lib/client";
+import { recommendedOptionIndex } from "./ask-recommendation";
 
 export interface ComposerProps {
 	client: GuestClient;
@@ -83,6 +84,10 @@ export function Composer({ client, snapshot }: ComposerProps): ReactNode {
 	const busy = snapshot.working || (snapshot.state?.isStreaming ?? false);
 	const queued = snapshot.state?.queuedMessageCount ?? 0;
 	const canSend = canPrompt && text.trim().length > 0;
+	const recommendedIndex = useMemo(
+		() => recommendedOptionIndex(snapshot),
+		[uiRequest, snapshot.entries, snapshot.stream, snapshot.activeTools],
+	);
 
 	useLayoutEffect(() => {
 		autosize(taRef.current);
@@ -122,7 +127,10 @@ export function Composer({ client, snapshot }: ComposerProps): ReactNode {
 										{uiRequest.selectionMarker === "checkbox" ? (checked ? "☑" : "☐") : checked ? "◉" : "○"}
 									</span>
 									<span className="sh-ask-option-copy">
-										<span className="sh-ask-option-label">{label}</span>
+										<span className="sh-ask-option-heading">
+											<span className="sh-ask-option-label">{label}</span>
+											{index === recommendedIndex && <span className="sh-ask-option-recommended">Recommended</span>}
+										</span>
 										{typeof option !== "string" && option.description && (
 											<span className="sh-ask-option-description">{option.description}</span>
 										)}
