@@ -25,15 +25,16 @@
 - localhost dev mode refuses non-loopback source;
 - exact Origin enforcement;
 - content-type/body-size enforcement;
-- list/SSE metadata schema;
-- metadata-only `inputRequired` in list/SSE with no prompt, option, answer, request, or count content;
+- list/SSE browser-metadata schema;
+- gateway-created attention identity is stable across repeated true updates and replaced on clear/re-arm or generation replacement;
+- list/SSE contain only bounded labels, boolean attention, opaque request ID, and daemon receipt time—never a capability, transcript, answer, or tool output;
 - launch generation mismatch returns 409;
 - expired/missing returns non-enumerating 404;
 - view/control availability enforcement;
 - all API responses no-store;
 - CSP and security headers.
-- strict push config/subscription/unsubscribe schemas, exact-origin mutation enforcement, private persistence, subscription bounds, and stale-endpoint removal;
-- ordered metadata-only attention/resolved delivery with duplicate suppression and generation-safe resolution;
+- strict push v2 config/subscription/unsubscribe schemas, exact-origin mutation enforcement, private persistence, detail-level migration, subscription bounds, and stale-endpoint removal;
+- ordered attention/clear delivery, per-instance deduplication, exact-request clearing, pending-count badges, and generation-safe replacement;
 
 ### OMP patch
 
@@ -53,10 +54,13 @@ Use distinctive fixture strings for publisher token, view capability, and contro
 
 Fail on any exact fixture or meaningful substring outside its designated source/sink. The publisher authentication key is permitted only in the private token fixture and live HMAC key buffers; it must never appear in captured IPC frames. View/control capabilities are permitted only in authenticated publisher/API response memory and the collab client's in-memory parsed value.
 
-Add distinct prompt, option, prefill, answer, and request canaries. They must be absent from IPC
-logs/errors, list/SSE, DOM, notification title/body/data, service-worker messages, URLs/history,
-browser storage/caches, screenshots/traces, diagnostics, and repository artifacts.
-- scan the private push state, intercepted encrypted-payload plaintext before transport, visible notification title/body/data, notification tags, and attention-route history; allow only synthetic VAPID/subscription fixtures and strict instance/generation metadata in their designated sinks;
+Add distinct prompt, option, prefill, answer, request, title, project, and capability canaries. Prompt,
+option, prefill, answer, transcript, and capability canaries must remain absent from IPC logs/errors,
+list/SSE, URLs/history, browser storage/caches, screenshots/traces, diagnostics, and repository
+artifacts. Opaque synthetic request IDs are allowed only in list/SSE, encrypted push, request routes,
+and volatile DOM/history routing state. Bounded title/project canaries are allowed in encrypted push
+and visible notification text only for `session`/`preview`, never in persisted push state.
+- scan private push state, intercepted encrypted-payload plaintext, visible notification title/body/data, notification tags, app badges, and request-route history against the selected detail contract;
 
 ## 3. Integration tests
 
@@ -78,9 +82,9 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 - concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
 - generation replacement clears attention before removal and cannot be mutated by a stale lease;
 
-- browser subscription -> gateway private state -> false-to-true registry transition -> push transport -> service-worker notification;
-- true-to-false/removal closes the exact notification tag; `404`/`410` transport responses remove the endpoint;
-- notification route revalidates exact current generation and attention state before the ordinary Control launch;
+- browser subscription -> gateway private state -> false-to-true registry transition -> selected-detail push -> service-worker notification;
+- true-to-false/removal closes the per-instance notification, updates the badge, and cannot clear a re-armed request; `404`/`410` removes the endpoint;
+- notification route revalidates exact current request identity and Control availability before the ordinary generation-bound launch;
 ## 4. End-to-end acceptance scenarios
 
 ### A. Automatic discovery
@@ -110,12 +114,13 @@ browser storage/caches, screenshots/traces, diagnostics, and repository artifact
 3. Client reconnects automatically without leaving or reopening the session.
 4. Switch Wi-Fi/mobile network while Tailscale remains connected; dashboard and active Control/View recover without Refresh or another user action.
 5. Android back returns safely without a reusable secret-bearing history entry.
-6. Explicitly enable background alerts; page load never prompts, closing/navigating away from the PWA still permits an actionable false-to-true push, and visible text is exactly the fixed title with no body.
-7. Tap the notification; the metadata-only attention route is immediately scrubbed, exact current state is revalidated, and one tap opens Control only for that still-actionable generation.
-8. With live cards visible, remove all radio connectivity while Tailscale's virtual interface remains present; within 12 seconds the loaded dashboard clears every card, closes the silent stream, and begins bounded snapshot retries. Connectivity restoration repopulates only a fresh snapshot without Refresh or duplicates.
-9. Resolve, replace, and expire the session before tapping delayed notifications; each stays on the dashboard with no capability request for a newer generation.
-10. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
-11. Install a changed shell while the directory is idle; the new worker activates and loads it without Refresh. Repeat during pending/active collaboration; the capability-bearing client remains mounted until ordinary Back/Leave, then the updated directory loads automatically.
+6. Explicitly enable background alerts; page load never prompts. Choose each detail level and verify the gateway builds exactly the permitted title/body while the private state stores no session text.
+7. Tap the notification; `/collab/:instanceId?request=:requestId` contains routing metadata only, exact current attention is revalidated, and one tap opens Control only for that request.
+8. Exercise offline, tailnet-unreachable, desktop-unreachable, and dropped-relay states. The last authenticated list remains visibly timestamped and reconciles automatically without Refresh.
+9. Resolve, replace, expire, and false-to-true re-arm before tapping delayed notifications; each stale request stays on the directory without a capability request for a newer attention.
+10. Verify one notification per instance, silent duplicate updates, authoritative clear, and `setAppBadge`/`clearAppBadge` pending counts.
+11. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
+12. Install a changed shell while the directory is idle; the new worker activates and loads it without Refresh. Repeat during pending/active collaboration; the capability-bearing client remains mounted until ordinary Back/Leave, then the updated directory loads automatically.
 
 ### E. Authorization
 

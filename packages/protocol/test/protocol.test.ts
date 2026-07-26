@@ -14,6 +14,7 @@ import {
   parseAttentionPushMessage,
   parsePushConfigResponse,
   parsePushSubscriptionRequest,
+  parsePushSubscriptionResponse,
   parsePushUnsubscribeRequest,
   parseSessionEvent,
   parseSessionListResponse,
@@ -145,8 +146,20 @@ describe("strict protocol validation", () => {
     const list = parseSessionListResponse({ revision: 2, sessions: [metadata()] });
     expect(list.sessions[0]?.instanceId).toBe(instanceId);
     expect(list.sessions[0]?.inputRequired).toBe(false);
-    expect(parseSessionListResponse({ revision: 2, sessions: [metadata({ inputRequired: true })] }).sessions[0])
-      .toMatchObject({ inputRequired: true });
+    expect(
+      parseSessionListResponse({
+        revision: 2,
+        sessions: [
+          metadata({
+            inputRequired: true,
+            ask: {
+              requestId: "request-identity-000001",
+              since: "2026-07-19T00:00:00.500Z",
+            },
+          }),
+        ],
+      }).sessions[0],
+    ).toMatchObject({ inputRequired: true, ask: { requestId: "request-identity-000001" } });
     expect(
       parseSessionEvent({ type: "session_upsert", revision: 3, session: metadata({ generation: 2 }) }).type,
     ).toBe("session_upsert");
@@ -158,43 +171,75 @@ describe("strict protocol validation", () => {
       parseSessionListResponse({ revision: 2, sessions: [metadata({ inputRequired: "true" })] }),
     ).toThrow(ProtocolValidationError);
     expect(() =>
+      parseSessionListResponse({ revision: 2, sessions: [metadata({ inputRequired: true })] }),
+    ).toThrow(ProtocolValidationError);
+    expect(() =>
       parseSessionEvent({ type: "session_remove", revision: 3, instanceId, generation: 2, extra: true }),
     ).toThrow(ProtocolValidationError);
     expect(() => parseLaunchResponse({ mode: "view", generation: 2, capability: "short" })).toThrow(
       ProtocolValidationError,
     );
   });
-  test("validates strict metadata-only Web Push contracts", () => {
+  test("validates strict capability-free Web Push contracts", () => {
     const subscription = {
       endpoint: "https://push.example.test/send/subscription-1",
       expirationTime: null,
       keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
     };
-    expect(parsePushSubscriptionRequest({ version: 1, subscription }).subscription).toEqual(subscription);
+    const requestId = "request-identity-000001";
     expect(
-      parsePushUnsubscribeRequest({ version: 1, endpoint: subscription.endpoint }).endpoint,
+      parsePushSubscriptionRequest({ version: 2, detailLevel: "session", subscription }),
+    ).toEqual({ version: 2, detailLevel: "session", subscription });
+    expect(parsePushSubscriptionRequest({ version: 2, subscription }).detailLevel).toBeUndefined();
+    expect(
+      parsePushSubscriptionResponse({ version: 2, detailLevel: "preview" }),
+    ).toEqual({ version: 2, detailLevel: "preview" });
+    expect(
+      parsePushUnsubscribeRequest({ version: 2, endpoint: subscription.endpoint }).endpoint,
     ).toBe(subscription.endpoint);
     expect(
-      parsePushConfigResponse({ version: 1, applicationServerKey: "V".repeat(87) }).applicationServerKey,
+      parsePushConfigResponse({ version: 2, applicationServerKey: "V".repeat(87) }).applicationServerKey,
     ).toHaveLength(87);
     expect(
-      parseAttentionPushMessage({ version: 1, type: "attention", instanceId, generation: 3 }),
-    ).toEqual({ version: 1, type: "attention", instanceId, generation: 3 });
+      parseAttentionPushMessage({
+        version: 2,
+        type: "attention",
+        instanceId,
+        generation: 3,
+        requestId,
+        pendingAskCount: 2,
+        title: "OMP session needs attention",
+        body: "Example session · repository",
+      }),
+    ).toMatchObject({ version: 2, type: "attention", requestId, pendingAskCount: 2 });
+    expect(
+      parseAttentionPushMessage({
+        version: 2,
+        type: "clear",
+        instanceId,
+        requestId,
+        pendingAskCount: 0,
+      }),
+    ).toEqual({ version: 2, type: "clear", instanceId, requestId, pendingAskCount: 0 });
 
     for (const invalid of [
-      { version: 2, subscription },
-      { version: 1, subscription: { ...subscription, endpoint: "http://push.example.test/send" } },
-      { version: 1, subscription: { ...subscription, keys: { ...subscription.keys, auth: "short" } } },
-      { version: 1, subscription: { ...subscription, prompt: "PROMPT_CONTENT_CANARY" } },
+      { version: 1, detailLevel: "session", subscription },
+      { version: 2, detailLevel: "verbose", subscription },
+      { version: 2, subscription: { ...subscription, endpoint: "http://push.example.test/send" } },
+      { version: 2, subscription: { ...subscription, keys: { ...subscription.keys, auth: "short" } } },
+      { version: 2, subscription: { ...subscription, prompt: "PROMPT_CONTENT_CANARY" } },
     ]) {
       expect(() => parsePushSubscriptionRequest(invalid)).toThrow(ProtocolValidationError);
     }
     expect(() =>
       parseAttentionPushMessage({
-        version: 1,
+        version: 2,
         type: "attention",
         instanceId,
         generation: 3,
+        requestId,
+        pendingAskCount: 1,
+        title: "OMP session needs attention",
         prompt: "PROMPT_CONTENT_CANARY",
       }),
     ).toThrow(ProtocolValidationError);

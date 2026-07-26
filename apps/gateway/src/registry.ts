@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   type LaunchMode,
   type PublishedSessionInput,
@@ -18,6 +19,7 @@ export interface RegistryOptions {
   readonly ttlSeconds: number;
   readonly maxSessions: number;
   readonly clock?: RegistryClock;
+  readonly requestIdFactory?: () => string;
 }
 
 interface InternalMetadataRecord {
@@ -37,6 +39,11 @@ const systemClock: RegistryClock = {
   monotonicNowMs: () => performance.now(),
   wallNowIso: () => new Date().toISOString(),
 };
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
+
+function cloneMetadata(metadata: SessionMetadata): SessionMetadata {
+  return { ...metadata, ...(metadata.ask === undefined ? {} : { ask: { ...metadata.ask } }) };
+}
 
 export class SessionRegistry {
   readonly #metadata = new Map<string, InternalMetadataRecord>();
@@ -45,6 +52,7 @@ export class SessionRegistry {
   readonly #ttlMs: number;
   readonly #maxSessions: number;
   readonly #clock: RegistryClock;
+  readonly #requestIdFactory: () => string;
   #revision = 0;
 
   constructor(options: RegistryOptions) {
@@ -53,6 +61,7 @@ export class SessionRegistry {
     this.#ttlMs = options.ttlSeconds * 1_000;
     this.#maxSessions = options.maxSessions;
     this.#clock = options.clock ?? systemClock;
+    this.#requestIdFactory = options.requestIdFactory ?? randomUUID;
   }
 
   get revision(): number {
@@ -68,7 +77,7 @@ export class SessionRegistry {
     return {
       revision: this.#revision,
       sessions: [...this.#metadata.values()]
-        .map(record => ({ ...record.metadata }))
+        .map(record => cloneMetadata(record.metadata))
         .sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
     };
   }
@@ -86,7 +95,8 @@ export class SessionRegistry {
     if (existing !== undefined && input.generation < existing.metadata.generation) return "ignored_older";
     if (existing === undefined && this.#metadata.size >= this.#maxSessions) throw new Error("registry capacity exceeded");
     const receivedAtMs = this.#clock.monotonicNowMs();
-    const separated = separatePublishedSession(input, this.#clock.wallNowIso());
+    const receivedAt = this.#clock.wallNowIso();
+    const separated = separatePublishedSession(input, receivedAt);
     if (
       existing !== undefined &&
       input.generation === existing.metadata.generation &&
@@ -94,18 +104,33 @@ export class SessionRegistry {
     ) {
       throw new Error("generation identity conflict");
     }
+    let metadata = separated.metadata;
+    if (metadata.inputRequired) {
+      const preservedAsk =
+        existing !== undefined &&
+        existing.metadata.generation === metadata.generation &&
+        existing.metadata.inputRequired
+          ? existing.metadata.ask
+          : undefined;
+      const requestId = preservedAsk?.requestId ?? this.#requestIdFactory();
+      if (!REQUEST_ID_PATTERN.test(requestId)) throw new Error("invalid attention request ID");
+      metadata = {
+        ...metadata,
+        ask: preservedAsk ?? { requestId, since: receivedAt },
+      };
+    }
 
     // Revoke the old secret before making replacement metadata observable.
     this.#secrets.delete(input.instanceId);
     this.#metadata.set(input.instanceId, {
-      metadata: separated.metadata,
+      metadata,
       immutableIdentity: separated.immutableIdentity,
       ownerId,
       receivedAtMs,
     });
     this.#secrets.set(input.instanceId, separated.secret);
     this.#revision += 1;
-    this.#emit({ type: "session_upsert", revision: this.#revision, session: { ...separated.metadata } });
+    this.#emit({ type: "session_upsert", revision: this.#revision, session: cloneMetadata(metadata) });
     return existing === undefined ? "inserted" : "updated";
   }
 

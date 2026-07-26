@@ -87,21 +87,33 @@ export async function startDashboardFixture(
           "Content-Type": "application/json; charset=utf-8",
           Pragma: "no-cache",
         });
-        response.end(JSON.stringify({ version: 1, applicationServerKey: "V".repeat(87) }));
+        response.end(JSON.stringify({ version: 2, applicationServerKey: "V".repeat(87) }));
         return;
       }
       if (
         (method === "POST" || method === "DELETE") &&
         url.pathname === "/api/v1/push/subscription"
       ) {
-        for await (const _chunk of request) {
-          // Consume the request so the browser can reuse the connection.
+        let requestBody = "";
+        for await (const chunk of request) requestBody += String(chunk);
+        if (method === "POST") {
+          const parsed = JSON.parse(requestBody) as { detailLevel?: unknown };
+          response.writeHead(200, {
+            "Cache-Control": "no-store, max-age=0",
+            "Content-Type": "application/json; charset=utf-8",
+            Pragma: "no-cache",
+          });
+          response.end(JSON.stringify({
+            version: 2,
+            detailLevel: parsed.detailLevel ?? "session",
+          }));
+        } else {
+          response.writeHead(204, {
+            "Cache-Control": "no-store, max-age=0",
+            Pragma: "no-cache",
+          });
+          response.end();
         }
-        response.writeHead(204, {
-          "Cache-Control": "no-store, max-age=0",
-          Pragma: "no-cache",
-        });
-        response.end();
         return;
       }
       const launchMatch = /^\/api\/v1\/sessions\/([^/]+)\/launch$/u.exec(url.pathname);
@@ -160,7 +172,9 @@ export async function startDashboardFixture(
         response.writeHead(404).end("Not found");
         return;
       }
-      const relative = pathname === "/" || pathname === "/update/"
+      const requestBootstrap = /^\/collab\/[A-Za-z0-9._:-]{16,128}$/u.test(pathname) &&
+        url.searchParams.has("request");
+      const relative = pathname === "/" || pathname === "/update/" || requestBootstrap
         ? "index.html"
         : pathname.endsWith("/")
           ? `${pathname.slice(1)}index.html`

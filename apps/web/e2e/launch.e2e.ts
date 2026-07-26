@@ -14,11 +14,33 @@ function session(): SessionMetadata {
     canView: true,
     canControl: true,
     inputRequired: true,
+    ask: {
+      requestId: "standalone-request-0001",
+      since: "2026-07-21T10:00:01.000Z",
+    },
   };
 }
 
+function answeredSession(
+  source: SessionMetadata,
+  overrides: Partial<SessionMetadata> = {},
+): SessionMetadata {
+  const answered = { ...source, ...overrides, inputRequired: false };
+  delete answered.ask;
+  return answered;
+}
+
+function workingSession(index: number): SessionMetadata {
+  const id = `working-session-${String(index).padStart(4, "0")}`;
+  return answeredSession(session(), {
+    instanceId: id,
+    title: id,
+    startedAt: `2026-07-21T${String(9 + index).padStart(2, "0")}:00:00.000Z`,
+  });
+}
+
 test("installed-PWA View and Control mount in the current window without losing the handoff", async ({ context, page }) => {
-  const fixture = await startDashboardFixture([session()]);
+  const fixture = await startDashboardFixture([session(), ...Array.from({ length: 12 }, (_, index) => workingSession(index))]);
   let auxiliaryPages = 0;
   context.on("page", candidate => {
     if (candidate !== page) auxiliaryPages += 1;
@@ -71,28 +93,62 @@ test("installed-PWA View and Control mount in the current window without losing 
     await page.goto(fixture.origin);
     const card = page.locator(".queue-hero");
     await expect(card).toHaveCount(1);
+    const directoryOrder = await page.locator("[data-instance-id]").evaluateAll(elements =>
+      elements.map(element => (element as HTMLElement).dataset.instanceId),
+    );
+    await page.evaluate(() => window.scrollTo(0, 360));
+    const directoryScroll = await page.evaluate(() => window.scrollY);
+    expect(directoryScroll).toBeGreaterThan(0);
 
-    await card.getByRole("button", { name: "View transcript instead" }).click();
+    await card.getByRole("button", { name: "View transcript instead" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
     await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
     await expect(page.locator(".shell-control")).toBeVisible();
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", /^(connected|reconnecting)$/u);
+    const shellTargets = await page.locator(".shell-back, .shell-control").evaluateAll(elements =>
+      elements.filter(element => !(element as HTMLElement).hidden).map(element => element.getBoundingClientRect().height),
+    );
+    expect(shellTargets.every(height => height >= 44)).toBe(true);
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests).toContain("POST /api/v1/sessions/standalone-launch-0001/launch");
 
     await page.goBack();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator(".queue-hero")).toHaveCount(1);
+    expect(await page.evaluate(() => window.scrollY)).toBe(directoryScroll);
+    expect(
+      await page.locator("[data-instance-id]").evaluateAll(elements =>
+        elements.map(element => (element as HTMLElement).dataset.instanceId),
+      ),
+    ).toEqual(directoryOrder);
 
     await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).click();
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
     await expect(page.locator(".shell-control")).toBeHidden();
-    fixture.upsert({ ...session(), inputRequired: false });
-    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 1 working");
+    const next = {
+      ...session(),
+      instanceId: "next-attention-000001",
+      title: "Next attention",
+      ask: {
+        requestId: "next-request-identity-0001",
+        since: "2026-07-21T10:00:02.000Z",
+      },
+    };
+    fixture.upsert(next);
+    fixture.upsert(answeredSession(session()));
+    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — 1 more needs you");
+    await expect(page.locator(".triage-action")).toHaveText("Next ask →");
+    await page.locator(".triage-action").click();
+    await expect(page.locator(".shell-title")).toHaveText("Next attention");
+    fixture.upsert(answeredSession(next));
+    await expect(page.locator(".triage-copy")).toContainText("✓ Answered — all clear");
     await expect(page.locator(".triage-action")).toHaveText("Sessions");
     expect(auxiliaryPages).toBe(0);
-    expect(fixture.requests.filter(request => request.endsWith("/launch"))).toHaveLength(2);
+    expect(fixture.requests.filter(request => request.endsWith("/launch"))).toHaveLength(3);
 
     const residue = await page.evaluate(async () => ({
       url: location.href,
@@ -107,7 +163,7 @@ test("installed-PWA View and Control mount in the current window without losing 
     expect(residue.url).toBe(`${fixture.origin}/client/`);
     expect(residue.url).not.toContain("handoff");
     expect(residue.url).not.toContain("#");
-    expect(residue.historyState).toBe("null");
+    expect(residue.historyState).toBe('{"ompCollab":true}');
     expect(JSON.parse(residue.localStorage)).toEqual({ "omp.collab.name": "guest" });
     expect(residue.sessionStorage).toBe("{}");
     expect(residue.cacheUrls.every(url => !url.includes("/api/") && !url.includes("/client/"))).toBe(true);

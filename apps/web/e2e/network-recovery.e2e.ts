@@ -30,8 +30,9 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
     ).toBeGreaterThanOrEqual(1);
 
     fixture.disconnectEvents();
-    await expect(page.locator("#status-banner")).toHaveText("Live updates paused. Reconnecting…");
-    await expect(page.locator(".working-row")).toHaveCount(0);
+    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "relay", { timeout: 900 });
+    await expect(page.locator("#status-banner .status-title")).toHaveText("Reconnecting to relay…");
+    await expect(page.locator(".working-row")).toHaveCount(1);
 
     fixture.setSnapshot([active], 2);
     await expect(page.locator(".working-row")).toHaveCount(1, { timeout: 6_000 });

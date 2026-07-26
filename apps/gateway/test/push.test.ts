@@ -102,12 +102,17 @@ describe("Web Push service", () => {
     const publicKey = service.configResponse().applicationServerKey;
     await service.subscribe(
       "dev-localhost",
-      parsePushSubscriptionRequest({ version: PUSH_API_VERSION, subscription }),
+      parsePushSubscriptionRequest({
+        version: PUSH_API_VERSION,
+        detailLevel: "preview",
+        subscription,
+      }),
     );
     await service.stop();
 
     const state = await readFile(statePath, "utf8");
     expect(state).toContain(endpoint);
+    expect(state).toContain('"detailLevel": "preview"');
     expect(state).not.toContain("CAPABILITY_CANARY");
     expect((await stat(statePath)).mode & 0o077).toBe(0);
 
@@ -116,35 +121,64 @@ describe("Web Push service", () => {
     await reopened.stop();
   });
 
-  test("delivers one ordered metadata-only attention and resolution message per transition", async () => {
+  test("builds per-device detail, re-pings silently, and clears the exact request", async () => {
     const root = await createRoot();
-    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      requestIdFactory: () => "push-request-identity-0001",
+    });
     const transport = new RecordingTransport();
     const service = await PushService.open({ config: config(root), registry, transport });
-    await service.subscribe(
-      "dev-localhost",
-      parsePushSubscriptionRequest({ version: PUSH_API_VERSION, subscription }),
-    );
+    const subscriptions = (["private", "session", "preview"] as const).map((detailLevel, index) => ({
+      detailLevel,
+      subscription: {
+        ...subscription,
+        endpoint: `${endpoint}-${index}`,
+      },
+    }));
+    for (const entry of subscriptions) {
+      await service.subscribe(
+        "dev-localhost",
+        parsePushSubscriptionRequest({
+          version: PUSH_API_VERSION,
+          detailLevel: entry.detailLevel,
+          subscription: entry.subscription,
+        }),
+      );
+    }
 
     registry.upsert("owner", published(false));
-    await service.flush();
-    expect(transport.calls).toHaveLength(0);
-
     registry.upsert("owner", published(true));
     registry.upsert("owner", published(true));
     registry.upsert("owner", published(false));
     await service.flush();
 
-    expect(transport.calls.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual([
-      "attention",
-      "resolved",
-    ]);
-    for (const call of transport.calls) {
-      expect(call.payload).not.toContain("CONTENT_CANARY");
-      expect(call.payload).not.toContain("CAPABILITY_CANARY");
-      expect(call.options.ttlSeconds).toBe(300);
-      expect(call.options.topic).toHaveLength(32);
-      expect(call.options.privateKey).not.toBe(call.options.publicKey);
+    expect(transport.calls).toHaveLength(9);
+    for (const entry of subscriptions) {
+      const messages = transport.calls
+        .filter(call => call.subscription.endpoint === entry.subscription.endpoint)
+        .map(call => parseAttentionPushMessage(JSON.parse(call.payload)));
+      expect(messages.map(message => message.type)).toEqual(["attention", "attention", "clear"]);
+      expect(messages.map(message => message.pendingAskCount)).toEqual([1, 1, 0]);
+      expect(messages.map(message => message.requestId)).toEqual([
+        "push-request-identity-0001",
+        "push-request-identity-0001",
+        "push-request-identity-0001",
+      ]);
+      const first = messages[0];
+      if (first?.type !== "attention") throw new Error("expected attention");
+      if (entry.detailLevel === "private") {
+        expect(first.body).toBeUndefined();
+      } else {
+        expect(first.body).toBe("PROMPT_CONTENT_CANARY · OPTION_CONTENT_CANARY");
+      }
+      for (const call of transport.calls.filter(call => call.subscription.endpoint === entry.subscription.endpoint)) {
+        expect(call.payload).not.toContain("CAPABILITY_CANARY");
+        expect(call.options.ttlSeconds).toBe(300);
+        expect(call.options.topic).toHaveLength(32);
+        expect(call.options.privateKey).not.toBe(call.options.publicKey);
+      }
     }
     await service.stop();
   });
@@ -160,7 +194,11 @@ describe("Web Push service", () => {
     const service = await PushService.open({ config: gatewayConfig, registry, transport, logger });
     await service.subscribe(
       "dev-localhost",
-      parsePushSubscriptionRequest({ version: PUSH_API_VERSION, subscription }),
+      parsePushSubscriptionRequest({
+        version: PUSH_API_VERSION,
+        detailLevel: "private",
+        subscription,
+      }),
     );
 
     registry.upsert("owner", published(false));

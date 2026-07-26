@@ -23,12 +23,15 @@ class FakeElement extends EventTarget {
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
   readonly dataset: Record<string, string> = {};
+  checked = false;
   className = "";
   disabled = false;
   hidden = false;
   id = "";
+  open = false;
   textContent: string | null = "";
   type = "";
+  value = "";
 
   constructor(readonly tagName: string) {
     super();
@@ -62,6 +65,14 @@ class FakeElement extends EventTarget {
     const present = force ?? !this.attributes.has(name);
     if (present) this.attributes.set(name, "");
     else this.attributes.delete(name);
+  }
+
+  showModal(): void {
+    this.open = true;
+  }
+
+  close(): void {
+    this.open = false;
   }
 
   querySelector(selector: string): FakeElement | null {
@@ -110,6 +121,7 @@ class FakeMessageChannel {
 class FakeWindow extends EventTarget {
   readonly opened: string[] = [];
   readonly timers = new Map<number, () => void>();
+  scrollY = 0;
   #nextTimer = 1;
 
   matchMedia(): { matches: boolean; addEventListener(): void } {
@@ -131,6 +143,10 @@ class FakeWindow extends EventTarget {
     const callbacks = [...this.timers.values()];
     this.timers.clear();
     for (const callback of callbacks) callback();
+  }
+
+  scrollTo(_x: number, y: number): void {
+    this.scrollY = y;
   }
 
   open(url?: string | URL): null {
@@ -168,7 +184,9 @@ interface BrowserHarness {
     readonly sessionList: FakeElement;
     readonly notificationButton: FakeElement;
     readonly notificationDisclosure: FakeElement;
-    readonly refreshButton: FakeElement;
+    readonly notificationSettings: FakeElement;
+    readonly notificationDisable: FakeElement;
+    readonly notificationDetailInputs: readonly FakeElement[];
     readonly statusBanner: FakeElement;
     readonly directoryTitle: FakeElement;
     readonly directoryCount: FakeElement;
@@ -177,6 +195,8 @@ interface BrowserHarness {
   expireEventLiveness(): void;
   runTimers(): void;
   hangNextListRequest(): void;
+  failNextListRequest(): void;
+  setOnline(online: boolean): void;
   activateWorker(): void;
   readonly reloads: { count: number };
   readonly fetchPaths: string[];
@@ -195,7 +215,7 @@ function session(
   instanceId: string,
   overrides: Partial<SessionMetadata> = {},
 ): SessionMetadata {
-  return {
+  const merged = {
     instanceId,
     generation: 1,
     title: instanceId,
@@ -207,6 +227,14 @@ function session(
     canControl: true,
     inputRequired: false,
     ...overrides,
+  };
+  if (!merged.inputRequired || merged.ask !== undefined) return merged;
+  return {
+    ...merged,
+    ask: {
+      requestId: `request-${instanceId.replaceAll(/[^A-Za-z0-9_-]/gu, "-")}`,
+      since: merged.lastSeenAt,
+    },
   };
 }
 
@@ -225,18 +253,27 @@ async function bootApp(options: {
   readonly permissionResult?: NotificationPermission;
   readonly existingSubscription?: boolean;
   readonly pathname?: string;
+  readonly search?: string;
   readonly suffix: string;
 }): Promise<BrowserHarness> {
   FakeEventSource.instances.length = 0;
   const sessionList = new FakeElement("section");
   const emptyState = new FakeElement("section");
   const statusBanner = new FakeElement("div");
-  const refreshButton = new FakeElement("button");
-  refreshButton.textContent = "Refresh";
   const notificationButton = new FakeElement("button");
   notificationButton.textContent = "Checking background alerts…";
   notificationButton.disabled = true;
   const notificationDisclosure = new FakeElement("p");
+  const notificationSettings = new FakeElement("dialog");
+  const notificationSettingsClose = new FakeElement("button");
+  const notificationDisable = new FakeElement("button");
+  const notificationDetailInputs = (["private", "session", "preview"] as const).map(value => {
+    const input = new FakeElement("input");
+    input.type = "radio";
+    input.value = value;
+    input.checked = value === "session";
+    return input;
+  });
   const directoryTitle = new FakeElement("h1");
   directoryTitle.textContent = "Sessions";
   const directoryCount = new FakeElement("p");
@@ -245,16 +282,21 @@ async function bootApp(options: {
     "#session-list": sessionList,
     "#empty-state": emptyState,
     "#status-banner": statusBanner,
-    "#refresh": refreshButton,
     "#notify": notificationButton,
     "#notify-note": notificationDisclosure,
     "#directory-title": directoryTitle,
     "#directory-count": directoryCount,
+    "#notification-settings": notificationSettings,
+    "#notification-settings-close": notificationSettingsClose,
+    "#notification-disable": notificationDisable,
   };
   const document = {
     documentElement: { dataset: {} as Record<string, string>, style: {} as Record<string, string> },
     querySelector(selector: string): FakeElement | null {
       return bySelector[selector] ?? null;
+    },
+    querySelectorAll(selector: string): FakeElement[] {
+      return selector === 'input[name="notification-detail"]' ? notificationDetailInputs : [];
     },
     createElement(tagName: string): FakeElement {
       return new FakeElement(tagName);
@@ -265,18 +307,29 @@ async function bootApp(options: {
   const location = {
     origin: "https://sessions.example",
     pathname: options.pathname ?? "/",
+    search: options.search ?? "",
+    get href(): string { return `${this.origin}${this.pathname}${this.search}`; },
     reload(): void { reloads.count += 1; },
-    replace(path: string): void { location.pathname = path; },
+    replace(path: string): void {
+      location.pathname = path;
+      location.search = "";
+    },
   };
   const history = {
     replaced: [] as string[],
-    replaceState(_data: unknown, _unused: string, path: string): void {
+    state: null as unknown,
+    replaceState(data: unknown, _unused: string, path: string): void {
       this.replaced.push(path);
+      this.state = data;
       location.pathname = path;
+      location.search = "";
     },
-    pushState(_data: unknown, _unused: string, path: string): void {
+    pushState(data: unknown, _unused: string, path: string): void {
+      this.state = data;
       location.pathname = path;
+      location.search = "";
     },
+    back(): void {},
   };
   const fetchPaths: string[] = [];
   let listRevision = 1;
@@ -284,6 +337,7 @@ async function bootApp(options: {
   let listStatus = 200;
   const workerMessages: unknown[] = [];
   let hangingListRequests = 0;
+  let failedListRequests = 0;
   const permissionRequests = { count: 0 };
   const subscriptionRequests: unknown[] = [];
   const unsubscribeRequests: unknown[] = [];
@@ -335,7 +389,7 @@ async function bootApp(options: {
         workerMessages.push(message);
         const response = options.workerResponse ?? {
           type: "omp-notification-support-response",
-          version: 1,
+          version: 2,
         };
         transfer[0]?.postMessage(response);
       },
@@ -357,20 +411,30 @@ async function bootApp(options: {
       },
     },
   });
-  const navigator = { serviceWorker };
+  const navigator = { serviceWorker, onLine: true };
   const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
     fetchPaths.push(path);
     if (path === "/api/v1/push/config") {
-      return Response.json({ version: 1, applicationServerKey: "V".repeat(87) });
+      return Response.json({ version: 2, applicationServerKey: "V".repeat(87) });
     }
     if (path === "/api/v1/push/subscription") {
-      const body = typeof init.body === "string" ? JSON.parse(init.body) as unknown : undefined;
-      if (init.method === "DELETE") unsubscribeRequests.push(body);
-      else subscriptionRequests.push(body);
-      return new Response(null, { status: 204 });
+      const body = typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+      if (init.method === "DELETE") {
+        unsubscribeRequests.push(body);
+        return new Response(null, { status: 204 });
+      }
+      subscriptionRequests.push(body);
+      return Response.json({
+        version: 2,
+        detailLevel: body.detailLevel ?? "session",
+      });
     }
     if (path !== "/api/v1/sessions") throw new Error(`unexpected fetch: ${path}`);
+    if (failedListRequests > 0) {
+      failedListRequests -= 1;
+      throw new TypeError("network request failed");
+    }
     if (hangingListRequests > 0) {
       hangingListRequests -= 1;
       return await new Promise<Response>((_resolve, reject) => {
@@ -410,7 +474,9 @@ async function bootApp(options: {
       statusBanner,
       notificationButton,
       notificationDisclosure,
-      refreshButton,
+      notificationSettings,
+      notificationDisable,
+      notificationDetailInputs,
       directoryTitle,
       directoryCount,
     },
@@ -441,6 +507,12 @@ async function bootApp(options: {
     },
     hangNextListRequest(): void {
       hangingListRequests += 1;
+    },
+    failNextListRequest(): void {
+      failedListRequests += 1;
+    },
+    setOnline(online): void {
+      navigator.onLine = online;
     },
     activateWorker(): void {
       serviceWorker.controller = {};
@@ -498,7 +570,7 @@ describe("dashboard attention and notifications", () => {
     ).toEqual(["ordinary-newest-0003"]);
     expect(harness.elements.sessionList.querySelector(".attention")).toBeNull();
     expect(harness.permissionRequests.count).toBe(0);
-    expect(harness.workerMessages).toEqual([{ type: "omp-notification-support-request", version: 1 }]);
+    expect(harness.workerMessages).toEqual([{ type: "omp-notification-support-request", version: 2 }]);
     expect(harness.elements.notificationButton.textContent).toBe("Enable background alerts");
     expect(harness.elements.notificationButton.dataset.state).toBe("idle");
     expect(harness.elements.notificationDisclosure.textContent).toBe(
@@ -509,7 +581,8 @@ describe("dashboard attention and notifications", () => {
   test("scrubs stale notification routes and keeps their expired state visible", async () => {
     const harness = await bootApp({
       permission: "denied",
-      pathname: "/attention/stale-attention-0001/7",
+      pathname: "/collab/stale-attention-0001",
+      search: "?request=stale-request-0001",
       suffix: "stale-attention-route",
       initialSessions: [],
     });
@@ -546,8 +619,11 @@ describe("dashboard attention and notifications", () => {
 
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
     harness.expireEventLiveness();
-    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(0);
-    expect(harness.elements.statusBanner.textContent).toBe("Live updates paused. Reconnecting…");
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+    expect(harness.elements.statusBanner.dataset.kind).toBe("relay");
+    expect(harness.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
+      "Reconnecting to relay…",
+    );
     expect(FakeEventSource.instances[0]?.closed).toBeTrue();
 
     harness.setList(2, [base]);
@@ -558,6 +634,43 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });
 
+
+  test("keeps the last directory while distinguishing phone and tailnet outages", async () => {
+    const offlineBase = session("offline-session-0001");
+    const offline = await bootApp({
+      permission: "denied",
+      suffix: "phone-offline",
+      initialSessions: [offlineBase],
+    });
+    offline.setOnline(false);
+    offline.window.dispatchEvent(new Event("offline"));
+    expect(offline.elements.statusBanner.dataset.kind).toBe("offline");
+    expect(offline.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
+      "You're offline",
+    );
+    expect(offline.elements.statusBanner.querySelector(".status-detail")?.textContent).toContain(
+      "Showing the list as of",
+    );
+    expect(offline.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+
+    const tailnetBase = session("tailnet-session-0001");
+    const tailnet = await bootApp({
+      permission: "denied",
+      suffix: "tailnet-offline",
+      initialSessions: [tailnetBase],
+    });
+    tailnet.failNextListRequest();
+    tailnet.disconnectEvents();
+    tailnet.runTimers();
+    await settleUntil(() => tailnet.elements.statusBanner.dataset.kind === "tailnet");
+    expect(tailnet.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
+      "Tailnet unreachable",
+    );
+    expect(tailnet.elements.statusBanner.querySelector(".status-detail")?.textContent).toContain(
+      "Last seen",
+    );
+    expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
   test("times out a hung snapshot and keeps retrying automatically", async () => {
     const base = session("snapshot-timeout-001");
     const harness = await bootApp({
@@ -572,7 +685,11 @@ describe("dashboard attention and notifications", () => {
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
 
     harness.runTimers();
-    await settleUntil(() => harness.elements.statusBanner.textContent === "Gateway unavailable. Reconnecting…");
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "desktop");
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+    expect(harness.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
+      "Desktop unreachable",
+    );
 
     harness.setList(2, [base]);
     harness.runTimers();
@@ -603,7 +720,7 @@ describe("dashboard attention and notifications", () => {
     harness.emit("session_upsert", {
       type: "session_upsert",
       revision: 2,
-      session: { ...base, inputRequired: true },
+      session: session(base.instanceId, { ...base, inputRequired: true }),
     });
     harness.emit("session_upsert", {
       type: "session_upsert",
@@ -613,11 +730,12 @@ describe("dashboard attention and notifications", () => {
     await Promise.resolve();
     expect(harness.subscriptionRequests).toHaveLength(1);
 
-    harness.elements.notificationButton.dispatchEvent(new Event("click"));
+    expect(harness.elements.notificationSettings.open).toBeTrue();
+    harness.elements.notificationDisable.dispatchEvent(new Event("click"));
     await settleUntil(() => harness.elements.notificationButton.textContent === "Enable background alerts");
     expect(harness.subscriptionCalls.unsubscribe).toBe(1);
     expect(harness.unsubscribeRequests).toEqual([
-      { version: 1, endpoint: "https://push.example.test/send/browser-device" },
+      { version: 2, endpoint: "https://push.example.test/send/browser-device" },
     ]);
   });
 
@@ -636,12 +754,35 @@ describe("dashboard attention and notifications", () => {
     expect(harness.subscriptionRequests).toHaveLength(1);
 
     harness.disconnectEvents();
-    harness.setList(2, [{ ...base, inputRequired: true }]);
-    harness.elements.refreshButton.dispatchEvent(new Event("click"));
-    await settleUntil(() => !harness.elements.refreshButton.disabled);
+    harness.setList(2, [session(base.instanceId, { ...base, inputRequired: true })]);
+    harness.runTimers();
+    await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length >= 2);
     expect(harness.subscriptionRequests).toHaveLength(1);
   });
 
+
+  test("updates notification detail for the existing device subscription", async () => {
+    const harness = await bootApp({
+      permission: "granted",
+      existingSubscription: true,
+      suffix: "notification-detail",
+      initialSessions: [session("notification-detail-0001")],
+    });
+
+    expect(harness.subscriptionRequests).toHaveLength(1);
+    harness.elements.notificationButton.dispatchEvent(new Event("click"));
+    expect(harness.elements.notificationSettings.open).toBeTrue();
+    const preview = harness.elements.notificationDetailInputs.find(input => input.value === "preview");
+    expect(preview).toBeDefined();
+    if (preview === undefined) throw new Error("missing preview detail input");
+    for (const input of harness.elements.notificationDetailInputs) input.checked = input === preview;
+    preview.dispatchEvent(new Event("change"));
+    await settleUntil(() => harness.subscriptionRequests.length === 2);
+    expect(harness.subscriptionRequests[1]).toMatchObject({
+      version: 2,
+      detailLevel: "preview",
+    });
+  });
   test("uses only bounded metadata bodies and fails closed for denied or invalid worker support", async () => {
     const denied = await bootApp({
       permission: "denied",
@@ -657,7 +798,7 @@ describe("dashboard attention and notifications", () => {
 
     const unavailable = await bootApp({
       permission: "default",
-      workerResponse: { type: "omp-notification-support-response", version: 1, extra: true },
+      workerResponse: { type: "omp-notification-support-response", version: 2, extra: true },
       suffix: "notifications-invalid-worker",
       initialSessions: [session("unavailable-session-01")],
     });

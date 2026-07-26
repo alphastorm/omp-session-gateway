@@ -6,9 +6,11 @@ export const MAX_SESSIONS = 1_000;
 export const MAX_INSTANCE_ID_BYTES = 128;
 export const IPC_AUTH_NONCE_BYTES = 32;
 export const IPC_AUTH_VALUE_LENGTH = 43;
-export const PUSH_API_VERSION = 1 as const;
+export const PUSH_API_VERSION = 2 as const;
 export const MAX_PUSH_ENDPOINT_BYTES = 4 * 1024;
 export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024;
+export const MAX_REQUEST_ID_BYTES = 128;
+export const MAX_PUSH_PENDING_COUNT = 1_000;
 
 
 export type LaunchMode = "view" | "control";
@@ -86,6 +88,13 @@ export interface RemoveFrame {
 
 export type AuthenticatedPublisherFrame = UpsertFrame | HeartbeatFrame | RemoveFrame;
 
+export interface SessionAskMetadata {
+  readonly requestId: string;
+  readonly since: string;
+  readonly preview?: string;
+  readonly optionCount?: number;
+}
+
 /** Browser-safe metadata. This type can never contain a collaboration capability. */
 export interface SessionMetadata {
   readonly instanceId: string;
@@ -98,6 +107,7 @@ export interface SessionMetadata {
   readonly canView: boolean;
   readonly canControl: boolean;
   readonly inputRequired: boolean;
+  readonly ask?: SessionAskMetadata;
 }
 
 export interface SessionListResponse {
@@ -125,9 +135,17 @@ export interface BrowserPushSubscription {
   readonly keys: PushSubscriptionKeys;
 }
 
+export type PushDetailLevel = "private" | "session" | "preview";
+
 export interface PushSubscriptionRequest {
   readonly version: typeof PUSH_API_VERSION;
+  readonly detailLevel?: PushDetailLevel;
   readonly subscription: BrowserPushSubscription;
+}
+
+export interface PushSubscriptionResponse {
+  readonly version: typeof PUSH_API_VERSION;
+  readonly detailLevel: PushDetailLevel;
 }
 
 export interface PushUnsubscribeRequest {
@@ -140,19 +158,24 @@ export interface PushConfigResponse {
   readonly applicationServerKey: string;
 }
 
-/** Metadata-only message encrypted for one browser push subscription. */
+/** Capability-free message encrypted for one browser push subscription. */
 export type AttentionPushMessage =
   | {
       readonly version: typeof PUSH_API_VERSION;
       readonly type: "attention";
       readonly instanceId: string;
       readonly generation: number;
+      readonly requestId: string;
+      readonly pendingAskCount: number;
+      readonly title: "OMP session needs attention";
+      readonly body?: string;
     }
   | {
       readonly version: typeof PUSH_API_VERSION;
-      readonly type: "resolved";
+      readonly type: "clear";
       readonly instanceId: string;
-      readonly generation: number;
+      readonly requestId: string;
+      readonly pendingAskCount: number;
     };
 
 
