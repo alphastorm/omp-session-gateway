@@ -8,8 +8,10 @@ import {
   type BrowserPushSubscription,
   type PushConfigResponse,
   type PushSubscriptionRequest,
+  type PushDetailLevel,
   type PushUnsubscribeRequest,
   type SessionEvent,
+  type SessionMetadata,
   parseJsonFrame,
   parsePushSubscriptionRequest,
 } from "@omp-session-gateway/protocol";
@@ -37,6 +39,7 @@ interface VapidKeyPair {
 
 interface StoredPushSubscription extends BrowserPushSubscription {
   readonly identityKey: string;
+  readonly detailLevel: PushDetailLevel;
 }
 
 interface PushState {
@@ -47,6 +50,7 @@ interface PushState {
 
 interface AttentionState {
   readonly generation: number;
+  readonly requestId?: string;
   readonly active: boolean;
 }
 
@@ -81,31 +85,44 @@ const defaultTransport: PushTransport = {
   },
 };
 
-function exactRecord(value: unknown, keys: readonly string[]): Record<string, unknown> {
+function exactRecord(
+  value: unknown,
+  keys: readonly string[],
+  optional: readonly string[] = [],
+): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("invalid push state");
   const record = value as Record<string, unknown>;
   const actual = Object.keys(record).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+  const allowed = new Set([...keys, ...optional]);
+  if (actual.some(key => !allowed.has(key)) || keys.some(key => !Object.hasOwn(record, key))) {
     throw new Error("invalid push state");
   }
   return record;
 }
 
 function parseStoredSubscription(value: unknown): StoredPushSubscription {
-  const record = exactRecord(value, ["identityKey", "endpoint", "expirationTime", "keys"]);
+  const record = exactRecord(
+    value,
+    ["identityKey", "endpoint", "expirationTime", "keys"],
+    ["detailLevel"],
+  );
   if (typeof record.identityKey !== "string" || !IDENTITY_PATTERN.test(record.identityKey)) {
     throw new Error("invalid push state");
   }
   const parsed = parsePushSubscriptionRequest({
     version: PUSH_API_VERSION,
+    detailLevel: record.detailLevel ?? "session",
     subscription: {
       endpoint: record.endpoint,
       expirationTime: record.expirationTime,
       keys: record.keys,
     },
-  }).subscription;
-  return { identityKey: record.identityKey, ...parsed };
+  });
+  return {
+    identityKey: record.identityKey,
+    detailLevel: parsed.detailLevel ?? "session",
+    ...parsed.subscription,
+  };
 }
 
 function parsePushState(value: unknown): PushState {
@@ -161,6 +178,19 @@ function statusCode(error: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
+function sessionNotificationBody(session: SessionMetadata, detailLevel: PushDetailLevel): string | undefined {
+  if (detailLevel === "private") return undefined;
+  const labels = [session.title, session.cwdLabel].filter(
+    (value, index, values): value is string =>
+      value !== undefined && value.length > 0 && values.indexOf(value) === index,
+  );
+  const sessionLine = labels.join(" · ");
+  const preview = detailLevel === "preview" ? session.ask?.preview : undefined;
+  const combined = [sessionLine, preview].filter((value): value is string => value !== undefined && value.length > 0).join("\n");
+  if (combined.length === 0) return undefined;
+  return [...combined].slice(0, 256).join("");
+}
+
 export class PushService {
   readonly #config: GatewayConfig;
   readonly #registry: SessionRegistry;
@@ -195,7 +225,8 @@ export class PushService {
     for (const session of this.#registry.snapshot().sessions) {
       this.#attention.set(session.instanceId, {
         generation: session.generation,
-        active: session.inputRequired && session.canControl,
+        ...(session.ask === undefined ? {} : { requestId: session.ask.requestId }),
+        active: session.inputRequired && session.canControl && session.ask !== undefined,
       });
     }
     this.#unsubscribeRegistry = this.#registry.subscribe(event => this.#acceptRegistryEvent(event));
@@ -224,17 +255,27 @@ export class PushService {
     return { version: PUSH_API_VERSION, applicationServerKey: this.#vapid.publicKey };
   }
 
-  async subscribe(identityKey: string, request: PushSubscriptionRequest): Promise<void> {
+  async subscribe(identityKey: string, request: PushSubscriptionRequest): Promise<PushDetailLevel> {
     if (!this.#identityAllowed(identityKey)) throw new Error("push identity is not allowed");
-    const stored: StoredPushSubscription = { identityKey, ...request.subscription };
+    let stored: StoredPushSubscription | undefined;
     await this.#mutateSubscriptions(current => {
-      const remaining = current.filter(subscription => subscription.endpoint !== stored.endpoint);
+      const existing = current.find(subscription => subscription.endpoint === request.subscription.endpoint);
+      stored = {
+        identityKey,
+        detailLevel: request.detailLevel ?? existing?.detailLevel ?? "session",
+        ...request.subscription,
+      };
+      const remaining = current.filter(subscription => subscription.endpoint !== stored?.endpoint);
       if (remaining.length >= MAX_PUSH_SUBSCRIPTIONS) throw new Error("push subscription limit reached");
       return [...remaining, stored];
     });
-    for (const [instanceId, attention] of this.#attention) {
-      if (attention.active) this.#queueMessage("attention", instanceId, attention.generation, [stored]);
+    if (stored === undefined) throw new Error("push subscription could not be saved");
+    for (const session of this.#registry.snapshot().sessions) {
+      if (session.inputRequired && session.canControl && session.ask !== undefined) {
+        this.#queueAttention(session, [stored]);
+      }
     }
+    return stored.detailLevel;
   }
 
   async unsubscribe(identityKey: string, request: PushUnsubscribeRequest): Promise<boolean> {
@@ -276,63 +317,105 @@ export class PushService {
       const previous = this.#attention.get(event.instanceId);
       if (previous?.generation !== event.generation) return;
       this.#attention.delete(event.instanceId);
-      if (previous.active) this.#queueMessage("resolved", event.instanceId, event.generation);
+      if (previous.active && previous.requestId !== undefined) {
+        this.#queueClear(event.instanceId, previous.requestId);
+      }
       return;
     }
 
     const { session } = event;
     const previous = this.#attention.get(session.instanceId);
-    const active = session.inputRequired && session.canControl;
-    if (previous !== undefined && previous.generation !== session.generation && previous.active) {
-      this.#queueMessage("resolved", session.instanceId, previous.generation);
+    const active = session.inputRequired && session.canControl && session.ask !== undefined;
+    if (
+      previous?.active &&
+      previous.requestId !== undefined &&
+      (!active || previous.requestId !== session.ask?.requestId)
+    ) {
+      this.#queueClear(session.instanceId, previous.requestId);
     }
-    if (previous?.generation !== session.generation) {
-      if (active) this.#queueMessage("attention", session.instanceId, session.generation);
-    } else if (previous.active !== active) {
-      this.#queueMessage(active ? "attention" : "resolved", session.instanceId, session.generation);
-    }
-    this.#attention.set(session.instanceId, { generation: session.generation, active });
+    if (active) this.#queueAttention(session);
+    this.#attention.set(session.instanceId, {
+      generation: session.generation,
+      ...(session.ask === undefined ? {} : { requestId: session.ask.requestId }),
+      active,
+    });
   }
 
-  #queueMessage(
-    type: AttentionPushMessage["type"],
-    instanceId: string,
-    generation: number,
+  #pendingAskCount(): number {
+    return this.#registry.snapshot().sessions.filter(
+      session => session.inputRequired && session.canControl && session.ask !== undefined,
+    ).length;
+  }
+
+  #queueAttention(
+    session: SessionMetadata,
     subscriptions?: readonly StoredPushSubscription[],
   ): void {
-    const key = `${instanceId}\0${generation}`;
-    const prior = this.#deliveryChains.get(key) ?? Promise.resolve();
+    const requestId = session.ask?.requestId;
+    if (requestId === undefined) return;
+    const pendingAskCount = this.#pendingAskCount();
+    this.#queueDelivery(session.instanceId, async () => {
+      await this.#deliver(
+        session.instanceId,
+        subscription => {
+          const body = sessionNotificationBody(session, subscription.detailLevel);
+          return {
+            version: PUSH_API_VERSION,
+            type: "attention",
+            instanceId: session.instanceId,
+            generation: session.generation,
+            requestId,
+            pendingAskCount,
+            title: "OMP session needs attention",
+            ...(body === undefined ? {} : { body }),
+          };
+        },
+        subscriptions,
+      );
+    });
+  }
+
+  #queueClear(instanceId: string, requestId: string): void {
+    const pendingAskCount = this.#pendingAskCount();
+    this.#queueDelivery(instanceId, async () => {
+      await this.#deliver(instanceId, () => ({
+        version: PUSH_API_VERSION,
+        type: "clear",
+        instanceId,
+        requestId,
+        pendingAskCount,
+      }));
+    });
+  }
+
+  #queueDelivery(instanceId: string, send: () => Promise<void>): void {
+    const prior = this.#deliveryChains.get(instanceId) ?? Promise.resolve();
     const delivery = prior
-      .then(() => this.#deliver({ version: PUSH_API_VERSION, type, instanceId, generation }, subscriptions))
+      .then(send)
       .catch(() => {
         this.#logger.event("warn", "push.delivery_failed");
       })
       .finally(() => {
-        if (this.#deliveryChains.get(key) === delivery) this.#deliveryChains.delete(key);
+        if (this.#deliveryChains.get(instanceId) === delivery) this.#deliveryChains.delete(instanceId);
       });
-    this.#deliveryChains.set(key, delivery);
+    this.#deliveryChains.set(instanceId, delivery);
   }
 
   async #deliver(
-    message: AttentionPushMessage,
+    instanceId: string,
+    messageFor: (subscription: StoredPushSubscription) => AttentionPushMessage,
     selectedSubscriptions?: readonly StoredPushSubscription[],
   ): Promise<void> {
     const subscriptions = (selectedSubscriptions ?? this.#subscriptions).filter(subscription =>
       this.#identityAllowed(subscription.identityKey),
     );
     if (subscriptions.length === 0) return;
-    const payload = JSON.stringify(message);
-    const topic = createHash("sha256")
-      .update(message.instanceId)
-      .update("\0")
-      .update(String(message.generation))
-      .digest("base64url")
-      .slice(0, 32);
+    const topic = createHash("sha256").update(instanceId).digest("base64url").slice(0, 32);
     const stale = new Set<string>();
     await Promise.all(
       subscriptions.map(async subscription => {
         try {
-          await this.#transport.send(subscription, payload, {
+          await this.#transport.send(subscription, JSON.stringify(messageFor(subscription)), {
             subject: "mailto:security@omp-session-gateway.invalid",
             publicKey: this.#vapid.publicKey,
             privateKey: this.#vapid.privateKey,

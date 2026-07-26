@@ -51,15 +51,34 @@ describe("SessionRegistry", () => {
     expect(registry.lookupCapability("registry-instance-0001", 1, "view")).toMatchObject({ status: "ok" });
   });
 
-  test("publishes ordered same-generation input-required transitions without changing capabilities", () => {
-    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+  test("creates stable attention identity and replaces it only after authoritative clear", () => {
+    const clock = new FakeClock();
+    const requestIds = ["attention-request-000001", "attention-request-000002"];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      clock,
+      requestIdFactory: () => requestIds.shift() ?? "attention-request-fallback",
+    });
     const events: SessionEvent[] = [];
     registry.subscribe(event => events.push(event));
 
     registry.upsert("owner-a", published());
+    clock.advance(1_000);
     registry.upsert("owner-a", published(1, { inputRequired: true }));
+    const firstAsk = registry.snapshot().sessions[0]?.ask;
+    clock.advance(1_000);
+    registry.upsert("owner-a", published(1, { inputRequired: true, title: "Updated title" }));
+    expect(registry.snapshot().sessions[0]?.ask).toEqual(firstAsk);
     registry.upsert("owner-a", published(1, { inputRequired: false }));
+    clock.advance(1_000);
+    registry.upsert("owner-a", published(1, { inputRequired: true }));
 
+    expect(firstAsk).toEqual({
+      requestId: "attention-request-000001",
+      since: "2026-07-19T00:00:01.000Z",
+    });
+    expect(registry.snapshot().sessions[0]?.ask?.requestId).toBe("attention-request-000002");
     expect(
       events.map(event => [
         event.revision,
@@ -68,9 +87,10 @@ describe("SessionRegistry", () => {
     ).toEqual([
       [1, false],
       [2, true],
-      [3, false],
+      [3, true],
+      [4, false],
+      [5, true],
     ]);
-    expect(registry.snapshot().sessions[0]?.inputRequired).toBe(false);
     expect(registry.lookupCapability("registry-instance-0001", 1, "view")).toMatchObject({ status: "ok" });
     expect(registry.lookupCapability("registry-instance-0001", 1, "control")).toMatchObject({ status: "ok" });
   });

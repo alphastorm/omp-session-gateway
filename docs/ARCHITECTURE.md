@@ -132,21 +132,27 @@ The in-memory bootstrap is the target design because fragments can remain in bro
 
 When an admitted host-origin response operation begins, the controller acquires a
 generation-scoped lease and republishes the same generation with `inputRequired: true`. The daemon
-emits only that boolean with ordinary metadata. The host retains the bounded request until a
-writable guest joins or the local side settles it. The last lease release republishes `false`
-before any generation removal; stale releases from prior generations are ignored.
+turns each accepted false-to-true transition into one opaque in-memory attention identity with a
+receipt timestamp. Repeated true updates retain that identity; false, removal, expiry, and
+generation replacement destroy it. The browser receives the boolean plus `ask.requestId` and
+`ask.since`; the OMP publisher remains unaware of this browser-routing metadata. The host retains
+the bounded request until a writable guest joins or the local side settles it. The last lease
+release republishes `false` before any generation removal; stale releases from prior generations
+are ignored.
 
 ### 2.3 Background attention push
 
 1. The user explicitly grants notification permission and subscribes through
-   `POST /api/v1/push/subscription`.
-2. The gateway persists only the VAPID key pair, browser endpoint/keys, and authenticated identity
-   in a private state file.
-3. A Control-capable attention transition queues an encrypted metadata-only `attention` message;
-   a clear/removal queues `resolved` under the same coalescing topic.
+   `POST /api/v1/push/subscription`, choosing `private`, `session`, or `preview` detail.
+2. The gateway persists only the VAPID key pair, browser endpoint/keys, authenticated identity, and
+   detail choice in a private state file.
+3. A Control-capable attention transition builds an encrypted `attention` message at the selected
+   detail level; clear/removal builds `clear`. Neither contains a capability.
 4. The browser push service wakes the installed PWA's service worker even when no page is open.
-5. Tapping opens `/attention/:instanceId/:generation`; the app replaces the route with `/`, fetches
-   current authenticated metadata, and launches Control only for an exact actionable match.
+5. The worker tags one notification per instance, updates the app badge from the bounded pending
+   count, and closes that tag on `clear`.
+6. Tapping opens `/collab/:instanceId?request=:requestId`; the app fetches current authenticated
+   metadata and launches Control only when the exact request identity remains actionable.
 
 ### 2.4 View or Control launch
 

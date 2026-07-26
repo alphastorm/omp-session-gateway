@@ -325,12 +325,13 @@ describe("HTTP boundary", () => {
     expect(configResponse.status).toBe(200);
     expect(configResponse.headers.get("Cache-Control")).toContain("no-store");
     expect((await configResponse.json()) as Record<string, unknown>).toMatchObject({
-      version: 1,
+      version: 2,
       applicationServerKey: expect.any(String),
     });
 
     const body = {
-      version: 1,
+      version: 2,
+      detailLevel: "preview",
       subscription: {
         endpoint: "https://push.example.test/send/http-device",
         expirationTime: null,
@@ -349,7 +350,9 @@ describe("HTTP boundary", () => {
       });
     expect((await handler(mutation(body, "https://evil.example"), peer)).status).toBe(403);
     expect((await handler(mutation({ ...body, prompt: "PROMPT_CONTENT_CANARY" }), peer)).status).toBe(400);
-    expect((await handler(mutation(body), peer)).status).toBe(204);
+    const subscriptionResponse = await handler(mutation(body), peer);
+    expect(subscriptionResponse.status).toBe(200);
+    expect(await subscriptionResponse.json()).toEqual({ version: 2, detailLevel: "preview" });
     const state = await Bun.file(join(root, "state", "push-state.json")).text();
     expect(state).toContain(body.subscription.endpoint);
     expect(state).not.toContain("PROMPT_CONTENT_CANARY");
@@ -382,11 +385,15 @@ describe("HTTP boundary", () => {
     expect(update.status).toBe(200);
     expect(update.headers.get("Cache-Control")).toContain("no-store");
     expect(await update.text()).toContain("OMP Sessions");
-    const attention = await handler(request("/attention/http-instance-000001/3"), peer);
+    const attention = await handler(
+      request("/collab/http-instance-000001?request=http-request-identity-0001"),
+      peer,
+    );
     expect(attention.status).toBe(200);
     expect(attention.headers.get("Cache-Control")).toContain("no-store");
     expect(await attention.text()).toContain("OMP Sessions");
-    expect((await handler(request("/attention/short/3"), peer)).status).toBe(404);
+    expect((await handler(request("/collab/short?request=http-request-identity-0001"), peer)).status).toBe(400);
+    expect((await handler(request("/collab/http-instance-000001?request=short"), peer)).status).toBe(400);
   });
 
   test("never writes capability-bearing data to structured logs", async () => {

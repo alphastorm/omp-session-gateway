@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   MAX_FRAME_BYTES,
   MAX_PUSH_SUBSCRIPTION_BYTES,
+  PUSH_API_VERSION,
   ProtocolValidationError,
   type SessionEvent,
   parseJsonFrame,
@@ -92,12 +93,19 @@ function isValidClientBootstrap(url: URL): boolean {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(entries[0][1])
   );
 }
-function isValidAttentionBootstrap(url: URL): boolean {
-  const match = /^\/attention\/([^/]{1,384})\/([1-9]\d*)$/u.exec(url.pathname);
+function isValidRequestBootstrap(url: URL): boolean {
+  const match = /^\/collab\/([^/]{1,384})$/u.exec(url.pathname);
   if (match === null) return false;
   const encodedInstanceId = match[1];
-  const generation = Number(match[2]);
-  if (encodedInstanceId === undefined || !Number.isSafeInteger(generation) || generation < 1) return false;
+  const entries = [...url.searchParams.entries()];
+  if (
+    encodedInstanceId === undefined ||
+    entries.length !== 1 ||
+    entries[0]?.[0] !== "request" ||
+    !/^[A-Za-z0-9_-]{16,128}$/u.test(entries[0][1])
+  ) {
+    return false;
+  }
   try {
     return /^[A-Za-z0-9._:-]{16,128}$/u.test(decodeURIComponent(encodedInstanceId));
   } catch {
@@ -203,9 +211,9 @@ export function createHttpHandler(options: {
       return problem(400, "bad_request", "Invalid request");
     }
     const clientBootstrap = isValidClientBootstrap(url);
-    const attentionBootstrap = request.method === "GET" && isValidAttentionBootstrap(url);
+    const requestBootstrap = request.method === "GET" && isValidRequestBootstrap(url);
     const updateBootstrap = request.method === "GET" && url.pathname === "/update/";
-    if (url.search !== "" && !clientBootstrap) {
+    if (url.search !== "" && !clientBootstrap && !requestBootstrap) {
       return problem(400, "bad_request", "Query parameters are not accepted");
     }
 
@@ -273,7 +281,11 @@ export function createHttpHandler(options: {
           return problem(400, "bad_request", "Invalid request");
         }
         try {
-          await options.pushService.subscribe(authorization.identityKey, subscriptionRequest);
+          const detailLevel = await options.pushService.subscribe(authorization.identityKey, subscriptionRequest);
+          return withSecurityHeaders(
+            Response.json({ version: PUSH_API_VERSION, detailLevel }),
+            true,
+          );
         } catch {
           return problem(409, "subscription_rejected", "Push subscription could not be saved");
         }
@@ -333,10 +345,10 @@ export function createHttpHandler(options: {
     }
 
     if (url.pathname.startsWith("/api/")) return problem(404, "not_found", "Not found");
-    const staticResponse = staticAssets.response(attentionBootstrap || updateBootstrap ? "/" : url.pathname);
+    const staticResponse = staticAssets.response(requestBootstrap || updateBootstrap ? "/" : url.pathname);
     return withSecurityHeaders(
       staticResponse ?? new Response("Not found", { status: 404 }),
-      clientBootstrap || attentionBootstrap || updateBootstrap,
+      clientBootstrap || requestBootstrap || updateBootstrap,
     );
   };
 }
