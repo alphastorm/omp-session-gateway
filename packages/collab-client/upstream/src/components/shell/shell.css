@@ -403,9 +403,26 @@
 	min-width: 0;
 }
 
+.sh-ask-option-heading {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
 .sh-ask-option-label {
 	font-size: 13px;
 	font-weight: 500;
+}
+
+.sh-ask-option-recommended {
+	padding: 1px 6px;
+	font: 600 10px / 1.4 var(--font-mono);
+	color: var(--accent);
+	background: var(--accent-muted);
+	border: 1px solid var(--accent);
+	border-radius: var(--radius-sm);
+	white-space: nowrap;
 }
 
 .sh-ask-option-description {
