@@ -6,6 +6,7 @@ const GLOBAL_NAMES = [
   "clients",
   "fetch",
   "location",
+  "navigator",
   "registration",
   "__SHELL_ASSETS__",
   "__CACHE_NAME__",
@@ -72,6 +73,7 @@ const clients = {
 const shownNotifications: Array<{
   readonly title: string;
   readonly options: NotificationOptions;
+  readonly data: unknown;
   closed: boolean;
   close(): void;
 }> = [];
@@ -80,6 +82,7 @@ const registration = {
     shownNotifications.push({
       title,
       options,
+      data: options.data,
       closed: false,
       close(): void {
         this.closed = true;
@@ -89,6 +92,10 @@ const registration = {
   async getNotifications(options: { readonly tag: string }): Promise<typeof shownNotifications> {
     return shownNotifications.filter(notification => notification.options.tag === options.tag && !notification.closed);
   },
+};
+const badgeState = {
+  set: [] as number[],
+  clears: 0,
 };
 
 
@@ -116,6 +123,17 @@ Object.defineProperties(globalThis, {
     async value(): Promise<void> {
       clientState.claims += 0;
       clientState.matchOptions.push("skipWaiting");
+    },
+  },
+  navigator: {
+    configurable: true,
+    value: {
+      async setAppBadge(value: number): Promise<void> {
+        badgeState.set.push(value);
+      },
+      async clearAppBadge(): Promise<void> {
+        badgeState.clears += 1;
+      },
     },
   },
   location: { configurable: true, value: { origin: "https://sessions.example" } },
@@ -146,30 +164,36 @@ describe("notification service worker", () => {
     const responses: unknown[] = [];
     const message = listener("message");
     message({
-      data: { type: "omp-notification-support-request", version: 1 },
-      ports: [{ postMessage(value: unknown): void { responses.push(value); } }],
-    });
-    message({
-      data: { type: "omp-notification-support-request", version: 1, content: "PROMPT_CANARY" },
-      ports: [{ postMessage(value: unknown): void { responses.push(value); } }],
-    });
-    message({
       data: { type: "omp-notification-support-request", version: 2 },
       ports: [{ postMessage(value: unknown): void { responses.push(value); } }],
     });
+    message({
+      data: { type: "omp-notification-support-request", version: 2, content: "PROMPT_CANARY" },
+      ports: [{ postMessage(value: unknown): void { responses.push(value); } }],
+    });
+    message({
+      data: { type: "omp-notification-support-request", version: 1 },
+      ports: [{ postMessage(value: unknown): void { responses.push(value); } }],
+    });
 
-    expect(responses).toEqual([{ type: "omp-notification-support-response", version: 1 }]);
+    expect(responses).toEqual([{ type: "omp-notification-support-response", version: 2 }]);
     expect(JSON.stringify(responses)).not.toContain("PROMPT_CANARY");
   });
 
-  test("shows and resolves only strict metadata-only background push messages", async () => {
+  test("shows selected detail, badges pending count, and clears only the exact request", async () => {
     shownNotifications.length = 0;
+    badgeState.set.length = 0;
+    badgeState.clears = 0;
     const push = listener("push");
     const attention = {
-      version: 1,
+      version: 2,
       type: "attention",
       instanceId: "push-instance-000001",
       generation: 3,
+      requestId: "push-request-identity-0001",
+      pendingAskCount: 2,
+      title: "OMP session needs attention",
+      body: "Session name · project",
     };
     let attentionCompletion: Promise<unknown> | undefined;
     push({
@@ -182,12 +206,18 @@ describe("notification service worker", () => {
       title: "OMP session needs attention",
       closed: false,
       options: {
-        tag: "omp-attention-push-instance-000001-3",
-        data: attention,
+        tag: "omp-attention-push-instance-000001",
+        body: "Session name · project",
+        renotify: false,
+        data: {
+          version: 2,
+          type: "attention",
+          instanceId: "push-instance-000001",
+          requestId: "push-request-identity-0001",
+        },
       },
     });
-    expect(shownNotifications[0]?.options.body).toBeUndefined();
-    expect(JSON.stringify(shownNotifications)).not.toContain("PROMPT_CONTENT_CANARY");
+    expect(badgeState.set).toEqual([2]);
 
     let malformedWait = false;
     push({
@@ -195,15 +225,44 @@ describe("notification service worker", () => {
       waitUntil(): void { malformedWait = true; },
     });
     expect(malformedWait).toBeFalse();
-    expect(shownNotifications).toHaveLength(1);
 
-    let resolvedCompletion: Promise<unknown> | undefined;
+    let staleClearCompletion: Promise<unknown> | undefined;
     push({
-      data: { json(): unknown { return { ...attention, type: "resolved" }; } },
-      waitUntil(promise: Promise<unknown>): void { resolvedCompletion = promise; },
+      data: {
+        json(): unknown {
+          return {
+            version: 2,
+            type: "clear",
+            instanceId: attention.instanceId,
+            requestId: "different-request-000001",
+            pendingAskCount: 1,
+          };
+        },
+      },
+      waitUntil(promise: Promise<unknown>): void { staleClearCompletion = promise; },
     });
-    await resolvedCompletion;
+    await staleClearCompletion;
+    expect(shownNotifications[0]?.closed).toBeFalse();
+
+    let clearCompletion: Promise<unknown> | undefined;
+    push({
+      data: {
+        json(): unknown {
+          return {
+            version: 2,
+            type: "clear",
+            instanceId: attention.instanceId,
+            requestId: attention.requestId,
+            pendingAskCount: 0,
+          };
+        },
+      },
+      waitUntil(promise: Promise<unknown>): void { clearCompletion = promise; },
+    });
+    await clearCompletion;
     expect(shownNotifications[0]?.closed).toBeTrue();
+    expect(badgeState.set).toEqual([2, 1]);
+    expect(badgeState.clears).toBe(1);
   });
 
   test("routes a valid alert to same-origin Control bootstrap and never focuses a client page", async () => {
@@ -243,7 +302,12 @@ describe("notification service worker", () => {
     listener("notificationclick")({
       notification: {
         close(): void { closed += 1; },
-        data: { version: 1, type: "attention", instanceId: "push-instance-000001", generation: 3 },
+        data: {
+          version: 2,
+          type: "attention",
+          instanceId: "push-instance-000001",
+          requestId: "push-request-identity-0001",
+        },
       },
       waitUntil(promise: Promise<void>): void { completion = promise; },
     });
@@ -254,7 +318,9 @@ describe("notification service worker", () => {
     expect(dashboardFocuses).toBe(1);
     expect(clientFocuses).toBe(0);
     expect(clientState.opened).toEqual([]);
-    expect(clientState.navigated).toEqual(["/attention/push-instance-000001/3"]);
+    expect(clientState.navigated).toEqual([
+      "/collab/push-instance-000001?request=push-request-identity-0001",
+    ]);
     expect(fetched).toEqual([]);
   });
 
@@ -302,10 +368,10 @@ describe("notification service worker", () => {
         },
       },
       {
-        url: "https://sessions.example/attention/update-instance/3",
+        url: "https://sessions.example/collab/update-instance?request=update-request-0001",
         async focus(): Promise<unknown> { return this; },
         async navigate(): Promise<FakeWindowClient> {
-          throw new Error("attention bootstrap must not navigate during an upgrade");
+          throw new Error("request bootstrap must not navigate during an upgrade");
         },
       },
     ];

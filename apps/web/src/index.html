@@ -33,8 +33,7 @@
           <p class="lede">Live OMP sessions on this computer. View is read-only; Control can steer the session.</p>
         </div>
         <div class="masthead-actions">
-          <button id="refresh" class="refresh" type="button">Refresh</button>
-          <button id="notify" class="notify" type="button" data-state="checking" disabled>Checking background alerts…</button>
+          <button id="notify" class="notify" type="button" data-state="checking" aria-haspopup="dialog" disabled>Checking background alerts…</button>
           <p id="notify-note" class="notify-note">Alerts work with the app closed. Tapping one opens current Control after revalidation.</p>
         </div>
       </header>
@@ -56,6 +55,33 @@
         <span>Community project; not affiliated with OMP.</span>
       </footer>
     </main>
+    <dialog id="notification-settings" class="notification-sheet" aria-labelledby="notification-settings-title">
+      <div class="notification-sheet-handle" aria-hidden="true"></div>
+      <header>
+        <div>
+          <p class="sheet-kicker">Background alerts</p>
+          <h2 id="notification-settings-title">Notification detail</h2>
+        </div>
+        <button id="notification-settings-close" class="sheet-close" type="button" aria-label="Close notification settings">Close</button>
+      </header>
+      <fieldset>
+        <legend>Choose what this device can show</legend>
+        <label class="detail-option">
+          <input type="radio" name="notification-detail" value="private" />
+          <span><strong>Private</strong><small>Fixed alert only. No session information.</small></span>
+        </label>
+        <label class="detail-option">
+          <input type="radio" name="notification-detail" value="session" checked />
+          <span><strong>Session <em>default</em></strong><small>Session and project names.</small></span>
+        </label>
+        <label class="detail-option">
+          <input type="radio" name="notification-detail" value="preview" />
+          <span><strong>Preview</strong><small>Session details and a bounded request preview when available.</small><small class="detail-warning">May persist in notification history, screenshots, and on wearables.</small></span>
+        </label>
+      </fieldset>
+      <p class="sheet-footnote">Per-device, stored with the push subscription on the gateway. Payloads are built at the chosen level — the phone never redacts.</p>
+      <button id="notification-disable" class="notification-disable" type="button">Disable background alerts</button>
+    </dialog>
     <!--ASSET_SCRIPT-->
   </body>
 </html>

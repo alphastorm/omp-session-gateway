@@ -3,11 +3,13 @@ import {
   parseLaunchResponse,
   parsePushConfigResponse,
   parsePushSubscriptionRequest,
+  parsePushSubscriptionResponse,
   parseSessionEvent,
   parseSessionListResponse,
   type LaunchMode,
   type SessionEvent,
   type SessionMetadata,
+  type PushDetailLevel,
 } from "@omp-session-gateway/protocol";
 type StartCollabWithCapability = (
   container: HTMLElement,
@@ -35,11 +37,16 @@ function requiredElement<ElementType extends Element>(selector: string): Element
 const sessionList = requiredElement<HTMLElement>("#session-list");
 const emptyState = requiredElement<HTMLElement>("#empty-state");
 const statusBanner = requiredElement<HTMLElement>("#status-banner");
-const refreshButton = requiredElement<HTMLButtonElement>("#refresh");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 const directoryTitle = requiredElement<HTMLElement>("#directory-title");
 const directoryCount = requiredElement<HTMLElement>("#directory-count");
+const notificationSettings = requiredElement<HTMLDialogElement>("#notification-settings");
+const notificationSettingsClose = requiredElement<HTMLButtonElement>("#notification-settings-close");
+const notificationDisable = requiredElement<HTMLButtonElement>("#notification-disable");
+const notificationDetailInputs = [
+  ...document.querySelectorAll<HTMLInputElement>('input[name="notification-detail"]'),
+];
 
 const EVENT_LIVENESS_TIMEOUT_MS = 12_000;
 const SNAPSHOT_TIMEOUT_MS = 4_000;
@@ -50,13 +57,14 @@ const sessions = new Map<string, SessionMetadata>();
 let events: EventSource | undefined;
 let directoryLoaded = false;
 let authorizationDenied = false;
-let refreshRequests = 0;
+let notificationState: NotificationControlState = "checking";
 let directoryEpoch = 0;
 let directoryRevision = -1;
 let snapshotController: AbortController | undefined;
 let eventLivenessTimeout: number | undefined;
 let eventStreamStale = false;
 let reconnectTimeout: number | undefined;
+let lastFreshAt: number | undefined;
 let reconnectAttempt = 0;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 let applicationServerKey: string | undefined;
@@ -76,35 +84,33 @@ type NotificationControlState =
 
 interface PendingAttentionLaunch {
   readonly instanceId: string;
-  readonly generation: number;
+  readonly requestId: string;
 }
 
-interface AttentionReceipt {
-  readonly generation: number;
-  readonly receivedAt: number;
-}
 
 interface DashboardSnapshot {
   readonly children: readonly HTMLElement[];
   readonly scrollY: number;
   readonly title: string;
   readonly bodyClass: string;
+  readonly order: readonly string[];
 }
 
 interface ActiveCollabShell {
   readonly instanceId: string;
   readonly generation: number;
-  readonly openedAttention: boolean;
+  readonly openedRequestId?: string;
   readonly triageBar: HTMLElement;
   readonly shell: HTMLElement;
   answerShown: boolean;
+  reconnectingShown: boolean;
   triageTimeout?: number;
 }
 
-const attentionReceipts = new Map<string, AttentionReceipt>();
 let dashboardSnapshot: DashboardSnapshot | undefined;
 let activeCollabShell: ActiveCollabShell | undefined;
 let disposeActiveCollab: (() => void) | undefined;
+let currentNotificationDetail: PushDetailLevel = "session";
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
   checking: "Checking background alerts…",
@@ -117,6 +123,7 @@ const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
 };
 
 function setNotificationControl(state: NotificationControlState): void {
+  notificationState = state;
   notificationButton.dataset.state = state;
   notificationButton.textContent = notificationLabels[state];
   notificationButton.disabled =
@@ -128,7 +135,9 @@ function setNotificationControl(state: NotificationControlState): void {
   notificationDisclosure.textContent =
     state === "blocked"
       ? "Notifications are blocked. Enable them in this site's browser settings."
-      : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
+      : state === "enabled"
+        ? "Tap to choose what this device can show."
+        : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
 }
 
 function isNotificationSupportResponse(value: unknown): boolean {
@@ -140,7 +149,7 @@ function isNotificationSupportResponse(value: unknown): boolean {
     keys.includes("type") &&
     keys.includes("version") &&
     record.type === "omp-notification-support-response" &&
-    record.version === 1
+    record.version === PUSH_API_VERSION
   );
 }
 
@@ -166,16 +175,20 @@ async function checkNotificationWorker(registration: ServiceWorkerRegistration):
   channel.port1.onmessage = event => finish(isNotificationSupportResponse(event.data));
   channel.port1.start();
   try {
-    active.postMessage({ type: "omp-notification-support-request", version: 1 }, [channel.port2]);
+    active.postMessage({ type: "omp-notification-support-request", version: PUSH_API_VERSION }, [channel.port2]);
   } catch {
     finish(false);
   }
   return promise;
 }
 
-async function savePushSubscription(subscription: PushSubscription): Promise<void> {
+async function savePushSubscription(
+  subscription: PushSubscription,
+  detailLevel?: PushDetailLevel,
+): Promise<PushDetailLevel> {
   const request = parsePushSubscriptionRequest({
     version: PUSH_API_VERSION,
+    ...(detailLevel === undefined ? {} : { detailLevel }),
     subscription: subscription.toJSON(),
   });
   const response = await fetch("/api/v1/push/subscription", {
@@ -186,6 +199,12 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
     credentials: "same-origin",
   });
   if (!response.ok) throw new Error("push subscription was rejected");
+  return parsePushSubscriptionResponse(await response.json()).detailLevel;
+}
+
+function selectNotificationDetail(detailLevel: PushDetailLevel): void {
+  currentNotificationDetail = detailLevel;
+  for (const input of notificationDetailInputs) input.checked = input.value === detailLevel;
 }
 
 function clearUpdateReloadTimeout(): void {
@@ -266,36 +285,48 @@ async function initializeNotifications(
       setNotificationControl("idle");
       return;
     }
-    await savePushSubscription(existing);
+    selectNotificationDetail(await savePushSubscription(existing));
     setNotificationControl("enabled");
   } catch {
     setNotificationControl("unavailable");
   }
 }
 
+async function disableBackgroundNotifications(): Promise<void> {
+  const registration = notificationRegistration;
+  if (registration === undefined) return;
+  const existing = await registration.pushManager.getSubscription();
+  if (existing === null) {
+    notificationSettings.close();
+    setNotificationControl("idle");
+    return;
+  }
+  setNotificationControl("disabling");
+  const endpoint = existing.endpoint;
+  try {
+    await existing.unsubscribe();
+    await fetch("/api/v1/push/subscription", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: PUSH_API_VERSION, endpoint }),
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    notificationSettings.close();
+    setNotificationControl("idle");
+  } catch {
+    setNotificationControl("unavailable");
+  }
+}
+
 async function toggleBackgroundNotifications(): Promise<void> {
+  if (notificationState === "enabled") {
+    notificationSettings.showModal();
+    return;
+  }
   const registration = notificationRegistration;
   const publicKey = applicationServerKey;
   if (registration === undefined || publicKey === undefined) return;
-  const existing = await registration.pushManager.getSubscription();
-  if (existing !== null) {
-    setNotificationControl("disabling");
-    const endpoint = existing.endpoint;
-    try {
-      await existing.unsubscribe();
-      await fetch("/api/v1/push/subscription", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: PUSH_API_VERSION, endpoint }),
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      setNotificationControl("idle");
-    } catch {
-      setNotificationControl("unavailable");
-    }
-    return;
-  }
 
   setNotificationControl("enabling");
   try {
@@ -310,39 +341,38 @@ async function toggleBackgroundNotifications(): Promise<void> {
       applicationServerKey: publicKey,
     });
     try {
-      await savePushSubscription(subscription);
+      selectNotificationDetail(await savePushSubscription(subscription, "session"));
     } catch (error) {
       await subscription.unsubscribe().catch(() => false);
       throw error;
     }
     setNotificationControl("enabled");
+    notificationSettings.showModal();
   } catch {
     setNotificationControl(Notification.permission === "denied" ? "blocked" : "unavailable");
   }
 }
 
 function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
-  const match = /^\/attention\/([^/]{1,384})\/([1-9]\d*)$/u.exec(location.pathname);
-  if (match === null) return undefined;
-  history.replaceState(null, "", "/");
+  const match = /^\/collab\/([^/]{1,384})$/u.exec(location.pathname);
+  const requestId = new URL(location.href).searchParams.get("request");
+  if (match === null || requestId === null) return undefined;
   const encodedInstanceId = match[1];
-  const generationText = match[2];
-  if (encodedInstanceId === undefined || generationText === undefined) return undefined;
+  if (encodedInstanceId === undefined) return undefined;
   let instanceId: string;
   try {
     instanceId = decodeURIComponent(encodedInstanceId);
   } catch {
     return undefined;
   }
-  const generation = Number(generationText);
   if (
     !/^[A-Za-z0-9._:-]{16,128}$/u.test(instanceId) ||
-    !Number.isSafeInteger(generation) ||
-    generation < 1
+    !/^[A-Za-z0-9_-]{16,128}$/u.test(requestId)
   ) {
     return undefined;
   }
-  return { instanceId, generation };
+  history.replaceState(null, "", "/");
+  return { instanceId, requestId };
 }
 
 if (location.pathname === "/update/" || location.pathname === "/client/") {
@@ -352,10 +382,57 @@ if (location.pathname === "/update/" || location.pathname === "/client/") {
 const pendingAttentionLaunch = readPendingAttentionLaunch();
 let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
-function setStatus(kind: "ready" | "offline" | "unauthorized" | "expired" | "loading", message: string): void {
+type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "relay" | "unauthorized" | "expired" | "loading";
+
+function setStatus(kind: StatusKind, message: string): void {
   statusBanner.dataset.kind = kind;
   statusBanner.textContent = message;
   statusBanner.hidden = kind === "ready";
+}
+
+function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay"): void {
+  directoryRevision = -1;
+  render();
+  const asOf =
+    lastFreshAt === undefined
+      ? "before the last successful connection"
+      : new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(lastFreshAt);
+  const copy: Record<typeof kind, readonly [string, string]> = {
+    offline: [
+      "You're offline",
+      `This phone has no connection. Showing the list as of ${asOf} — retries automatically.`,
+    ],
+    tailnet: [
+      "Tailnet unreachable",
+      `Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone. Last seen ${asOf}.`,
+    ],
+    desktop: [
+      "Desktop unreachable",
+      `Tailnet looks fine, but the desktop isn't answering — asleep, or the gateway stopped. Last seen ${asOf}.`,
+    ],
+    relay: [
+      "Reconnecting to relay…",
+      `Live updates paused; showing the list as of ${asOf}. Reconnects automatically.`,
+    ],
+  };
+  const [title, body] = copy[kind];
+  const text = document.createElement("span");
+  text.className = "status-copy";
+  text.append(
+    createTextElement("strong", "status-title", title),
+    createTextElement("span", "status-detail", body),
+  );
+  statusBanner.dataset.kind = kind;
+  statusBanner.replaceChildren(text);
+  if (kind === "desktop") {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "status-action";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => void refreshAndConnect());
+    statusBanner.append(retry);
+  }
+  statusBanner.hidden = false;
 }
 
 function clearEventLiveness(): void {
@@ -370,14 +447,7 @@ function clearReconnectTimeout(): void {
   reconnectTimeout = undefined;
 }
 
-function showTransportFailure(message: string): void {
-  directoryRevision = -1;
-  directoryLoaded = false;
-  sessions.clear();
-  attentionReceipts.clear();
-  render();
-  setStatus("offline", message);
-}
+
 
 function scheduleReconnect(): void {
   if (authorizationDenied || reconnectTimeout !== undefined) return;
@@ -390,13 +460,13 @@ function scheduleReconnect(): void {
   }, delay);
 }
 
-function failEventStream(source: EventSource, epoch: number, message: string): void {
+function failEventStream(source: EventSource, epoch: number): void {
   if (events !== source || epoch !== directoryEpoch) return;
   source.close();
   events = undefined;
   clearEventLiveness();
   eventStreamStale = true;
-  showTransportFailure(message);
+  showTransportFailure("relay");
   scheduleReconnect();
 }
 
@@ -404,45 +474,19 @@ function armEventLiveness(source: EventSource, epoch: number): void {
   clearEventLiveness();
   eventLivenessTimeout = window.setTimeout(() => {
     eventLivenessTimeout = undefined;
-    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
+    failEventStream(source, epoch);
   }, EVENT_LIVENESS_TIMEOUT_MS);
 }
 
-function updateRefreshState(): void {
-  const busy = refreshRequests > 0;
-  refreshButton.disabled = busy;
-  refreshButton.toggleAttribute("aria-busy", busy);
-  refreshButton.textContent = busy ? "Refreshing…" : "Refresh";
-}
 
 function sessionTitle(session: SessionMetadata): string {
   return session.title || session.cwdLabel || "OMP session";
 }
 
-function trackSessionAttention(session: SessionMetadata): void {
-  if (!session.inputRequired) {
-    attentionReceipts.delete(session.instanceId);
-    return;
-  }
-  const current = attentionReceipts.get(session.instanceId);
-  if (current?.generation === session.generation) return;
-  attentionReceipts.set(session.instanceId, {
-    generation: session.generation,
-    receivedAt: Date.now(),
-  });
-}
 
 function replaceSessionSnapshot(nextSessions: readonly SessionMetadata[]): void {
   sessions.clear();
-  const liveInstances = new Set<string>();
-  for (const session of nextSessions) {
-    liveInstances.add(session.instanceId);
-    trackSessionAttention(session);
-    sessions.set(session.instanceId, session);
-  }
-  for (const instanceId of attentionReceipts.keys()) {
-    if (!liveInstances.has(instanceId)) attentionReceipts.delete(instanceId);
-  }
+  for (const session of nextSessions) sessions.set(session.instanceId, session);
 }
 
 function elapsedLabel(startedAt: number): string {
@@ -455,7 +499,8 @@ function elapsedLabel(startedAt: number): string {
 }
 
 function waitingLabel(session: SessionMetadata): string {
-  return `waiting ${elapsedLabel(attentionReceipts.get(session.instanceId)?.receivedAt ?? Date.now())}`;
+  const since = Date.parse(session.ask?.since ?? session.lastSeenAt);
+  return `waiting ${elapsedLabel(Number.isNaN(since) ? Date.now() : since)}`;
 }
 
 function uptimeLabel(session: SessionMetadata): string {
@@ -467,11 +512,11 @@ function orderedWaitingSessions(): SessionMetadata[] {
   return [...sessions.values()]
     .filter(session => session.inputRequired)
     .sort((left, right) => {
-      const leftSince = attentionReceipts.get(left.instanceId)?.receivedAt ?? 0;
-      const rightSince = attentionReceipts.get(right.instanceId)?.receivedAt ?? 0;
+      const leftSince = left.ask?.since ?? left.lastSeenAt;
+      const rightSince = right.ask?.since ?? right.lastSeenAt;
       return leftSince === rightSince
         ? left.instanceId.localeCompare(right.instanceId)
-        : leftSince - rightSince;
+        : leftSince.localeCompare(rightSince);
     });
 }
 
@@ -572,14 +617,22 @@ function renderWaitingQueue(
   const article = document.createElement("article");
   article.className = "queue-hero";
   article.dataset.instanceId = hero.instanceId;
+  const askPreview = createTextElement(
+    "p",
+    "ask-preview",
+    hero.ask?.preview === undefined
+      ? hero.canControl
+        ? "Waiting for your input"
+        : "Waiting for your input — Control unavailable"
+      : `「${hero.ask.preview}」`,
+  );
+  if (hero.ask?.optionCount !== undefined) {
+    askPreview.append(createTextElement("span", "", ` · ${hero.ask.optionCount} options`));
+  }
   article.append(
     createTextElement("h2", "", sessionTitle(hero)),
     createSessionSummary(hero),
-    createTextElement(
-      "p",
-      "ask-preview",
-      hero.canControl ? "Waiting for your input" : "Waiting for your input — Control unavailable",
-    ),
+    askPreview,
   );
 
   const primary = document.createElement("button");
@@ -659,23 +712,27 @@ function hideTriageBar(shell: ActiveCollabShell): void {
 
 function showTriageBar(
   shell: ActiveCollabShell,
-  kind: "next" | "clear" | "ended",
+  kind: "next" | "clear" | "reconnecting" | "ended",
   copy: string,
-  actionLabel: string,
-  action: () => void,
+  actionLabel?: string,
+  action?: () => void,
 ): void {
   hideTriageBar(shell);
   shell.triageBar.dataset.kind = kind;
   const message = createTextElement("span", "triage-copy", copy);
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = kind === "next" ? "triage-action triage-action-next" : "triage-action";
-  button.textContent = actionLabel;
-  button.addEventListener("click", action);
-  shell.triageBar.replaceChildren(message, button);
+  if (actionLabel !== undefined && action !== undefined) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = kind === "next" ? "triage-action triage-action-next" : "triage-action";
+    button.textContent = actionLabel;
+    button.addEventListener("click", action);
+    shell.triageBar.replaceChildren(message, button);
+  } else {
+    shell.triageBar.replaceChildren(message);
+  }
   shell.triageBar.hidden = false;
   shell.shell.dataset.triageVisible = "true";
-  if (kind !== "ended") {
+  if (kind === "next" || kind === "clear") {
     shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
   }
 }
@@ -693,7 +750,11 @@ function returnToDirectory(): void {
   document.body.replaceChildren(...snapshot.children);
   document.title = snapshot.title;
   dashboardSnapshot = undefined;
-  if (location.pathname !== "/") history.replaceState(null, "", "/");
+  history.replaceState(
+    { ompDirectory: { order: snapshot.order, scrollY: snapshot.scrollY } },
+    "",
+    "/",
+  );
   window.scrollTo(0, snapshot.scrollY);
   void refreshAndConnect();
   applyActivatedWorkerUpdate();
@@ -708,7 +769,7 @@ function reconcileActiveCollabShell(): void {
     showTriageBar(shell, "ended", "Session ended", "Back to Sessions", returnToDirectory);
     return;
   }
-  if (!shell.openedAttention || current.inputRequired) return;
+  if (shell.openedRequestId === undefined || current.ask?.requestId === shell.openedRequestId) return;
 
   shell.answerShown = true;
   const waiting = orderedWaitingSessions();
@@ -760,6 +821,9 @@ function enterCollabClient(
       scrollY: window.scrollY,
       title: document.title,
       bodyClass: document.body.className,
+      order: [...sessionList.querySelectorAll<HTMLElement>("[data-instance-id]")]
+        .map(element => element.dataset.instanceId)
+        .filter((instanceId): instanceId is string => instanceId !== undefined),
     };
   }
   disposeActiveCollab?.();
@@ -798,7 +862,14 @@ function enterCollabClient(
   clearReconnectTimeout();
   reconnectAttempt = 0;
   launchInProgress = false;
-  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
+  if (location.pathname !== "/client/") {
+    history.replaceState(
+      { ompDirectory: { order: dashboardSnapshot.order, scrollY: dashboardSnapshot.scrollY } },
+      "",
+      "/",
+    );
+    history.pushState({ ompCollab: true }, "", "/client/");
+  }
   document.body.className = "collab-shell-active";
   document.body.replaceChildren(shell);
   document.title = `${sessionTitle(session)} · OMP Sessions`;
@@ -806,10 +877,13 @@ function enterCollabClient(
   const shellState: ActiveCollabShell = {
     instanceId: session.instanceId,
     generation: session.generation,
-    openedAttention: mode === "control" && session.inputRequired,
+    ...(mode === "control" && session.inputRequired && session.ask !== undefined
+      ? { openedRequestId: session.ask.requestId }
+      : {}),
     triageBar,
     shell,
     answerShown: false,
+    reconnectingShown: false,
   };
   activeCollabShell = shellState;
 
@@ -824,12 +898,18 @@ function enterCollabClient(
       return;
     }
     const banner = container.querySelector(".sh-banner")?.textContent?.toLowerCase() ?? "";
-    setConnectionState(
-      connection,
-      banner.includes("connecting") || banner.includes("joining") || banner.includes("reconnecting")
-        ? "reconnecting"
-        : "connected",
-    );
+    const reconnecting =
+      banner.includes("connecting") || banner.includes("joining") || banner.includes("reconnecting");
+    setConnectionState(connection, reconnecting ? "reconnecting" : "connected");
+    if (reconnecting && !shellState.answerShown) {
+      if (!shellState.reconnectingShown) {
+        shellState.reconnectingShown = true;
+        showTriageBar(shellState, "reconnecting", "Reconnecting to relay… composer paused");
+      }
+    } else if (shellState.reconnectingShown) {
+      shellState.reconnectingShown = false;
+      if (!shellState.answerShown) hideTriageBar(shellState);
+    }
   };
   if ("MutationObserver" in window) {
     observer = new MutationObserver(updateConnection);
@@ -882,7 +962,6 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
     setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
   }
   launchInProgress = true;
-  if (location.pathname !== "/client/") history.pushState(null, "", "/client/");
 
   const resetButton = (): void => {
     if (button === undefined) return;
@@ -961,17 +1040,14 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
   directoryRevision = event.revision;
   authorizationDenied = false;
   directoryLoaded = true;
+  lastFreshAt = Date.now();
   if (event.type === "snapshot") {
     replaceSessionSnapshot(event.sessions);
   } else if (event.type === "session_upsert") {
-    trackSessionAttention(event.session);
     sessions.set(event.session.instanceId, event.session);
   } else {
     const current = sessions.get(event.instanceId);
-    if (current?.generation === event.generation) {
-      sessions.delete(event.instanceId);
-      attentionReceipts.delete(event.instanceId);
-    }
+    if (current?.generation === event.generation) sessions.delete(event.instanceId);
   }
   render();
   reconcileActiveCollabShell();
@@ -982,25 +1058,24 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
   const controller = new AbortController();
   snapshotController = controller;
   let timedOut = false;
+  let responseReceived = false;
   const timeout = window.setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, SNAPSHOT_TIMEOUT_MS);
-  refreshRequests += 1;
-  updateRefreshState();
-  setStatus("loading", "Refreshing sessions…");
+  if (!directoryLoaded) setStatus("loading", "Loading sessions…");
   try {
     const response = await fetch("/api/v1/sessions", {
       cache: "no-store",
       credentials: "same-origin",
       signal: controller.signal,
     });
+    responseReceived = true;
     if (epoch !== directoryEpoch) return false;
     if (response.status === 403) {
       authorizationDenied = true;
       directoryLoaded = false;
       sessions.clear();
-      attentionReceipts.clear();
       render();
       setStatus("unauthorized", "This tailnet identity is not authorized.");
       return false;
@@ -1011,6 +1086,7 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     directoryRevision = payload.revision;
     authorizationDenied = false;
     directoryLoaded = true;
+    lastFreshAt = Date.now();
     replaceSessionSnapshot(payload.sessions);
     render();
     setStatus("ready", "");
@@ -1018,17 +1094,13 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
   } catch {
     if (epoch !== directoryEpoch || (controller.signal.aborted && !timedOut)) return false;
     authorizationDenied = false;
-    directoryLoaded = false;
-    sessions.clear();
-    attentionReceipts.clear();
-    render();
-    setStatus("offline", "Gateway unavailable. Reconnecting…");
+    showTransportFailure(
+      navigator.onLine === false ? "offline" : timedOut || responseReceived ? "desktop" : "tailnet",
+    );
     return false;
   } finally {
     window.clearTimeout(timeout);
     if (snapshotController === controller) snapshotController = undefined;
-    refreshRequests = Math.max(0, refreshRequests - 1);
-    updateRefreshState();
   }
 }
 
@@ -1048,7 +1120,7 @@ function connectEvents(epoch: number): void {
     source.addEventListener(type, event => {
       if (events !== source || epoch !== directoryEpoch) return;
       if (eventStreamStale) {
-        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
+        failEventStream(source, epoch);
         return;
       }
       armEventLiveness(source, epoch);
@@ -1057,20 +1129,22 @@ function connectEvents(epoch: number): void {
           setStatus("ready", "");
         }
       } catch {
-        failEventStream(source, epoch, "Live updates paused. Reconnecting…");
+        failEventStream(source, epoch);
       }
     });
   }
   source.addEventListener("keepalive", () => {
     if (events !== source || epoch !== directoryEpoch) return;
     if (eventStreamStale) {
-      failEventStream(source, epoch, "Live updates paused. Reconnecting…");
+      failEventStream(source, epoch);
       return;
     }
+    lastFreshAt = Date.now();
     armEventLiveness(source, epoch);
+    if (!attentionRouteStatusLocked) setStatus("ready", "");
   });
   source.onerror = () => {
-    failEventStream(source, epoch, "Live updates paused. Reconnecting…");
+    failEventStream(source, epoch);
   };
 }
 
@@ -1095,11 +1169,24 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
   if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
   return false;
 }
-refreshButton.addEventListener("click", () => {
-  attentionRouteStatusLocked = false;
-  void refreshAndConnect();
-});
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
+notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
+notificationDisable.addEventListener("click", () => void disableBackgroundNotifications());
+for (const input of notificationDetailInputs) {
+  input.addEventListener("change", () => {
+    if (!input.checked || notificationRegistration === undefined) return;
+    const detailLevel = input.value as PushDetailLevel;
+    void (async () => {
+      const subscription = await notificationRegistration?.pushManager.getSubscription();
+      if (subscription === null || subscription === undefined) return;
+      try {
+        selectNotificationDetail(await savePushSubscription(subscription, detailLevel));
+      } catch {
+        selectNotificationDetail(currentNotificationDetail);
+      }
+    })();
+  });
+}
 window.addEventListener("pageshow", event => {
   if (event.persisted) void refreshAndConnect();
 });
@@ -1116,11 +1203,7 @@ window.addEventListener("offline", () => {
   eventStreamStale = false;
   events = undefined;
   authorizationDenied = false;
-  directoryLoaded = false;
-  sessions.clear();
-  attentionReceipts.clear();
-  render();
-  setStatus("offline", "Offline. Sessions are not available without the gateway.");
+  showTransportFailure("offline");
 });
 
 const applicationWorkerRegistration = initializeApplicationWorker();
@@ -1130,7 +1213,7 @@ if (await refreshAndConnect()) {
     const session = sessions.get(pendingAttentionLaunch.instanceId);
     if (
       session !== undefined &&
-      session.generation === pendingAttentionLaunch.generation &&
+      session.ask?.requestId === pendingAttentionLaunch.requestId &&
       session.inputRequired &&
       session.canControl
     ) {

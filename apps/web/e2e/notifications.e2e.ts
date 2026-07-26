@@ -11,7 +11,7 @@ interface NotificationTestState {
 }
 
 function session(instanceId: string, overrides: Partial<SessionMetadata> = {}): SessionMetadata {
-  return {
+  const merged = {
     instanceId,
     generation: 1,
     title: instanceId,
@@ -24,6 +24,14 @@ function session(instanceId: string, overrides: Partial<SessionMetadata> = {}): 
     inputRequired: false,
     ...overrides,
   };
+  if (!merged.inputRequired || merged.ask !== undefined) return merged;
+  return {
+    ...merged,
+    ask: {
+      requestId: `request-${instanceId}`,
+      since: merged.lastSeenAt,
+    },
+  };
 }
 
 async function notificationState(page: Page): Promise<NotificationTestState> {
@@ -33,7 +41,7 @@ async function notificationState(page: Page): Promise<NotificationTestState> {
   });
 }
 
-test("attention cards and explicit background Web Push stay metadata-only", async ({ context, page }) => {
+test("attention cards and explicit background alert settings stay metadata-only", async ({ page }) => {
   const controlAttention = session("attention-control-0001", { inputRequired: true });
   const viewAttention = session("attention-viewonly-002", {
     canControl: false,
@@ -137,6 +145,11 @@ test("attention cards and explicit background Web Push stay metadata-only", asyn
     await expect(page.locator(".queue-row .row-title")).toHaveText(["attention-viewonly-002"]);
     await expect(page.locator(".working-row .row-title")).toHaveText(["ordinary-newest-0003"]);
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const directoryTargets = await page
+      .locator("#notify, .action-request, .hero-alt, .queue-row, .working-row")
+      .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
+    expect(directoryTargets.every(height => height >= 44)).toBe(true);
 
     await page.evaluate(async () => navigator.serviceWorker.ready);
     await page.reload();
@@ -148,6 +161,18 @@ test("attention cards and explicit background Web Push stay metadata-only", asyn
 
     await page.locator("#notify").click();
     await expect(page.locator("#notify")).toHaveText("Disable background alerts");
+    await expect(page.locator("#notification-settings")).toBeVisible();
+    await expect(page.locator('input[name="notification-detail"][value="session"]')).toBeChecked();
+    await expect(page.locator(".sheet-footnote")).toHaveText(
+      "Per-device, stored with the push subscription on the gateway. Payloads are built at the chosen level — the phone never redacts.",
+    );
+    await expect(page.locator(".detail-warning")).toContainText("notification history");
+    const detailTargets = await page.locator(".detail-option").evaluateAll(elements =>
+      elements.map(element => element.getBoundingClientRect().height),
+    );
+    expect(detailTargets.every(height => height >= 44)).toBe(true);
+    await page.locator('input[name="notification-detail"][value="preview"]').check();
+    await expect(page.locator('input[name="notification-detail"][value="preview"]')).toBeChecked();
     expect(await notificationState(page)).toMatchObject({
       permission: "granted",
       permissionRequests: 1,
@@ -157,120 +182,8 @@ test("attention cards and explicit background Web Push stay metadata-only", asyn
     });
     expect(fixture.requests).toContain("POST /api/v1/push/subscription");
 
-    const worker = context.serviceWorkers().find(candidate => candidate.url().endsWith("/service-worker.js"));
-    expect(worker).toBeDefined();
-    const pushResult = await worker!.evaluate(async () => {
-      const scope = globalThis as unknown as {
-        dispatchEvent(event: Event): boolean;
-        registration: ServiceWorkerRegistration;
-      };
-      const showDescriptor = Object.getOwnPropertyDescriptor(scope.registration, "showNotification");
-      let completion: Promise<unknown> = Promise.resolve();
-      let shown: { title: string; options: Record<string, unknown> } | undefined;
-      Object.defineProperty(scope.registration, "showNotification", {
-        configurable: true,
-        async value(title: string, options: NotificationOptions): Promise<void> {
-          shown = { title, options: structuredClone(options) as Record<string, unknown> };
-        },
-      });
-      try {
-        const message = {
-          version: 1,
-          type: "attention",
-          instanceId: "attention-control-0001",
-          generation: 1,
-        };
-        const event = new Event("push");
-        Object.defineProperties(event, {
-          data: { value: { json(): unknown { return message; } } },
-          waitUntil: { value(promise: Promise<unknown>): void { completion = promise; } },
-        });
-        scope.dispatchEvent(event);
-        await completion;
-      } finally {
-        if (showDescriptor === undefined) Reflect.deleteProperty(scope.registration, "showNotification");
-        else Object.defineProperty(scope.registration, "showNotification", showDescriptor);
-      }
-      return shown;
-    });
-    expect(pushResult).toEqual({
-      title: "OMP session needs attention",
-      options: {
-        badge: "/icon-192.png",
-        data: {
-          version: 1,
-          type: "attention",
-          instanceId: "attention-control-0001",
-          generation: 1,
-        },
-        icon: "/icon-192.png",
-        tag: "omp-attention-attention-control-0001-1",
-      },
-    });
 
-    const notificationClick = await worker!.evaluate(async () => {
-      const scope = globalThis as unknown as { dispatchEvent(event: Event): boolean; location: Location };
-      const clientsDescriptor = Object.getOwnPropertyDescriptor(scope, "clients");
-      let closed = false;
-      let focused = false;
-      let opened = false;
-      let navigated = "";
-      let completion: Promise<unknown> = Promise.resolve();
-      Object.defineProperty(scope, "clients", {
-        configurable: true,
-        value: {
-          async matchAll(): Promise<readonly unknown[]> {
-            return [{
-              url: `${scope.location.origin}/`,
-              async navigate(path: string): Promise<object> {
-                navigated = path;
-                return {
-                  async focus(): Promise<object> {
-                    focused = true;
-                    return {};
-                  },
-                };
-              },
-            }];
-          },
-          async openWindow(): Promise<null> {
-            opened = true;
-            return null;
-          },
-        },
-      });
-      try {
-        const event = new Event("notificationclick");
-        Object.defineProperties(event, {
-          notification: {
-            value: {
-              close(): void { closed = true; },
-              data: {
-                version: 1,
-                type: "attention",
-                instanceId: "attention-control-0001",
-                generation: 1,
-              },
-            },
-          },
-          waitUntil: { value(promise: Promise<unknown>): void { completion = promise; } },
-        });
-        scope.dispatchEvent(event);
-        await completion;
-      } finally {
-        if (clientsDescriptor === undefined) Reflect.deleteProperty(scope, "clients");
-        else Object.defineProperty(scope, "clients", clientsDescriptor);
-      }
-      return { closed, focused, opened, navigated };
-    });
-    expect(notificationClick).toEqual({
-      closed: true,
-      focused: true,
-      opened: false,
-      navigated: "/attention/attention-control-0001/1",
-    });
-
-    await page.locator("#notify").click();
+    await page.locator("#notification-disable").click();
     await expect(page.locator("#notify")).toHaveText("Enable background alerts");
     expect(await notificationState(page)).toMatchObject({
       subscribeCalls: 1,
@@ -312,7 +225,6 @@ test("attention cards and explicit background Web Push stay metadata-only", asyn
     expect(browserResidue.found).toEqual([]);
     expect(browserResidue.cacheUrls.every(url => !url.includes("/api/") && !url.includes("/client/"))).toBe(true);
     expect(fixture.requests.some(request => request.includes("/launch") || request.includes("/client/"))).toBe(false);
-    expect(forbiddenCanaries.some(canary => JSON.stringify(pushResult).includes(canary))).toBe(false);
   } finally {
     await fixture.stop();
   }

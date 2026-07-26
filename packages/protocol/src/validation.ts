@@ -4,6 +4,8 @@ import {
   MAX_FRAME_BYTES,
   MAX_INSTANCE_ID_BYTES,
   MAX_LABEL_CODEPOINTS,
+  MAX_PUSH_PENDING_COUNT,
+  MAX_REQUEST_ID_BYTES,
   MAX_PUSH_ENDPOINT_BYTES,
   MAX_SESSIONS,
   PROTOCOL_VERSION,
@@ -21,6 +23,8 @@ import {
   type PublishedSessionInput,
   type PushConfigResponse,
   type PushSubscriptionRequest,
+  type PushSubscriptionResponse,
+  type PushDetailLevel,
   type PushUnsubscribeRequest,
   type RemoveFrame,
   type SessionEvent,
@@ -34,6 +38,12 @@ const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
 const IPC_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const DISALLOWED_LABEL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu;
 const PUSH_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
+const PUSH_DETAIL_LEVELS: Readonly<Record<PushDetailLevel, true>> = {
+  private: true,
+  session: true,
+  preview: true,
+};
 
 const REMOVE_REASONS: Record<RemoveFrame["reason"], true> = {
   stopped: true,
@@ -75,6 +85,17 @@ function requireInstanceId(value: unknown): string {
     typeof value !== "string" ||
     value.length > MAX_INSTANCE_ID_BYTES ||
     !INSTANCE_ID_PATTERN.test(value)
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return value;
+}
+
+function requireRequestId(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    new TextEncoder().encode(value).byteLength > MAX_REQUEST_ID_BYTES ||
+    !REQUEST_ID_PATTERN.test(value)
   ) {
     throw new ProtocolValidationError();
   }
@@ -390,11 +411,38 @@ function parseBrowserPushSubscription(value: unknown): BrowserPushSubscription {
 
 export function parsePushSubscriptionRequest(value: unknown): PushSubscriptionRequest {
   const record = requireRecord(value);
-  requireExactKeys(record, ["version", "subscription"]);
+  requireExactKeys(record, ["version", "subscription"], ["detailLevel"]);
   if (record.version !== PUSH_API_VERSION) throw new ProtocolValidationError();
+  let detailLevel: PushDetailLevel | undefined;
+  if (record.detailLevel !== undefined) {
+    if (
+      typeof record.detailLevel !== "string" ||
+      !Object.hasOwn(PUSH_DETAIL_LEVELS, record.detailLevel)
+    ) {
+      throw new ProtocolValidationError();
+    }
+    detailLevel = record.detailLevel as PushDetailLevel;
+  }
   return {
     version: PUSH_API_VERSION,
+    ...(detailLevel === undefined ? {} : { detailLevel }),
     subscription: parseBrowserPushSubscription(record.subscription),
+  };
+}
+
+export function parsePushSubscriptionResponse(value: unknown): PushSubscriptionResponse {
+  const record = requireRecord(value);
+  requireExactKeys(record, ["version", "detailLevel"]);
+  if (
+    record.version !== PUSH_API_VERSION ||
+    typeof record.detailLevel !== "string" ||
+    !Object.hasOwn(PUSH_DETAIL_LEVELS, record.detailLevel)
+  ) {
+    throw new ProtocolValidationError();
+  }
+  return {
+    version: PUSH_API_VERSION,
+    detailLevel: record.detailLevel as PushDetailLevel,
   };
 }
 
@@ -417,19 +465,37 @@ export function parsePushConfigResponse(value: unknown): PushConfigResponse {
 
 export function parseAttentionPushMessage(value: unknown): AttentionPushMessage {
   const record = requireRecord(value);
-  requireExactKeys(record, ["version", "type", "instanceId", "generation"]);
-  if (
-    record.version !== PUSH_API_VERSION ||
-    (record.type !== "attention" && record.type !== "resolved")
-  ) {
-    throw new ProtocolValidationError();
+  if (record.version !== PUSH_API_VERSION) throw new ProtocolValidationError();
+  if (record.type === "attention") {
+    requireExactKeys(
+      record,
+      ["version", "type", "instanceId", "generation", "requestId", "pendingAskCount", "title"],
+      ["body"],
+    );
+    if (record.title !== "OMP session needs attention") throw new ProtocolValidationError();
+    const body = optionalLabel(record.body);
+    return {
+      version: PUSH_API_VERSION,
+      type: "attention",
+      instanceId: requireInstanceId(record.instanceId),
+      generation: requireInteger(record.generation, 1),
+      requestId: requireRequestId(record.requestId),
+      pendingAskCount: requireInteger(record.pendingAskCount, 0, MAX_PUSH_PENDING_COUNT),
+      title: record.title,
+      ...(body === undefined ? {} : { body }),
+    };
   }
-  return {
-    version: PUSH_API_VERSION,
-    type: record.type,
-    instanceId: requireInstanceId(record.instanceId),
-    generation: requireInteger(record.generation, 1),
-  };
+  if (record.type === "clear") {
+    requireExactKeys(record, ["version", "type", "instanceId", "requestId", "pendingAskCount"]);
+    return {
+      version: PUSH_API_VERSION,
+      type: "clear",
+      instanceId: requireInstanceId(record.instanceId),
+      requestId: requireRequestId(record.requestId),
+      pendingAskCount: requireInteger(record.pendingAskCount, 0, MAX_PUSH_PENDING_COUNT),
+    };
+  }
+  throw new ProtocolValidationError();
 }
 
 
@@ -438,7 +504,7 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
   requireExactKeys(
     record,
     ["instanceId", "generation", "startedAt", "lastSeenAt", "canView", "canControl"],
-    ["title", "cwdLabel", "model", "inputRequired"],
+    ["title", "cwdLabel", "model", "inputRequired", "ask"],
   );
   if (
     typeof record.canView !== "boolean" ||
@@ -450,6 +516,24 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
   const title = optionalLabel(record.title);
   const cwdLabel = optionalLabel(record.cwdLabel);
   const model = optionalLabel(record.model);
+  let ask: SessionMetadata["ask"];
+  if (record.ask !== undefined) {
+    const askRecord = requireRecord(record.ask);
+    requireExactKeys(askRecord, ["requestId", "since"], ["preview", "optionCount"]);
+    const preview = optionalLabel(askRecord.preview);
+    const optionCount =
+      askRecord.optionCount === undefined ? undefined : requireInteger(askRecord.optionCount, 1, 128);
+    ask = {
+      requestId: requireRequestId(askRecord.requestId),
+      since: requireDateTime(askRecord.since),
+      ...(preview === undefined ? {} : { preview }),
+      ...(optionCount === undefined ? {} : { optionCount }),
+    };
+  }
+  const inputRequired = record.inputRequired ?? false;
+  if ((inputRequired && ask === undefined) || (!inputRequired && ask !== undefined)) {
+    throw new ProtocolValidationError();
+  }
   return {
     instanceId: requireInstanceId(record.instanceId),
     generation: requireInteger(record.generation, 1),
@@ -460,7 +544,8 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
     lastSeenAt: requireDateTime(record.lastSeenAt),
     canView: record.canView,
     canControl: record.canControl,
-    inputRequired: record.inputRequired ?? false,
+    inputRequired,
+    ...(ask === undefined ? {} : { ask }),
   };
 }
 

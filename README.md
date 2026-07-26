@@ -30,10 +30,16 @@ After installation and tailnet configuration:
 1. `omp-gatewayd` starts automatically when the desktop user logs in; `omp-gateway serve` may provide an equivalent foreground/development entry point.
 2. Tailscale Serve exposes only the loopback dashboard/API to approved tailnet identities.
 3. Each interactive `omp` process automatically starts collaboration when configured and registers its current view/control capability through authenticated local IPC.
-4. The Android PWA lists every live process within a few seconds and orders sessions waiting for human input first.
-5. Tapping **View** or **Control** launches the pinned OMP browser client. A later Control launch can answer an already-pending request; View remains read-only.
-6. An explicit dashboard action enables background Web Push alerts. A tap revalidates the exact live attention generation and opens Control through the ordinary no-store, in-memory launch path; no collaboration capability enters the push payload or URL.
-7. Session switches, exits, crashes, and daemon restarts reconcile without manual cleanup.
+4. The Android PWA lists every live process within a few seconds. If anything is waiting it shows a
+   FIFO **Needs you** queue; otherwise it shows **All clear** and the working sessions.
+5. **Open request** launches Control for the oldest ask; **View transcript instead** stays read-only.
+   The gateway shell reports relay state and, after an authoritative answer, offers the next ask or
+   returns to the exact directory order and scroll position.
+6. An explicit dashboard action enables background Web Push alerts. Each device chooses Private,
+   Session, or Preview detail. A tap revalidates the exact live request and opens Control through
+   the ordinary no-store, in-memory launch path; no collaboration capability enters push or a URL.
+7. Session switches, exits, crashes, daemon restarts, and phone/tailnet outages reconcile without
+   manual cleanup or a prominent Refresh control.
 
 ## Architecture
 
