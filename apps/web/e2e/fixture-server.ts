@@ -17,6 +17,10 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 };
 const distRoot = resolve(fileURLToPath(new URL("../dist/", import.meta.url)));
 
+export interface DashboardFixtureOptions {
+  readonly roomKey?: Uint8Array;
+}
+
 export interface DashboardFixture {
   readonly origin: string;
   readonly requests: readonly string[];
@@ -30,6 +34,7 @@ export interface DashboardFixture {
 
 export async function startDashboardFixture(
   initialSessions: readonly SessionMetadata[],
+  options: DashboardFixtureOptions = {},
 ): Promise<DashboardFixture> {
   const sessions = new Map(initialSessions.map(session => [session.instanceId, session]));
   const streams = new Set<ServerResponse>();
@@ -37,7 +42,8 @@ export async function startDashboardFixture(
   let serviceWorkerVersion = 0;
   let revision = 1;
   const roomId = randomBytes(16).toString("base64url");
-  const roomKey = randomBytes(32);
+  const roomKey = options.roomKey === undefined ? randomBytes(32) : Buffer.from(options.roomKey);
+  if (roomKey.byteLength !== 32) throw new Error("dashboard fixture room key must be 32 bytes");
   const viewCapability = `${roomId}.${roomKey.toString("base64url")}`;
   const controlCapability = `${roomId}.${Buffer.concat([roomKey, randomBytes(16)]).toString("base64url")}`;
 
