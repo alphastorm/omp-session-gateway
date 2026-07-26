@@ -6,10 +6,11 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+## [0.1.0-prealpha.9] - 2026-07-26
+
 ### Fixed
 
 - Show an accent `Recommended` badge on the explicitly recommended option while an Ask request is awaiting a remote Control response, including late joins, without treating OMP's default selection index as a recommendation.
-
 
 ## [0.1.0-prealpha.8] - 2026-07-25
 
