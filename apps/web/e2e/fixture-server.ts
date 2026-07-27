@@ -197,7 +197,7 @@ export async function startDashboardFixture(
       }
       const requestBootstrap = /^\/collab\/[A-Za-z0-9._:-]{16,128}$/u.test(pathname) &&
         url.searchParams.has("request");
-      const relative = pathname === "/" || pathname === "/update/" || requestBootstrap
+      const relative = pathname === "/" || pathname === "/client/" || pathname === "/update/" || requestBootstrap
         ? "index.html"
         : pathname.endsWith("/")
           ? `${pathname.slice(1)}index.html`
