@@ -1,11 +1,12 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App, type CollabEmbedOptions } from "./app";
+import { App } from "./app";
+import type { CollabEmbedOptions } from "./embed-contract";
 import "./styles/tokens.css";
 import "./styles/base.css";
 
 
-export type { CollabEmbedOptions, CollabEmbedState } from "./app";
+export type { CollabEmbedOptions, CollabEmbedState } from "./embed-contract";
 let activeRoot: Root | undefined;
 let activeDispose: (() => void) | undefined;
 

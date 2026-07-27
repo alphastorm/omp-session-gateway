@@ -7,8 +7,9 @@ import { Composer } from "./components/shell/Composer";
 import { HeaderBar } from "./components/shell/HeaderBar";
 import { Toasts } from "./components/shell/Toasts";
 import { Transcript } from "./components/transcript/Transcript";
-import { GuestClient, type ConnectionPhase } from "./lib/client";
+import { GuestClient } from "./lib/client";
 import { installBrowserConnectionRecovery } from "./lib/browser-recovery";
+import type { CollabEmbedOptions, CollabEmbedState, PathHealth } from "./embed-contract";
 import { useGuestSnapshot } from "./lib/use-guest";
 import type { ToolRenderHost } from "./tool-render";
 import "./components/shell/shell.css";
@@ -27,19 +28,15 @@ function storedName(): string {
 		return "guest";
 	}
 }
+const UNKNOWN_PATH_HEALTH: PathHealth = {
+	state: "checking",
+	rttMs: null,
+	lastSuccessAt: null,
+	failureSince: null,
+	retryAt: null,
+};
 
 
-export interface CollabEmbedState {
-	phase: ConnectionPhase;
-	endedReason: string | null;
-	requestPending: boolean;
-}
-
-export interface CollabEmbedOptions {
-	focusPendingRequest?: boolean;
-	shellOwnsLifecycle?: boolean;
-	onStateChange?(state: CollabEmbedState): void;
-}
 
 export interface AppProps {
 	capability: string;
@@ -148,8 +145,23 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 	}, [capability, connect, initialConnection]);
 
 	useEffect(() => {
-		if (!client) return;
-		return installBrowserConnectionRecovery(() => client.refreshConnection());
+		if (!client || client.getSnapshot().phase === "ended") return;
+		const disposeRecovery = installBrowserConnectionRecovery(
+			() => client.refreshConnection(),
+			undefined,
+			health => client.setGatewayHealth(health),
+			() => client.remeasureRelay(),
+			paused => client.setRelayProbesPaused(paused),
+		);
+		let unsubscribe = (): void => {};
+		const stop = (): void => {
+			unsubscribe();
+			disposeRecovery();
+		};
+		unsubscribe = client.subscribe(() => {
+			if (client.getSnapshot().phase === "ended") stop();
+		});
+		return stop;
 	}, [client]);
 
 	useEffect(() => {
@@ -162,6 +174,9 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 			phase: connectError === null ? "connecting" : "ended",
 			endedReason: connectError,
 			requestPending: false,
+			responsePending: false,
+			gatewayHealth: UNKNOWN_PATH_HEALTH,
+			relayHealth: UNKNOWN_PATH_HEALTH,
 		});
 	}, [client, connectError, embedOptions]);
 
@@ -194,13 +209,21 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 
 	const focusedRequestRef = useRef<number | null>(null);
 
-	useEffect(() => {
-		embedOptions?.onStateChange?.({
-			phase: snap.phase,
-			endedReason: snap.endedReason,
-			requestPending: snap.uiRequest !== null,
-		});
-	}, [embedOptions, snap.endedReason, snap.phase, snap.uiRequest]);
+	useLayoutEffect(() => {
+		const publish = (): void => {
+			const current = client.getSnapshot();
+			embedOptions?.onStateChange?.({
+				phase: current.phase,
+				endedReason: current.endedReason,
+				requestPending: current.uiRequest !== null,
+				responsePending: current.uiResponsePending,
+				gatewayHealth: current.gatewayHealth,
+				relayHealth: current.relayHealth,
+			});
+		};
+		publish();
+		return client.subscribe(publish);
+	}, [client, embedOptions]);
 
 	useLayoutEffect(() => {
 		const requestId = snap.uiRequest?.reqId;

@@ -220,12 +220,21 @@ The documented extension lifecycle can observe session events, but the handoff c
 
 ## 5. Availability behavior
 
-- Gateway unavailable: OMP continues normally; the publisher retries silently and boundedly.
-- Relay unavailable: cards remain visible, but the client reports relay connectivity failure without exposing the capability.
+- Gateway unavailable: OMP continues normally; the publisher retries silently and boundedly. The
+  visible client measures the same-origin path with adaptive RTT timeouts and identifies a sustained
+  outage as `Gateway unavailable` without exposing session data.
+- Relay unavailable: cards remain visible. Passive host frames and optional encrypted idle probes
+  measure the browser-to-host path; two missed probes replace the socket, each connection handshake
+  is bounded to ten seconds, and sustained failure is identified as `Relay unavailable` without
+  exposing the capability.
 - Tailscale unavailable on the phone: there is no public fallback.
 - Desktop asleep or offline: the static shell may show an offline message but no stale session metadata.
-- Dashboard SSE silence: after 12 seconds the PWA fails closed, terminates the half-open stream, and retries bounded snapshots automatically.
-- Collaboration client radio transition: while visible, same-origin health probes and browser network lifecycle signals replace a potentially stale relay WebSocket after the gateway path recovers.
+- Dashboard SSE silence: after 12 seconds the PWA fails closed, terminates the half-open stream, and retries bounded snapshots with full jitter.
+- Collaboration client radio transition: browser lifecycle/network signals trigger measurement rather
+  than declaring health. Hidden pages cancel relay probes. Foreground gateway recovery requires two
+  successful probes and replaces a potentially stale relay socket after the first success.
+- Terminal collaboration state: client recovery timers/listeners stop immediately; the ended status
+  and return action remain stable and receive no later path-health publications.
 - Gateway restart: it starts empty; live publishers reconnect and repopulate.
 - OMP crash: socket closure or TTL removes the card and capability.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.
