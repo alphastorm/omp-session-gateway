@@ -25,6 +25,8 @@ function autosize(el: HTMLTextAreaElement | null): void {
 
 interface AskEditorProps {
 	prefill: string | undefined;
+	disabled: boolean;
+	sending: boolean;
 	onSubmit(value: string): void;
 	submitLabel?: string;
 }
@@ -34,7 +36,7 @@ interface AskEditorProps {
  * draft seeded from `prefill`, while re-sends of the same request never clobber a half-typed
  * draft. Submits verbatim — whitespace-only responses are intentional.
  */
-function AskEditor({ prefill, onSubmit, submitLabel = "Submit" }: AskEditorProps): ReactNode {
+function AskEditor({ disabled, prefill, sending, onSubmit, submitLabel = "Submit" }: AskEditorProps): ReactNode {
 	const [draft, setDraft] = useState(prefill ?? "");
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -45,7 +47,7 @@ function AskEditor({ prefill, onSubmit, submitLabel = "Submit" }: AskEditorProps
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			onSubmit(draft);
+			if (!disabled) onSubmit(draft);
 		}
 	};
 
@@ -57,6 +59,7 @@ function AskEditor({ prefill, onSubmit, submitLabel = "Submit" }: AskEditorProps
 				value={draft}
 				onChange={e => setDraft(e.target.value)}
 				onKeyDown={onKeyDown}
+				disabled={disabled}
 				placeholder="type your response…"
 				rows={1}
 				spellCheck={false}
@@ -65,10 +68,11 @@ function AskEditor({ prefill, onSubmit, submitLabel = "Submit" }: AskEditorProps
 				<button
 					type="button"
 					className="sh-btn sh-btn-primary"
+					disabled={disabled}
 					onClick={() => onSubmit(draft)}
 					title="submit response"
 				>
-					<SendHorizontal size={12} /> <span className="sh-btn-label">{submitLabel}</span>
+					<SendHorizontal size={12} /> <span className="sh-btn-label">{sending ? "Sending…" : submitLabel}</span>
 				</button>
 			</div>
 		</div>
@@ -78,12 +82,14 @@ type SelectRequest = Extract<NonNullable<GuestSnapshot["uiRequest"]>, { kind: "s
 
 interface SelectAskProps {
 	client: GuestClient;
+	disabled: boolean;
 	embedded: boolean;
 	recommendedIndex: number | undefined;
 	request: SelectRequest;
+	sending: boolean;
 }
 
-function SelectAsk({ client, embedded, recommendedIndex, request }: SelectAskProps): ReactNode {
+function SelectAsk({ client, disabled, embedded, recommendedIndex, request, sending }: SelectAskProps): ReactNode {
 	const initialIndex = request.initialIndex ?? request.checkedIndices?.[0];
 	const [selectedIndex, setSelectedIndex] = useState<number | undefined>(
 		initialIndex !== undefined && initialIndex >= 0 && initialIndex < request.options.length
@@ -99,7 +105,7 @@ function SelectAsk({ client, embedded, recommendedIndex, request }: SelectAskPro
 			<div className="sh-ask-options">
 				{request.options.map((option, index) => {
 					const label = typeof option === "string" ? option : option.label;
-					const checked = embedded
+					const checked = embedded || sending
 						? selectedIndex === index
 						: request.checkedIndices?.includes(index) ?? false;
 					return (
@@ -108,9 +114,10 @@ function SelectAsk({ client, embedded, recommendedIndex, request }: SelectAskPro
 							type="button"
 							className={`sh-ask-option${checked ? " sh-ask-option-checked" : ""}`}
 							aria-pressed={checked}
+							disabled={disabled}
 							onClick={() => {
-								if (embedded) setSelectedIndex(index);
-								else client.sendUiResponse(request.reqId, label);
+								setSelectedIndex(index);
+								if (!embedded) client.sendUiResponse(request.reqId, label);
 							}}
 						>
 							<span
@@ -148,10 +155,10 @@ function SelectAsk({ client, embedded, recommendedIndex, request }: SelectAskPro
 				<button
 					type="button"
 					className="sh-btn sh-btn-primary sh-ask-send"
-					disabled={selectedLabel === undefined}
+					disabled={disabled || selectedLabel === undefined}
 					onClick={() => client.sendUiResponse(request.reqId, selectedLabel)}
 				>
-					Send
+					{sending ? "Sending…" : "Send"}
 				</button>
 			)}
 		</>
@@ -165,6 +172,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	const live = snapshot.phase === "live";
 	const readOnly = snapshot.readOnly;
 	const uiRequest = snapshot.uiRequest;
+	const sendingResponse = snapshot.uiResponsePending;
 	const canPrompt = live && !readOnly;
 	const busy = snapshot.working || (snapshot.state?.isStreaming ?? false);
 	const queued = snapshot.state?.queuedMessageCount ?? 0;
@@ -192,30 +200,43 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 		}
 	};
 
-	if (uiRequest && canPrompt) {
+	if (uiRequest && !readOnly) {
+		const requestDisabled = !live || sendingResponse;
 		return (
-			<div className={`sh-composer sh-composer-ask${embedded ? " sh-composer-ask-embedded" : ""}`}>
-				{embedded && <div className="sh-ask-kicker">input required</div>}
+			<div className={`sh-composer sh-composer-ask${embedded ? " sh-composer-ask-embedded" : ""}`} data-sending={sendingResponse ? "true" : undefined}>
+				{(embedded || sendingResponse) && (
+					<div
+						className="sh-ask-kicker"
+						role={embedded ? undefined : "status"}
+						aria-live={embedded ? undefined : "polite"}
+					>
+						{sendingResponse ? "Sending…" : "input required"}
+					</div>
+				)}
 				<div className="sh-ask-title">{uiRequest.title}</div>
 				{uiRequest.kind === "select" ? (
 					<SelectAsk
 						key={uiRequest.reqId}
+						disabled={requestDisabled}
 						client={client}
 						embedded={embedded}
 						recommendedIndex={recommendedIndex}
 						request={uiRequest}
+						sending={sendingResponse}
 					/>
 				) : (
 					<AskEditor
 						key={uiRequest.reqId}
+						disabled={requestDisabled}
 						prefill={uiRequest.prefill}
 						onSubmit={value => client.sendUiResponse(uiRequest.reqId, value)}
 						submitLabel={embedded ? "Send" : "Submit"}
+						sending={sendingResponse}
 					/>
 				)}
 				{!embedded && (
 					<div className="sh-composer-actions sh-ask-actions">
-						<button type="button" className="sh-btn" onClick={() => client.sendUiResponse(uiRequest.reqId)}>
+						<button type="button" className="sh-btn" disabled={requestDisabled} onClick={() => client.sendUiResponse(uiRequest.reqId)}>
 							Cancel
 						</button>
 						{busy && (

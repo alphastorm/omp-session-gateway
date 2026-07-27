@@ -4,6 +4,41 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [0.1.0-prealpha.14] - 2026-07-26
+
+### Added
+
+- Measure the same-origin gateway path with adaptive probes and the encrypted browser-to-host relay
+  path with optional idle ping/pong frames; ordinary host traffic provides passive relay liveness
+  between explicit bidirectional probes.
+- Keep submitted Ask actions in a disabled `Sending…` state until the host acknowledges
+  `ui-request-end`, including idempotent resend and acknowledgement after relay reconnection.
+
+### Changed
+
+- Keep healthy collaboration chrome quiet as a green dot. Brief interruptions show only
+  `Reconnecting…`; failures lasting three seconds identify the gateway or relay and show the next
+  jittered retry, while recovery confirms `Connected` briefly.
+- Replace fixed gateway polling and deterministic reconnects with RTT-adaptive timeouts,
+  two-result hysteresis, passive liveness, hidden-page probe cancellation, bounded WebSocket
+  handshakes, and capped full-jitter retry scheduling. Directory metadata cannot replace `Sending…`
+  with `Answered` before host acknowledgement. The existing no-secret service worker remains
+  deliberately unchanged; Workbox and Background Sync add no safe value to the capability-bearing
+  live path.
+- Stop collaboration path probing as soon as the client becomes terminal so the final action and
+  keyboard focus remain stable. Standalone select responses now retain the chosen option and expose
+  the same visible, polite `Sending…` acknowledgement state as the embedded PWA shell.
+
+### Testing
+
+- Exercise gateway hysteresis/timeouts, event-cancelled probes without false degradation, recovery
+  without an `online` event, hidden-page relay cancellation, blackholed WebSocket handshakes,
+  relay idle-probe failure, stale-pong rejection, full-jitter retry caps, delayed snapshot sync,
+  response resend/acknowledgement, acknowledgement-gated answer feedback in embedded and standalone
+  modes, terminal focus and probe shutdown, quiet accessible healthy chrome, keyboard triage
+  dismissal, outage attribution changes, recovery confirmation, and unobscured `Sending…` feedback
+  at both Android viewports.
+
 ## [0.1.0-prealpha.13] - 2026-07-26
 
 ### Fixed

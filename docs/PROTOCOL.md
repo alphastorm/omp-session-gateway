@@ -399,6 +399,11 @@ Requirements:
 - never assign the capability to `location`, an element attribute, text content, a form field, or persistent state;
 - clear references on disconnect/leave and call `onDispose`;
 - reload returns to the directory rather than reconnecting.
+- treat browser network APIs only as remeasurement triggers; derive gateway and relay state from
+  same-origin HTTP results, passive host traffic, and optional encrypted health ping/pong frames;
+- keep a submitted host UI response visible and disabled until `ui-request-end`; resend it after a
+  fresh welcome, and accept a targeted end frame as the idempotent acknowledgement when the host
+  already settled that request;
 
 Separate-page alternative:
 
@@ -433,7 +438,7 @@ This mode is a migration path, not the desired final architecture.
 - Each registry mutation increments a daemon-wide revision.
 - A client starts a new directory epoch by aborting any prior snapshot, closing its prior SSE source, fetching one authenticated snapshot, and only then opening SSE.
 - Within one connected epoch, a response or event with a lower revision is ignored. Duplicate same-revision snapshots remain idempotent.
-- The gateway emits a metadata-free `keepalive` SSE event every 5 seconds. After 12 seconds without a directory event or keepalive, a loaded dashboard marks relay updates paused but retains the last authenticated metadata with a freshness timestamp. It closes the stream and retries a fresh authenticated snapshot with a 4-second request timeout and bounded 1/2/4-second backoff before opening a new SSE epoch.
+- The gateway emits a metadata-free `keepalive` SSE event every 5 seconds. After 12 seconds without a directory event or keepalive, a loaded dashboard marks gateway updates paused but retains the last authenticated metadata with a freshness timestamp. It closes the stream and retries a fresh authenticated snapshot with a 4-second request timeout and bounded full-jitter backoff with 1/2/4-second caps before opening a new SSE epoch.
 - A changed PWA shell caches completely before its worker calls `skipWaiting`. Activation deletes prior shell caches, claims clients, and navigates only an exact same-origin idle `/` directory to no-store `/update/`; the new app synchronously replaces that route with `/`. `/client/`, `/collab/` request bootstraps, launch-pending, query-bearing, and cross-origin clients are never auto-navigated.
 - Launch requests carry the generation observed in the metadata response.
 - A mismatch never returns a capability.

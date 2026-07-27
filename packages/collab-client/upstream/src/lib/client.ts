@@ -20,11 +20,13 @@ import type {
 	SubagentLifecyclePayload,
 	SubagentProgressPayload,
 } from "@oh-my-pi/pi-wire";
+import type { ConnectionPhase, PathHealth } from "../embed-contract";
 import { importRoomKey } from "./codec";
 import { COLLAB_PROTO, encodeBase64Url, parseCollabLink } from "./link";
-import { CollabSocket } from "./socket";
+import { CollabSocket, type GatewayHostFrame } from "./socket";
 
-export type ConnectionPhase = "connecting" | "waiting" | "live" | "reconnecting" | "ended";
+export type { ConnectionPhase, PathHealth, PathHealthState } from "../embed-contract";
+
 
 export interface ActiveTool {
 	toolCallId: string;
@@ -63,6 +65,12 @@ export interface GuestSnapshot {
 	readOnly: boolean;
 	/** Pending host-side UI request (`ask` select/editor) this guest can answer. */
 	uiRequest: CollabUiRequest | null;
+	/** True after a response is sent and until the host acknowledges it. */
+	uiResponsePending: boolean;
+	/** Browser-to-gateway HTTP path health. */
+	gatewayHealth: PathHealth;
+	/** Browser-to-host encrypted relay path health. */
+	relayHealth: PathHealth;
 	/** Capped at 50, newest last. */
 	notices: readonly Notice[];
 }
@@ -73,6 +81,18 @@ const TRANSCRIPT_TIMEOUT_MS = 10_000;
 const WELCOME_TIMEOUT_MS = 30_000;
 /** Mirrors the TUI guest's SNAPSHOT_PROGRESS_TIMEOUT_MS: every snapshot chunk must make progress. */
 const SNAPSHOT_PROGRESS_TIMEOUT_MS = 30_000;
+const RELAY_IDLE_PROBE_MS = 10_000;
+const RELAY_INITIAL_TIMEOUT_MS = 3_000;
+const RELAY_MIN_TIMEOUT_MS = 1_500;
+const RELAY_MAX_TIMEOUT_MS = 8_000;
+
+const INITIAL_PATH_HEALTH: PathHealth = {
+	state: "checking",
+	rttMs: null,
+	lastSuccessAt: null,
+	failureSince: null,
+	retryAt: null,
+};
 
 /**
  * One fetch-transcript round trip.
@@ -88,6 +108,11 @@ interface PendingTranscript {
 	timer: Timer;
 }
 
+interface PendingUiResponse {
+	request: CollabUiRequest;
+	value: CollabUiResponseValue | undefined;
+}
+
 export class GuestClient {
 	readonly #socket: CollabSocket;
 	readonly #name: string;
@@ -101,6 +126,19 @@ export class GuestClient {
 	#welcomed = false;
 	#welcomeTimer: Timer | null = null;
 	#snapshotProgressTimer: Timer | null = null;
+	#gatewayHealth: PathHealth = INITIAL_PATH_HEALTH;
+	#relayHealth: PathHealth = INITIAL_PATH_HEALTH;
+	#pendingUiResponse: PendingUiResponse | null = null;
+	#relayProbeSupported = false;
+	#relayProbeSeq = 0;
+	#relayConsecutiveMisses = 0;
+	#relayProbeTimer: Timer | null = null;
+	#relayProbeTimeoutTimer: Timer | null = null;
+	#pendingRelayProbe: { seq: number; sentAt: number } | null = null;
+	#lastRelayActivityAt = Date.now();
+	#relaySrtt: number | null = null;
+	#relayRttVariance: number | null = null;
+	#relayProbesPaused = false;
 
 	#phase: ConnectionPhase = "connecting";
 	#endedReason: string | null = null;
@@ -130,6 +168,15 @@ export class GuestClient {
 		this.#socket.onOpen = () => this.#handleOpen();
 		this.#socket.onFrame = frame => this.#applyFrameSafe(frame);
 		this.#socket.onClose = (reason, willReconnect) => this.#handleClose(reason, willReconnect);
+		this.#socket.onRetryScheduled = (retryAt, _delay, _attempt) => {
+			this.#relayHealth = {
+				...this.#relayHealth,
+				state: "unreachable",
+				failureSince: this.#relayHealth.failureSince ?? Date.now(),
+				retryAt,
+			};
+			this.#commit();
+		};
 		this.#snapshot = this.#buildSnapshot();
 	}
 
@@ -155,6 +202,48 @@ export class GuestClient {
 		this.#socket.reconnect();
 	}
 
+	/** Measure the established browser-to-host path without replacing a healthy socket. */
+	remeasureRelay(): void {
+		if (
+			this.#relayProbesPaused ||
+			this.#phase !== "live" ||
+			!this.#relayProbeSupported ||
+			!this.#socket.isOpen ||
+			this.#pendingRelayProbe !== null
+		) {
+			return;
+		}
+		clearTimeout(this.#relayProbeTimer ?? undefined);
+		this.#relayProbeTimer = null;
+		this.#sendRelayProbe();
+	}
+
+	/** Stop idle and pending relay probes while the browser page is hidden. */
+	setRelayProbesPaused(paused: boolean): void {
+		if (this.#relayProbesPaused === paused) return;
+		this.#relayProbesPaused = paused;
+		if (paused) {
+			this.#clearRelayProbe();
+			return;
+		}
+		this.#lastRelayActivityAt = Date.now();
+		this.#scheduleRelayProbe();
+	}
+
+	setGatewayHealth(health: PathHealth): void {
+		if (
+			this.#gatewayHealth.state === health.state &&
+			this.#gatewayHealth.rttMs === health.rttMs &&
+			this.#gatewayHealth.lastSuccessAt === health.lastSuccessAt &&
+			this.#gatewayHealth.failureSince === health.failureSince &&
+			this.#gatewayHealth.retryAt === health.retryAt
+		) {
+			return;
+		}
+		this.#gatewayHealth = health;
+		this.#commit();
+	}
+
 	subscribe(listener: () => void): () => void {
 		this.#listeners.add(listener);
 		return () => {
@@ -172,11 +261,10 @@ export class GuestClient {
 	}
 
 	sendUiResponse(reqId: number, value?: CollabUiResponseValue): void {
+		if (this.#readOnly || this.#pendingUiResponse !== null || this.#uiRequest?.reqId !== reqId) return;
+		this.#pendingUiResponse = { request: this.#uiRequest, value };
 		this.#socket.send({ t: "ui-response", reqId, value });
-		if (this.#uiRequest?.reqId === reqId) {
-			this.#showNextUiRequest();
-			this.#commit();
-		}
+		this.#commit();
 	}
 
 	sendAbort(): void {
@@ -205,12 +293,19 @@ export class GuestClient {
 	}
 
 	/** Test seam: apply a synthetic host frame through the real apply path. */
-	applyFrameForTest(frame: HostFrame): void {
+	applyFrameForTest(frame: GatewayHostFrame): void {
 		this.#applyFrameSafe(frame);
 	}
 
 	#handleOpen(): void {
 		this.#welcomed = false;
+		this.#clearRelayProbe();
+		this.#relayProbeSupported = false;
+		this.#relayHealth = {
+			...this.#relayHealth,
+			state: "checking",
+			retryAt: null,
+		};
 		this.#armWelcomeTimer();
 		this.#socket.send({
 			t: "hello",
@@ -226,9 +321,17 @@ export class GuestClient {
 	#handleClose(reason: string, willReconnect: boolean): void {
 		this.#clearSnapshotProgressTimer();
 		this.#clearWelcomeTimer();
+		this.#clearRelayProbe();
+		this.#relayProbeSupported = false;
 		if (this.#phase === "ended") return;
 		if (willReconnect) {
 			this.#phase = "reconnecting";
+			this.#relayHealth = {
+				...this.#relayHealth,
+				state: this.#relayHealth.state === "unreachable" ? "unreachable" : "degraded",
+				failureSince: this.#relayHealth.failureSince ?? Date.now(),
+				retryAt: null,
+			};
 			this.#commit();
 			return;
 		}
@@ -239,6 +342,7 @@ export class GuestClient {
 		if (this.#phase === "ended") return;
 		this.#clearWelcomeTimer();
 		this.#clearSnapshotProgressTimer();
+		this.#clearRelayProbe();
 		this.#phase = "ended";
 		this.#endedReason = reason;
 		for (const [, pending] of this.#pendingTranscripts) {
@@ -246,6 +350,7 @@ export class GuestClient {
 			pending.resolve(null);
 		}
 		this.#pendingTranscripts.clear();
+		this.#pendingUiResponse = null;
 		this.#clearUiRequests();
 		this.#commit();
 		this.#socket.close();
@@ -282,7 +387,12 @@ export class GuestClient {
 	}
 
 	/** Surfaces apply failures instead of letting the socket's recv chain swallow them. */
-	#applyFrameSafe(frame: HostFrame): void {
+	#applyFrameSafe(frame: GatewayHostFrame): void {
+		if (frame.t === "gateway-health-pong") {
+			this.#handleRelayPong(frame.seq);
+			return;
+		}
+		this.#recordRelayActivity(undefined, false);
 		try {
 			this.#applyFrame(frame);
 		} catch (err) {
@@ -312,13 +422,14 @@ export class GuestClient {
 				this.#lifecycle = new Map();
 				this.#working = frame.state.isStreaming;
 				this.#readOnly = frame.readOnly === true;
-				this.#clearUiRequests();
+				this.#restorePendingUiRequest();
 				this.#welcomed = true;
 				this.#socket.markRoomWelcomed();
 				this.#clearWelcomeTimer();
 				if (frame.entryCount === 0) {
 					this.#clearSnapshotProgressTimer();
 					this.#phase = "live";
+					this.#resendPendingUiResponse();
 				} else {
 					this.#armSnapshotProgressTimer();
 				}
@@ -332,6 +443,7 @@ export class GuestClient {
 				if (frame.final) {
 					this.#clearSnapshotProgressTimer();
 					this.#phase = "live";
+					this.#resendPendingUiResponse();
 				} else {
 					this.#armSnapshotProgressTimer();
 				}
@@ -370,10 +482,18 @@ export class GuestClient {
 				}
 				break;
 			case "ui-request":
+				if (
+					this.#pendingUiResponse?.request.reqId === frame.request.reqId ||
+					this.#uiRequest?.reqId === frame.request.reqId ||
+					this.#uiRequestQueue.some(request => request.reqId === frame.request.reqId)
+				) {
+					break;
+				}
 				if (this.#uiRequest) this.#uiRequestQueue = [...this.#uiRequestQueue, frame.request];
 				else this.#uiRequest = frame.request;
 				break;
 			case "ui-request-end":
+				if (this.#pendingUiResponse?.request.reqId === frame.reqId) this.#pendingUiResponse = null;
 				if (this.#uiRequest?.reqId === frame.reqId) this.#showNextUiRequest();
 				else this.#uiRequestQueue = this.#uiRequestQueue.filter(request => request.reqId !== frame.reqId);
 				break;
@@ -409,6 +529,7 @@ export class GuestClient {
 				break;
 		}
 		this.#commit();
+		this.#scheduleRelayProbe();
 	}
 
 	#applyEvent(event: Extract<HostFrame, { t: "event" }>["event"]): void {
@@ -490,6 +611,125 @@ export class GuestClient {
 		}
 	}
 
+	#handleRelayPong(seq: number): void {
+		if (!Number.isSafeInteger(seq) || seq < 0) return;
+		this.#relayProbeSupported = true;
+		const pending = this.#pendingRelayProbe;
+		const matched = pending?.seq === seq;
+		const rtt = matched && pending !== null ? Date.now() - pending.sentAt : undefined;
+		this.#recordRelayActivity(rtt, pending === null || matched);
+		this.#commit();
+		this.#scheduleRelayProbe();
+	}
+
+	#recordRelayActivity(rttMs?: number, satisfiesProbe = true): void {
+		const now = Date.now();
+		this.#lastRelayActivityAt = now;
+		if (this.#pendingRelayProbe !== null && !satisfiesProbe) return;
+		if (this.#relayProbeTimeoutTimer !== null) {
+			clearTimeout(this.#relayProbeTimeoutTimer);
+			this.#relayProbeTimeoutTimer = null;
+		}
+		this.#pendingRelayProbe = null;
+		this.#relayConsecutiveMisses = 0;
+		if (rttMs !== undefined) this.#recordRelayRtt(Math.max(0, rttMs));
+		this.#relayHealth = {
+			state: "healthy",
+			rttMs: this.#relaySrtt === null ? this.#relayHealth.rttMs : Math.round(this.#relaySrtt),
+			lastSuccessAt: now,
+			failureSince: null,
+			retryAt: null,
+		};
+	}
+
+	#recordRelayRtt(rttMs: number): void {
+		if (this.#relaySrtt === null || this.#relayRttVariance === null) {
+			this.#relaySrtt = rttMs;
+			this.#relayRttVariance = rttMs / 2;
+			return;
+		}
+		this.#relayRttVariance = this.#relayRttVariance * 0.75 + Math.abs(this.#relaySrtt - rttMs) * 0.25;
+		this.#relaySrtt = this.#relaySrtt * 0.875 + rttMs * 0.125;
+	}
+
+	#relayProbeTimeoutMs(): number {
+		if (this.#relaySrtt === null || this.#relayRttVariance === null) return RELAY_INITIAL_TIMEOUT_MS;
+		return Math.min(
+			RELAY_MAX_TIMEOUT_MS,
+			Math.max(RELAY_MIN_TIMEOUT_MS, this.#relaySrtt + 4 * this.#relayRttVariance),
+		);
+	}
+
+	#scheduleRelayProbe(): void {
+		clearTimeout(this.#relayProbeTimer ?? undefined);
+		this.#relayProbeTimer = null;
+		if (
+			this.#relayProbesPaused ||
+			!this.#relayProbeSupported ||
+			this.#phase !== "live" ||
+			this.#pendingRelayProbe !== null ||
+			(typeof document !== "undefined" && document.visibilityState === "hidden")
+		) {
+			return;
+		}
+		const delay = Math.max(0, this.#lastRelayActivityAt + RELAY_IDLE_PROBE_MS - Date.now());
+		this.#relayProbeTimer = setTimeout(() => {
+			this.#relayProbeTimer = null;
+			this.#sendRelayProbe();
+		}, delay);
+	}
+
+	#sendRelayProbe(): void {
+		if (
+			this.#phase !== "live" ||
+			!this.#relayProbeSupported ||
+			!this.#socket.isOpen ||
+			this.#relayProbesPaused ||
+			(typeof document !== "undefined" && document.visibilityState === "hidden")
+		) {
+			return;
+		}
+		const seq = ++this.#relayProbeSeq;
+		this.#pendingRelayProbe = { seq, sentAt: Date.now() };
+		this.#socket.send({ t: "gateway-health-ping", seq });
+		this.#relayProbeTimeoutTimer = setTimeout(() => {
+			this.#relayProbeTimeoutTimer = null;
+			if (this.#pendingRelayProbe?.seq !== seq) return;
+			this.#pendingRelayProbe = null;
+			this.#relayConsecutiveMisses++;
+			const failureSince = this.#relayHealth.failureSince ?? Date.now();
+			if (this.#relayConsecutiveMisses < 2) {
+				this.#relayHealth = { ...this.#relayHealth, state: "degraded", failureSince, retryAt: null };
+				this.#commit();
+				this.#sendRelayProbe();
+				return;
+			}
+			this.#relayHealth = { ...this.#relayHealth, state: "unreachable", failureSince, retryAt: null };
+			this.#commit();
+			this.refreshConnection();
+		}, this.#relayProbeTimeoutMs());
+	}
+
+	#clearRelayProbe(): void {
+		clearTimeout(this.#relayProbeTimer ?? undefined);
+		clearTimeout(this.#relayProbeTimeoutTimer ?? undefined);
+		this.#relayProbeTimer = null;
+		this.#relayProbeTimeoutTimer = null;
+		this.#pendingRelayProbe = null;
+		this.#relayConsecutiveMisses = 0;
+	}
+
+	#restorePendingUiRequest(): void {
+		this.#uiRequest = this.#pendingUiResponse?.request ?? null;
+		this.#uiRequestQueue = [];
+	}
+
+	#resendPendingUiResponse(): void {
+		const pending = this.#pendingUiResponse;
+		if (pending === null || this.#phase !== "live") return;
+		this.#socket.send({ t: "ui-response", reqId: pending.request.reqId, value: pending.value });
+	}
+
 	#pushNotice(level: Notice["level"], message: string): void {
 		const notice: Notice = { id: ++this.#noticeSeq, level, message, at: Date.now() };
 		const next = [...this.#notices, notice];
@@ -524,6 +764,9 @@ export class GuestClient {
 			working: this.#working,
 			readOnly: this.#readOnly,
 			uiRequest: this.#uiRequest,
+			uiResponsePending: this.#pendingUiResponse !== null,
+			gatewayHealth: this.#gatewayHealth,
+			relayHealth: this.#relayHealth,
 			notices: this.#notices,
 		};
 	}

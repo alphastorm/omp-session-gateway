@@ -242,7 +242,7 @@ h1 {
 .status[data-kind="offline"],
 .status[data-kind="tailnet"],
 .status[data-kind="desktop"],
-.status[data-kind="relay"],
+.status[data-kind="gateway"],
 .status[data-kind="expired"] {
   border-color: var(--control-border);
   color: var(--control);
@@ -251,7 +251,7 @@ h1 {
 .status[data-kind="offline"]::before,
 .status[data-kind="tailnet"]::before,
 .status[data-kind="desktop"]::before,
-.status[data-kind="relay"]::before,
+.status[data-kind="gateway"]::before,
 .status[data-kind="expired"]::before {
   background: var(--control);
 }
@@ -859,6 +859,14 @@ body.collab-shell-active {
   background: var(--live);
 }
 
+.conn-chip[data-compact="true"] {
+  justify-content: center;
+  width: 1.75rem;
+  padding-inline: 0;
+  border-color: transparent;
+  font-size: 0;
+}
+
 .conn-chip[data-state="reconnecting"] {
   color: var(--control);
 }
@@ -892,6 +900,7 @@ body.collab-shell-active {
   color: var(--live);
 }
 
+.triage-bar[data-kind="sending"]::before,
 .triage-bar[data-kind="reconnecting"]::before,
 .triage-bar[data-kind="ended"]::before {
   content: "";
@@ -902,6 +911,7 @@ body.collab-shell-active {
   background: var(--muted);
 }
 
+.triage-bar[data-kind="sending"]::before,
 .triage-bar[data-kind="reconnecting"]::before {
   background: var(--control);
 }

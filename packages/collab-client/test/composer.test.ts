@@ -85,6 +85,9 @@ function snapshot(overrides: Partial<GuestSnapshot> = {}): GuestSnapshot {
       initialIndex: 0,
       selectionMarker: "radio",
     },
+	uiResponsePending: false,
+	gatewayHealth: { state: "healthy", rttMs: 20, lastSuccessAt: 0, failureSince: null, retryAt: null },
+	relayHealth: { state: "healthy", rttMs: 30, lastSuccessAt: 0, failureSince: null, retryAt: null },
     notices: [],
     ...overrides,
   };

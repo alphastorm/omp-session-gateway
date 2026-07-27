@@ -644,9 +644,9 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
     harness.expireEventLiveness();
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
-    expect(harness.elements.statusBanner.dataset.kind).toBe("relay");
+    expect(harness.elements.statusBanner.dataset.kind).toBe("gateway");
     expect(harness.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
-      "Reconnecting to relay…",
+      "Gateway unavailable",
     );
     expect(FakeEventSource.instances[0]?.closed).toBeTrue();
 

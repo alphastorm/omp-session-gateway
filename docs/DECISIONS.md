@@ -289,3 +289,52 @@ that qualification.
 Push messages use a per-instance notification tag, carry only bounded presentation metadata plus opaque routing identifiers and pending count, and never carry a capability. A tap opens `/collab/:instanceId?request=:requestId`; every request-specific Control POST carries that opaque identity, and the gateway atomically revalidates it with the generation at final capability lookup before releasing Control. Directory transport failures retain the last authenticated metadata in volatile page memory with an explicit stale timestamp; authorization failure still clears it. History state contains only route-safe ordering and scroll data, never session records or capabilities.
 
 **Consequences:** Session labels and optional previews can leave the desktop in encrypted Web Push and become visible/persistent on the selected phone surfaces, but only at the user's per-device detail level. Opaque request IDs and timestamps may appear in list/SSE, push, routes, and history; they are routing metadata, not authorization. Collaboration capabilities remain confined to live process/gateway/client memory. ADR-017's bodyless, generation-tagged envelope and `/attention/` route are superseded; its explicit permission, private push-state, capability isolation, and stale-tap fail-closed requirements remain.
+
+
+---
+
+## ADR-020 — Measure network paths adaptively and acknowledge remote actions
+
+**Status:** Accepted
+
+**Context:** Browser online/type signals do not prove the gateway or encrypted relay path, fixed
+five-second polling wastes healthy radio time, deterministic retry bursts synchronize clients, and
+WebSocket-open state does not prove the host is still reachable. The shell also removed an Ask as
+soon as its response was written to the socket, so a drop before host settlement looked successful.
+The installed PWA and existing top/bottom shell already provide the required lifecycle surfaces;
+a native wrapper, Workbox runtime cache, or persisted Background Sync queue would add complexity and
+could retain capability-bearing action data.
+
+**Decision:** Keep the PWA and its exact no-secret service worker. Treat browser lifecycle and
+Network Information events only as triggers. Measure the same-origin gateway with smoothed RTT and
+variance, bounded adaptive timeouts, a 15-second healthy cadence, a two-second suspect cadence, two
+result hysteresis, and capped full-jitter outage retries. Count authenticated host frames as passive
+relay liveness between explicit probes; after ten idle seconds, hosts that advertise the optional
+encrypted extension answer sequence-numbered ping frames. Hidden pages cancel idle and pending
+relay probes; foreground and network signals request a gateway probe and, only after required
+gateway hysteresis reaches healthy, an immediate relay probe. A stale pong or unrelated inbound
+frame does not satisfy the current bidirectional probe.
+One missed reply degrades the path and triggers an immediate second probe; two
+misses replace the socket. Every WebSocket handshake has a ten-second deadline, and subsequent
+reconnects use capped full jitter.
+
+Healthy chrome is only an accessible green dot. A disruption first shows `Reconnecting…`; after
+three seconds the existing top/bottom shell identifies `Gateway unavailable` or `Relay unavailable`
+and shows a meaningful retry countdown. Recovery shows `Connected` for 1.8 seconds. Submitted UI
+responses remain visible, disabled, and marked `Sending…` in embedded and standalone modes until
+the host sends `ui-request-end`; directory metadata cannot announce `Answered` first. The client
+preserves and resends one pending response after a fresh welcome. A writable duplicate or late
+response receives a targeted end frame even when the host already settled it, making the
+acknowledgement idempotent without changing the v3 wire protocol. Adaptive recovery stops when the
+client becomes terminal so the final action, status, and keyboard focus remain stable.
+
+**Consequences:** Healthy operation has no persistent status text and fewer active probes. Gateway,
+relay, and terminal Mac/session failures are distinguishable on existing surfaces without trusting
+browser hints. Active actions cannot be mistaken for acknowledged actions, and an acknowledgement
+lost during reconnect converges without a second user action when OMP includes patch commit 5.
+Older hosts remain usable for ordinary live collaboration: their frames provide passive liveness
+and they never advertise idle probes. They do not provide the duplicate-response acknowledgement
+needed to guarantee pending-action convergence across reconnect. The extension adds only encrypted
+timing traffic and no session data, capability, storage, URL, native surface, Workbox dependency,
+or Background Sync queue. ADR-016's fixed collaboration-client probe cadence and reconnect
+mechanics are superseded by this decision; its SSE heartbeat contract remains.

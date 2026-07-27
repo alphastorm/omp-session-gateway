@@ -526,6 +526,15 @@
 	border-color: var(--ring);
 }
 
+.sh-ask-option:disabled {
+	opacity: 0.62;
+	cursor: default;
+}
+
+.sh-ask-option:disabled:hover {
+	border-color: var(--border);
+}
+
 .sh-ask-option-checked {
 	border-color: var(--accent);
 	background: var(--accent-muted);

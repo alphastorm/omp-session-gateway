@@ -1,7 +1,7 @@
-From ff82b33ae6411818da7d6bd61615d2a327a98413 Mon Sep 17 00:00:00 2001
+From 7e8a69b557e7e69f9be54e491c17a69c4a20518e Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 10:22:26 -0400
-Subject: [PATCH 1/4] feat: add gateway collaboration controller
+Subject: [PATCH 1/5] feat: add gateway collaboration controller
 
 ---
  .../coding-agent/src/collab/controller.ts     | 308 +++++++++
@@ -2738,10 +2738,10 @@ index 8a63482d0..65c08959d 100644
 2.50.1 (Apple Git-155)
 
 
-From 1026379ab598d7c4326f56ba77e11fbb28b2c1fd Mon Sep 17 00:00:00 2001
+From a000a13aae4f54792c36e823923f6c64d282e523 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:25:56 -0400
-Subject: [PATCH 2/4] fix(collab): retain UI requests until a writer joins
+Subject: [PATCH 2/5] fix(collab): retain UI requests until a writer joins
 
 ---
  packages/coding-agent/src/collab/host.ts      | 11 +--
@@ -2923,10 +2923,10 @@ index 0fa169eab..805d56bbb 100644
 2.50.1 (Apple Git-155)
 
 
-From 37b77ca6b223bdb9a1fdf33a479aea9b84b155d4 Mon Sep 17 00:00:00 2001
+From ace9dbda1430d52f29e7cbfe2a4945580eb8300d Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:31:08 -0400
-Subject: [PATCH 3/4] feat(collab): publish response-required state
+Subject: [PATCH 3/5] feat(collab): publish response-required state
 
 ---
  .../coding-agent/src/collab/controller.ts     | 49 ++++++++++++
@@ -3269,10 +3269,10 @@ index b59e8bfd0..a15e79666 100644
 2.50.1 (Apple Git-155)
 
 
-From ac5b7153c31ea7b6b1299f35928827c6630388b4 Mon Sep 17 00:00:00 2001
+From 4a59450e8d854ac77755d66f796dff23a27ff52a Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:45:28 -0400
-Subject: [PATCH 4/4] feat(collab): mirror response UI safely
+Subject: [PATCH 4/5] feat(collab): mirror response UI safely
 
 ---
  packages/coding-agent/src/collab/guest.ts     |  14 +-
@@ -4186,6 +4186,190 @@ index 308f58b79..6e51e0f82 100644
  	it("enters plan mode at startup when the setting is enabled", async () => {
  		const created = createHarness(Settings.isolated({ "plan.defaultOnStartup": true, "compaction.enabled": false }));
  
+-- 
+2.50.1 (Apple Git-155)
+
+
+From 708d7a53e5017d5001f25352b7b84c7324efefca Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Sun, 26 Jul 2026 22:48:20 -0400
+Subject: [PATCH 5/5] feat(collab): acknowledge web health and responses
+
+---
+ packages/coding-agent/src/collab/host.ts      | 20 ++++++++--
+ .../test/collab/guest-ui-request.test.ts      |  1 +
+ .../test/collab/read-only.test.ts             | 37 +++++++++++++++----
+ 3 files changed, 47 insertions(+), 11 deletions(-)
+
+diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
+index 1f8eae359..bfe960ee8 100644
+--- a/packages/coding-agent/src/collab/host.ts
++++ b/packages/coding-agent/src/collab/host.ts
+@@ -119,6 +119,9 @@ const MAX_PENDING_UI_REQUESTS = 64;
+  */
+ export type CollabGuestUiResult = { kind: "answered"; value: CollabUiResponseValue } | { kind: "unavailable" };
+ 
++type GatewayHealthFrame = { t: "gateway-health-ping"; seq: number } | { t: "gateway-health-pong"; seq: number };
++type GatewayCollabFrame = CollabFrame | GatewayHealthFrame;
++
+ export class CollabHost {
+ 	#ctx: InteractiveModeContext;
+ 	#socket: CollabSocket | null = null;
+@@ -227,7 +230,7 @@ export class CollabHost {
+ 				firstOpen.resolve();
+ 			}
+ 		};
+-		socket.onFrame = (frame, fromPeer) => this.#handleFrame(frame, fromPeer);
++		socket.onFrame = (frame, fromPeer) => this.#handleFrame(frame as GatewayCollabFrame, fromPeer);
+ 		socket.onControl = msg => {
+ 			if (msg.t === "peer-left") this.#handlePeerLeft(msg.peer);
+ 		};
+@@ -323,7 +326,7 @@ export class CollabHost {
+ 		this.#socket.send(frame);
+ 	}
+ 
+-	#handleFrame(frame: CollabFrame, fromPeer: number): void {
++	#handleFrame(frame: GatewayCollabFrame, fromPeer: number): void {
+ 		switch (frame.t) {
+ 			case "hello":
+ 				this.#handleHello(frame.name, frame.proto, frame.writeToken, fromPeer);
+@@ -340,6 +343,9 @@ export class CollabHost {
+ 			case "ui-response":
+ 				this.#handleUiResponse(frame.reqId, frame.value, fromPeer);
+ 				break;
++			case "gateway-health-ping":
++				this.#handleGatewayHealthPing(frame.seq, fromPeer);
++				break;
+ 			case "fetch-transcript":
+ 				void this.#handleFetchTranscript(frame.reqId, frame.agentId, frame.fromByte, fromPeer);
+ 				break;
+@@ -401,6 +407,7 @@ export class CollabHost {
+ 			fromPeer,
+ 		);
+ 		this.#sendSnapshotChunks(entries, fromPeer);
++		socket.send({ t: "gateway-health-pong", seq: 0 } as unknown as CollabFrame, fromPeer);
+ 		if (canWrite) {
+ 			for (const pending of this.#pendingUi.values()) {
+ 				socket.send({ t: "ui-request", request: pending.request }, fromPeer);
+@@ -450,13 +457,20 @@ export class CollabHost {
+ 		}
+ 	}
+ 
++	#handleGatewayHealthPing(seq: number, fromPeer: number): void {
++		if (!this.#peers.has(fromPeer) || !Number.isSafeInteger(seq) || seq <= 0) return;
++		this.#socket?.send({ t: "gateway-health-pong", seq } as unknown as CollabFrame, fromPeer);
++	}
++
+ 	#handleUiResponse(reqId: number, value: CollabUiResponseValue, fromPeer: number): void {
+ 		const peer = this.#peers.get(fromPeer);
+ 		if (!peer?.canWrite) {
+ 			this.#rejectReadOnly("responding to ask", fromPeer);
+ 			return;
+ 		}
+-		this.#pendingUi.get(reqId)?.settle({ kind: "answered", value });
++		const pending = this.#pendingUi.get(reqId);
++		if (pending) pending.settle({ kind: "answered", value });
++		else this.#socket?.send({ t: "ui-request-end", reqId }, fromPeer);
+ 	}
+ 
+ 	#handlePrompt(text: string, images: ImageContent[] | undefined, fromPeer: number): void {
+diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+index e18711bf9..286bee42a 100644
+--- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
++++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
+@@ -537,6 +537,7 @@ async function joinRawGuest(
+ 		event: true,
+ 		bus: true,
+ 		"snapshot-chunk": true,
++		"gateway-health-pong": true,
+ 	};
+ 	socket.onFrame = frame => {
+ 		if (filtered[frame.t]) return;
+diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
+index 805d56bbb..8146e2845 100644
+--- a/packages/coding-agent/test/collab/read-only.test.ts
++++ b/packages/coding-agent/test/collab/read-only.test.ts
+@@ -82,9 +82,11 @@ function makeHostContext(): HostHarness {
+ 	return { ctx, prompts, aborts, nextPrompt };
+ }
+ 
++type TestFrame = CollabFrame | { t: "gateway-health-ping"; seq: number } | { t: "gateway-health-pong"; seq: number };
++
+ interface TestGuest {
+ 	socket: CollabSocket;
+-	nextFrame(): Promise<CollabFrame>;
++	nextFrame(): Promise<TestFrame>;
+ }
+ 
+ /**
+@@ -108,27 +110,33 @@ const FILTERED_FRAME_TYPES: Record<string, true> = {
+  * broadcast races the first prompt's error reply), so `nextFrame` drops them and yields only the
+  * welcome/error frames these tests assert on.
+  */
+-async function joinAsGuest(link: string, name: string, writeTokenOverride?: string): Promise<TestGuest> {
++async function joinAsGuest(
++	link: string,
++	name: string,
++	writeTokenOverride?: string,
++	includeHealth = false,
++): Promise<TestGuest> {
+ 	const parsed = parseCollabLink(link);
+ 	if ("error" in parsed) throw new Error(parsed.error);
+ 	const writeToken =
+ 		writeTokenOverride ?? (parsed.writeToken ? Buffer.from(parsed.writeToken).toString("base64url") : undefined);
+ 	const key = await importRoomKey(parsed.key);
+ 	const socket = new CollabSocket({ wsUrl: parsed.wsUrl, role: "guest", key });
+-	const queue: CollabFrame[] = [];
+-	const waiters: ((frame: CollabFrame) => void)[] = [];
+-	socket.onFrame = frame => {
+-		if (FILTERED_FRAME_TYPES[frame.t]) return;
++	const queue: TestFrame[] = [];
++	const waiters: ((frame: TestFrame) => void)[] = [];
++	socket.onFrame = rawFrame => {
++		const frame = rawFrame as TestFrame;
++		if (FILTERED_FRAME_TYPES[frame.t] || (!includeHealth && frame.t === "gateway-health-pong")) return;
+ 		const waiter = waiters.shift();
+ 		if (waiter) waiter(frame);
+ 		else queue.push(frame);
+ 	};
+ 	socket.onOpen = () => socket.send({ t: "hello", proto: COLLAB_PROTO, name, writeToken });
+ 	socket.connect();
+-	const nextFrame = (): Promise<CollabFrame> => {
++	const nextFrame = (): Promise<TestFrame> => {
+ 		const queued = queue.shift();
+ 		if (queued) return Promise.resolve(queued);
+-		const { promise, resolve } = Promise.withResolvers<CollabFrame>();
++		const { promise, resolve } = Promise.withResolvers<TestFrame>();
+ 		waiters.push(resolve);
+ 		return promise;
+ 	};
+@@ -166,6 +174,17 @@ afterAll(async () => {
+ });
+ 
+ describe("collab read-only links", () => {
++	it("advertises and answers end-to-end health probes for read-only guests", async () => {
++		const guest = await joinAsGuest(host.viewLink, "health-viewer", undefined, true);
++		guestCleanups.push(() => guest.socket.close());
++		const welcome = await guest.nextFrame();
++		if (welcome.t !== "welcome") throw new Error(`expected welcome, got ${welcome.t}`);
++		expect(await guest.nextFrame()).toEqual({ t: "gateway-health-pong", seq: 0 });
++
++		guest.socket.send({ t: "gateway-health-ping", seq: 7 } as unknown as CollabFrame);
++		expect(await guest.nextFrame()).toEqual({ t: "gateway-health-pong", seq: 7 });
++	});
++
+ 	it("retains host UI before any writer joins and replays it only to a later writer", async () => {
+ 		const abort = new AbortController();
+ 		const pending = host.requestGuestUi(
+@@ -191,6 +210,8 @@ describe("collab read-only links", () => {
+ 			writer.socket.send({ t: "ui-response", reqId: request.request.reqId, value: "Yes" });
+ 			expect(await pending).toEqual({ kind: "answered", value: "Yes" });
+ 			expect(await writer.nextFrame()).toEqual({ t: "ui-request-end", reqId: request.request.reqId });
++			writer.socket.send({ t: "ui-response", reqId: request.request.reqId, value: "Yes" });
++			expect(await writer.nextFrame()).toEqual({ t: "ui-request-end", reqId: request.request.reqId });
+ 		} finally {
+ 			abort.abort();
+ 		}
 -- 
 2.50.1 (Apple Git-155)
 
