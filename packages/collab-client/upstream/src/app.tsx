@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentDrawer } from "./components/agents/AgentDrawer";
 import { AgentsPanel } from "./components/agents/AgentsPanel";
 import { Banners } from "./components/shell/Banners";
@@ -7,7 +7,7 @@ import { Composer } from "./components/shell/Composer";
 import { HeaderBar } from "./components/shell/HeaderBar";
 import { Toasts } from "./components/shell/Toasts";
 import { Transcript } from "./components/transcript/Transcript";
-import { GuestClient } from "./lib/client";
+import { GuestClient, type ConnectionPhase } from "./lib/client";
 import { installBrowserConnectionRecovery } from "./lib/browser-recovery";
 import { useGuestSnapshot } from "./lib/use-guest";
 import type { ToolRenderHost } from "./tool-render";
@@ -29,12 +29,24 @@ function storedName(): string {
 }
 
 
+export interface CollabEmbedState {
+	phase: ConnectionPhase;
+	endedReason: string | null;
+	requestPending: boolean;
+}
+
+export interface CollabEmbedOptions {
+	focusPendingRequest?: boolean;
+	onStateChange?(state: CollabEmbedState): void;
+}
+
 export interface AppProps {
 	capability: string;
 	onDispose(): void;
+	embedOptions?: CollabEmbedOptions;
 }
 
-export function App({ capability, onDispose }: AppProps): ReactNode {
+export function App({ capability, onDispose, embedOptions }: AppProps): ReactNode {
 	const [client, setClient] = useState<GuestClient | null>(null);
 	const [connectError, setConnectError] = useState<string | null>(null);
 	const credsRef = useRef<Creds | null>(null);
@@ -116,6 +128,15 @@ export function App({ capability, onDispose }: AppProps): ReactNode {
 		if (!client) document.title = "OMP collaboration";
 	}, [client]);
 
+	useEffect(() => {
+		if (client !== null) return;
+		embedOptions?.onStateChange?.({
+			phase: connectError === null ? "connecting" : "ended",
+			endedReason: connectError,
+			requestPending: false,
+		});
+	}, [client, connectError, embedOptions]);
+
 	if (!client) {
 		return (
 			<main className="co-connect">
@@ -125,21 +146,49 @@ export function App({ capability, onDispose }: AppProps): ReactNode {
 			</main>
 		);
 	}
-	return <Session client={client} onLeave={leave} onRejoin={rejoin} />;
+	return <Session client={client} onLeave={leave} onRejoin={rejoin} embedOptions={embedOptions} />;
 }
 
 interface SessionProps {
 	client: GuestClient;
 	onLeave(): void;
 	onRejoin(): void;
+	embedOptions?: CollabEmbedOptions;
 }
 
-function Session({ client, onLeave, onRejoin }: SessionProps): ReactNode {
+function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): ReactNode {
 	const snap = useGuestSnapshot(client);
 	const [railOpen, setRailOpen] = useState(false);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const autoOpenedRef = useRef(false);
 
+	const focusedRequestRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		embedOptions?.onStateChange?.({
+			phase: snap.phase,
+			endedReason: snap.endedReason,
+			requestPending: snap.uiRequest !== null,
+		});
+	}, [embedOptions, snap.endedReason, snap.phase, snap.uiRequest]);
+
+	useLayoutEffect(() => {
+		const requestId = snap.uiRequest?.reqId;
+		if (
+			embedOptions?.focusPendingRequest !== true ||
+			requestId === undefined ||
+			focusedRequestRef.current === requestId
+		) {
+			return;
+		}
+		const composer = document.querySelector<HTMLElement>(".sh-composer-ask");
+		if (composer === null) return;
+		focusedRequestRef.current = requestId;
+		composer.scrollIntoView({ block: "end" });
+		composer
+			.querySelector<HTMLElement>("button:not([disabled]), textarea:not([disabled]), input:not([disabled])")
+			?.focus({ preventScroll: true });
+	}, [embedOptions?.focusPendingRequest, snap.uiRequest?.reqId]);
 	const subCount = useMemo(() => snap.agents.filter(a => a.kind === "sub").length, [snap.agents]);
 
 	// Task-card agent chips drill into the same drawer the rail uses.

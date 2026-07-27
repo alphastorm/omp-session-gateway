@@ -4,6 +4,32 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [0.1.0-prealpha.11] - 2026-07-26
+
+### Fixed
+
+- Match the approved couch-flow resting screen exactly: remove the explanatory lede and footer,
+  keep background-alert settings below the session directory, and restore all-clear state, list
+  order, and scroll position immediately from route-safe history state.
+- Drive the collaboration shell's Connected, Reconnecting, Offline, and ended states from the
+  pinned client's lifecycle instead of rendered-text inspection; focus request Control on the
+  pending composer and keep all four triage states outside its viewport.
+- Complete answer feedback with exact next/all-clear copy, eight-second expiry, tap-out and swipe
+  dismissal, and authoritative request-resolution gating.
+- Use the exact phone, tailnet, desktop, and relay failure copy while preserving timestamped,
+  authenticated session metadata through transient transport failures.
+
+### Security
+
+- Bind every request-specific Control launch to both generation and opaque request ID at the final
+  capability lookup, closing the same-generation clear/re-arm race for home, shell, triage, and
+  notification launches.
+
+### Testing
+
+- Exercise one through six asks, all-clear, every failure banner, exact shell lifecycle and triage,
+  composer inset, request-bound Control, and cache-first Back behavior at 390×844 and 412×915.
+
 ## [0.1.0-prealpha.10] - 2026-07-26
 
 ### Added

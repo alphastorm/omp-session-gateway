@@ -11,10 +11,22 @@ import {
   type SessionMetadata,
   type PushDetailLevel,
 } from "@omp-session-gateway/protocol";
+interface CollabEmbedState {
+  readonly phase: "connecting" | "waiting" | "live" | "reconnecting" | "ended";
+  readonly endedReason: string | null;
+  readonly requestPending: boolean;
+}
+
+interface CollabEmbedOptions {
+  readonly focusPendingRequest?: boolean;
+  readonly onStateChange?: (state: CollabEmbedState) => void;
+}
+
 type StartCollabWithCapability = (
   container: HTMLElement,
   capability: string,
   onDispose: () => void,
+  options?: CollabEmbedOptions,
 ) => () => void;
 
 interface CollabClientModule {
@@ -88,12 +100,17 @@ interface PendingAttentionLaunch {
 }
 
 
+interface DirectoryHistoryState {
+  readonly order: readonly string[];
+  readonly scrollY: number;
+}
+
 interface DashboardSnapshot {
   readonly children: readonly HTMLElement[];
   readonly scrollY: number;
   readonly title: string;
   readonly bodyClass: string;
-  readonly order: readonly string[];
+  readonly historyState: DirectoryHistoryState;
 }
 
 interface ActiveCollabShell {
@@ -138,6 +155,7 @@ function setNotificationControl(state: NotificationControlState): void {
       : state === "enabled"
         ? "Tap to choose what this device can show."
         : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
+  notificationDisclosure.hidden = state !== "blocked";
 }
 
 function isNotificationSupportResponse(value: unknown): boolean {
@@ -390,6 +408,26 @@ function setStatus(kind: StatusKind, message: string): void {
   statusBanner.hidden = kind === "ready";
 }
 
+function parseDirectoryHistoryState(value: unknown): DirectoryHistoryState | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const directory = (value as Record<string, unknown>).ompDirectory;
+  if (typeof directory !== "object" || directory === null || Array.isArray(directory)) return undefined;
+  const record = directory as Record<string, unknown>;
+  if (
+    !Array.isArray(record.order) ||
+    !record.order.every(
+      item => typeof item === "string" && /^[A-Za-z0-9._:-]{16,128}$/u.test(item),
+    ) ||
+    new Set(record.order).size !== record.order.length ||
+    typeof record.scrollY !== "number" ||
+    !Number.isFinite(record.scrollY) ||
+    record.scrollY < 0
+  ) {
+    return undefined;
+  }
+  return { order: [...record.order], scrollY: record.scrollY };
+}
+
 function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay"): void {
   directoryRevision = -1;
   render();
@@ -404,7 +442,7 @@ function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay")
     ],
     tailnet: [
       "Tailnet unreachable",
-      `Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone. Last seen ${asOf}.`,
+      "Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone.",
     ],
     desktop: [
       "Desktop unreachable",
@@ -422,6 +460,9 @@ function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay")
     createTextElement("strong", "status-title", title),
     createTextElement("span", "status-detail", body),
   );
+  if (kind === "tailnet") {
+    text.append(createTextElement("span", "status-freshness", `Last seen ${asOf}.`));
+  }
   statusBanner.dataset.kind = kind;
   statusBanner.replaceChildren(text);
   if (kind === "desktop") {
@@ -466,7 +507,7 @@ function failEventStream(source: EventSource, epoch: number): void {
   events = undefined;
   clearEventLiveness();
   eventStreamStale = true;
-  showTransportFailure("relay");
+  showTransportFailure(navigator.onLine === false ? "offline" : "relay");
   scheduleReconnect();
 }
 
@@ -584,7 +625,9 @@ function createWaitingRow(session: SessionMetadata): HTMLButtonElement {
     createTextElement("span", "row-time", waitingLabel(session)),
     createTextElement("span", "row-chevron", "›"),
   );
-  button.addEventListener("click", () => void launch(session, mode, button));
+  button.addEventListener("click", () =>
+    void launch(session, mode, button, mode === "control" ? session.ask?.requestId : undefined),
+  );
   return button;
 }
 
@@ -641,7 +684,8 @@ function renderWaitingQueue(
   primary.textContent = hero.canControl ? "Open request" : "View transcript";
   primary.disabled = hero.canControl ? false : !hero.canView;
   primary.addEventListener("click", () => {
-    void launch(hero, hero.canControl ? "control" : "view", primary);
+    const mode: LaunchMode = hero.canControl ? "control" : "view";
+    void launch(hero, mode, primary, mode === "control" ? hero.ask?.requestId : undefined);
   });
   article.append(primary);
 
@@ -666,6 +710,7 @@ function renderWaitingQueue(
 }
 
 function render(): void {
+  if (activeCollabShell !== undefined) return;
   sessionList.replaceChildren();
   emptyState.hidden = true;
   if (!directoryLoaded) {
@@ -707,6 +752,7 @@ function hideTriageBar(shell: ActiveCollabShell): void {
     delete shell.triageTimeout;
   }
   shell.triageBar.hidden = true;
+  delete shell.triageBar.dataset.dismissible;
   delete shell.shell.dataset.triageVisible;
 }
 
@@ -732,17 +778,19 @@ function showTriageBar(
   }
   shell.triageBar.hidden = false;
   shell.shell.dataset.triageVisible = "true";
+  if (kind === "next" || kind === "clear") shell.triageBar.dataset.dismissible = "true";
   if (kind === "next" || kind === "clear") {
     shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
   }
 }
 
-function returnToDirectory(): void {
+function returnToDirectory(historyValue?: unknown): void {
   const snapshot = dashboardSnapshot;
   if (snapshot === undefined) {
     location.replace("/");
     return;
   }
+  const historyState = parseDirectoryHistoryState(historyValue) ?? snapshot.historyState;
   disposeActiveCollab?.();
   disposeActiveCollab = undefined;
   activeCollabShell = undefined;
@@ -750,12 +798,8 @@ function returnToDirectory(): void {
   document.body.replaceChildren(...snapshot.children);
   document.title = snapshot.title;
   dashboardSnapshot = undefined;
-  history.replaceState(
-    { ompDirectory: { order: snapshot.order, scrollY: snapshot.scrollY } },
-    "",
-    "/",
-  );
-  window.scrollTo(0, snapshot.scrollY);
+  history.replaceState({ ompDirectory: historyState }, "", "/");
+  window.scrollTo(0, historyState.scrollY);
   void refreshAndConnect();
   applyActivatedWorkerUpdate();
 }
@@ -779,7 +823,9 @@ function reconcileActiveCollabShell(): void {
       waiting.length === 1
         ? "✓ Answered — 1 more needs you"
         : `✓ Answered — ${waiting.length} more need you`;
-    showTriageBar(shell, "next", copy, "Next ask →", () => void launch(next, "control"));
+    showTriageBar(shell, "next", copy, "Next ask →", () =>
+      void launch(next, "control", undefined, next.ask?.requestId),
+    );
     return;
   }
   const working = orderedWorkingSessions().length;
@@ -814,16 +860,22 @@ function enterCollabClient(
   startCollabWithCapability: StartCollabWithCapability,
   session: SessionMetadata,
   mode: LaunchMode,
+  requestId?: string,
 ): void {
+  setStatus("ready", "");
   if (dashboardSnapshot === undefined) {
-    dashboardSnapshot = {
-      children: [...document.body.children] as HTMLElement[],
+    const historyState: DirectoryHistoryState = {
       scrollY: window.scrollY,
-      title: document.title,
-      bodyClass: document.body.className,
       order: [...sessionList.querySelectorAll<HTMLElement>("[data-instance-id]")]
         .map(element => element.dataset.instanceId)
         .filter((instanceId): instanceId is string => instanceId !== undefined),
+    };
+    dashboardSnapshot = {
+      children: [...document.body.children] as HTMLElement[],
+      scrollY: historyState.scrollY,
+      title: document.title,
+      bodyClass: document.body.className,
+      historyState,
     };
   }
   disposeActiveCollab?.();
@@ -843,7 +895,10 @@ function enterCollabClient(
   control.className = "shell-control";
   control.textContent = "Control";
   control.hidden = mode === "control" || !session.canControl;
-  control.addEventListener("click", () => void launch(session, "control", control));
+  control.addEventListener("click", () => {
+    const current = sessions.get(session.instanceId) ?? session;
+    void launch(current, "control", control, current.ask?.requestId);
+  });
   const connection = createTextElement("span", "conn-chip", "Reconnecting…");
   connection.dataset.state = "reconnecting";
   bar.append(back, title, control, connection);
@@ -856,6 +911,28 @@ function enterCollabClient(
   triageBar.className = "triage-bar";
   triageBar.hidden = true;
   shell.append(bar, container, triageBar);
+  let triageSwipeStart: number | undefined;
+  shell.addEventListener("pointerdown", event => {
+    if (
+      triageBar.dataset.dismissible === "true" &&
+      event.target !== null &&
+      !triageBar.contains(event.target as Node)
+    ) {
+      hideTriageBar(activeCollabShell ?? shellState);
+    }
+  });
+  triageBar.addEventListener("pointerdown", event => {
+    triageSwipeStart = triageBar.dataset.dismissible === "true" ? event.clientY : undefined;
+  });
+  triageBar.addEventListener("pointerup", event => {
+    if (triageSwipeStart !== undefined && Math.abs(event.clientY - triageSwipeStart) >= 32) {
+      hideTriageBar(activeCollabShell ?? shellState);
+    }
+    triageSwipeStart = undefined;
+  });
+  triageBar.addEventListener("pointercancel", () => {
+    triageSwipeStart = undefined;
+  });
 
   snapshotController?.abort();
   snapshotController = undefined;
@@ -863,11 +940,7 @@ function enterCollabClient(
   reconnectAttempt = 0;
   launchInProgress = false;
   if (location.pathname !== "/client/") {
-    history.replaceState(
-      { ompDirectory: { order: dashboardSnapshot.order, scrollY: dashboardSnapshot.scrollY } },
-      "",
-      "/",
-    );
+    history.replaceState({ ompDirectory: dashboardSnapshot.historyState }, "", "/");
     history.pushState({ ompCollab: true }, "", "/client/");
   }
   document.body.className = "collab-shell-active";
@@ -877,9 +950,7 @@ function enterCollabClient(
   const shellState: ActiveCollabShell = {
     instanceId: session.instanceId,
     generation: session.generation,
-    ...(mode === "control" && session.inputRequired && session.ask !== undefined
-      ? { openedRequestId: session.ask.requestId }
-      : {}),
+    ...(requestId === undefined ? {} : { openedRequestId: requestId }),
     triageBar,
     shell,
     answerShown: false,
@@ -887,19 +958,25 @@ function enterCollabClient(
   };
   activeCollabShell = shellState;
 
-  let observer: MutationObserver | undefined;
-  const updateConnection = (): void => {
-    if (container.querySelector(".sh-ended") !== null) {
+  const updateConnection = (state: CollabEmbedState): void => {
+    if (state.phase === "ended") {
       setConnectionState(connection, "offline");
       if (!shellState.answerShown) {
         shellState.answerShown = true;
-        showTriageBar(shellState, "ended", "Session ended", "Back to Sessions", returnToDirectory);
+        const exitCode = /\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s*[:=]?\s*(-?\d{1,3})\b/iu.exec(
+          state.endedReason ?? "",
+        )?.[1];
+        showTriageBar(
+          shellState,
+          "ended",
+          exitCode === undefined ? "Session ended" : `Session ended · exit ${exitCode}`,
+          "Back to Sessions",
+          returnToDirectory,
+        );
       }
       return;
     }
-    const banner = container.querySelector(".sh-banner")?.textContent?.toLowerCase() ?? "";
-    const reconnecting =
-      banner.includes("connecting") || banner.includes("joining") || banner.includes("reconnecting");
+    const reconnecting = state.phase !== "live";
     setConnectionState(connection, reconnecting ? "reconnecting" : "connected");
     if (reconnecting && !shellState.answerShown) {
       if (!shellState.reconnectingShown) {
@@ -911,16 +988,11 @@ function enterCollabClient(
       if (!shellState.answerShown) hideTriageBar(shellState);
     }
   };
-  if ("MutationObserver" in window) {
-    observer = new MutationObserver(updateConnection);
-    observer.observe(container, { childList: true, subtree: true, characterData: true });
-  }
 
   let disposeClient = (): void => undefined;
   const removeLifecycleListeners = (): void => {
     window.removeEventListener("pagehide", handlePageHide);
     window.removeEventListener("popstate", handlePopState);
-    observer?.disconnect();
   };
   const dispose = (): void => {
     hideTriageBar(shellState);
@@ -932,18 +1004,25 @@ function enterCollabClient(
   const handlePageHide = (): void => {
     dispose();
   };
-  const handlePopState = (): void => {
-    returnToDirectory();
+  const handlePopState = (event: PopStateEvent): void => {
+    returnToDirectory(event.state);
   };
   window.addEventListener("pagehide", handlePageHide);
   window.addEventListener("popstate", handlePopState);
   try {
-    disposeClient = startCollabWithCapability(container, capability, () => {
-      disposeClient = (): void => undefined;
-      removeLifecycleListeners();
-    });
+    disposeClient = startCollabWithCapability(
+      container,
+      capability,
+      () => {
+        disposeClient = (): void => undefined;
+        removeLifecycleListeners();
+      },
+      {
+        focusPendingRequest: requestId !== undefined,
+        onStateChange: updateConnection,
+      },
+    );
     disposeActiveCollab = dispose;
-    queueMicrotask(updateConnection);
   } catch (error) {
     dispose();
     returnToDirectory();
@@ -951,7 +1030,12 @@ function enterCollabClient(
   }
 }
 
-async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLButtonElement): Promise<void> {
+async function launch(
+  session: SessionMetadata,
+  mode: LaunchMode,
+  button?: HTMLButtonElement,
+  requestId?: string,
+): Promise<void> {
   const idleLabel = button?.textContent ?? (mode === "view" ? "View" : "Control");
   if (button !== undefined) {
     button.disabled = true;
@@ -998,7 +1082,11 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
     response = await fetch(`/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, generation: session.generation }),
+      body: JSON.stringify({
+        mode,
+        generation: session.generation,
+        ...(requestId === undefined ? {} : { requestId }),
+      }),
       cache: "no-store",
       credentials: "same-origin",
     });
@@ -1027,7 +1115,7 @@ async function launch(session: SessionMetadata, mode: LaunchMode, button?: HTMLB
       throw new Error("invalid launch response");
     }
     capability = payload.capability;
-    enterCollabClient(capability, startCollabWithCapability, session, mode);
+    enterCollabClient(capability, startCollabWithCapability, session, mode, requestId);
     capability = undefined;
   } catch {
     capability = undefined;
@@ -1217,7 +1305,7 @@ if (await refreshAndConnect()) {
       session.inputRequired &&
       session.canControl
     ) {
-      await launch(session, "control");
+      await launch(session, "control", undefined, pendingAttentionLaunch.requestId);
     } else {
       setStatus("expired", "That attention request was already resolved or the session changed.");
     }

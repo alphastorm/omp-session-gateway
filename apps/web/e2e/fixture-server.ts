@@ -21,9 +21,17 @@ export interface DashboardFixtureOptions {
   readonly roomKey?: Uint8Array;
 }
 
+export interface FixtureLaunchRequest {
+  readonly generation: number;
+  readonly instanceId: string;
+  readonly mode: "view" | "control";
+  readonly requestId?: string;
+}
+
 export interface DashboardFixture {
   readonly origin: string;
   readonly requests: readonly string[];
+  readonly launchRequests: readonly FixtureLaunchRequest[];
   disconnectEvents(): void;
   remove(instanceId: string, generation: number): void;
   setSnapshot(sessions: readonly SessionMetadata[], revision?: number): void;
@@ -39,6 +47,7 @@ export async function startDashboardFixture(
   const sessions = new Map(initialSessions.map(session => [session.instanceId, session]));
   const streams = new Set<ServerResponse>();
   const requests: string[] = [];
+  const launchRequests: FixtureLaunchRequest[] = [];
   let serviceWorkerVersion = 0;
   let revision = 1;
   const roomId = randomBytes(16).toString("base64url");
@@ -128,15 +137,29 @@ export async function startDashboardFixture(
         }
         const instanceId = decodeURIComponent(launchMatch[1] ?? "");
         const session = sessions.get(instanceId);
-        const parsed = JSON.parse(requestBody) as { generation?: unknown; mode?: unknown };
+        const parsed = JSON.parse(requestBody) as {
+          generation?: unknown;
+          mode?: unknown;
+          requestId?: unknown;
+        };
         if (
           session === undefined ||
           parsed.generation !== session.generation ||
-          (parsed.mode !== "view" && parsed.mode !== "control")
+          (parsed.mode !== "view" && parsed.mode !== "control") ||
+          (parsed.requestId !== undefined &&
+            (parsed.mode !== "control" ||
+              !session.inputRequired ||
+              session.ask?.requestId !== parsed.requestId))
         ) {
           response.writeHead(409).end("Expired");
           return;
         }
+        launchRequests.push({
+          instanceId,
+          generation: parsed.generation,
+          mode: parsed.mode,
+          ...(typeof parsed.requestId === "string" ? { requestId: parsed.requestId } : {}),
+        });
         response.writeHead(200, {
           "Cache-Control": "no-store, max-age=0",
           "Content-Type": "application/json; charset=utf-8",
@@ -209,6 +232,7 @@ export async function startDashboardFixture(
   return {
     origin: `http://127.0.0.1:${address.port}`,
     requests,
+    launchRequests,
     disconnectEvents(): void {
       for (const stream of streams) stream.end();
       streams.clear();

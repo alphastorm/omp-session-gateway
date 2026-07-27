@@ -30,11 +30,6 @@
             <h1 id="directory-title">Sessions</h1>
             <p id="directory-count" class="count-pill" hidden></p>
           </div>
-          <p class="lede">Live OMP sessions on this computer. View is read-only; Control can steer the session.</p>
-        </div>
-        <div class="masthead-actions">
-          <button id="notify" class="notify" type="button" data-state="checking" aria-haspopup="dialog" disabled>Checking background alerts…</button>
-          <p id="notify-note" class="notify-note">Alerts work with the app closed. Tapping one opens current Control after revalidation.</p>
         </div>
       </header>
       <div id="status-banner" class="status" data-kind="loading" role="status">Loading sessions…</div>
@@ -50,10 +45,10 @@
         <p>With <code>collab.autoStart</code> configured it appears here automatically — no link copy or <code>/collab</code> command is needed.</p>
       </section>
       <section id="session-list" class="session-list" aria-label="Live OMP sessions"></section>
-      <footer>
-        <span>Capabilities are requested only when you tap an action.</span>
-        <span>Community project; not affiliated with OMP.</span>
-      </footer>
+      <section class="home-alerts" aria-label="Background alerts">
+        <button id="notify" class="notify" type="button" data-state="checking" aria-haspopup="dialog" disabled>Checking background alerts…</button>
+        <p id="notify-note" class="notify-note" hidden>Alerts work with the app closed. Tapping one opens current Control after revalidation.</p>
+      </section>
     </main>
     <dialog id="notification-settings" class="notification-sheet" aria-labelledby="notification-settings-title">
       <div class="notification-sheet-handle" aria-hidden="true"></div>

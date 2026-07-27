@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
 import { startDashboardFixture } from "./fixture-server.ts";
 
@@ -36,6 +36,32 @@ function workingSession(index: number): SessionMetadata {
     instanceId: id,
     title: id,
     startedAt: `2026-07-21T${String(9 + index).padStart(2, "0")}:00:00.000Z`,
+  });
+}
+
+async function installSilentWebSocket(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: class {
+        static readonly CONNECTING = 0;
+        static readonly OPEN = 1;
+        static readonly CLOSING = 2;
+        static readonly CLOSED = 3;
+        readyState = 0;
+        binaryType = "blob";
+        onopen: ((event: Event) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+
+        close(): void {
+          this.readyState = 3;
+        }
+
+        send(): void {}
+      },
+    });
   });
 }
 
@@ -108,12 +134,20 @@ test("installed-PWA View and Control mount in the current window without losing 
     await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
     await expect(page.locator(".shell-control")).toBeVisible();
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", /^(connected|reconnecting)$/u);
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
+    await expect(page.locator(".triage-copy")).toHaveText("Reconnecting to relay… composer paused");
+    await expect(page.locator(".triage-action")).toHaveCount(0);
     const shellTargets = await page.locator(".shell-back, .shell-control").evaluateAll(elements =>
       elements.filter(element => !(element as HTMLElement).hidden).map(element => element.getBoundingClientRect().height),
     );
     expect(shellTargets.every(height => height >= 44)).toBe(true);
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests).toContain("POST /api/v1/sessions/standalone-launch-0001/launch");
+    expect(fixture.launchRequests[0]).toEqual({
+      instanceId: "standalone-launch-0001",
+      generation: 1,
+      mode: "view",
+    });
 
     await page.goBack();
     await expect(page).toHaveURL(`${fixture.origin}/`);
@@ -124,11 +158,20 @@ test("installed-PWA View and Control mount in the current window without losing 
         elements.map(element => (element as HTMLElement).dataset.instanceId),
       ),
     ).toEqual(directoryOrder);
+    const controlDirectoryScroll = await page.evaluate(() => window.scrollY);
 
-    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).click();
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
     await expect(page.locator(".shell-control")).toBeHidden();
+    expect(fixture.launchRequests[1]).toEqual({
+      instanceId: "standalone-launch-0001",
+      generation: 1,
+      mode: "control",
+      requestId: "standalone-request-0001",
+    });
     const next = {
       ...session(),
       instanceId: "next-attention-000001",
@@ -144,9 +187,27 @@ test("installed-PWA View and Control mount in the current window without losing 
     await expect(page.locator(".triage-action")).toHaveText("Next ask →");
     await page.locator(".triage-action").click();
     await expect(page.locator(".shell-title")).toHaveText("Next attention");
+    expect(fixture.launchRequests[2]).toEqual({
+      instanceId: "next-attention-000001",
+      generation: 1,
+      mode: "control",
+      requestId: "next-request-identity-0001",
+    });
     fixture.upsert(answeredSession(next));
-    await expect(page.locator(".triage-copy")).toContainText("✓ Answered — all clear");
+    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 14 working");
     await expect(page.locator(".triage-action")).toHaveText("Sessions");
+    await page.locator(".triage-action").click();
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect(page.locator(".all-clear-title")).toHaveText("All clear");
+    await expect(page.locator(".all-clear-copy")).toHaveText(
+      "Nothing needs you — 14 working. You'll get pinged.",
+    );
+    await expect(page.locator(".working-row")).toHaveCount(14);
+    await expect(page.locator("#notify")).toBeVisible();
+    const alertsAfterList = await page.evaluate(() =>
+      Boolean(document.querySelector("#session-list + .home-alerts")),
+    );
+    expect(alertsAfterList).toBe(true);
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests.filter(request => request.endsWith("/launch"))).toHaveLength(3);
 
@@ -160,10 +221,12 @@ test("installed-PWA View and Control mount in the current window without losing 
         return (await cache.keys()).map(request => request.url);
       }))).flat(),
     }));
-    expect(residue.url).toBe(`${fixture.origin}/client/`);
+    expect(residue.url).toBe(`${fixture.origin}/`);
     expect(residue.url).not.toContain("handoff");
     expect(residue.url).not.toContain("#");
-    expect(residue.historyState).toBe('{"ompCollab":true}');
+    expect(JSON.parse(residue.historyState)).toMatchObject({
+      ompDirectory: { scrollY: controlDirectoryScroll },
+    });
     expect(JSON.parse(residue.localStorage)).toEqual({ "omp.collab.name": "guest" });
     expect(residue.sessionStorage).toBe("{}");
     expect(residue.cacheUrls.every(url => !url.includes("/api/") && !url.includes("/client/"))).toBe(true);
@@ -197,6 +260,7 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
         readonly url: string;
         readyState = AskWebSocket.CONNECTING;
         binaryType: BinaryType = "arraybuffer";
+
         onopen: ((event: Event) => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;
         onerror: ((event: Event) => void) | null = null;
@@ -205,6 +269,7 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
 
         constructor(url: string) {
           this.url = url;
+          (globalThis as typeof globalThis & { __askSocket?: AskWebSocket }).__askSocket = this;
           queueMicrotask(() => {
             this.readyState = AskWebSocket.OPEN;
             this.onopen?.(new Event("open"));
@@ -219,6 +284,22 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
           if (this.sentWelcome) return;
           this.sentWelcome = true;
           void this.sendHostFrames();
+        }
+
+        async sendHostFrame(frame: unknown): Promise<void> {
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const ciphertext = new Uint8Array(
+            await crypto.subtle.encrypt(
+              { name: "AES-GCM", iv },
+              await key,
+              encoder.encode(JSON.stringify(frame)),
+            ),
+          );
+          const envelope = new Uint8Array(4 + iv.byteLength + ciphertext.byteLength);
+          new DataView(envelope.buffer).setUint32(0, 1, false);
+          envelope.set(iv, 4);
+          envelope.set(ciphertext, 4 + iv.byteLength);
+          this.onmessage?.(new MessageEvent("message", { data: envelope.buffer }));
         }
 
         async sendHostFrames(): Promise<void> {
@@ -274,17 +355,7 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
               },
             },
           ];
-          for (const frame of frames) {
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            const ciphertext = new Uint8Array(
-              await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await key, encoder.encode(JSON.stringify(frame))),
-            );
-            const envelope = new Uint8Array(4 + iv.byteLength + ciphertext.byteLength);
-            new DataView(envelope.buffer).setUint32(0, 1, false);
-            envelope.set(iv, 4);
-            envelope.set(ciphertext, 4 + iv.byteLength);
-            this.onmessage?.(new MessageEvent("message", { data: envelope.buffer }));
-          }
+          for (const frame of frames) await this.sendHostFrame(frame);
         }
       }
 
@@ -297,12 +368,93 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
     const recommended = page.locator(".sh-ask-option-recommended");
     await expect(recommended).toHaveText("Recommended");
     await expect(recommended).toHaveCount(1);
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".sh-ask-option").first()).toBeFocused();
+    await expect(page.locator(".sh-composer")).toHaveCount(1);
+    await expect(page.locator(".gateway-shell > .sh-composer")).toHaveCount(0);
     await expect(
       page.locator(".sh-ask-option").filter({ hasText: "Implement ADR-0036 locally" }).locator(".sh-ask-option-recommended"),
     ).toHaveText("Recommended");
     await expect(
       page.locator(".sh-ask-option").filter({ hasText: "Wait for upstream" }).locator(".sh-ask-option-recommended"),
     ).toHaveCount(0);
+    await page.evaluate(async () => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      await socket.sendHostFrame({ t: "bye", reason: "Session exited with code 0" });
+    });
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "offline");
+    await expect(page.locator(".conn-chip")).toHaveText("Offline");
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "ended");
+    await expect(page.locator(".triage-copy")).toHaveText("Session ended · exit 0");
+    await expect(page.locator(".triage-action")).toHaveText("Back to Sessions");
+    const inset = await page.evaluate(() => {
+      const composer = document.querySelector(".sh-composer")?.getBoundingClientRect();
+      const triage = document.querySelector(".triage-bar")?.getBoundingClientRect();
+      if (composer === undefined || triage === undefined) return undefined;
+      return { composerBottom: composer.bottom, triageTop: triage.top };
+    });
+    expect(inset).toBeDefined();
+    expect(inset?.composerBottom).toBeLessThanOrEqual(inset?.triageTop ?? 0);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout", async ({ page }) => {
+  const initial = session();
+  const fixture = await startDashboardFixture([initial]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await page.getByRole("button", { name: "Open request" }).click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    fixture.upsert(answeredSession(initial));
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await page.locator(".shell-bar").dispatchEvent("pointerdown", { pointerId: 1, clientY: 20 });
+    await expect(page.locator(".triage-bar")).toBeHidden();
+
+    await page.goBack();
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    const second = {
+      ...initial,
+      inputRequired: true,
+      ask: {
+        requestId: "standalone-request-0002",
+        since: "2026-07-21T10:00:02.000Z",
+      },
+    };
+    fixture.upsert(second);
+    await page.getByRole("button", { name: "Open request" }).click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    fixture.upsert(answeredSession(second));
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await page.locator(".triage-bar").dispatchEvent("pointerdown", { pointerId: 2, clientY: 80 });
+    await page.locator(".triage-bar").dispatchEvent("pointerup", { pointerId: 2, clientY: 20 });
+    await expect(page.locator(".triage-bar")).toBeHidden();
+
+    await page.goBack();
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    const third = {
+      ...initial,
+      inputRequired: true,
+      ask: {
+        requestId: "standalone-request-0003",
+        since: "2026-07-21T10:00:03.000Z",
+      },
+    };
+    fixture.upsert(third);
+    await page.getByRole("button", { name: "Open request" }).click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await page.clock.install();
+    fixture.upsert(answeredSession(third));
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await page.clock.fastForward(8_100);
+    await expect(page.locator(".triage-bar")).toBeHidden();
   } finally {
     await fixture.stop();
   }

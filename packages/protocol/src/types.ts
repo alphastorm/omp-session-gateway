@@ -182,6 +182,7 @@ export type AttentionPushMessage =
 export interface LaunchRequest {
   readonly mode: LaunchMode;
   readonly generation: number;
+  readonly requestId?: string;
 }
 
 export interface LaunchResponse {
