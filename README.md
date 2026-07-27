@@ -33,8 +33,9 @@ After installation and tailnet configuration:
 4. The Android PWA lists every live process within a few seconds. If anything is waiting it shows a
    FIFO **Needs you** queue; otherwise it shows **All clear** and the working sessions.
 5. **Open request** launches Control for the oldest ask; **View transcript instead** stays read-only.
-   The gateway shell reports relay state and, after an authoritative answer, offers the next ask or
-   returns to the exact directory order and scroll position.
+   The healthy gateway shell stays quiet, distinguishes gateway and relay interruptions when they
+   persist, and keeps each answer at `Sending…` until OMP acknowledges it. After an authoritative
+   answer, it offers the next ask or returns to the exact directory order and scroll position.
 6. An explicit dashboard action enables background Web Push alerts. Each device chooses Private,
    Session, or Preview detail. A tap revalidates the exact live request and opens Control through
    the ordinary no-store, in-memory launch path; no collaboration capability enters push or a URL.

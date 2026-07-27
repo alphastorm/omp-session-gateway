@@ -1,5 +1,11 @@
-const GATEWAY_PROBE_INTERVAL_MS = 5_000;
-const GATEWAY_PROBE_TIMEOUT_MS = 3_000;
+import type { PathHealth } from "./client";
+
+const HEALTHY_PROBE_INTERVAL_MS = 15_000;
+const DEGRADED_PROBE_INTERVAL_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
+const INITIAL_PROBE_TIMEOUT_MS = 3_000;
+const MIN_PROBE_TIMEOUT_MS = 1_500;
+const MAX_PROBE_TIMEOUT_MS = 5_000;
 const REFRESH_DEBOUNCE_MS = 500;
 
 interface RecoveryEventTarget {
@@ -21,6 +27,7 @@ export interface BrowserRecoveryEnvironment {
 	readonly document: RecoveryDocument;
 	readonly fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 	readonly now: () => number;
+	readonly random?: () => number;
 	readonly window: RecoveryWindow;
 }
 
@@ -29,33 +36,55 @@ function defaultEnvironment(): BrowserRecoveryEnvironment {
 	return {
 		connection,
 		document,
-		fetch,
+		fetch: (input, init) => window.fetch(input, init),
 		now: Date.now,
+		random: Math.random,
 		window,
 	};
 }
 
+const INITIAL_HEALTH: PathHealth = {
+	state: "checking",
+	rttMs: null,
+	lastSuccessAt: null,
+	failureSince: null,
+	retryAt: null,
+};
+
 /**
- * Refresh a potentially half-open relay transport after browser or radio path changes.
- * The same-origin probe contains no session data and only turns a detected outage into
- * one fresh relay connection when the gateway becomes reachable again.
+ * Measure the same-origin gateway path and refresh a potentially half-open
+ * relay transport after browser or radio path changes. Network APIs are only
+ * triggers; HTTP probe results are the source of truth.
  */
 export function installBrowserConnectionRecovery(
 	refreshConnection: () => void,
 	environment: BrowserRecoveryEnvironment = defaultEnvironment(),
+	onHealthChange: (health: PathHealth) => void = () => {},
+	remeasureRelay: () => void = refreshConnection,
+	setRelayProbesPaused: (paused: boolean) => void = () => {},
 ): () => void {
+	const isHidden = (): boolean => environment.document.visibilityState === "hidden";
 	let disposed = false;
-	let gatewayUnavailable = false;
-	let lastRefreshAt = 0;
+	let health = INITIAL_HEALTH;
+	let consecutiveFailures = 0;
+	let recoverySuccesses = 0;
+	let retryAttempt = 0;
+	let smoothedRtt: number | null = null;
+	let rttVariance: number | null = null;
+	let lastRefreshAt = Number.NEGATIVE_INFINITY;
 	let probeController: AbortController | undefined;
+	const supersededProbes = new WeakSet<AbortController>();
 	let probeInFlight = false;
 	let probeRequested = false;
+	let relayCheckRequested = false;
 	let probeTimer: number | undefined;
-	let wasHidden = environment.document.visibilityState === "hidden";
 
+	const publish = (next: PathHealth): void => {
+		health = next;
+		onHealthChange(next);
+	};
 	const clearProbeTimer = (): void => {
-		if (probeTimer === undefined) return;
-		environment.window.clearTimeout(probeTimer);
+		environment.window.clearTimeout(probeTimer as number);
 		probeTimer = undefined;
 	};
 	const refresh = (): void => {
@@ -64,20 +93,48 @@ export function installBrowserConnectionRecovery(
 		lastRefreshAt = now;
 		refreshConnection();
 	};
-	const scheduleProbe = (delay = GATEWAY_PROBE_INTERVAL_MS): void => {
+	const recordRtt = (rttMs: number): void => {
+		if (smoothedRtt === null || rttVariance === null) {
+			smoothedRtt = rttMs;
+			rttVariance = rttMs / 2;
+			return;
+		}
+		rttVariance = rttVariance * 0.75 + Math.abs(smoothedRtt - rttMs) * 0.25;
+		smoothedRtt = smoothedRtt * 0.875 + rttMs * 0.125;
+	};
+	const probeTimeout = (): number => {
+		if (smoothedRtt === null || rttVariance === null) return INITIAL_PROBE_TIMEOUT_MS;
+		return Math.min(MAX_PROBE_TIMEOUT_MS, Math.max(MIN_PROBE_TIMEOUT_MS, smoothedRtt + 4 * rttVariance));
+	};
+	const scheduleProbe = (delay: number, exposeRetry = false): void => {
 		clearProbeTimer();
-		if (disposed || environment.document.visibilityState === "hidden") return;
+		if (disposed || isHidden()) return;
+		if (exposeRetry) publish({ ...health, retryAt: environment.now() + delay });
 		probeTimer = environment.window.setTimeout(() => {
 			probeTimer = undefined;
 			void probeGateway();
 		}, delay);
 	};
+	const scheduleNextProbe = (): void => {
+		if (health.state === "healthy") {
+			scheduleProbe(HEALTHY_PROBE_INTERVAL_MS);
+			return;
+		}
+		if (health.state === "unreachable") {
+			const cap = Math.min(DEGRADED_PROBE_INTERVAL_MS * 2 ** retryAttempt, RETRY_MAX_MS);
+			retryAttempt++;
+			scheduleProbe(Math.floor((environment.random?.() ?? Math.random()) * cap), true);
+			return;
+		}
+		scheduleProbe(DEGRADED_PROBE_INTERVAL_MS);
+	};
 	const probeGateway = async (): Promise<void> => {
-		if (disposed || probeInFlight || environment.document.visibilityState === "hidden") return;
+		if (disposed || probeInFlight || isHidden()) return;
 		probeInFlight = true;
+		const startedAt = environment.now();
 		const controller = new AbortController();
 		probeController = controller;
-		const timeout = environment.window.setTimeout(() => controller.abort(), GATEWAY_PROBE_TIMEOUT_MS);
+		const timeout = environment.window.setTimeout(() => controller.abort(), probeTimeout());
 		let healthy = false;
 		try {
 			const response = await environment.fetch("/api/v1/health", {
@@ -93,21 +150,63 @@ export function installBrowserConnectionRecovery(
 			if (probeController === controller) probeController = undefined;
 			probeInFlight = false;
 		}
-		if (disposed) return;
+		if (disposed || isHidden()) return;
+		if (supersededProbes.has(controller)) {
+			const runImmediately = probeRequested;
+			probeRequested = false;
+			if (runImmediately) scheduleProbe(0);
+			else scheduleNextProbe();
+			return;
+		}
+		const now = environment.now();
 		if (healthy) {
-			if (gatewayUnavailable) {
-				gatewayUnavailable = false;
+			const shouldRemeasureRelay = relayCheckRequested;
+			recordRtt(Math.max(0, now - startedAt));
+			consecutiveFailures = 0;
+			retryAttempt = 0;
+			const recovering = health.state === "degraded" || health.state === "unreachable" || health.failureSince !== null;
+			if (recovering && recoverySuccesses === 0) {
+				recoverySuccesses = 1;
 				refresh();
+				publish({
+					...health,
+					state: "checking",
+					rttMs: Math.round(smoothedRtt ?? 0),
+					lastSuccessAt: now,
+					retryAt: null,
+				});
+			} else {
+				recoverySuccesses = 0;
+				if (shouldRemeasureRelay) {
+					relayCheckRequested = false;
+					setRelayProbesPaused(false);
+				}
+				publish({
+					state: "healthy",
+					rttMs: Math.round(smoothedRtt ?? 0),
+					lastSuccessAt: now,
+					failureSince: null,
+					retryAt: null,
+				});
+				if (shouldRemeasureRelay) remeasureRelay();
 			}
 		} else {
-			gatewayUnavailable = true;
+			recoverySuccesses = 0;
+			consecutiveFailures++;
+			publish({
+				...health,
+				state: consecutiveFailures >= 2 ? "unreachable" : "degraded",
+				failureSince: health.failureSince ?? now,
+				retryAt: null,
+			});
 		}
 		const runImmediately = probeRequested;
 		probeRequested = false;
-		scheduleProbe(runImmediately ? 0 : GATEWAY_PROBE_INTERVAL_MS);
+		if (runImmediately) scheduleProbe(0);
+		else scheduleNextProbe();
 	};
 	const requestProbe = (): void => {
-		gatewayUnavailable = true;
+		relayCheckRequested = true;
 		clearProbeTimer();
 		if (probeInFlight) {
 			probeRequested = true;
@@ -116,28 +215,21 @@ export function installBrowserConnectionRecovery(
 		void probeGateway();
 	};
 	const visibilityChanged: EventListener = () => {
-		if (environment.document.visibilityState === "hidden") {
-			wasHidden = true;
+		if (isHidden()) {
+			setRelayProbesPaused(true);
 			clearProbeTimer();
+			if (probeController !== undefined) supersededProbes.add(probeController);
 			probeController?.abort();
 			return;
 		}
-		if (wasHidden) {
-			wasHidden = false;
-			refresh();
-		}
 		requestProbe();
 	};
-	const pageShown: EventListener = event => {
-		if ((event as PageTransitionEvent).persisted) refresh();
-		requestProbe();
-	};
+	const pageShown: EventListener = () => requestProbe();
 	const online: EventListener = () => requestProbe();
 	const offline: EventListener = () => {
-		gatewayUnavailable = true;
-		probeRequested = false;
-		clearProbeTimer();
+		if (probeController !== undefined) supersededProbes.add(probeController);
 		probeController?.abort();
+		requestProbe();
 	};
 	const connectionChanged: EventListener = () => requestProbe();
 
@@ -146,12 +238,15 @@ export function installBrowserConnectionRecovery(
 	environment.window.addEventListener("pageshow", pageShown);
 	environment.document.addEventListener("visibilitychange", visibilityChanged);
 	environment.connection?.addEventListener("change", connectionChanged);
+	setRelayProbesPaused(isHidden());
+	onHealthChange(health);
 	scheduleProbe(0);
 
 	return () => {
 		disposed = true;
 		clearProbeTimer();
 		probeController?.abort();
+		setRelayProbesPaused(true);
 		environment.window.removeEventListener("online", online);
 		environment.window.removeEventListener("offline", offline);
 		environment.window.removeEventListener("pageshow", pageShown);

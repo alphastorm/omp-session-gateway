@@ -24,6 +24,7 @@ const FATAL_CLOSE_REASONS: Record<number, string> = {
 
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
+const SOCKET_CONNECT_TIMEOUT_MS = 10_000;
 const MAX_ROOM_RECOVERY_RETRIES = 6;
 /** Max enveloped frames buffered while a reconnect is pending; overflow is dropped. */
 const MAX_PENDING_SENDS = 256;
@@ -36,17 +37,23 @@ export interface CollabSocketOptions {
 	key: CryptoKey | PromiseLike<CryptoKey>;
 }
 
+export type GatewayGuestFrame = GuestFrame | { t: "gateway-health-ping"; seq: number };
+export type GatewayHostFrame = HostFrame | { t: "gateway-health-pong"; seq: number };
+
 export class CollabSocket {
 	/** Fires after every successful (re)connect. */
 	onOpen?: () => void;
-	onFrame?: (frame: HostFrame, fromPeer: number) => void;
+	onFrame?: (frame: GatewayHostFrame, fromPeer: number) => void;
 	onControl?: (msg: RelayControlMessage) => void;
+	/** Fires when a transient close schedules its next transport attempt. */
+	onRetryScheduled?: (retryAt: number, delay: number, attempt: number) => void;
 	/** Fires once per terminal close (intentional, fatal code, or bad key). willReconnect=true for transient drops that will retry. */
 	onClose?: (reason: string, willReconnect: boolean) => void;
 
 	readonly #opts: CollabSocketOptions;
 	#ws: WebSocket | null = null;
 	#retryTimer: Timer | undefined;
+	#connectTimer: Timer | undefined;
 	#attempt = 0;
 	/** Terminal state: intentional close or fatal failure. Cleared by connect(). */
 	#closed = false;
@@ -90,7 +97,7 @@ export class CollabSocket {
 		this.#openSocket();
 	}
 
-	send(frame: GuestFrame, targetPeer = 0): void {
+	send(frame: GatewayGuestFrame, targetPeer = 0): void {
 		const generation = this.#sendGeneration;
 		const isHello = frame.t === "hello";
 		this.#sendChain = this.#sendChain
@@ -121,6 +128,7 @@ export class CollabSocket {
 	close(): void {
 		const hadActivity = this.#ws !== null || this.#retryTimer !== undefined;
 		this.#clearRetry();
+		this.#clearConnectTimeout();
 		const wasClosed = this.#closed;
 		this.#closed = true;
 		this.#resetSendsForNewTransport();
@@ -137,14 +145,14 @@ export class CollabSocket {
 	}
 
 	/**
-	 * Replace a potentially stale transport without ending the logical guest.
-	 * Mobile browsers may suspend a page without delivering a WebSocket close
-	 * event, so foreground/online lifecycle events must be able to force a
-	 * fresh relay connection.
+	 * Replace a transport after a measured path failure without ending the
+	 * logical guest. Each replacement handshake is independently bounded so a
+	 * blackholed CONNECTING socket returns to the jittered retry state machine.
 	 */
 	reconnect(): void {
 		if (this.#closed) return;
 		this.#clearRetry();
+		this.#clearConnectTimeout();
 		this.#resetSendsForNewTransport();
 		const ws = this.#ws;
 		this.#ws = null;
@@ -163,8 +171,20 @@ export class CollabSocket {
 		const ws = new WebSocket(`${this.#opts.wsUrl}?role=${this.#opts.role}`);
 		ws.binaryType = "arraybuffer";
 		this.#ws = ws;
+		this.#connectTimer = setTimeout(() => {
+			this.#connectTimer = undefined;
+			if (this.#ws !== ws || ws.readyState !== WebSocket.CONNECTING) return;
+			this.#ws = null;
+			try {
+				ws.close(1000);
+			} catch {
+				// The stale transport is already unusable; continue through retry.
+			}
+			this.#handleClose(1006, "relay connection timed out");
+		}, SOCKET_CONNECT_TIMEOUT_MS);
 		ws.onopen = () => {
 			if (this.#ws !== ws) return;
+			this.#clearConnectTimeout();
 			this.#attempt = 0;
 			this.#awaitingHello = this.#opts.role === "guest";
 			if (!this.#awaitingHello) this.#flushPending(ws);
@@ -179,6 +199,7 @@ export class CollabSocket {
 		};
 		ws.onclose = (event: CloseEvent) => {
 			if (this.#ws !== ws) return;
+			this.#clearConnectTimeout();
 			this.#ws = null;
 			this.#handleClose(event.code, event.reason);
 		};
@@ -206,9 +227,9 @@ export class CollabSocket {
 		this.#recvChain = this.#recvChain
 			.then(async () => {
 				if (this.#ws !== ws) return;
-				let frame: HostFrame;
+				let frame: GatewayHostFrame;
 				try {
-					frame = (await open(await this.#opts.key, envelope.payload)) as HostFrame;
+					frame = (await open(await this.#opts.key, envelope.payload)) as GatewayHostFrame;
 				} catch {
 					this.#failFatal("bad key or corrupted frame");
 					return;
@@ -255,6 +276,7 @@ export class CollabSocket {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#clearRetry();
+		this.#clearConnectTimeout();
 		this.#pendingSends.length = 0;
 		const ws = this.#ws;
 		this.#ws = null;
@@ -269,8 +291,9 @@ export class CollabSocket {
 	}
 
 	#scheduleRetry(attempt: number): void {
-		const base = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
-		const delay = base * (0.75 + Math.random() * 0.5);
+		const cap = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
+		const delay = Math.floor(Math.random() * cap);
+		this.onRetryScheduled?.(Date.now() + delay, delay, attempt + 1);
 		this.#retryTimer = setTimeout(() => {
 			this.#retryTimer = undefined;
 			if (this.#closed) return;
@@ -289,6 +312,13 @@ export class CollabSocket {
 		this.#sendChain = Promise.resolve();
 		this.#pendingSends.length = 0;
 		this.#awaitingHello = false;
+	}
+
+	#clearConnectTimeout(): void {
+		if (this.#connectTimer !== undefined) {
+			clearTimeout(this.#connectTimer);
+			this.#connectTimer = undefined;
+		}
 	}
 
 	#clearRetry(): void {

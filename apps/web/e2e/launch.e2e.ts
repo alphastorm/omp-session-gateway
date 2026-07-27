@@ -254,6 +254,10 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       };
       const key = crypto.subtle.importKey("raw", new Uint8Array(keyBytes), "AES-GCM", false, ["encrypt"]);
       const encoder = new TextEncoder();
+      let holdConnections = false;
+      let holdNextSnapshot = true;
+      let resumeSnapshot: (() => void) | undefined;
+      Math.random = () => 0.5;
 
       class AskWebSocket {
         static readonly CONNECTING = 0;
@@ -269,11 +273,17 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
         sentWelcome = false;
+        hostFramesSent = false;
 
         constructor(url: string) {
           this.url = url;
           (globalThis as typeof globalThis & { __askSocket?: AskWebSocket }).__askSocket = this;
           queueMicrotask(() => {
+            if (holdConnections) {
+              this.readyState = AskWebSocket.CLOSED;
+              this.onclose?.(new CloseEvent("close", { code: 1006, reason: "relay unavailable" }));
+              return;
+            }
             this.readyState = AskWebSocket.OPEN;
             this.onopen?.(new Event("open"));
           });
@@ -286,6 +296,25 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
         transientClose(): void {
           this.readyState = AskWebSocket.CLOSED;
           this.onclose?.(new CloseEvent("close", { code: 1006, reason: "network changed" }));
+        }
+
+        holdSnapshotAndClose(): void {
+          holdNextSnapshot = true;
+          this.transientClose();
+        }
+
+        releaseSnapshot(): void {
+          resumeSnapshot?.();
+          resumeSnapshot = undefined;
+        }
+
+        holdAndClose(): void {
+          holdConnections = true;
+          this.transientClose();
+        }
+
+        allowRecovery(): void {
+          holdConnections = false;
         }
 
         send(): void {
@@ -355,6 +384,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
               readOnly: false,
             },
             { t: "snapshot-chunk", entries: [assistantEntry], final: true },
+            { t: "gateway-health-pong", seq: 0 },
             {
               t: "event",
               event: { type: "tool_execution_start", toolCallId: "ask-active", toolName: "ask", args },
@@ -371,22 +401,56 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
               },
             },
           ];
-          for (const frame of frames) await this.sendHostFrame(frame);
+          for (const frame of frames) {
+            await this.sendHostFrame(frame);
+            if (frame === frames[0] && holdNextSnapshot) {
+              holdNextSnapshot = false;
+              await new Promise<void>(resolve => {
+                resumeSnapshot = resolve;
+              });
+            }
+          }
+          this.hostFramesSent = true;
         }
       }
 
       Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: AskWebSocket });
     }, { keyBytes: [...roomKey] });
 
+    let initialHealthFailures = 0;
+    await page.route("**/api/v1/health", route => {
+      initialHealthFailures += 1;
+      return route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+    });
+
     await page.goto(fixture.origin);
     await page.getByRole("button", { name: "Open request" }).click();
+    await expect.poll(() => initialHealthFailures, { timeout: 4_000 }).toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { releaseSnapshot(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.releaseSnapshot();
+    });
+    await expect(page.locator(".conn-chip")).toHaveText("Reconnecting…");
+    await expect(page.locator(".sh-ask-option").first()).toBeFocused();
+    await page.unroute("**/api/v1/health");
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected", { timeout: 5_000 });
+
 
     const recommended = page.locator(".sh-ask-option-recommended");
     await expect(recommended).toHaveText("Recommended");
     await expect(recommended).toHaveCount(1);
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected");
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-compact", "true");
+    await expect(page.locator(".conn-chip")).toHaveText("Connected");
+    await expect(page.locator(".conn-chip")).toHaveCSS("font-size", "0px");
+    await expect(page.locator(".conn-chip")).toHaveAttribute("aria-label", "Connected");
+    await expect(page.locator(".conn-chip")).toHaveAttribute("role", "status");
+    await expect(page.locator(".conn-chip")).toHaveAttribute("aria-live", "polite");
     await expect(page.locator(".triage-bar")).toBeHidden();
-    await expect(page.locator(".sh-ask-option").first()).toBeFocused();
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".gateway-shell > .sh-composer")).toHaveCount(0);
     await expect(page.locator(".sh-header, .sh-rail, .sh-rail-backdrop")).toHaveCount(0);
@@ -406,23 +470,111 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     ).toHaveCount(0);
     await page.evaluate(() => {
       const socket = (globalThis as typeof globalThis & {
-        __askSocket?: { transientClose(): void };
+        __askSocket?: { holdSnapshotAndClose(): void };
       }).__askSocket;
       if (socket === undefined) throw new Error("missing ask socket");
-      socket.transientClose();
+      socket.holdSnapshotAndClose();
     });
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "reconnecting");
-    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
-    await expect(page.locator(".triage-copy")).toHaveText("Reconnecting to relay… composer paused");
+    await expect(page.locator(".conn-chip")).toHaveText("Reconnecting…");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".conn-chip")).toHaveText("Connected");
+    await page.waitForTimeout(3_200);
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { releaseSnapshot(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.releaseSnapshot();
+    });
+    await expect(page.locator(".sh-ask-option").first()).toBeVisible();
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-compact", "true");
+
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { holdAndClose(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.holdAndClose();
+    });
+    await expect(page.locator(".conn-chip")).toHaveText("Reconnecting…");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".conn-chip")).toHaveText("Relay unavailable", { timeout: 5_000 });
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
+    await expect(page.locator(".triage-copy")).toContainText("Relay unavailable — retrying");
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { allowRecovery(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.allowRecovery();
+    });
+    await expect(page.locator(".conn-chip")).toHaveText("Connected", { timeout: 5_000 });
     await expect(page.locator(".triage-bar")).toBeHidden();
     await page.locator(".sh-ask-option").nth(1).click();
     await expect(page.locator(".sh-ask-option").first()).not.toHaveClass(/sh-ask-option-checked/u);
     await expect(page.locator(".sh-ask-option").nth(1)).toHaveClass(/sh-ask-option-checked/u);
     await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(1);
-    await page.locator(".sh-ask-send").click();
+    const immediateTriage = await page.locator(".sh-ask-send").evaluate(button => {
+      (button as HTMLButtonElement).click();
+      const triage = document.querySelector<HTMLElement>(".triage-bar");
+      return {
+        kind: triage?.dataset.kind,
+        copy: triage?.querySelector<HTMLElement>(".triage-copy")?.textContent,
+      };
+    });
+    expect(immediateTriage).toEqual({ kind: "sending", copy: "Sending…" });
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(1);
+    await expect(page.locator(".sh-ask-kicker")).toHaveText("Sending…");
+    await expect(page.locator(".sh-ask-send")).toHaveText("Sending…");
+    await expect(page.locator(".sh-ask-send")).toBeDisabled();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "sending");
+    await expect(page.locator(".triage-copy")).toHaveText("Sending…");
+    fixture.upsert(answeredSession(session()));
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "sending");
+    await expect(page.locator(".triage-copy")).toHaveText("Sending…");
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(1);
+    await page.evaluate(async () => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      await socket.sendHostFrame({ t: "ui-request-end", reqId: 7 });
+    });
     await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(0);
     await expect(page.locator(".sh-composer")).toHaveCount(1);
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 1 working");
+    await page.route("**/api/v1/health", route =>
+      route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+    );
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { holdAndClose(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.holdAndClose();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.locator(".conn-chip")).toHaveText("Gateway unavailable", { timeout: 5_000 });
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await page.unroute("**/api/v1/health");
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.locator(".conn-chip")).toHaveText("Relay unavailable", { timeout: 7_000 });
+    await page.locator(".shell-title").click();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
+    await expect(page.locator(".triage-copy")).toContainText("Relay unavailable — retrying");
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { allowRecovery(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.allowRecovery();
+    });
+    await expect(page.locator(".conn-chip")).toHaveText("Connected", { timeout: 5_000 });
+    await expect(page.locator(".triage-bar")).toBeHidden();
     await page.evaluate(async () => {
       const socket = (globalThis as typeof globalThis & {
         __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
@@ -431,11 +583,93 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       await socket.sendHostFrame({ t: "bye", reason: "Session exited with code 0" });
     });
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "offline");
-    await expect(page.locator(".conn-chip")).toHaveText("Offline");
+    await expect(page.locator(".conn-chip")).toHaveText("Ended");
     await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "ended");
-    await expect(page.locator(".triage-copy")).toHaveText("Session ended · exit 0");
+    await expect(page.locator(".triage-copy")).toHaveText("Mac/session ended · exit 0");
     await expect(page.locator(".triage-action")).toHaveText("Back to Sessions");
     await expect(page.locator(".sh-ended")).toHaveCount(0);
+    const healthRequestsAtEnd = fixture.requests.filter(request => request === "GET /api/v1/health").length;
+    await page.locator(".triage-action").evaluate(element => {
+      element.setAttribute("data-terminal-action", "original");
+      (element as HTMLElement).focus();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await page.waitForTimeout(100);
+    expect(fixture.requests.filter(request => request === "GET /api/v1/health")).toHaveLength(healthRequestsAtEnd);
+    await expect(page.locator('[data-terminal-action="original"]')).toBeFocused();
+
+    await page.locator(".triage-action").click();
+    await expect(page).toHaveURL(fixture.origin + "/");
+    await page.evaluate(async () => {
+      const moduleUrl = performance
+        .getEntriesByType("resource")
+        .map(entry => entry.name)
+        .find(name => /\/assets\/collab-client\.[a-f0-9]+\.js$/u.test(name));
+      if (moduleUrl === undefined) throw new Error("missing collab client module URL");
+      const response = await fetch("/api/v1/sessions/standalone-launch-0001/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "control", generation: 1 }),
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      const payload = await response.json() as { capability?: unknown };
+      if (typeof payload.capability !== "string") throw new Error("missing standalone capability");
+      // The hashed build URL is runtime-selected; this test intentionally exercises that module boundary.
+      const collab = await import(moduleUrl) as {
+        startCollabWithCapability(
+          container: HTMLElement,
+          capability: string,
+          onDispose: () => void,
+        ): () => void;
+      };
+      const container = document.createElement("div");
+      container.id = "standalone-collab";
+      document.body.replaceChildren(container);
+      const dispose = collab.startCollabWithCapability(container, payload.capability, () => undefined);
+      (globalThis as typeof globalThis & { __disposeStandalone?: () => void }).__disposeStandalone = dispose;
+    });
+    await expect(page.locator(".sh-ask-option")).toHaveCount(2);
+    await page.locator(".sh-ask-option").nth(1).click();
+    await expect(page.locator(".sh-ask-option").nth(1)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".sh-ask-option").nth(1)).toBeDisabled();
+    await expect(page.locator(".sh-ask-kicker")).toHaveText("Sending…");
+    await expect(page.locator(".sh-ask-kicker")).toHaveAttribute("role", "status");
+    await expect(page.locator(".sh-ask-kicker")).toHaveAttribute("aria-live", "polite");
+    await page.evaluate(() => {
+      const globals = globalThis as typeof globalThis & {
+        __askSocket?: { transientClose(): void };
+        __previousAskSocket?: object;
+      };
+      const socket = globals.__askSocket;
+      if (socket === undefined) throw new Error("missing standalone socket");
+      globals.__previousAskSocket = socket;
+      socket.transientClose();
+    });
+    await expect.poll(() => page.evaluate(() => {
+      const globals = globalThis as typeof globalThis & {
+        __askSocket?: { hostFramesSent: boolean };
+        __previousAskSocket?: object;
+      };
+      return globals.__askSocket !== undefined &&
+        globals.__askSocket !== globals.__previousAskSocket &&
+        globals.__askSocket.hostFramesSent;
+    }), { timeout: 5_000 }).toBe(true);
+    await expect(page.locator(".sh-ask-kicker")).toHaveText("Sending…");
+    await expect(page.locator(".sh-ask-option").nth(1)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".sh-ask-option").nth(1)).toBeDisabled();
+    await page.evaluate(async () => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing standalone socket");
+      await socket.sendHostFrame({ t: "ui-request-end", reqId: 7 });
+    });
+    await expect(page.locator(".sh-ask-kicker")).toHaveCount(0);
+    await expect(page.locator(".sh-composer-ask")).toHaveCount(0);
+    await page.evaluate(() => {
+      (globalThis as typeof globalThis & { __disposeStandalone?: () => void }).__disposeStandalone?.();
+    });
   } finally {
     await fixture.stop();
   }
@@ -449,6 +683,25 @@ test("direct client navigation returns to the session directory without legacy b
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator("#session-list")).toBeVisible();
     await expect(page.locator(".co-connect, .gateway-shell, .sh-ended")).toHaveCount(0);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("answer feedback dismisses from the keyboard with Escape", async ({ page }) => {
+  const initial = session();
+  const fixture = await startDashboardFixture([initial]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await page.getByRole("button", { name: "Open request" }).click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    fixture.upsert(answeredSession(initial));
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    await page.locator(".shell-back").focus();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".triage-bar")).toBeHidden();
   } finally {
     await fixture.stop();
   }

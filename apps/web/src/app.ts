@@ -11,17 +11,12 @@ import {
   type SessionMetadata,
   type PushDetailLevel,
 } from "@omp-session-gateway/protocol";
-interface CollabEmbedState {
-  readonly phase: "connecting" | "waiting" | "live" | "reconnecting" | "ended";
-  readonly endedReason: string | null;
-  readonly requestPending: boolean;
-}
+import type {
+  CollabEmbedOptions,
+  CollabEmbedState,
+} from "../../../packages/collab-client/upstream/src/embed-contract";
 
-interface CollabEmbedOptions {
-  readonly focusPendingRequest?: boolean;
-  readonly shellOwnsLifecycle?: boolean;
-  readonly onStateChange?: (state: CollabEmbedState) => void;
-}
+type PathHealth = CollabEmbedState["gatewayHealth"];
 
 type StartCollabWithCapability = (
   container: HTMLElement,
@@ -65,6 +60,8 @@ const EVENT_LIVENESS_TIMEOUT_MS = 12_000;
 const SNAPSHOT_TIMEOUT_MS = 4_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 4_000;
+const CONNECTION_EXTENDED_MS = 3_000;
+const CONNECTION_RECOVERED_MS = 1_800;
 
 const sessions = new Map<string, SessionMetadata>();
 let events: EventSource | undefined;
@@ -122,7 +119,15 @@ interface ActiveCollabShell {
   readonly triageBar: HTMLElement;
   readonly shell: HTMLElement;
   answerShown: boolean;
+  answerTriageVisible: boolean;
   triageTimeout?: number;
+  hasBeenLive: boolean;
+  latestEmbedState?: CollabEmbedState;
+  outagePath?: "gateway" | "relay";
+  interruptionStartedAt?: number;
+  connectionDelayTimeout?: number;
+  connectionTickTimeout?: number;
+  recoveredTimeout?: number;
 }
 
 let dashboardSnapshot: DashboardSnapshot | undefined;
@@ -401,7 +406,7 @@ if (location.pathname === "/update/" || location.pathname === "/client/") {
 const pendingAttentionLaunch = readPendingAttentionLaunch();
 let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
-type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "relay" | "unauthorized" | "expired" | "loading";
+type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "gateway" | "unauthorized" | "expired" | "loading";
 
 function setStatus(kind: StatusKind, message: string): void {
   statusBanner.dataset.kind = kind;
@@ -429,7 +434,7 @@ function parseDirectoryHistoryState(value: unknown): DirectoryHistoryState | und
   return { order: [...record.order], scrollY: record.scrollY };
 }
 
-function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay"): void {
+function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "gateway"): void {
   directoryRevision = -1;
   render();
   const asOf =
@@ -449,8 +454,8 @@ function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "relay")
       "Desktop unreachable",
       `Tailnet looks fine, but the desktop isn't answering — asleep, or the gateway stopped. Last seen ${asOf}.`,
     ],
-    relay: [
-      "Reconnecting to relay…",
+    gateway: [
+      "Gateway unavailable",
       `Live updates paused; showing the list as of ${asOf}. Reconnects automatically.`,
     ],
   };
@@ -494,7 +499,8 @@ function clearReconnectTimeout(): void {
 function scheduleReconnect(): void {
   if (authorizationDenied || reconnectTimeout !== undefined) return;
   const exponent = Math.min(reconnectAttempt, 2);
-  const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+  const cap = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+  const delay = Math.floor(Math.random() * cap);
   reconnectAttempt = Math.min(reconnectAttempt + 1, 2);
   reconnectTimeout = window.setTimeout(() => {
     reconnectTimeout = undefined;
@@ -508,7 +514,7 @@ function failEventStream(source: EventSource, epoch: number): void {
   events = undefined;
   clearEventLiveness();
   eventStreamStale = true;
-  showTransportFailure(navigator.onLine === false ? "offline" : "relay");
+  showTransportFailure(navigator.onLine === false ? "offline" : "gateway");
   scheduleReconnect();
 }
 
@@ -741,36 +747,47 @@ function render(): void {
   renderAllClear(working);
 }
 
-function setConnectionState(chip: HTMLElement, state: "connected" | "reconnecting" | "offline"): void {
+function setConnectionState(
+  chip: HTMLElement,
+  state: "connected" | "reconnecting" | "offline",
+  copy?: string,
+): void {
+  const label = copy ?? (state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "Offline");
   chip.dataset.state = state;
-  chip.textContent =
-    state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "Offline";
+  chip.dataset.compact = state === "connected" && copy === undefined ? "true" : "false";
+  chip.textContent = label;
+  chip.setAttribute("aria-label", label);
+  chip.title = label;
 }
 
 function sessionEndedCopy(reason: string | null): string {
   const exitCode = reason?.match(/\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s+(-?\d+)\b/iu)?.[1];
-  return exitCode === undefined ? "Session ended" : `Session ended · exit ${exitCode}`;
+  return exitCode === undefined ? "Mac/session ended" : `Mac/session ended · exit ${exitCode}`;
 }
 
-function hideTriageBar(shell: ActiveCollabShell): void {
+function hideTriageBar(shell: ActiveCollabShell, rerenderConnection = true): void {
+  const hidAnswerTriage = shell.answerTriageVisible;
   if (shell.triageTimeout !== undefined) {
     window.clearTimeout(shell.triageTimeout);
     delete shell.triageTimeout;
   }
+  shell.answerTriageVisible = false;
   shell.triageBar.hidden = true;
   delete shell.triageBar.dataset.dismissible;
   delete shell.shell.dataset.triageVisible;
+  if (hidAnswerTriage && rerenderConnection) renderConnectionState(shell);
 }
 
 function showTriageBar(
   shell: ActiveCollabShell,
-  kind: "next" | "clear" | "reconnecting" | "ended",
+  kind: "next" | "clear" | "sending" | "reconnecting" | "ended",
   copy: string,
   actionLabel?: string,
   action?: () => void,
 ): void {
-  hideTriageBar(shell);
+  hideTriageBar(shell, false);
   shell.triageBar.dataset.kind = kind;
+  shell.answerTriageVisible = kind === "next" || kind === "clear";
   const message = createTextElement("span", "triage-copy", copy);
   if (actionLabel !== undefined && action !== undefined) {
     const button = document.createElement("button");
@@ -787,6 +804,133 @@ function showTriageBar(
   if (kind === "next" || kind === "clear") {
     shell.triageBar.dataset.dismissible = "true";
     shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
+  }
+}
+
+function clearConnectionTimers(shell: ActiveCollabShell): void {
+  if (shell.connectionDelayTimeout !== undefined) {
+    window.clearTimeout(shell.connectionDelayTimeout);
+    delete shell.connectionDelayTimeout;
+  }
+  if (shell.connectionTickTimeout !== undefined) {
+    window.clearTimeout(shell.connectionTickTimeout);
+    delete shell.connectionTickTimeout;
+  }
+  if (shell.recoveredTimeout !== undefined) {
+    window.clearTimeout(shell.recoveredTimeout);
+    delete shell.recoveredTimeout;
+  }
+}
+
+function pathInterrupted(health: PathHealth): boolean {
+  return (
+    health.state === "degraded" ||
+    health.state === "unreachable" ||
+    (health.state === "checking" && health.failureSince !== null)
+  );
+}
+
+function retryingCopy(path: "gateway" | "relay", state: CollabEmbedState): string {
+  const label = path === "gateway" ? "Gateway unavailable" : "Relay unavailable";
+  const retryAt = path === "gateway" ? state.gatewayHealth.retryAt : state.relayHealth.retryAt;
+  if (retryAt === null) return `${label} — retrying…`;
+  const seconds = Math.max(0, Math.ceil((retryAt - Date.now()) / 1_000));
+  return seconds > 0 ? `${label} — retrying in ${seconds}s` : `${label} — retrying…`;
+}
+
+function scheduleConnectionRender(shell: ActiveCollabShell, delay: number, kind: "delay" | "tick"): void {
+  const existing = kind === "delay" ? shell.connectionDelayTimeout : shell.connectionTickTimeout;
+  if (existing !== undefined) window.clearTimeout(existing);
+  const timeout = window.setTimeout(() => {
+    if (kind === "delay") delete shell.connectionDelayTimeout;
+    else delete shell.connectionTickTimeout;
+    renderConnectionState(shell);
+  }, delay);
+  if (kind === "delay") shell.connectionDelayTimeout = timeout;
+  else shell.connectionTickTimeout = timeout;
+}
+
+function renderConnectionState(shell: ActiveCollabShell): void {
+  const state = shell.latestEmbedState;
+  if (state === undefined || activeCollabShell !== shell) return;
+
+  if (state.phase === "ended") {
+    clearConnectionTimers(shell);
+    shell.answerShown = true;
+    setConnectionState(shell.connectionChip, "offline", "Ended");
+    showTriageBar(
+      shell,
+      "ended",
+      sessionEndedCopy(state.endedReason),
+      "Back to Sessions",
+      returnToDirectory,
+    );
+    return;
+  }
+
+  const live = state.phase === "live";
+  if (!shell.hasBeenLive) {
+    if (!live) {
+      setConnectionState(shell.connectionChip, "reconnecting", "Connecting…");
+      return;
+    }
+    shell.hasBeenLive = true;
+  }
+
+  const gatewayInterrupted = pathInterrupted(state.gatewayHealth);
+  const relayInterrupted = pathInterrupted(state.relayHealth);
+  if (gatewayInterrupted || relayInterrupted) {
+    if (shell.recoveredTimeout !== undefined) {
+      window.clearTimeout(shell.recoveredTimeout);
+      delete shell.recoveredTimeout;
+    }
+    shell.interruptionStartedAt ??= Date.now();
+    shell.outagePath = gatewayInterrupted ? "gateway" : "relay";
+    const elapsed = Date.now() - shell.interruptionStartedAt;
+    if (elapsed < CONNECTION_EXTENDED_MS) {
+      setConnectionState(shell.connectionChip, "reconnecting", "Reconnecting…");
+      if (state.responsePending && !shell.answerTriageVisible) showTriageBar(shell, "sending", "Sending…");
+      else if (shell.triageBar.dataset.kind === "reconnecting" || shell.triageBar.dataset.kind === "sending") {
+        hideTriageBar(shell);
+      }
+      scheduleConnectionRender(shell, CONNECTION_EXTENDED_MS - elapsed, "delay");
+      return;
+    }
+    const path = shell.outagePath ?? "relay";
+    const copy = retryingCopy(path, state);
+    setConnectionState(shell.connectionChip, "reconnecting", path === "gateway" ? "Gateway unavailable" : "Relay unavailable");
+    if (state.responsePending && !shell.answerTriageVisible) showTriageBar(shell, "sending", "Sending…");
+    else if (!shell.answerTriageVisible) showTriageBar(shell, "reconnecting", copy);
+    scheduleConnectionRender(shell, 1_000, "tick");
+    return;
+  }
+
+  const recovered = shell.interruptionStartedAt !== undefined;
+  if (shell.connectionDelayTimeout !== undefined) {
+    window.clearTimeout(shell.connectionDelayTimeout);
+    delete shell.connectionDelayTimeout;
+  }
+  if (shell.connectionTickTimeout !== undefined) {
+    window.clearTimeout(shell.connectionTickTimeout);
+    delete shell.connectionTickTimeout;
+  }
+  delete shell.interruptionStartedAt;
+  delete shell.outagePath;
+  if (recovered) {
+    window.clearTimeout(shell.recoveredTimeout);
+    setConnectionState(shell.connectionChip, "connected", "Connected");
+    shell.recoveredTimeout = window.setTimeout(() => {
+      delete shell.recoveredTimeout;
+      if (activeCollabShell === shell && shell.latestEmbedState?.phase === "live") {
+        setConnectionState(shell.connectionChip, "connected");
+      }
+    }, CONNECTION_RECOVERED_MS);
+  } else if (shell.recoveredTimeout === undefined) {
+    setConnectionState(shell.connectionChip, "connected");
+  }
+  if (state.responsePending && !shell.answerTriageVisible) showTriageBar(shell, "sending", "Sending…");
+  else if (shell.triageBar.dataset.kind === "reconnecting" || shell.triageBar.dataset.kind === "sending") {
+    hideTriageBar(shell);
   }
 }
 
@@ -812,12 +956,20 @@ function returnToDirectory(historyValue?: unknown): void {
 
 function reconcileActiveCollabShell(): void {
   const shell = activeCollabShell;
-  if (shell === undefined || shell.answerShown || !directoryLoaded) return;
+  if (
+    shell === undefined ||
+    shell.answerShown ||
+    !directoryLoaded ||
+    shell.latestEmbedState?.responsePending === true
+  ) {
+    return;
+  }
   const current = sessions.get(shell.instanceId);
   if (current === undefined || current.generation !== shell.generation) {
     shell.answerShown = true;
-    setConnectionState(shell.connectionChip, "offline");
-    showTriageBar(shell, "ended", "Session ended", "Back to Sessions", returnToDirectory);
+    clearConnectionTimers(shell);
+    setConnectionState(shell.connectionChip, "offline", "Ended");
+    showTriageBar(shell, "ended", "Mac/session ended", "Back to Sessions", returnToDirectory);
     return;
   }
   if (shell.openedRequestId === undefined || current.ask?.requestId === shell.openedRequestId) return;
@@ -906,8 +1058,11 @@ function enterCollabClient(
     const current = sessions.get(session.instanceId) ?? session;
     void launch(current, "control", control, current.ask?.requestId);
   });
-  const connection = createTextElement("span", "conn-chip", "Reconnecting…");
-  connection.dataset.state = "reconnecting";
+  const connection = createTextElement("span", "conn-chip", "Connecting…");
+  setConnectionState(connection, "reconnecting", "Connecting…");
+  connection.setAttribute("role", "status");
+  connection.setAttribute("aria-live", "polite");
+  connection.setAttribute("aria-atomic", "true");
   const shellActions = document.createElement("span");
   shellActions.className = "shell-actions";
   shellActions.append(control, connection);
@@ -928,6 +1083,12 @@ function enterCollabClient(
       event.target !== null &&
       !triageBar.contains(event.target as Node)
     ) {
+      hideTriageBar(activeCollabShell ?? shellState);
+    }
+  });
+  shell.addEventListener("keydown", event => {
+    if (event.key === "Escape" && triageBar.dataset.dismissible === "true") {
+      event.preventDefault();
       hideTriageBar(activeCollabShell ?? shellState);
     }
   });
@@ -965,28 +1126,15 @@ function enterCollabClient(
     triageBar,
     shell,
     answerShown: false,
+    answerTriageVisible: false,
+    hasBeenLive: false,
   };
   activeCollabShell = shellState;
 
   const updateConnection = (state: CollabEmbedState): void => {
-    if (state.phase === "ended") {
-      setConnectionState(connection, "offline");
-      showTriageBar(
-        shellState,
-        "ended",
-        sessionEndedCopy(state.endedReason),
-        "Back to Sessions",
-        returnToDirectory,
-      );
-      return;
-    }
-    if (state.phase === "reconnecting") {
-      setConnectionState(connection, "reconnecting");
-      showTriageBar(shellState, "reconnecting", "Reconnecting to relay… composer paused");
-      return;
-    }
-    setConnectionState(connection, state.phase === "live" ? "connected" : "reconnecting");
-    if (triageBar.dataset.kind === "reconnecting") hideTriageBar(shellState);
+    shellState.latestEmbedState = state;
+    renderConnectionState(shellState);
+    reconcileActiveCollabShell();
   };
 
   let disposeClient = (): void => undefined;
@@ -995,7 +1143,8 @@ function enterCollabClient(
     window.removeEventListener("popstate", handlePopState);
   };
   const dispose = (): void => {
-    hideTriageBar(shellState);
+    hideTriageBar(shellState, false);
+    clearConnectionTimers(shellState);
     removeLifecycleListeners();
     disposeClient();
     disposeClient = (): void => undefined;
@@ -1015,6 +1164,7 @@ function enterCollabClient(
       capability,
       () => {
         disposeClient = (): void => undefined;
+        clearConnectionTimers(shellState);
         removeLifecycleListeners();
       },
       {
