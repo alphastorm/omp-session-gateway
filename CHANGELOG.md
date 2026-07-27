@@ -4,6 +4,31 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [0.1.0-prealpha.13] - 2026-07-26
+
+### Fixed
+
+- Match the approved Couch Flow 3d client body: remove the embedded client's competing header and
+  agent rail, keep one transcript/composer, and render the active Ask as the native input card with
+  numbered radio rows, explicit selection, recommendation badge, and green `Send` action.
+- Complete all four shell triage states. Answer feedback remains dismissible; relay reconnection
+  and clean session end now remain visible below the composer with exact copy, status markers, and
+  the specified return action.
+- Center the shell title independently of its left/right controls and keep every top-bar target,
+  composer inset, and bottom safe-area boundary intact at both approved Android viewports.
+
+### Security
+
+- Keep the collaboration capability confined to the pinned client's in-memory bootstrap while the
+  gateway shell receives lifecycle state only; no capability enters shell markup, URLs, history,
+  storage, caches, or diagnostics.
+
+### Testing
+
+- Exercise embedded Ask selection/submission, recommendation ownership, transient relay recovery,
+  clean ended-session feedback, absent duplicate chrome, and non-overlapping composer/triage
+  geometry at 390×844 and 412×915.
+
 ## [0.1.0-prealpha.12] - 2026-07-26
 
 ### Fixed

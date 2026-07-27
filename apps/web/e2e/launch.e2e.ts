@@ -238,7 +238,7 @@ test("installed-PWA View and Control mount in the current window without losing 
   }
 });
 
-test("active ask marks only the explicit recommended option", async ({ page }) => {
+test("embedded active ask matches the original 3d shell interaction", async ({ page }) => {
   const roomKey = new Uint8Array(32).fill(37);
   const fixture = await startDashboardFixture([session()], { roomKey });
 
@@ -281,6 +281,11 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
 
         close(): void {
           this.readyState = AskWebSocket.CLOSED;
+        }
+
+        transientClose(): void {
+          this.readyState = AskWebSocket.CLOSED;
+          this.onclose?.(new CloseEvent("close", { code: 1006, reason: "network changed" }));
         }
 
         send(): void {
@@ -337,7 +342,15 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
                 cwd: "/test",
                 participants: [{ name: "host", role: "host" }],
               },
-              agents: [],
+              agents: [{
+                id: "subagent-browser-smoke",
+                displayName: "scout",
+                kind: "sub",
+                status: "parked",
+                hasSessionFile: true,
+                createdAt: 1,
+                lastActivity: 1,
+              }],
               entryCount: 1,
               readOnly: false,
             },
@@ -376,15 +389,40 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
     await expect(page.locator(".sh-ask-option").first()).toBeFocused();
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".gateway-shell > .sh-composer")).toHaveCount(0);
-    await expect(page.locator(".sh-header")).toHaveCount(1);
+    await expect(page.locator(".sh-header, .sh-rail, .sh-rail-backdrop")).toHaveCount(0);
     await expect(page.locator(".sh-transcript")).toHaveCount(1);
-    await expect(page.locator(".sh-btn-stop")).toHaveCount(1);
+    await expect(page.locator(".sh-btn-stop, .sh-ended, .sh-banner")).toHaveCount(0);
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(1);
+    await expect(page.locator(".sh-ask-kicker")).toHaveText("input required");
+    await expect(page.locator(".sh-ask-option").first()).toHaveClass(/sh-ask-option-checked/u);
+    await expect(page.locator(".sh-ask-option-label").first()).toContainText("1 · Implement ADR-0036 locally");
+    await expect(page.locator(".sh-ask-send")).toHaveText("Send");
+    await expect(page.locator(".sh-ask-send")).toHaveCSS("background-color", "rgb(49, 196, 141)");
     await expect(
       page.locator(".sh-ask-option").filter({ hasText: "Implement ADR-0036 locally" }).locator(".sh-ask-option-recommended"),
     ).toHaveText("Recommended");
     await expect(
       page.locator(".sh-ask-option").filter({ hasText: "Wait for upstream" }).locator(".sh-ask-option-recommended"),
     ).toHaveCount(0);
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { transientClose(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.transientClose();
+    });
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "reconnecting");
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
+    await expect(page.locator(".triage-copy")).toHaveText("Reconnecting to relay… composer paused");
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await page.locator(".sh-ask-option").nth(1).click();
+    await expect(page.locator(".sh-ask-option").first()).not.toHaveClass(/sh-ask-option-checked/u);
+    await expect(page.locator(".sh-ask-option").nth(1)).toHaveClass(/sh-ask-option-checked/u);
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(1);
+    await page.locator(".sh-ask-send").click();
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(0);
+    await expect(page.locator(".sh-composer")).toHaveCount(1);
     await page.evaluate(async () => {
       const socket = (globalThis as typeof globalThis & {
         __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
@@ -394,7 +432,9 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
     });
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "offline");
     await expect(page.locator(".conn-chip")).toHaveText("Offline");
-    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "ended");
+    await expect(page.locator(".triage-copy")).toHaveText("Session ended · exit 0");
+    await expect(page.locator(".triage-action")).toHaveText("Back to Sessions");
     await expect(page.locator(".sh-ended")).toHaveCount(0);
   } finally {
     await fixture.stop();

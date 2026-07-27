@@ -187,6 +187,7 @@ interface SessionProps {
 
 function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): ReactNode {
 	const snap = useGuestSnapshot(client);
+	const embedded = embedOptions?.shellOwnsLifecycle === true;
 	const [railOpen, setRailOpen] = useState(false);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const autoOpenedRef = useRef(false);
@@ -232,13 +233,14 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 		[agentIds],
 	);
 
-	// Auto-open the rail the first time a subagent appears.
+	// The gateway shell is the complete mobile chrome. Its embedded client keeps
+	// agent drill-downs from transcript cards, but never opens a competing rail.
 	useEffect(() => {
-		if (subCount > 0 && !autoOpenedRef.current) {
+		if (!embedded && subCount > 0 && !autoOpenedRef.current) {
 			autoOpenedRef.current = true;
 			setRailOpen(true);
 		}
-	}, [subCount]);
+	}, [embedded, subCount]);
 
 	const title = snap.header?.title ?? snap.state?.sessionName ?? "session";
 	useEffect(() => {
@@ -248,28 +250,51 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 	const drawerAgent = selectedId != null ? snap.agents.find(a => a.id === selectedId) : undefined;
 
 	return (
-		<div className="sh-app">
-			<HeaderBar
-				snapshot={snap}
-				subCount={subCount}
-				railOpen={railOpen}
-				onToggleRail={() => setRailOpen(open => !open)}
-				onLeave={onLeave}
-			/>
+		<div className="sh-app" data-embedded={embedded ? "true" : undefined}>
+			{!embedded && (
+				<HeaderBar
+					snapshot={snap}
+					subCount={subCount}
+					railOpen={railOpen}
+					onToggleRail={() => setRailOpen(open => !open)}
+					onLeave={onLeave}
+				/>
+			)}
 			<main className="sh-main">
-				<section className="sh-content" data-rail={railOpen ? "true" : "false"}>
-					<div className="sh-transcript">
-						<Transcript
-							entries={snap.entries}
-							stream={snap.stream}
-							streamDone={snap.streamDone}
-							activeTools={snap.activeTools}
-							working={snap.working}
-							host={toolHost}
-						/>
-					</div>
+				<section
+					className="sh-content"
+					data-rail={!embedded && railOpen ? "true" : "false"}
+					data-embedded-ask={embedded && snap.uiRequest !== null ? "true" : "false"}
+				>
+					{embedded && snap.uiRequest !== null ? (
+						<div className="sh-embedded-body">
+							<div className="sh-transcript">
+								<Transcript
+									entries={snap.entries}
+									stream={snap.stream}
+									streamDone={snap.streamDone}
+									activeTools={snap.activeTools}
+									working={snap.working}
+									host={toolHost}
+									suppressAskTool
+								/>
+							</div>
+							<Composer client={client} snapshot={snap} embedded />
+						</div>
+					) : (
+						<div className="sh-transcript">
+							<Transcript
+								entries={snap.entries}
+								stream={snap.stream}
+								streamDone={snap.streamDone}
+								activeTools={snap.activeTools}
+								working={snap.working}
+								host={toolHost}
+							/>
+						</div>
+					)}
 				</section>
-				{railOpen && (
+				{!embedded && railOpen && (
 					<>
 						<div className="sh-rail-backdrop" onClick={() => setRailOpen(false)} />
 						<aside className="sh-rail">
@@ -284,7 +309,9 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 					</>
 				)}
 			</main>
-			<Composer client={client} snapshot={snap} />
+			{(!embedded || snap.uiRequest === null) && (
+				<Composer client={client} snapshot={snap} embedded={embedded} />
+			)}
 			{drawerAgent && (
 				<>
 					<div className="ag-drawer-backdrop" onClick={() => setSelectedId(null)} />
@@ -298,7 +325,7 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 					/>
 				</>
 			)}
-			{embedOptions?.shellOwnsLifecycle !== true && (
+			{!embedded && (
 				<Banners phase={snap.phase} endedReason={snap.endedReason} onRejoin={onRejoin} onNewLink={onLeave} />
 			)}
 			<Toasts notices={snap.notices} />

@@ -48,6 +48,23 @@
 	--shadow-overlay: 0 12px 32px oklch(0 0 0 / 45%), 0 2px 8px oklch(0 0 0 / 30%);
 	--rail-mobile-shadow: -4px 0 16px oklch(0 0 0 / 30%);
 	--backdrop: oklch(0.1 0.014 307 / 62%);
+
+	/* Gateway embedded mode — exact OMP Sessions palette from the approved handoff. */
+	--gateway-ground: #060809;
+	--gateway-raised: #0b0e11;
+	--gateway-surface: #0e1319;
+	--gateway-border-subtle: #161c22;
+	--gateway-border: #1c232b;
+	--gateway-border-strong: #232b34;
+	--gateway-ink: #e8ecef;
+	--gateway-body: #b6bec7;
+	--gateway-muted: #8a939d;
+	--gateway-faint: #5f6870;
+	--gateway-live: #31c48d;
+	--gateway-live-bright: #5fd9a9;
+	--gateway-control: #c99b45;
+	--gateway-danger: #c85045;
+	--gateway-live-ink: #06110c;
 }
 
 /* Light theme — explicit override (toggle writes data-theme="light"). */

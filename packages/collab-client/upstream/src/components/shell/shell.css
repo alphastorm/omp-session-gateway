@@ -13,6 +13,28 @@
 	height: var(--viewport-height, 100%);
 }
 
+.sh-app[data-embedded="true"] {
+	grid-template-rows: minmax(0, 1fr) auto;
+	--bg: var(--gateway-ground);
+	--bg-raised: var(--gateway-raised);
+	--bg-inset: var(--gateway-ground);
+	--bg-overlay: var(--gateway-surface);
+	--fg: var(--gateway-ink);
+	--fg-muted: var(--gateway-body);
+	--fg-faint: var(--gateway-faint);
+	--accent: var(--gateway-live);
+	--accent-fg: var(--gateway-live-ink);
+	--accent-muted: color-mix(in srgb, var(--gateway-live) 8%, transparent);
+	--ok: var(--gateway-live);
+	--warn: var(--gateway-control);
+	--err: var(--gateway-danger);
+	--border: var(--gateway-border-subtle);
+	--border-strong: var(--gateway-border-strong);
+	--ring: var(--gateway-live);
+	background: var(--bg);
+	color: var(--fg);
+}
+
 .sh-main {
 	display: flex;
 	min-height: 0;
@@ -43,6 +65,35 @@
 .sh-transcript > * {
 	flex: 1;
 	min-height: 0;
+}
+
+.sh-content[data-embedded-ask="true"] {
+	display: block;
+	overflow-y: auto;
+}
+
+.sh-embedded-body {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+	max-width: 880px;
+	min-height: 100%;
+	margin: 0 auto;
+	padding: 16px;
+}
+
+.sh-embedded-body > .sh-transcript {
+	flex: none;
+	height: auto;
+	max-height: min(28dvh, 13rem);
+	max-width: none;
+	overflow: hidden;
+}
+
+.sh-embedded-body > .sh-transcript .tr-root {
+	height: auto;
+	max-height: min(28dvh, 13rem);
 }
 
 .sh-rail {
@@ -351,6 +402,95 @@
 .sh-composer-ask {
 	display: grid;
 	gap: 8px;
+}
+
+.sh-composer-ask-embedded {
+	gap: 12px;
+	margin-top: 6px;
+	padding: 16px;
+	padding-bottom: 16px;
+	border: 1px solid var(--gateway-border-strong);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--gateway-surface) 78%, var(--gateway-ground));
+}
+
+.sh-ask-kicker {
+	font: 500 10px / 1.4 var(--font-mono);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--gateway-control);
+}
+
+.sh-composer-ask-embedded .sh-ask-title,
+.sh-composer-ask-embedded .sh-ask-options {
+	width: 100%;
+	max-width: none;
+	margin: 0;
+}
+
+.sh-composer-ask-embedded .sh-ask-title {
+	font-size: 15px;
+	line-height: 1.5;
+}
+
+.sh-composer-ask-embedded .sh-ask-options {
+	gap: 8px;
+}
+
+.sh-composer-ask-embedded .sh-ask-option {
+	align-items: center;
+	min-height: 44px;
+	padding: 8px 12px;
+	border-color: var(--gateway-border-strong);
+	border-radius: 8px;
+	background: transparent;
+}
+
+.sh-composer-ask-embedded .sh-ask-option-checked {
+	border-color: var(--gateway-live);
+	background: color-mix(in srgb, var(--gateway-live) 5%, transparent);
+}
+
+.sh-composer-ask-embedded .sh-ask-option-label {
+	font-size: 14px;
+	font-weight: 400;
+}
+
+.sh-composer-ask-embedded .sh-ask-option-marker {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	flex: none;
+	border: 1px solid var(--gateway-muted);
+	border-radius: 50%;
+	color: transparent;
+}
+
+.sh-composer-ask-embedded .sh-ask-option-checked .sh-ask-option-marker {
+	border-color: var(--gateway-live);
+}
+
+.sh-ask-option-marker-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--gateway-live);
+}
+
+.sh-composer-ask-embedded .sh-ask-option-description {
+	color: var(--gateway-muted);
+}
+
+.sh-ask-send {
+	justify-content: center;
+	width: 100%;
+	min-height: 48px;
+	border: 0;
+	border-radius: 8px;
+	font-size: 15px;
+	font-weight: 600;
 }
 
 .sh-ask-title {
