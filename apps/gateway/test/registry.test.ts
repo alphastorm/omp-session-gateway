@@ -80,6 +80,12 @@ describe("SessionRegistry", () => {
     });
     expect(registry.snapshot().sessions[0]?.ask?.requestId).toBe("attention-request-000002");
     expect(
+      registry.lookupCapability("registry-instance-0001", 1, "control", "attention-request-000001"),
+    ).toMatchObject({ status: "request_mismatch" });
+    expect(
+      registry.lookupCapability("registry-instance-0001", 1, "control", "attention-request-000002"),
+    ).toMatchObject({ status: "ok" });
+    expect(
       events.map(event => [
         event.revision,
         event.type === "session_upsert" ? event.session.inputRequired : undefined,

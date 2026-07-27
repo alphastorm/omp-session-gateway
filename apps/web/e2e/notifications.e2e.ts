@@ -151,12 +151,51 @@ test("attention cards and explicit background alert settings stay metadata-only"
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
     expect(directoryTargets.every(height => height >= 44)).toBe(true);
 
+    for (let count = 1; count <= 6; count += 1) {
+      const waiting = Array.from({ length: count }, (_, index) =>
+        session(`responsive-attention-${String(index + 1).padStart(4, "0")}`, {
+          inputRequired: true,
+          lastSeenAt: `2026-07-21T10:00:${String(index + 2).padStart(2, "0")}.000Z`,
+        }),
+      );
+      fixture.setSnapshot([...waiting, ordinary]);
+      await expect(page.locator("#directory-count")).toHaveText(`${count} waiting`);
+      await expect(page.locator(".queue-hero")).toHaveCount(1);
+      await expect(page.locator(".queue-row")).toHaveCount(count - 1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const targets = await page
+        .locator(".action-request, .hero-alt, .queue-row, .working-row")
+        .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
+      expect(targets.every(height => height >= 44)).toBe(true);
+    }
+
+    fixture.setSnapshot([ordinary]);
+    await expect(page.locator("#directory-title")).toHaveText("Sessions");
+    await expect(page.locator("#directory-count")).toHaveText("Live · 1");
+    await expect(page.locator(".all-clear-title")).toHaveText("All clear");
+    await expect(page.locator(".all-clear-copy")).toHaveText(
+      "Nothing needs you — 1 working. You'll get pinged.",
+    );
+    await expect(page.locator(".working-row")).toHaveCount(1);
+    await expect(page.locator(".lede, .site-footer")).toHaveCount(0);
+    expect(await page.evaluate(() => Boolean(document.querySelector("#session-list + .home-alerts")))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const allClearDot = await page.locator(".all-clear-dot").evaluate(element => {
+      const style = getComputedStyle(element);
+      return {
+        height: element.getBoundingClientRect().height,
+        shadow: style.boxShadow,
+        width: element.getBoundingClientRect().width,
+      };
+    });
+    expect(allClearDot.height).toBeGreaterThan(0);
+    expect(allClearDot.width).toBe(allClearDot.height);
+    expect(allClearDot.shadow).not.toBe("none");
+
     await page.evaluate(async () => navigator.serviceWorker.ready);
     await page.reload();
     await expect(page.locator("#notify")).toHaveText("Enable background alerts");
-    await expect(page.locator("#notify-note")).toHaveText(
-      "Alerts work with the app closed. Tapping one opens current Control after revalidation.",
-    );
+    await expect(page.locator("#notify-note")).toBeHidden();
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
 
     await page.locator("#notify").click();
