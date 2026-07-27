@@ -1,9 +1,11 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "./app";
+import { App, type CollabEmbedOptions } from "./app";
 import "./styles/tokens.css";
 import "./styles/base.css";
 
+
+export type { CollabEmbedOptions, CollabEmbedState } from "./app";
 let activeRoot: Root | undefined;
 let activeDispose: (() => void) | undefined;
 
@@ -11,6 +13,7 @@ export function startCollabWithCapability(
 	container: HTMLElement,
 	capability: string,
 	onDispose: () => void,
+	options: CollabEmbedOptions = {},
 ): () => void {
 	if (activeRoot !== undefined) throw new Error("collaboration client already started");
 	const root = createRoot(container);
@@ -32,6 +35,7 @@ export function startCollabWithCapability(
 			dispose();
 			onDispose();
 		},
+		embedOptions: options,
 	}));
 	return dispose;
 }

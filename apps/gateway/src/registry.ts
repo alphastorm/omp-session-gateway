@@ -33,7 +33,8 @@ export type UpsertResult = "inserted" | "updated" | "ignored_older";
 export type LaunchLookup =
   | { readonly status: "ok"; readonly capability: SecretCapability }
   | { readonly status: "missing" }
-  | { readonly status: "generation_mismatch" };
+  | { readonly status: "generation_mismatch" }
+  | { readonly status: "request_mismatch" };
 
 const systemClock: RegistryClock = {
   monotonicNowMs: () => performance.now(),
@@ -155,13 +156,21 @@ export class SessionRegistry {
     return owned.length;
   }
 
-  lookupCapability(instanceId: string, generation: number, mode: LaunchMode): LaunchLookup {
+  lookupCapability(instanceId: string, generation: number, mode: LaunchMode, requestId?: string): LaunchLookup {
     this.sweepExpired();
     const metadata = this.#metadata.get(instanceId);
     const secret = this.#secrets.get(instanceId);
     if (metadata === undefined || secret === undefined) return { status: "missing" };
     if (metadata.metadata.generation !== generation || secret.generation !== generation) {
       return { status: "generation_mismatch" };
+    }
+    if (
+      requestId !== undefined &&
+      (mode !== "control" ||
+        !metadata.metadata.inputRequired ||
+        metadata.metadata.ask?.requestId !== requestId)
+    ) {
+      return { status: "request_mismatch" };
     }
     const capability = mode === "view" ? secret.view : secret.control;
     return capability === undefined ? { status: "missing" } : { status: "ok", capability };

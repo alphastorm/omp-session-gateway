@@ -124,21 +124,16 @@ h1 {
   line-height: 1;
 }
 
-.lede {
-  max-width: 34rem;
-  margin-bottom: 0;
-  color: var(--muted);
-  font-size: 0.92rem;
-  line-height: 1.55;
-}
 
 
-.masthead-actions {
-  flex: none;
+.home-alerts {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.6rem;
+  gap: 0.45rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .notify {
@@ -150,6 +145,7 @@ h1 {
   background: none;
   font-weight: 500;
   cursor: pointer;
+  font-size: 0.78rem;
 }
 
 .notify:hover:not(:disabled),
@@ -172,7 +168,7 @@ h1 {
 
 .notify-note {
   margin: 0;
-  max-width: 15rem;
+  max-width: 21rem;
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: 0.66rem;
@@ -211,6 +207,11 @@ h1 {
 
 .status-detail {
   color: var(--body);
+}
+
+.status-freshness {
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .status-action {
@@ -458,17 +459,6 @@ code {
   font-size: 0.85em;
 }
 
-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-top: auto;
-  padding-top: 2rem;
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  line-height: 1.5;
-}
 
 @media (max-width: 38rem) {
   main {
@@ -479,31 +469,6 @@ footer {
     display: block;
   }
 
-  .masthead-actions {
-    margin-top: 1.1rem;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: stretch;
-  }
-
-  .refresh {
-    flex: 1 1 7rem;
-  }
-
-  .notify {
-    flex: 1.6 1 11rem;
-  }
-
-  .notify-note {
-    width: 100%;
-    max-width: none;
-    text-align: left;
-  }
-
-  footer {
-    flex-direction: column;
-    gap: 0.2rem;
-  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -580,18 +545,6 @@ main {
   background: var(--control);
 }
 
-.masthead-actions {
-  margin-top: 1.1rem;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: stretch;
-}
-
-.masthead-actions .notify-note {
-  width: 100%;
-  max-width: none;
-  text-align: left;
-}
 
 .session-list,
 .session-list.queue,
@@ -812,6 +765,11 @@ body.collab-shell-active {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.gateway-shell > #root .sh-app {
+  height: 100%;
+  min-height: 0;
 }
 
 .shell-bar {

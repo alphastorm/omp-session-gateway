@@ -576,6 +576,30 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.notificationDisclosure.textContent).toBe(
       "Alerts work with the app closed. Tapping one opens current Control after revalidation.",
     );
+    expect(harness.elements.notificationDisclosure.hidden).toBeTrue();
+  });
+
+  test("renders the exact all-clear resting state", async () => {
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "all-clear",
+      initialSessions: [
+        session("working-session-0001", { startedAt: "2026-07-21T10:00:00.000Z" }),
+        session("working-session-0002", { startedAt: "2026-07-21T11:00:00.000Z" }),
+      ],
+    });
+
+    expect(harness.elements.directoryTitle.textContent).toBe("Sessions");
+    expect(harness.elements.directoryCount.textContent).toBe("Live · 2");
+    expect(harness.elements.sessionList.querySelector(".all-clear-title")?.textContent).toBe("All clear");
+    expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe(
+      "Nothing needs you — 2 working. You'll get pinged.",
+    );
+    expect(
+      harness.elements.sessionList
+        .querySelectorAll(".working-row")
+        .map(row => row.querySelector(".row-title")?.textContent),
+    ).toEqual(["working-session-0002", "working-session-0001"]);
   });
 
   test("scrubs stale notification routes and keeps their expired state visible", async () => {
@@ -666,7 +690,10 @@ describe("dashboard attention and notifications", () => {
     expect(tailnet.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
       "Tailnet unreachable",
     );
-    expect(tailnet.elements.statusBanner.querySelector(".status-detail")?.textContent).toContain(
+    expect(tailnet.elements.statusBanner.querySelector(".status-detail")?.textContent).toBe(
+      "Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone.",
+    );
+    expect(tailnet.elements.statusBanner.querySelector(".status-freshness")?.textContent).toContain(
       "Last seen",
     );
     expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);

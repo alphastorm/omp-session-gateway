@@ -70,11 +70,12 @@ function launchRequest(
   generation = 3,
   mode: "view" | "control" = "view",
   instanceId = "http-instance-000001",
+  requestId?: string,
 ): Request {
   return request(`/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`, {
     method: "POST",
     headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, generation }),
+    body: JSON.stringify({ mode, generation, ...(requestId === undefined ? {} : { requestId }) }),
   });
 }
 
@@ -216,6 +217,29 @@ describe("HTTP boundary", () => {
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(payload.capability).toBe(viewCapability);
     expect(JSON.stringify(payload)).not.toContain(controlCapability);
+  });
+
+  test("revalidates request-bound control launches at capability release", async () => {
+    const requestIds = ["http-request-id-000001", "http-request-id-000002"];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      requestIdFactory: () => requestIds.shift() ?? "http-request-id-fallback",
+    });
+    registry.upsert("owner", publishedSession("http-instance-000001", true));
+    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets });
+
+    expect((await handler(launchRequest(3, "control", "http-instance-000001", "http-request-id-000001"), peer)).status).toBe(200);
+    registry.upsert("owner", publishedSession("http-instance-000001", false));
+    registry.upsert("owner", publishedSession("http-instance-000001", true));
+    const stale = await handler(
+      launchRequest(3, "control", "http-instance-000001", "http-request-id-000001"),
+      peer,
+    );
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "request_mismatch" });
+    expect((await handler(launchRequest(3, "control", "http-instance-000001", "http-request-id-000002"), peer)).status).toBe(200);
+    expect((await handler(launchRequest(3, "view", "http-instance-000001", "http-request-id-000002"), peer)).status).toBe(400);
   });
 
   test("launches a valid encoded colon-bearing instance ID", async () => {

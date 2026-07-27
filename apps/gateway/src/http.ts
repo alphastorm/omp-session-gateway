@@ -331,9 +331,17 @@ export function createHttpHandler(options: {
       if (!limiter.allow(`${authorization.identityKey}\0${instanceId}`)) {
         return problem(429, "rate_limited", "Too many requests");
       }
-      const lookup = registry.lookupCapability(instanceId, launchRequest.generation, launchRequest.mode);
+      const lookup = registry.lookupCapability(
+        instanceId,
+        launchRequest.generation,
+        launchRequest.mode,
+        launchRequest.requestId,
+      );
       if (lookup.status === "generation_mismatch") {
         return problem(409, "generation_mismatch", "Session changed; refresh and try again");
+      }
+      if (lookup.status === "request_mismatch") {
+        return problem(409, "request_mismatch", "Request changed; refresh and try again");
       }
       if (lookup.status === "missing") return problem(404, "not_found", "Session unavailable");
       const response = Response.json({
