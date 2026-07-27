@@ -395,15 +395,21 @@ describe("HTTP boundary", () => {
     }
   });
 
-  test("rejects query-bearing assets and no-stores the validated client bootstrap", async () => {
+  test("rejects query-bearing assets and maps every client route to the PWA shell", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const rejected = await handler(request(`/assets/app.0123456789ab.js?token=${viewCapability}`), peer);
     expect(rejected.status).toBe(400);
     expect(rejected.headers.get("Cache-Control")).toContain("no-store");
 
-    const bootstrap = await handler(request("/client/?handoff=7a2cadc8-c634-4a4e-9045-bc7001a034a7"), peer);
-    expect(bootstrap.status).toBe(200);
-    expect(bootstrap.headers.get("Cache-Control")).toContain("no-store");
+    for (const clientPath of [
+      "/client/",
+      "/client/?handoff=7a2cadc8-c634-4a4e-9045-bc7001a034a7",
+    ]) {
+      const client = await handler(request(clientPath), peer);
+      expect(client.status).toBe(200);
+      expect(client.headers.get("Cache-Control")).toContain("no-store");
+      expect(await client.text()).toContain("OMP Sessions");
+    }
     expect((await handler(request("/client/?handoff=not-a-uuid"), peer)).status).toBe(400);
     const update = await handler(request("/update/"), peer);
     expect(update.status).toBe(200);

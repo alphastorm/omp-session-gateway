@@ -19,6 +19,7 @@ interface CollabEmbedState {
 
 interface CollabEmbedOptions {
   readonly focusPendingRequest?: boolean;
+  readonly shellOwnsLifecycle?: boolean;
   readonly onStateChange?: (state: CollabEmbedState) => void;
 }
 
@@ -117,10 +118,10 @@ interface ActiveCollabShell {
   readonly instanceId: string;
   readonly generation: number;
   readonly openedRequestId?: string;
+  readonly connectionChip: HTMLElement;
   readonly triageBar: HTMLElement;
   readonly shell: HTMLElement;
   answerShown: boolean;
-  reconnectingShown: boolean;
   triageTimeout?: number;
 }
 
@@ -758,7 +759,7 @@ function hideTriageBar(shell: ActiveCollabShell): void {
 
 function showTriageBar(
   shell: ActiveCollabShell,
-  kind: "next" | "clear" | "reconnecting" | "ended",
+  kind: "next" | "clear",
   copy: string,
   actionLabel?: string,
   action?: () => void,
@@ -778,10 +779,8 @@ function showTriageBar(
   }
   shell.triageBar.hidden = false;
   shell.shell.dataset.triageVisible = "true";
-  if (kind === "next" || kind === "clear") shell.triageBar.dataset.dismissible = "true";
-  if (kind === "next" || kind === "clear") {
-    shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
-  }
+  shell.triageBar.dataset.dismissible = "true";
+  shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
 }
 
 function returnToDirectory(historyValue?: unknown): void {
@@ -810,7 +809,8 @@ function reconcileActiveCollabShell(): void {
   const current = sessions.get(shell.instanceId);
   if (current === undefined || current.generation !== shell.generation) {
     shell.answerShown = true;
-    showTriageBar(shell, "ended", "Session ended", "Back to Sessions", returnToDirectory);
+    setConnectionState(shell.connectionChip, "offline");
+    hideTriageBar(shell);
     return;
   }
   if (shell.openedRequestId === undefined || current.ask?.requestId === shell.openedRequestId) return;
@@ -951,42 +951,19 @@ function enterCollabClient(
     instanceId: session.instanceId,
     generation: session.generation,
     ...(requestId === undefined ? {} : { openedRequestId: requestId }),
+    connectionChip: connection,
     triageBar,
     shell,
     answerShown: false,
-    reconnectingShown: false,
   };
   activeCollabShell = shellState;
 
   const updateConnection = (state: CollabEmbedState): void => {
     if (state.phase === "ended") {
       setConnectionState(connection, "offline");
-      if (!shellState.answerShown) {
-        shellState.answerShown = true;
-        const exitCode = /\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s*[:=]?\s*(-?\d{1,3})\b/iu.exec(
-          state.endedReason ?? "",
-        )?.[1];
-        showTriageBar(
-          shellState,
-          "ended",
-          exitCode === undefined ? "Session ended" : `Session ended · exit ${exitCode}`,
-          "Back to Sessions",
-          returnToDirectory,
-        );
-      }
       return;
     }
-    const reconnecting = state.phase !== "live";
-    setConnectionState(connection, reconnecting ? "reconnecting" : "connected");
-    if (reconnecting && !shellState.answerShown) {
-      if (!shellState.reconnectingShown) {
-        shellState.reconnectingShown = true;
-        showTriageBar(shellState, "reconnecting", "Reconnecting to relay… composer paused");
-      }
-    } else if (shellState.reconnectingShown) {
-      shellState.reconnectingShown = false;
-      if (!shellState.answerShown) hideTriageBar(shellState);
-    }
+    setConnectionState(connection, state.phase === "live" ? "connected" : "reconnecting");
   };
 
   let disposeClient = (): void => undefined;
@@ -1019,6 +996,7 @@ function enterCollabClient(
       },
       {
         focusPendingRequest: requestId !== undefined,
+        shellOwnsLifecycle: true,
         onStateChange: updateConnection,
       },
     );

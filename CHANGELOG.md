@@ -4,6 +4,30 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [0.1.0-prealpha.12] - 2026-07-26
+
+### Fixed
+
+- Implement the approved Couch Flow 3d shell as one fixed frame: gateway top bar, the untouched
+  pinned collaboration client, and an answer-only bottom triage bar below the composer.
+- Remove the embedded client's connecting window and ended-session popup; connection lifecycle is
+  represented only by the shell's Connected, Reconnecting, or Offline chip.
+- Show triage feedback only after the exact opened request resolves, then dismiss it after eight
+  seconds, tap-out, or swipe without covering the composer or its safe-area inset.
+- Route direct and historical `/client/` navigation back through the PWA directory and stop
+  shipping the obsolete popup/MessageChannel bootstrap.
+
+### Security
+
+- Continue passing the launch capability directly into the pinned client mount in memory without
+  adding it to shell state, DOM, URL, history, browser storage, or service-worker caches.
+
+### Testing
+
+- Exercise the exact three-child shell frame, single transcript/composer/interrupt controls,
+  lifecycle-popup suppression, answer-only triage, composer geometry, Back restoration, and direct
+  `/client/` recovery at both Android viewport sizes.
+
 ## [0.1.0-prealpha.11] - 2026-07-26
 
 ### Fixed
