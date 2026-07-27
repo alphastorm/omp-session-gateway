@@ -747,6 +747,11 @@ function setConnectionState(chip: HTMLElement, state: "connected" | "reconnectin
     state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "Offline";
 }
 
+function sessionEndedCopy(reason: string | null): string {
+  const exitCode = reason?.match(/\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s+(-?\d+)\b/iu)?.[1];
+  return exitCode === undefined ? "Session ended" : `Session ended · exit ${exitCode}`;
+}
+
 function hideTriageBar(shell: ActiveCollabShell): void {
   if (shell.triageTimeout !== undefined) {
     window.clearTimeout(shell.triageTimeout);
@@ -759,7 +764,7 @@ function hideTriageBar(shell: ActiveCollabShell): void {
 
 function showTriageBar(
   shell: ActiveCollabShell,
-  kind: "next" | "clear",
+  kind: "next" | "clear" | "reconnecting" | "ended",
   copy: string,
   actionLabel?: string,
   action?: () => void,
@@ -779,8 +784,10 @@ function showTriageBar(
   }
   shell.triageBar.hidden = false;
   shell.shell.dataset.triageVisible = "true";
-  shell.triageBar.dataset.dismissible = "true";
-  shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
+  if (kind === "next" || kind === "clear") {
+    shell.triageBar.dataset.dismissible = "true";
+    shell.triageTimeout = window.setTimeout(() => hideTriageBar(shell), 8_000);
+  }
 }
 
 function returnToDirectory(historyValue?: unknown): void {
@@ -810,7 +817,7 @@ function reconcileActiveCollabShell(): void {
   if (current === undefined || current.generation !== shell.generation) {
     shell.answerShown = true;
     setConnectionState(shell.connectionChip, "offline");
-    hideTriageBar(shell);
+    showTriageBar(shell, "ended", "Session ended", "Back to Sessions", returnToDirectory);
     return;
   }
   if (shell.openedRequestId === undefined || current.ask?.requestId === shell.openedRequestId) return;
@@ -901,7 +908,10 @@ function enterCollabClient(
   });
   const connection = createTextElement("span", "conn-chip", "Reconnecting…");
   connection.dataset.state = "reconnecting";
-  bar.append(back, title, control, connection);
+  const shellActions = document.createElement("span");
+  shellActions.className = "shell-actions";
+  shellActions.append(control, connection);
+  bar.append(back, title, shellActions);
 
   const container = document.createElement("div");
   container.id = "root";
@@ -961,9 +971,22 @@ function enterCollabClient(
   const updateConnection = (state: CollabEmbedState): void => {
     if (state.phase === "ended") {
       setConnectionState(connection, "offline");
+      showTriageBar(
+        shellState,
+        "ended",
+        sessionEndedCopy(state.endedReason),
+        "Back to Sessions",
+        returnToDirectory,
+      );
+      return;
+    }
+    if (state.phase === "reconnecting") {
+      setConnectionState(connection, "reconnecting");
+      showTriageBar(shellState, "reconnecting", "Reconnecting to relay… composer paused");
       return;
     }
     setConnectionState(connection, state.phase === "live" ? "connected" : "reconnecting");
+    if (triageBar.dataset.kind === "reconnecting") hideTriageBar(shellState);
   };
 
   let disposeClient = (): void => undefined;

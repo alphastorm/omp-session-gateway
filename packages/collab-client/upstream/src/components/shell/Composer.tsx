@@ -7,6 +7,7 @@ import { recommendedOptionIndex } from "./ask-recommendation";
 export interface ComposerProps {
 	client: GuestClient;
 	snapshot: GuestSnapshot;
+	embedded?: boolean;
 }
 
 /** Textarea metrics: line-height 20px + 8px vertical padding × 2 (kept in sync with shell.css). */
@@ -25,6 +26,7 @@ function autosize(el: HTMLTextAreaElement | null): void {
 interface AskEditorProps {
 	prefill: string | undefined;
 	onSubmit(value: string): void;
+	submitLabel?: string;
 }
 
 /**
@@ -32,7 +34,7 @@ interface AskEditorProps {
  * draft seeded from `prefill`, while re-sends of the same request never clobber a half-typed
  * draft. Submits verbatim — whitespace-only responses are intentional.
  */
-function AskEditor({ prefill, onSubmit }: AskEditorProps): ReactNode {
+function AskEditor({ prefill, onSubmit, submitLabel = "Submit" }: AskEditorProps): ReactNode {
 	const [draft, setDraft] = useState(prefill ?? "");
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -66,14 +68,97 @@ function AskEditor({ prefill, onSubmit }: AskEditorProps): ReactNode {
 					onClick={() => onSubmit(draft)}
 					title="submit response"
 				>
-					<SendHorizontal size={12} /> <span className="sh-btn-label">Submit</span>
+					<SendHorizontal size={12} /> <span className="sh-btn-label">{submitLabel}</span>
 				</button>
 			</div>
 		</div>
 	);
 }
+type SelectRequest = Extract<NonNullable<GuestSnapshot["uiRequest"]>, { kind: "select" }>;
 
-export function Composer({ client, snapshot }: ComposerProps): ReactNode {
+interface SelectAskProps {
+	client: GuestClient;
+	embedded: boolean;
+	recommendedIndex: number | undefined;
+	request: SelectRequest;
+}
+
+function SelectAsk({ client, embedded, recommendedIndex, request }: SelectAskProps): ReactNode {
+	const initialIndex = request.initialIndex ?? request.checkedIndices?.[0];
+	const [selectedIndex, setSelectedIndex] = useState<number | undefined>(
+		initialIndex !== undefined && initialIndex >= 0 && initialIndex < request.options.length
+			? initialIndex
+			: undefined,
+	);
+	const selected = selectedIndex === undefined ? undefined : request.options[selectedIndex];
+	const selectedLabel =
+		selected === undefined ? undefined : typeof selected === "string" ? selected : selected.label;
+
+	return (
+		<>
+			<div className="sh-ask-options">
+				{request.options.map((option, index) => {
+					const label = typeof option === "string" ? option : option.label;
+					const checked = embedded
+						? selectedIndex === index
+						: request.checkedIndices?.includes(index) ?? false;
+					return (
+						<button
+							key={`${request.reqId}-${index}-${label}`}
+							type="button"
+							className={`sh-ask-option${checked ? " sh-ask-option-checked" : ""}`}
+							aria-pressed={checked}
+							onClick={() => {
+								if (embedded) setSelectedIndex(index);
+								else client.sendUiResponse(request.reqId, label);
+							}}
+						>
+							<span
+								className={`sh-ask-option-marker sh-ask-option-marker-${request.selectionMarker ?? "radio"}`}
+								aria-hidden="true"
+							>
+								{embedded ? (
+									checked && <span className="sh-ask-option-marker-dot" />
+								) : request.selectionMarker === "checkbox" ? (
+									checked ? "☑" : "☐"
+								) : checked ? (
+									"◉"
+								) : (
+									"○"
+								)}
+							</span>
+							<span className="sh-ask-option-copy">
+								<span className="sh-ask-option-heading">
+									<span className="sh-ask-option-label">
+										{embedded ? `${index + 1} · ${label}` : label}
+									</span>
+									{index === recommendedIndex && (
+										<span className="sh-ask-option-recommended">Recommended</span>
+									)}
+								</span>
+								{typeof option !== "string" && option.description && (
+									<span className="sh-ask-option-description">{option.description}</span>
+								)}
+							</span>
+						</button>
+					);
+				})}
+			</div>
+			{embedded && (
+				<button
+					type="button"
+					className="sh-btn sh-btn-primary sh-ask-send"
+					disabled={selectedLabel === undefined}
+					onClick={() => client.sendUiResponse(request.reqId, selectedLabel)}
+				>
+					Send
+				</button>
+			)}
+		</>
+	);
+}
+
+export function Composer({ client, snapshot, embedded = false }: ComposerProps): ReactNode {
 	const [text, setText] = useState("");
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -109,59 +194,43 @@ export function Composer({ client, snapshot }: ComposerProps): ReactNode {
 
 	if (uiRequest && canPrompt) {
 		return (
-			<div className="sh-composer sh-composer-ask">
+			<div className={`sh-composer sh-composer-ask${embedded ? " sh-composer-ask-embedded" : ""}`}>
+				{embedded && <div className="sh-ask-kicker">input required</div>}
 				<div className="sh-ask-title">{uiRequest.title}</div>
 				{uiRequest.kind === "select" ? (
-					<div className="sh-ask-options">
-						{uiRequest.options.map((option, index) => {
-							const label = typeof option === "string" ? option : option.label;
-							const checked = uiRequest.checkedIndices?.includes(index) ?? false;
-							return (
-								<button
-									key={`${uiRequest.reqId}-${index}-${label}`}
-									type="button"
-									className={`sh-ask-option${checked ? " sh-ask-option-checked" : ""}`}
-									onClick={() => client.sendUiResponse(uiRequest.reqId, label)}
-								>
-									<span className="sh-ask-option-marker">
-										{uiRequest.selectionMarker === "checkbox" ? (checked ? "☑" : "☐") : checked ? "◉" : "○"}
-									</span>
-									<span className="sh-ask-option-copy">
-										<span className="sh-ask-option-heading">
-											<span className="sh-ask-option-label">{label}</span>
-											{index === recommendedIndex && <span className="sh-ask-option-recommended">Recommended</span>}
-										</span>
-										{typeof option !== "string" && option.description && (
-											<span className="sh-ask-option-description">{option.description}</span>
-										)}
-									</span>
-								</button>
-							);
-						})}
-					</div>
+					<SelectAsk
+						key={uiRequest.reqId}
+						client={client}
+						embedded={embedded}
+						recommendedIndex={recommendedIndex}
+						request={uiRequest}
+					/>
 				) : (
 					<AskEditor
 						key={uiRequest.reqId}
 						prefill={uiRequest.prefill}
 						onSubmit={value => client.sendUiResponse(uiRequest.reqId, value)}
+						submitLabel={embedded ? "Send" : "Submit"}
 					/>
 				)}
-				<div className="sh-composer-actions sh-ask-actions">
-					<button type="button" className="sh-btn" onClick={() => client.sendUiResponse(uiRequest.reqId)}>
-						Cancel
-					</button>
-					{busy && (
-						<button
-							type="button"
-							className="sh-btn sh-btn-stop"
-							onClick={() => client.sendAbort()}
-							disabled={!live}
-							title="stop the current turn"
-						>
-							<Square size={11} /> <span className="sh-btn-label">Stop</span>
+				{!embedded && (
+					<div className="sh-composer-actions sh-ask-actions">
+						<button type="button" className="sh-btn" onClick={() => client.sendUiResponse(uiRequest.reqId)}>
+							Cancel
 						</button>
-					)}
-				</div>
+						{busy && (
+							<button
+								type="button"
+								className="sh-btn sh-btn-stop"
+								onClick={() => client.sendAbort()}
+								disabled={!live}
+								title="stop the current turn"
+							>
+								<Square size={11} /> <span className="sh-btn-label">Stop</span>
+							</button>
+						)}
+					</div>
+				)}
 			</div>
 		);
 	}

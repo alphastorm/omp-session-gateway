@@ -16,6 +16,7 @@ export interface TranscriptProps {
 	activeTools: ReadonlyMap<string, ActiveTool>;
 	working: boolean;
 	compact?: boolean; // dense variant for the agent drawer
+	suppressAskTool?: boolean;
 	/** Sub-session drill-down capabilities forwarded to tool renderers. */
 	host?: ToolRenderHost;
 }
@@ -86,6 +87,7 @@ function AssistantBody({
 	active,
 	pending,
 	host,
+	suppressAskTool,
 }: {
 	message: AssistantMessage;
 	results: ReadonlyMap<string, ToolResultMessage>;
@@ -93,6 +95,7 @@ function AssistantBody({
 	/** Still streaming — suppress stop-reason chips on the partial message. */
 	pending: boolean;
 	host?: ToolRenderHost;
+	suppressAskTool?: boolean;
 }): ReactNode {
 	const blocks = message.content.map((block, i) => {
 		switch (block.type) {
@@ -103,6 +106,7 @@ function AssistantBody({
 			case "text":
 				return <Markdown key={i} text={block.text} />;
 			case "toolCall": {
+				if (suppressAskTool === true && block.name === "ask") return null;
 				const act = active.get(block.id);
 				const result = results.get(block.id);
 				const args = act?.args ?? block.arguments;
@@ -146,11 +150,16 @@ interface EntryRowProps {
 	results: ReadonlyMap<string, ToolResultMessage>;
 	active: ReadonlyMap<string, ActiveTool>;
 	host?: ToolRenderHost;
+	suppressAskTool?: boolean;
 }
 
 /** Re-render only when the entry itself or one of its tool pairings changed. */
 function entryRowEqual(prev: EntryRowProps, next: EntryRowProps): boolean {
-	if (prev.entry !== next.entry || prev.host !== next.host) return false;
+	if (
+		prev.entry !== next.entry ||
+		prev.host !== next.host ||
+		prev.suppressAskTool !== next.suppressAskTool
+	) return false;
 	const e = next.entry;
 	if (e.type !== "message" || e.message.role !== "assistant") return true;
 	for (const block of e.message.content) {
@@ -161,7 +170,7 @@ function entryRowEqual(prev: EntryRowProps, next: EntryRowProps): boolean {
 	return true;
 }
 
-const EntryRow = memo(function EntryRow({ entry, results, active, host }: EntryRowProps): ReactNode {
+const EntryRow = memo(function EntryRow({ entry, results, active, host, suppressAskTool }: EntryRowProps): ReactNode {
 	switch (entry.type) {
 		case "message": {
 			const msg = entry.message;
@@ -173,9 +182,20 @@ const EntryRow = memo(function EntryRow({ entry, results, active, host }: EntryR
 						</Row>
 					);
 				case "assistant":
+					if (
+						suppressAskTool === true &&
+						msg.content.every(block => block.type === "toolCall" && block.name === "ask")
+					) return null;
 					return (
 						<Row kind="assistant" gutter="agent" title={entry.timestamp}>
-							<AssistantBody message={msg} results={results} active={active} pending={false} host={host} />
+							<AssistantBody
+								message={msg}
+								results={results}
+								active={active}
+								pending={false}
+								host={host}
+								suppressAskTool={suppressAskTool}
+							/>
 						</Row>
 					);
 				default:
@@ -239,7 +259,7 @@ const EntryRow = memo(function EntryRow({ entry, results, active, host }: EntryR
 }, entryRowEqual);
 
 export function Transcript(props: TranscriptProps): ReactNode {
-	const { entries, stream, streamDone, activeTools, working, compact, host } = props;
+	const { entries, stream, streamDone, activeTools, working, compact, host, suppressAskTool } = props;
 
 	const results = useMemo(() => {
 		const map = new Map<string, ToolResultMessage>();
@@ -274,7 +294,11 @@ export function Transcript(props: TranscriptProps): ReactNode {
 		}
 	}
 	const tailTools: ActiveTool[] = [];
+	const visibleActiveToolCount = [...activeTools.values()].filter(
+		tool => suppressAskTool !== true || tool.toolName !== "ask",
+	).length;
 	for (const tool of activeTools.values()) {
+		if (suppressAskTool === true && tool.toolName === "ask") continue;
 		if (!renderedToolIds.has(tool.toolCallId)) tailTools.push(tool);
 	}
 
@@ -291,9 +315,20 @@ export function Transcript(props: TranscriptProps): ReactNode {
 		>
 			{entries.length === 0 && stream === null && !working && <div className="tr-empty">no activity yet</div>}
 			{entries.map(entry => (
-				<EntryRow key={entry.id} entry={entry} results={results} active={activeTools} host={host} />
+				<EntryRow
+					key={entry.id}
+					entry={entry}
+					results={results}
+					active={activeTools}
+					host={host}
+					suppressAskTool={suppressAskTool}
+				/>
 			))}
-			{stream !== null && (
+			{stream !== null &&
+				!(
+					suppressAskTool === true &&
+					stream.content.every(block => block.type === "toolCall" && block.name === "ask")
+				) && (
 				<Row kind="assistant" gutter="agent">
 					<AssistantBody
 						message={stream}
@@ -301,6 +336,7 @@ export function Transcript(props: TranscriptProps): ReactNode {
 						active={activeTools}
 						pending={!streamDone}
 						host={host}
+						suppressAskTool={suppressAskTool}
 					/>
 				</Row>
 			)}
@@ -320,7 +356,7 @@ export function Transcript(props: TranscriptProps): ReactNode {
 					))}
 				</Row>
 			)}
-			{working && stream === null && activeTools.size === 0 && (
+			{working && stream === null && visibleActiveToolCount === 0 && suppressAskTool !== true && (
 				<Row kind="assistant" gutter="agent">
 					<div className="tr-shimmer">thinking…</div>
 				</Row>
