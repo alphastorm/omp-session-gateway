@@ -350,9 +350,14 @@ export function parseAuthenticatedPublisherFrame(value: unknown): AuthenticatedP
 
 export function parseLaunchRequest(value: unknown): LaunchRequest {
   const record = requireRecord(value);
-  requireExactKeys(record, ["mode", "generation"]);
+  requireExactKeys(record, ["mode", "generation"], ["requestId"]);
   if (record.mode !== "view" && record.mode !== "control") throw new ProtocolValidationError();
-  return { mode: record.mode, generation: requireInteger(record.generation, 1) };
+  if (record.requestId !== undefined && record.mode !== "control") throw new ProtocolValidationError();
+  return {
+    mode: record.mode,
+    generation: requireInteger(record.generation, 1),
+    ...(record.requestId === undefined ? {} : { requestId: requireRequestId(record.requestId) }),
+  };
 }
 function requirePushEndpoint(value: unknown): string {
   if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > MAX_PUSH_ENDPOINT_BYTES) {

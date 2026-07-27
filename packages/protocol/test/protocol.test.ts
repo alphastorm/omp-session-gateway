@@ -117,6 +117,26 @@ describe("strict protocol validation", () => {
     );
   });
 
+  test("binds control launches to an exact current request", () => {
+    expect(
+      parseLaunchRequest({
+        mode: "control",
+        generation: 1,
+        requestId: "request-identity-000001",
+      }),
+    ).toEqual({ mode: "control", generation: 1, requestId: "request-identity-000001" });
+    expect(() =>
+      parseLaunchRequest({
+        mode: "view",
+        generation: 1,
+        requestId: "request-identity-000001",
+      }),
+    ).toThrow(ProtocolValidationError);
+    expect(() =>
+      parseLaunchRequest({ mode: "control", generation: 1, requestId: "short" }),
+    ).toThrow(ProtocolValidationError);
+  });
+
   test("separates serializable metadata from non-serializable capabilities", () => {
     const frame = parseAuthenticatedPublisherFrame(upsert());
     if (frame.op !== "upsert") throw new Error("expected upsert");
