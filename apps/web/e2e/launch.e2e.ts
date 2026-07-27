@@ -133,10 +133,13 @@ test("installed-PWA View and Control mount in the current window without losing 
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
     await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
     await expect(page.locator(".shell-control")).toBeVisible();
-    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", /^(connected|reconnecting)$/u);
-    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "reconnecting");
-    await expect(page.locator(".triage-copy")).toHaveText("Reconnecting to relay… composer paused");
-    await expect(page.locator(".triage-action")).toHaveCount(0);
+    await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "reconnecting");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    await expect(page.locator(".co-connect, .sh-banner, .sh-ended")).toHaveCount(0);
+    expect(await page.locator(".gateway-shell").evaluate(element =>
+      [...element.children].map(child => child.id || child.className),
+    )).toEqual(["shell-bar", "root", "triage-bar"]);
     const shellTargets = await page.locator(".shell-back, .shell-control").evaluateAll(elements =>
       elements.filter(element => !(element as HTMLElement).hidden).map(element => element.getBoundingClientRect().height),
     );
@@ -373,6 +376,9 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
     await expect(page.locator(".sh-ask-option").first()).toBeFocused();
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".gateway-shell > .sh-composer")).toHaveCount(0);
+    await expect(page.locator(".sh-header")).toHaveCount(1);
+    await expect(page.locator(".sh-transcript")).toHaveCount(1);
+    await expect(page.locator(".sh-btn-stop")).toHaveCount(1);
     await expect(
       page.locator(".sh-ask-option").filter({ hasText: "Implement ADR-0036 locally" }).locator(".sh-ask-option-recommended"),
     ).toHaveText("Recommended");
@@ -388,17 +394,21 @@ test("active ask marks only the explicit recommended option", async ({ page }) =
     });
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "offline");
     await expect(page.locator(".conn-chip")).toHaveText("Offline");
-    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "ended");
-    await expect(page.locator(".triage-copy")).toHaveText("Session ended · exit 0");
-    await expect(page.locator(".triage-action")).toHaveText("Back to Sessions");
-    const inset = await page.evaluate(() => {
-      const composer = document.querySelector(".sh-composer")?.getBoundingClientRect();
-      const triage = document.querySelector(".triage-bar")?.getBoundingClientRect();
-      if (composer === undefined || triage === undefined) return undefined;
-      return { composerBottom: composer.bottom, triageTop: triage.top };
-    });
-    expect(inset).toBeDefined();
-    expect(inset?.composerBottom).toBeLessThanOrEqual(inset?.triageTop ?? 0);
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".sh-ended")).toHaveCount(0);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("direct client navigation returns to the session directory without legacy bootstrap UI", async ({ page }) => {
+  const fixture = await startDashboardFixture([session()]);
+
+  try {
+    await page.goto(`${fixture.origin}/client/`);
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect(page.locator("#session-list")).toBeVisible();
+    await expect(page.locator(".co-connect, .gateway-shell, .sh-ended")).toHaveCount(0);
   } finally {
     await fixture.stop();
   }
@@ -415,6 +425,14 @@ test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout"
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     fixture.upsert(answeredSession(initial));
     await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
+    const inset = await page.evaluate(() => {
+      const composer = document.querySelector(".sh-composer")?.getBoundingClientRect();
+      const triage = document.querySelector(".triage-bar")?.getBoundingClientRect();
+      if (composer === undefined || triage === undefined) return undefined;
+      return { composerBottom: composer.bottom, triageTop: triage.top };
+    });
+    expect(inset).toBeDefined();
+    expect(inset?.composerBottom).toBeLessThanOrEqual(inset?.triageTop ?? 0);
     await page.locator(".shell-bar").dispatchEvent("pointerdown", { pointerId: 1, clientY: 20 });
     await expect(page.locator(".triage-bar")).toBeHidden();
 
