@@ -210,7 +210,8 @@ export function createHttpHandler(options: {
     } catch {
       return problem(400, "bad_request", "Invalid request");
     }
-    const clientBootstrap = isValidClientBootstrap(url);
+    const clientRoute = request.method === "GET" && url.pathname === "/client/";
+    const clientBootstrap = clientRoute && isValidClientBootstrap(url);
     const requestBootstrap = request.method === "GET" && isValidRequestBootstrap(url);
     const updateBootstrap = request.method === "GET" && url.pathname === "/update/";
     if (url.search !== "" && !clientBootstrap && !requestBootstrap) {
@@ -353,10 +354,12 @@ export function createHttpHandler(options: {
     }
 
     if (url.pathname.startsWith("/api/")) return problem(404, "not_found", "Not found");
-    const staticResponse = staticAssets.response(requestBootstrap || updateBootstrap ? "/" : url.pathname);
+    const staticResponse = staticAssets.response(
+      clientRoute || requestBootstrap || updateBootstrap ? "/" : url.pathname,
+    );
     return withSecurityHeaders(
       staticResponse ?? new Response("Not found", { status: 404 }),
-      clientBootstrap || requestBootstrap || updateBootstrap,
+      clientRoute || requestBootstrap || updateBootstrap,
     );
   };
 }

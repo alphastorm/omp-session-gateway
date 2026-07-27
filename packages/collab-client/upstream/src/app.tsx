@@ -37,6 +37,7 @@ export interface CollabEmbedState {
 
 export interface CollabEmbedOptions {
 	focusPendingRequest?: boolean;
+	shellOwnsLifecycle?: boolean;
 	onStateChange?(state: CollabEmbedState): void;
 }
 
@@ -47,9 +48,27 @@ export interface AppProps {
 }
 
 export function App({ capability, onDispose, embedOptions }: AppProps): ReactNode {
-	const [client, setClient] = useState<GuestClient | null>(null);
-	const [connectError, setConnectError] = useState<string | null>(null);
-	const credsRef = useRef<Creds | null>(null);
+	const shellOwnsLifecycle = embedOptions?.shellOwnsLifecycle === true;
+	const [initialConnection] = useState(() => {
+		if (!shellOwnsLifecycle) return undefined;
+		const name = storedName();
+		try {
+			return {
+				client: new GuestClient(capability, name),
+				creds: { link: capability, name } satisfies Creds,
+				error: null,
+			};
+		} catch {
+			return {
+				client: null,
+				creds: null,
+				error: "Unable to open this collaboration session.",
+			};
+		}
+	});
+	const [client, setClient] = useState<GuestClient | null>(initialConnection?.client ?? null);
+	const [connectError, setConnectError] = useState<string | null>(initialConnection?.error ?? null);
+	const credsRef = useRef<Creds | null>(initialConnection?.creds ?? null);
 
 	const connect = useCallback((link: string, name: string): void => {
 		let next: GuestClient;
@@ -109,7 +128,16 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 	}, []);
 
 	useEffect(() => {
-		connect(capability, storedName());
+		if (initialConnection === undefined) {
+			connect(capability, storedName());
+		} else if (initialConnection.client !== null) {
+			initialConnection.client.connect();
+			try {
+				localStorage.setItem(NAME_KEY, initialConnection.creds.name);
+			} catch {
+				// storage unavailable (private mode) — non-fatal
+			}
+		}
 		return () => {
 			credsRef.current = null;
 			setClient(current => {
@@ -117,7 +145,7 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 				return null;
 			});
 		};
-	}, [capability, connect]);
+	}, [capability, connect, initialConnection]);
 
 	useEffect(() => {
 		if (!client) return;
@@ -138,6 +166,7 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 	}, [client, connectError, embedOptions]);
 
 	if (!client) {
+		if (shellOwnsLifecycle) return null;
 		return (
 			<main className="co-connect">
 				<h1>{connectError ? "Session unavailable" : "Connecting…"}</h1>
@@ -269,7 +298,9 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 					/>
 				</>
 			)}
-			<Banners phase={snap.phase} endedReason={snap.endedReason} onRejoin={onRejoin} onNewLink={onLeave} />
+			{embedOptions?.shellOwnsLifecycle !== true && (
+				<Banners phase={snap.phase} endedReason={snap.endedReason} onRejoin={onRejoin} onNewLink={onLeave} />
+			)}
 			<Toasts notices={snap.notices} />
 		</div>
 	);

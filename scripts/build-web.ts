@@ -57,14 +57,6 @@ if (clientModule === undefined || clientStylesheet === undefined) {
   throw new Error("collab client build did not emit JavaScript and CSS");
 }
 
-const clientBuild = await buildEntrypoint(
-  join(clientSource, "upstream", "src", "main.tsx"),
-  join(temporaryRoot, "client"),
-  { __COLLAB_CLIENT_MODULE__: JSON.stringify(clientModule) },
-);
-const clientScriptSource = clientBuild.find(path => extname(path) === ".js");
-if (clientScriptSource === undefined) throw new Error("client bootstrap build did not emit JavaScript");
-const clientScript = await moveHashedAsset(clientScriptSource, "collab-bootstrap");
 
 const webBuild = await buildEntrypoint(join(webSource, "app.ts"), join(temporaryRoot, "web"), {
   __COLLAB_CLIENT_MODULE__: JSON.stringify(clientModule),
@@ -83,12 +75,6 @@ const indexHtml = indexTemplate
   .replace("<!--ASSET_SCRIPT-->", `<script type="module" src="${webScript}"></script>`);
 await writeFile(join(outputRoot, "index.html"), indexHtml);
 
-const clientTemplate = await readFile(join(clientSource, "src", "index.html"), "utf8");
-const clientHtml = clientTemplate
-  .replace("</head>", `    <link rel="stylesheet" href="${clientStylesheet}" />\n  </head>`)
-  .replace("<!--CLIENT_SCRIPT-->", `<script type="module" src="${clientScript}"></script>`);
-await mkdir(join(outputRoot, "client"), { recursive: true });
-await writeFile(join(outputRoot, "client", "index.html"), clientHtml);
 
 await copyFile(join(webSource, "manifest.webmanifest"), join(outputRoot, "manifest.webmanifest"));
 await copyFile(join(webSource, "icon.svg"), join(outputRoot, "icon.svg"));
