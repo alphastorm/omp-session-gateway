@@ -16,6 +16,8 @@
     "Recover established guests across bounded relay room replacement",
     "Preserve strict exact-optional typing for view links without a write token",
     "Redact invalid capability input from collaboration-link errors",
-    "Correlate active Ask requests with explicit tool-call recommendation metadata"
+    "Correlate active Ask requests with explicit tool-call recommendation metadata",
+    "Embed under gateway chrome without a competing client header, rail, or lifecycle overlay",
+    "Present an embedded active Ask in the client's sole composer without a duplicate transcript card"
   ]
 }
