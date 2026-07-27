@@ -181,6 +181,42 @@ describe("CollabSocket browser lifecycle recovery", () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  test("times out a blackholed replacement handshake and continues jittered retry", () => {
+    const timers = installFakeTimers();
+    try {
+      const socket = new CollabSocket({
+        wsUrl: "wss://relay.example/r/synthetic-room",
+        role: "guest",
+        key: {} as CryptoKey,
+      });
+      const phases: Array<{ reason: string; willReconnect: boolean }> = [];
+      socket.onClose = (reason, willReconnect) => phases.push({ reason, willReconnect });
+
+      socket.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      initial.close(1006);
+      expect(timers.pendingDelays()).toEqual([500]);
+
+      timers.runNext();
+      const replacement = FakeWebSocket.instances[1];
+      if (replacement === undefined) throw new Error("replacement WebSocket was not created");
+      expect(timers.pendingDelays()).toEqual([10_000]);
+
+      timers.runNext();
+      expect(replacement.closeCode).toBe(1000);
+      expect(phases.at(-1)).toEqual({ reason: "relay connection timed out", willReconnect: true });
+      expect(timers.pendingDelays()).toEqual([1_000]);
+
+      timers.runNext();
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      socket.close();
+    } finally {
+      timers.restore();
+    }
+  });
+
   test("requires a fresh welcome after every replacement transport opens", () => {
     const nativeSetTimeout = globalThis.setTimeout;
     const nativeClearTimeout = globalThis.clearTimeout;
@@ -295,6 +331,151 @@ describe("CollabSocket browser lifecycle recovery", () => {
     socket.close();
   });
 
+  test("detects two silent end-to-end relay probe failures", async () => {
+    const timers = installFakeTimers();
+    try {
+      const client = new GuestClient(TEST_LINK, "test guest");
+      client.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      await initial.waitForSent(1);
+      client.applyFrameForTest(TEST_WELCOME);
+      client.applyFrameForTest({ t: "gateway-health-pong", seq: 0 });
+      expect(client.getSnapshot().relayHealth.state).toBe("healthy");
+      expect(timers.pendingDelays()).toEqual([10_000]);
+
+      timers.runNext();
+      await initial.waitForSent(2);
+      expect((await decodeFrames(initial, await importRoomKey(new Uint8Array(32)))).at(-1)).toMatchObject({
+        t: "gateway-health-ping",
+        seq: 1,
+      });
+      expect(timers.pendingDelays()).toEqual([3_000]);
+
+      timers.runNext();
+      await initial.waitForSent(3);
+      expect(client.getSnapshot().relayHealth.state).toBe("degraded");
+      expect(timers.pendingDelays()).toEqual([3_000]);
+
+      timers.runNext();
+      expect(client.getSnapshot().relayHealth.state).toBe("unreachable");
+      expect(client.getSnapshot().phase).toBe("reconnecting");
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      client.close();
+    } finally {
+      timers.restore();
+    }
+  });
+
+  test("does not let inbound traffic or a stale pong satisfy a current relay probe", async () => {
+    const timers = installFakeTimers();
+    try {
+      const client = new GuestClient(TEST_LINK, "test guest");
+      client.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      await initial.waitForSent(1);
+      client.applyFrameForTest(TEST_WELCOME);
+      client.applyFrameForTest({ t: "gateway-health-pong", seq: 0 });
+
+      client.remeasureRelay();
+      await initial.waitForSent(2);
+      expect((await decodeFrames(initial, await importRoomKey(new Uint8Array(32)))).at(-1)).toMatchObject({
+        t: "gateway-health-ping",
+        seq: 1,
+      });
+      expect(timers.pendingDelays()).toEqual([3_000]);
+
+      client.applyFrameForTest({ t: "state", state: TEST_STATE });
+      client.applyFrameForTest({ t: "gateway-health-pong", seq: 0 });
+      expect(timers.pendingDelays()).toEqual([3_000]);
+
+      timers.runNext();
+      await initial.waitForSent(3);
+      expect(client.getSnapshot().relayHealth.state).toBe("degraded");
+      client.applyFrameForTest({ t: "gateway-health-pong", seq: 2 });
+      expect(client.getSnapshot().relayHealth.state).toBe("healthy");
+      expect(timers.pendingDelays()).toEqual([10_000]);
+      client.close();
+    } finally {
+      timers.restore();
+    }
+  });
+
+  test("cancels idle and pending relay probes while the page is hidden", async () => {
+    const timers = installFakeTimers();
+    try {
+      const client = new GuestClient(TEST_LINK, "test guest");
+      client.connect();
+      const initial = FakeWebSocket.instances[0];
+      if (initial === undefined) throw new Error("initial WebSocket was not created");
+      initial.open();
+      await initial.waitForSent(1);
+      client.applyFrameForTest(TEST_WELCOME);
+      client.applyFrameForTest({ t: "gateway-health-pong", seq: 0 });
+      expect(timers.pendingDelays()).toEqual([10_000]);
+
+      client.setRelayProbesPaused(true);
+      expect(timers.pendingDelays()).toEqual([]);
+      client.setRelayProbesPaused(false);
+      expect(timers.pendingDelays()).toEqual([10_000]);
+
+      client.remeasureRelay();
+      await initial.waitForSent(2);
+      expect(timers.pendingDelays()).toEqual([3_000]);
+      client.setRelayProbesPaused(true);
+      expect(timers.pendingDelays()).toEqual([]);
+      expect(client.getSnapshot().relayHealth.state).toBe("healthy");
+      client.close();
+    } finally {
+      timers.restore();
+    }
+  });
+
+  test("keeps a UI response pending until host acknowledgement and resends it after reconnect", async () => {
+    const key = await importRoomKey(new Uint8Array(32));
+    const client = new GuestClient(TEST_LINK, "test guest");
+    client.connect();
+    const initial = FakeWebSocket.instances[0];
+    if (initial === undefined) throw new Error("initial WebSocket was not created");
+    initial.open();
+    await initial.waitForSent(1);
+    client.applyFrameForTest(TEST_WELCOME);
+    client.applyFrameForTest({
+      t: "ui-request",
+      request: {
+        reqId: 42,
+        kind: "select",
+        title: "Choose",
+        options: ["one", "two"],
+        initialIndex: 0,
+        selectionMarker: "radio",
+      },
+    });
+
+    client.sendUiResponse(42, "two");
+    await initial.waitForSent(2);
+    expect(client.getSnapshot().uiRequest?.reqId).toBe(42);
+    expect(client.getSnapshot().uiResponsePending).toBeTrue();
+    expect((await decodeFrames(initial, key)).at(-1)).toMatchObject({ t: "ui-response", reqId: 42, value: "two" });
+
+    client.refreshConnection();
+    const replacement = FakeWebSocket.instances[1];
+    if (replacement === undefined) throw new Error("replacement WebSocket was not created");
+    replacement.open();
+    client.applyFrameForTest(TEST_WELCOME);
+    await replacement.waitForSent(2);
+    expect((await decodeFrames(replacement, key)).map(frame => frame.t)).toEqual(["hello", "ui-response"]);
+    expect(client.getSnapshot().uiResponsePending).toBeTrue();
+
+    client.applyFrameForTest({ t: "ui-request-end", reqId: 42 });
+    expect(client.getSnapshot().uiRequest).toBeNull();
+    expect(client.getSnapshot().uiResponsePending).toBeFalse();
+    client.close();
+  });
+
   test("recovers an established guest after the relay replaces its room", () => {
     const timers = installFakeTimers();
     try {
@@ -310,7 +491,7 @@ describe("CollabSocket browser lifecycle recovery", () => {
       expect(client.getSnapshot().phase).toBe("live");
       initial.close(4001);
       expect(client.getSnapshot().phase).toBe("reconnecting");
-      expect(timers.pendingDelays()).toEqual([1_000]);
+      expect(timers.pendingDelays()).toEqual([500]);
 
       timers.runNext();
       const missingRoom = FakeWebSocket.instances[1];
@@ -318,7 +499,7 @@ describe("CollabSocket browser lifecycle recovery", () => {
       missingRoom.open();
       missingRoom.close(4004);
       expect(client.getSnapshot().phase).toBe("reconnecting");
-      expect(timers.pendingDelays()).toEqual([2_000]);
+      expect(timers.pendingDelays()).toEqual([1_000]);
 
       timers.runNext();
       const recovered = FakeWebSocket.instances[2];
@@ -357,7 +538,7 @@ describe("CollabSocket browser lifecycle recovery", () => {
         replacement.close(4004);
       }
 
-      expect(observedDelays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000]);
+      expect(observedDelays).toEqual([500, 1_000, 2_000, 4_000, 8_000, 15_000]);
       expect(FakeWebSocket.instances).toHaveLength(7);
       expect(timers.pendingDelays()).toEqual([]);
       expect(client.getSnapshot().phase).toBe("ended");

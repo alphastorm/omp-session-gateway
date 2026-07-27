@@ -26,7 +26,7 @@ export function importRoomKey(raw: Uint8Array): Promise<CryptoKey> {
 	return crypto.subtle.importKey("raw", asStrict(raw), AES_ALGORITHM, false, ["encrypt", "decrypt"]);
 }
 
-export async function seal(key: CryptoKey, frame: WireFrame): Promise<Uint8Array> {
+export async function seal(key: CryptoKey, frame: object): Promise<Uint8Array> {
 	const iv = new Uint8Array(IV_LENGTH);
 	crypto.getRandomValues(iv);
 	const plaintext = TEXT_ENCODER.encode(JSON.stringify(frame));

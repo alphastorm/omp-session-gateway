@@ -30,8 +30,8 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
     ).toBeGreaterThanOrEqual(1);
 
     fixture.disconnectEvents();
-    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "relay", { timeout: 900 });
-    await expect(page.locator("#status-banner .status-title")).toHaveText("Reconnecting to relay…");
+    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "gateway", { timeout: 900 });
+    await expect(page.locator("#status-banner .status-title")).toHaveText("Gateway unavailable");
     await expect(page.locator(".working-row")).toHaveCount(1);
 
     fixture.setSnapshot([active], 2);
@@ -107,10 +107,10 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await expect(page.locator("#status-banner")).toBeHidden({ timeout: 6_000 });
 
     fixture.disconnectEvents();
-    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "relay", {
+    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "gateway", {
       timeout: 900,
     });
-    await expect(page.locator("#status-banner .status-title")).toHaveText("Reconnecting to relay…");
+    await expect(page.locator("#status-banner .status-title")).toHaveText("Gateway unavailable");
     await expect(page.locator("#status-banner .status-detail")).toContainText(
       "Live updates paused; showing the list as of",
     );

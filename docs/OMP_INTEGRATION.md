@@ -160,6 +160,11 @@ ctx.collab.on("started", ...);
 
 Do not block v1 on moving the publisher into an extension. If the pinned public extension surface still cannot own built-in collaboration startup, keep the first integration in core; otherwise prefer the supported upstream API. See `docs/UPSTREAM_STRATEGY.md`.
 
+The browser client can still join an older v3 host, using ordinary host frames as passive relay
+liveness when the optional health advertisement is absent. Reliable `Sending…` convergence across
+a reconnect requires the fifth patch commit: only that host acknowledges a duplicate or late
+response after the original request has already settled.
+
 ## 8. OMP tests
 
 Add tests for:
@@ -175,6 +180,8 @@ Add tests for:
 - pre-writer retention and reconnect replay for bounded serializable UI requests;
 - no request admission or ID consumption after the host's bounded pending-request cap;
 - View exclusion and first-of-many writable-guest exactly-once settlement;
+- optional encrypted health probe advertisement/reply for both View and Control guests;
+- duplicate or late writable UI responses receive a targeted idempotent `ui-request-end` acknowledgement;
 - generation-scoped, nested, concurrent, and idempotent `inputRequired` leases;
 - attention clears before stop, fault, replacement, or removal, and stale releases are ignored;
 - local/remote response races abort both sides across ask, select, editor, confirm, and input operations;
