@@ -199,6 +199,12 @@ export function createHttpHandler(options: {
   readonly readinessToken?: string;
   readonly readinessInstance?: string;
   readonly sseKeepaliveMs?: number;
+  /**
+   * Reports whether the registry rendezvous point is still reachable by publishers. A daemon whose
+   * socket path was removed underneath it keeps serving HTTP while no session can ever register, so
+   * readiness must reflect the IPC endpoint rather than process liveness alone.
+   */
+  readonly endpointHealthy?: () => boolean;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
@@ -223,8 +229,9 @@ export function createHttpHandler(options: {
       if (peer === undefined || !isLoopbackAddress(peer.address)) {
         return problem(403, "forbidden", "Forbidden");
       }
+      const status = options.endpointHealthy?.() === false ? "degraded" : "ready";
       const challenge = request.headers.get("X-OMP-Readiness-Challenge");
-      if (challenge === null) return withSecurityHeaders(Response.json({ status: "ready" }), true);
+      if (challenge === null) return withSecurityHeaders(Response.json({ status }), true);
       if (options.readinessToken === undefined || !/^[A-Za-z0-9_-]{43}$/u.test(challenge)) {
         return problem(400, "bad_request", "Invalid readiness challenge");
       }
@@ -235,7 +242,7 @@ export function createHttpHandler(options: {
         .update(instance)
         .digest("base64url");
       return withSecurityHeaders(
-        Response.json({ status: "ready", proof, ...(instance === "" ? {} : { instance }) }),
+        Response.json({ status, proof, ...(instance === "" ? {} : { instance }) }),
         true,
       );
     }
@@ -372,6 +379,7 @@ export function startHttpServer(options: {
   readonly logger?: SafeLogger;
   readonly readinessToken: string;
   readonly readinessInstance?: string;
+  readonly endpointHealthy?: () => boolean;
 }): Bun.Server<undefined> {
   const handler = createHttpHandler(options);
   const server = Bun.serve({

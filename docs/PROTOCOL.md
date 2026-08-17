@@ -379,6 +379,13 @@ Error behavior:
 
 A local unauthenticated health endpoint may return only generic process readiness. Session counts, identities, config, paths, and publisher health require authenticated diagnostics or local CLI access.
 
+Readiness must reflect the registry rendezvous point, not just the HTTP listener. `status` is `ready`
+only while publishers can still reach the IPC endpoint, and `degraded` once the daemon observes that
+its socket path no longer resolves to the live listener. This distinction is required because a
+long-lived daemon can keep serving HTTP on an unlinked socket inode that no publisher can connect to.
+The value carries no path, count, or publisher detail, and the optional HMAC challenge/response shape
+is identical for both values.
+
 ## 5. In-memory collab client bootstrap
 
 Preferred same-page API:

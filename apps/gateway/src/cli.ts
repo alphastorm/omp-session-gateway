@@ -39,6 +39,13 @@ interface ParsedArguments {
 
 const MISSING_OPTION_VALUE = "\0";
 
+/**
+ * Cadence for confirming the registry socket path still resolves to the live listener. The OS can
+ * remove it underneath a long-lived daemon (macOS reaps idle `TMPDIR` entries), which silently
+ * stops every publisher from connecting while HTTP keeps serving.
+ */
+const ENDPOINT_WATCHDOG_INTERVAL_MS = 15_000;
+
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const command = argv[0] ?? "help";
   const values = new Map<string, string[]>();
@@ -137,6 +144,7 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   };
   let http: ReturnType<typeof startHttpServer> | undefined;
   let sweeper: ReturnType<typeof setInterval> | undefined;
+  let endpointWatchdog: ReturnType<typeof setInterval> | undefined;
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
@@ -148,16 +156,21 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
       pushService,
       readinessToken: token,
       ...(readinessInstance === undefined ? {} : { readinessInstance }),
+      endpointHealthy: () => ipc.endpointHealthy,
     });
     sweeper = setInterval(() => {
       const removed = registry.sweepExpired();
       if (removed > 0) logger.event("info", "registry.expired", { removed });
     }, Math.max(1_000, Math.floor((config.registry.ttlSeconds * 1_000) / 3)));
+    endpointWatchdog = setInterval(() => {
+      void ipc.verifyEndpoint();
+    }, ENDPOINT_WATCHDOG_INTERVAL_MS);
     await stopped;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
-    if (sweeper !== undefined) clearInterval(sweeper);
+    clearInterval(sweeper);
+    clearInterval(endpointWatchdog);
     try {
       http?.stop(true);
     } finally {
