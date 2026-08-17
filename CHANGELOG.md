@@ -4,6 +4,20 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Fixed
+
+- Re-bind the registry socket when its path disappears underneath the daemon. macOS reaps idle
+  per-user `TMPDIR` entries, which deleted `registry.sock` and its parent directory while Bun kept
+  listening on the unlinked inode, so every OMP publisher failed to connect with `ENOENT` and no
+  session could ever appear. The daemon now records the bound device/inode, re-checks the path every
+  15 seconds, and recreates the private runtime directory and listener when the path is gone. A path
+  owned by a different inode is reported as unhealthy instead of being clobbered.
+- Report `status: "degraded"` from `GET /api/v1/health` when publishers cannot reach the registry
+  endpoint. Readiness previously proved only that the HTTP listener answered, so a daemon that no
+  publisher could reach still passed `status`, `doctor`, and install readiness checks.
+
 ## [0.1.0-prealpha.14] - 2026-07-26
 
 ### Added
