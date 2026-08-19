@@ -165,8 +165,8 @@ has passed on the advertised platforms.
 
 ## Current upstream baseline
 
-Pinned OMP commit: `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`, observed on **2026-07-21** with
-**v17.0.6** as the nearest release. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
+Pinned OMP commit: `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, observed on **2026-08-19** at tag
+**v17.3.8**. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
 source paths.
 
 ## Contributing and releases

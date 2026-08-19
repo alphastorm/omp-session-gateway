@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-07-21",
+  "observedAt": "2026-08-19",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v17.0.6",
-  "commit": "89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6",
-  "packageVersion": "17.0.6",
+  "tag": "v17.3.8",
+  "commit": "858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55",
+  "packageVersion": "17.3.8",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "17.0.6",
-    "@oh-my-pi/pi-wire": "17.0.6",
+    "@oh-my-pi/pi-coding-agent": "17.3.8",
+    "@oh-my-pi/pi-wire": "17.3.8",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.3.14",
@@ -27,9 +27,10 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Pinned to upstream main as observed on 2026-07-21; v17.0.6 is the nearest released tag and package baseline.",
-    "Relevant host, extension UI, wire v3, guest client, and collab-web client blocks are byte-identical to the prior pin; upstream interactive-mode plan/token-rate work is preserved by the rebased patch.",
+    "Pinned to upstream tag v17.3.8 as observed on 2026-08-19; the previous pin was v17.0.6 / 89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6.",
+    "The v17.0.6 patch no longer applies at this commit: interactive-mode.ts, agent-session.ts, session-manager.ts, and builtin-registry.ts all conflict. The shipped mbox is regenerated as a four-commit series whose first commit is a compat rework of the original controller commit.",
     "No supported extension collaboration controller exists at this commit; the slash command directly owns CollabHost.",
-    "The collab-web connect path writes the capability to location.hash, so the gateway integration requires a reviewed in-memory bootstrap patch."
+    "The collab-web connect path writes the capability to location.hash, so the gateway integration requires a reviewed in-memory bootstrap patch.",
+    "collab-web stays at package version 16.3.6 but its source moved: upstream replaced the npm marked dependency with @oh-my-pi/pi-utils/marked. The vendored client keeps npm marked so the bundled runtime closure stays pure JavaScript instead of pulling @oh-my-pi/pi-natives and its per-platform binaries."
   ]
 }

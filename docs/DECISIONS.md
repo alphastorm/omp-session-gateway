@@ -380,3 +380,32 @@ one `lstat` per interval. Sessions published before a reap survive the re-bind b
 connections are not closed. The `degraded` status is a new observable value for health consumers, so
 monitoring that only checked HTTP reachability now distinguishes a serving daemon from a usable one.
 Until the lockstep path migration lands, the reap still happens; the daemon merely repairs it.
+
+---
+
+## ADR-022 — Refresh the OMP pin to v17.3.8 and keep npm `marked` in the vendored client
+
+**Status:** Accepted
+
+**Context:** The repository pinned `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` from
+2026-07-21, but the maintained downstream integration and the author's activated runtime had moved
+to `v17.3.8` / `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`. The shipped mbox no longer applied
+there: `interactive-mode.ts`, `agent-session.ts`, `session-manager.ts`, and `builtin-registry.ts`
+all conflicted. Separately, upstream `collab-web` replaced its npm `marked` dependency with
+`@oh-my-pi/pi-utils/marked`, which drags `@oh-my-pi/pi-natives` and its per-platform binaries into
+the bundled runtime dependency closure.
+
+**Decision:** Refresh the pin to `v17.3.8`. Take the maintained series verbatim from the reviewed
+handoff artifact `gateway-collaboration-v17.3.8.mbox` (sha256 `f63f74c9…`, four commits in
+authoritative order `0006 → 0002 → 0003 → 0004`) and append a fifth commit. Take upstream's `collab-web` source wholesale
+except for one line: keep `import { Marked } from "marked"`. Restore the health-probe and
+response-acknowledgement commit, which the maintained series had dropped.
+
+**Consequences:** The gateway ships a pure-JavaScript runtime closure instead of multi-platform
+native addons for a markdown renderer, at the cost of a twelfth documented local patch that must be
+re-applied on every refresh. The `Marked` API is identical across both import sources, so the
+divergence is one import line. Because only source-level evidence was regenerated, every native,
+Tailscale, relay, Android, browser, and signed-artifact row reverts to **NOT RUN** for this pin;
+the previous pin's platform evidence does not transfer. Had the dropped health-probe commit not
+been restored, the client's relay probes would have gone permanently inert rather than failing
+loudly, because `#relayProbeSupported` only becomes true when the host sends a seed pong.
