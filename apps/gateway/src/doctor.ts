@@ -17,6 +17,14 @@ const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const MAX_READINESS_BODY_BYTES = 512;
 const NETWORK_TIMEOUT_MS = 3_000;
 const DEFAULT_RELAY_HEALTH_URL = "https://my.omp.sh";
+/**
+ * Expected upstream identity of the shipped compatibility artifacts. These duplicate
+ * `UPSTREAM.lock.json` deliberately: the check exists to notice a tampered or mismatched lock, so
+ * reading the expectation out of the same file would make it tautological. `pin contract` in
+ * `apps/gateway/test/doctor.test.ts` fails whenever the two drift, so refresh both together.
+ */
+export const EXPECTED_UPSTREAM_COMMIT = "858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55";
+export const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "17.3.8";
 
 function property(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
@@ -261,8 +269,9 @@ async function compatibilityArtifactsPresent(): Promise<boolean> {
     const lock = JSON.parse(lockText) as unknown;
     return (
       property(lock, "repository") === "https://github.com/can1357/oh-my-pi" &&
-      property(lock, "commit") === "89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6" &&
-      property(property(lock, "packageVersions"), "@oh-my-pi/pi-coding-agent") === "17.0.6" &&
+      property(lock, "commit") === EXPECTED_UPSTREAM_COMMIT &&
+      property(property(lock, "packageVersions"), "@oh-my-pi/pi-coding-agent") ===
+        EXPECTED_UPSTREAM_CODING_AGENT_VERSION &&
       patch.includes("packages/coding-agent/src/collab/controller.ts") &&
       patch.includes("packages/coding-agent/src/collab/registry-publisher.ts")
     );
