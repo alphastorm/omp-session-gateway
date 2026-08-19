@@ -4,11 +4,11 @@
 `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` (nearest release: v17.0.6).
 The artifact is one mbox containing five reviewable commits:
 
-- `7e8a69b55` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
-- `a000a13aa` — bounded, replayable host UI requests retained before a writable guest joins;
-- `ace9dbda1` — generation-scoped `inputRequired` publication;
-- `4a59450e8` — safe response-UI mirroring, race cleanup, and startup ordering; and
-- `708d7a53e` — optional encrypted health probes and idempotent response acknowledgement.
+- `cf7a55308` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
+- `6b2318b5f` — bounded, replayable host UI requests retained before a writable guest joins;
+- `0ba857121` — generation-scoped `inputRequired` publication;
+- `dcb55ae7b` — safe response-UI mirroring, race cleanup, and startup ordering; and
+- `5ccdaabec` — optional encrypted health probes and idempotent response acknowledgement.
 
 It:
 
@@ -53,6 +53,15 @@ symmetric response-race cleanup, mutual authentication, reconnect/token reread,
 explicit-token-path isolation, collaboration-before-hooks ordering, optional read-only health
 probes, and duplicate response acknowledgement. Run every listed test, the coding-agent typecheck,
 and `bun run ci:check:full` against the exact pin before release qualification.
+
+On Windows every publisher-token fixture is secured, and the publisher's own token ACL is
+validated, by spawning `powershell.exe`. Hosted runner images have made that spawn cost seconds
+rather than milliseconds, and the first test in `registry-publisher.test.ts` pays two cold starts.
+`registry-publisher.test.ts` therefore scales its per-test and handshake budgets by platform
+(`PUBLISHER_TEST_TIMEOUT_MS`, `HANDSHAKE_TIMEOUT_MS`). Those budgets bound security assertions, not
+latency: they exist so a slow spawn cannot masquerade as a protocol failure. Treat a *sustained*
+rise in these tests' runtime as a signal to profile the Windows ACL path rather than to widen them
+again.
 
 Isolated launchers may set `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` to an absolute publisher-token file so OMP can use a trial gateway without replacing `XDG_CONFIG_HOME` for OMP tools and child processes. The same regular-file, no-symlink, current-user ownership, mode, ACL, length, and alphabet checks apply; the environment variable carries only the path, never the token.
 

@@ -18,6 +18,15 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   endpoint. Readiness previously proved only that the HTTP listener answered, so a daemon that no
   publisher could reach still passed `status`, `doctor`, and install readiness checks.
 
+### Testing
+
+- Scale the OMP publisher fixtures' per-test and handshake budgets by platform. Every Windows
+  publisher-token fixture is secured, and the publisher's token ACL validated, by spawning
+  `powershell.exe`; hosted runner images made that spawn cost seconds rather than milliseconds, so
+  the file's first test — which pays two cold starts — exceeded the 5-second default and the
+  2-second handshake budget while asserting security behavior that had not regressed. The patch is
+  regenerated, so its five commit SHAs changed.
+
 ## [0.1.0-prealpha.14] - 2026-07-26
 
 ### Added
