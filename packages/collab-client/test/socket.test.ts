@@ -71,8 +71,16 @@ function installFakeTimers(): FakeTimerHarness {
   const nativeSetTimeout = globalThis.setTimeout;
   const nativeClearTimeout = globalThis.clearTimeout;
   const nativeRandom = Math.random;
+  const nativeNow = Date.now;
   const timers = new Map<number, { handler: TimerHandler; delay: number }>();
   let nextTimer = 0;
+  // The client schedules its idle relay probe as `lastRelayActivityAt + RELAY_IDLE_PROBE_MS -
+  // Date.now()`. Faking setTimeout while leaving Date.now on the wall clock mixes the two, so any
+  // real milliseconds the test spends (WebCrypto decodes, machine load) shorten that delay to
+  // 9_99x and make exact-delay assertions fail under load. Drive a virtual clock instead: it only
+  // advances when a fake timer fires, which is exactly the elapsed time the client should observe.
+  let now = nativeNow();
+  Date.now = () => now;
   globalThis.setTimeout = ((handler: TimerHandler, delay?: number) => {
     nextTimer += 1;
     timers.set(nextTimer, { handler, delay: delay ?? 0 });
@@ -90,12 +98,14 @@ function installFakeTimers(): FakeTimerHarness {
       const [id, timer] = next;
       timers.delete(id);
       if (typeof timer.handler !== "function") throw new Error("string timer handlers are unsupported");
+      now += timer.delay;
       timer.handler();
     },
     restore() {
       globalThis.setTimeout = nativeSetTimeout;
       globalThis.clearTimeout = nativeClearTimeout;
       Math.random = nativeRandom;
+      Date.now = nativeNow;
       timers.clear();
     },
   };

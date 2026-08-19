@@ -26,6 +26,12 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   the file's first test — which pays two cold starts — exceeded the 5-second default and the
   2-second handshake budget while asserting security behavior that had not regressed. The patch is
   regenerated, so its five commit SHAs changed.
+- Drive a virtual clock in the collab-client fake-timer harness. `CollabSocket` schedules its idle
+  relay probe as `lastRelayActivityAt + RELAY_IDLE_PROBE_MS - Date.now()`, and `#commit()` runs
+  between the two reads, so faking `setTimeout` while leaving `Date.now()` on the wall clock let
+  real milliseconds shorten the delay to `9_99x`. The relay-probe test failed roughly one full-suite
+  run in six. The clock now advances only when a fake timer fires; injecting 3 ms of real work into
+  `#commit()` reproduced `9997` before the change and `10000` after.
 
 ## [0.1.0-prealpha.14] - 2026-07-26
 
