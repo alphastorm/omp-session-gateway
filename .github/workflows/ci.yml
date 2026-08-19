@@ -33,8 +33,11 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      # apt is the only network dependency here and the only observed hang; bound it separately so a
-      # mirror stall reads as an install failure rather than a stuck browser test.
-      - run: bunx playwright install --with-deps chromium
+      # No --with-deps: the ubuntu-24.04 runner image already ships Chromium's shared libraries, and
+      # apt was the only network dependency in this job. On 2026-08-19 an Ubuntu mirror stalled here
+      # twice, once for 38 minutes before the job was cancelled by hand and once until the bound
+      # below fired, both times immediately after `Get:5 noble-security InRelease`. If a library is
+      # ever genuinely missing, `bun run test:browser` fails loudly on browser launch.
+      - run: bunx playwright install chromium
         timeout-minutes: 10
       - run: bun run test:browser
