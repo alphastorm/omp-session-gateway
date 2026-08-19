@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join, sep } from "node:path";
 import type { GatewayConfig } from "../src/config.ts";
 import { serviceDefinition, serviceProgramBelongsTo } from "../src/service.ts";
 
@@ -64,12 +65,16 @@ describe("service packaging", () => {
  * which took the active branch and booted out the production daemon.
  */
 describe("loaded service ownership", () => {
-  const stateDir = "/Users/example/.local/state/omp-session-gateway";
+  // Build fixtures with the host separator: the predicate compares against `stateDir + sep`, so a
+  // hard-coded POSIX fixture would vacuously fail on Windows and pass for the wrong reason on macOS.
+  const stateDir = join(sep, "Users", "example", ".local", "state", "omp-session-gateway");
+  const installedCli = join(stateDir, "installation", "versions", "0.1.0-77e3a6914cea", "apps", "gateway", "src", "cli.js");
+  const otherRoot = join(sep, "tmp", "smoke.abc123", "state", "omp-session-gateway");
   const launchctlPrint = `gui/501/omp-session-gateway = {
 	program = /opt/homebrew/Cellar/bun/1.3.14/bin/bun
 	arguments = {
 		/opt/homebrew/Cellar/bun/1.3.14/bin/bun
-		${stateDir}/installation/versions/0.1.0-77e3a6914cea/apps/gateway/src/cli.js
+		${installedCli}
 		serve
 	}
 }`;
@@ -79,13 +84,13 @@ describe("loaded service ownership", () => {
   });
 
   test("disclaims a service installed from a different root", () => {
-    expect(serviceProgramBelongsTo(launchctlPrint, "/tmp/smoke.abc123/state/omp-session-gateway")).toBe(false);
+    expect(serviceProgramBelongsTo(launchctlPrint, otherRoot)).toBe(false);
   });
 
   test("disclaims a sibling root that shares a path prefix", () => {
     // Without the trailing separator this matches, and a second install silently adopts the first.
-    expect(serviceProgramBelongsTo(launchctlPrint, "/Users/example/.local/state/omp-session-gateway-2")).toBe(false);
-    expect(serviceProgramBelongsTo(`${stateDir}-2/installation/x/cli.js`, stateDir)).toBe(false);
+    expect(serviceProgramBelongsTo(launchctlPrint, `${stateDir}-2`)).toBe(false);
+    expect(serviceProgramBelongsTo(join(`${stateDir}-2`, "installation", "x", "cli.js"), stateDir)).toBe(false);
   });
 
   test("disclaims when the service manager reports nothing loaded", () => {
@@ -93,8 +98,8 @@ describe("loaded service ownership", () => {
   });
 
   test("reads a systemd ExecStart line", () => {
-    const execStart = `{ path=/usr/bin/bun ; argv[]=/usr/bin/bun ${stateDir}/installation/versions/0.1.0-a/apps/gateway/src/cli.js serve ; ignore_errors=no }`;
+    const execStart = `{ path=/usr/bin/bun ; argv[]=/usr/bin/bun ${installedCli} serve ; ignore_errors=no }`;
     expect(serviceProgramBelongsTo(execStart, stateDir)).toBe(true);
-    expect(serviceProgramBelongsTo(execStart, "/tmp/other/state/omp-session-gateway")).toBe(false);
+    expect(serviceProgramBelongsTo(execStart, otherRoot)).toBe(false);
   });
 });
