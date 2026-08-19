@@ -1,4 +1,4 @@
-From 7e8a69b557e7e69f9be54e491c17a69c4a20518e Mon Sep 17 00:00:00 2001
+From cf7a55308f292a53c5e69c4c8140e4b752c77dfc Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 10:22:26 -0400
 Subject: [PATCH 1/5] feat: add gateway collaboration controller
@@ -20,13 +20,13 @@ Subject: [PATCH 1/5] feat: add gateway collaboration controller
  .../test/collab/guest-ui-request.test.ts      |   8 +-
  .../test/collab/read-only.test.ts             |   1 -
  ...gistry-publisher-explicit-token.fixture.ts |  32 +
- .../test/collab/registry-publisher.test.ts    | 573 +++++++++++++++++
+ .../test/collab/registry-publisher.test.ts    | 582 +++++++++++++++++
  .../test/collab/replication-shrink.test.ts    |   1 -
  .../test/collab/steer-queue.test.ts           |   1 -
  .../test/config/collab-settings.test.ts       |   8 +
  .../test/session-manager-branch-order.test.ts |  14 +
  .../test/slash-commands/collab-qrcode.test.ts |  79 ++-
- 22 files changed, 1996 insertions(+), 78 deletions(-)
+ 22 files changed, 2005 insertions(+), 78 deletions(-)
  create mode 100644 packages/coding-agent/src/collab/controller.ts
  create mode 100644 packages/coding-agent/src/collab/registry-publisher.ts
  create mode 100644 packages/coding-agent/test/collab/controller.test.ts
@@ -1945,16 +1945,25 @@ index 000000000..32674dbd8
 +await new Promise(() => {});
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 000000000..b59e8bfd0
+index 000000000..83332b59f
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,573 @@
+@@ -0,0 +1,582 @@
 +import { expect, test, vi } from "bun:test";
 +import { createHmac, randomBytes } from "node:crypto";
 +import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
 +import { CollabRegistryPublisher, resolveCollabRegistryEndpoint } from "../../src/collab/registry-publisher";
++
++/**
++ * Windows secures every publisher-token fixture and re-validates its ACL through `powershell.exe`,
++ * and hosted runner images have made that spawn cost seconds rather than milliseconds. The first
++ * test in this file pays two cold starts. These budgets bound security assertions, not latency, so
++ * keep them wide enough on Windows that a slow spawn cannot masquerade as a protocol failure.
++ */
++const HANDSHAKE_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 2_000;
++const PUBLISHER_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
 +
 +const record = {
 +	instanceId: "publisher-test-instance",
@@ -2043,7 +2052,7 @@ index 000000000..b59e8bfd0
 +	await rm(fixture.root, { recursive: true, force: true });
 +}
 +
-+async function beforeTimeout<T>(promise: Promise<T>, message: string, timeoutMilliseconds = 2_000): Promise<T> {
++async function beforeTimeout<T>(promise: Promise<T>, message: string, timeoutMilliseconds = HANDSHAKE_TIMEOUT_MS): Promise<T> {
 +	return await Promise.race([
 +		promise,
 +		Bun.sleep(timeoutMilliseconds).then(() => {
@@ -2199,7 +2208,7 @@ index 000000000..b59e8bfd0
 +		server.stop(true);
 +		await cleanupPublisherFixture(fixture);
 +	}
-+});
++}, PUBLISHER_TEST_TIMEOUT_MS);
 +
 +test("publisher authenticates the registry server before releasing capabilities", async () => {
 +	const fixture = await createPublisherFixture("mutual-auth");
@@ -2272,7 +2281,7 @@ index 000000000..b59e8bfd0
 +		server.stop(true);
 +		await cleanupPublisherFixture(fixture);
 +	}
-+});
++}, PUBLISHER_TEST_TIMEOUT_MS);
 +
 +test("publisher token path override preserves the ambient XDG configuration", async () => {
 +	const fixture = await createPublisherFixture("explicit-token-path");
@@ -2305,7 +2314,7 @@ index 000000000..b59e8bfd0
 +		server.server.stop(true);
 +		await cleanupPublisherFixture(fixture);
 +	}
-+});
++}, PUBLISHER_TEST_TIMEOUT_MS);
 +
 +test("publisher reconnects after registry restart and rereads the rotated token", async () => {
 +	const fixture = await createPublisherFixture("restart-token");
@@ -2376,7 +2385,7 @@ index 000000000..b59e8bfd0
 +		vi.restoreAllMocks();
 +		await cleanupPublisherFixture(fixture);
 +	}
-+});
++}, PUBLISHER_TEST_TIMEOUT_MS);
 +
 +test("invalid publisher configuration fails safely without exposing capabilities", async () => {
 +	const warning = Promise.withResolvers<string>();
@@ -2738,7 +2747,7 @@ index 8a63482d0..65c08959d 100644
 2.50.1 (Apple Git-155)
 
 
-From a000a13aae4f54792c36e823923f6c64d282e523 Mon Sep 17 00:00:00 2001
+From 6b2318b5f7f226ec71e1096686ec71ed2f5ea35b Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:25:56 -0400
 Subject: [PATCH 2/5] fix(collab): retain UI requests until a writer joins
@@ -2923,7 +2932,7 @@ index 0fa169eab..805d56bbb 100644
 2.50.1 (Apple Git-155)
 
 
-From ace9dbda1430d52f29e7cbfe2a4945580eb8300d Mon Sep 17 00:00:00 2001
+From 0ba85712195e7b76dcf726a546f5984cda55aee7 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:31:08 -0400
 Subject: [PATCH 3/5] feat(collab): publish response-required state
@@ -3194,10 +3203,10 @@ index 32674dbd8..0f27bf06b 100644
  	controlLink: "CONTROL_CAPABILITY_FIXTURE",
  });
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
-index b59e8bfd0..a15e79666 100644
+index 83332b59f..5936e3792 100644
 --- a/packages/coding-agent/test/collab/registry-publisher.test.ts
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -11,6 +11,7 @@ const record = {
+@@ -20,6 +20,7 @@ const record = {
  	pid: process.pid,
  	sessionId: "publisher-test-session",
  	startedAt: "2026-07-19T00:00:00.000Z",
@@ -3205,7 +3214,7 @@ index b59e8bfd0..a15e79666 100644
  	viewLink: "VIEW_CAPABILITY_FIXTURE",
  	controlLink: "CONTROL_CAPABILITY_FIXTURE",
  };
-@@ -27,6 +28,7 @@ interface AuthenticatedRegistryServer {
+@@ -36,6 +37,7 @@ interface AuthenticatedRegistryServer {
  	readonly frames: Array<Record<string, unknown>>;
  	readonly binding: () => AuthBinding | undefined;
  	readonly upsertReceived: Promise<void>;
@@ -3213,7 +3222,7 @@ index b59e8bfd0..a15e79666 100644
  }
  
  interface PublisherFixture {
-@@ -108,6 +110,15 @@ function startAuthenticatedRegistryServer(
+@@ -117,6 +119,15 @@ function startAuthenticatedRegistryServer(
  ): AuthenticatedRegistryServer {
  	const frames: Array<Record<string, unknown>> = [];
  	const upsertReceived = Promise.withResolvers<void>();
@@ -3229,7 +3238,7 @@ index b59e8bfd0..a15e79666 100644
  	let binding: AuthBinding | undefined;
  	let activeSocket: Bun.Socket<{ buffer: string }> | undefined;
  	const server = Bun.listen<{ buffer: string }>({
-@@ -144,6 +155,9 @@ function startAuthenticatedRegistryServer(
+@@ -153,6 +164,9 @@ function startAuthenticatedRegistryServer(
  						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
  					} else if (frame.op === "upsert") {
  						upsertReceived.resolve();
@@ -3239,7 +3248,7 @@ index b59e8bfd0..a15e79666 100644
  					}
  				}
  			},
-@@ -158,6 +172,7 @@ function startAuthenticatedRegistryServer(
+@@ -167,6 +181,7 @@ function startAuthenticatedRegistryServer(
  		frames,
  		binding: () => binding,
  		upsertReceived: upsertReceived.promise,
@@ -3247,7 +3256,7 @@ index b59e8bfd0..a15e79666 100644
  	};
  }
  
-@@ -382,6 +397,9 @@ test("publisher reconnects after registry restart and rereads the rotated token"
+@@ -391,6 +406,9 @@ test("publisher reconnects after registry restart and rereads the rotated token"
  			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
  		);
  		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
@@ -3257,7 +3266,7 @@ index b59e8bfd0..a15e79666 100644
  
  		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
  			callback: (...callbackArguments: unknown[]) => void,
-@@ -414,6 +432,7 @@ test("publisher reconnects after registry restart and rereads the rotated token"
+@@ -423,6 +441,7 @@ test("publisher reconnects after registry restart and rereads the rotated token"
  			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
  		);
  		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
@@ -3269,7 +3278,7 @@ index b59e8bfd0..a15e79666 100644
 2.50.1 (Apple Git-155)
 
 
-From 4a59450e8d854ac77755d66f796dff23a27ff52a Mon Sep 17 00:00:00 2001
+From dcb55ae7b59fda510cdf87c83d2c58f9435cd09f Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:45:28 -0400
 Subject: [PATCH 4/5] feat(collab): mirror response UI safely
@@ -4190,7 +4199,7 @@ index 308f58b79..6e51e0f82 100644
 2.50.1 (Apple Git-155)
 
 
-From 708d7a53e5017d5001f25352b7b84c7324efefca Mon Sep 17 00:00:00 2001
+From 5ccdaabeccfdcb896f5d029ecacbc74d43856e15 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Sun, 26 Jul 2026 22:48:20 -0400
 Subject: [PATCH 5/5] feat(collab): acknowledge web health and responses
