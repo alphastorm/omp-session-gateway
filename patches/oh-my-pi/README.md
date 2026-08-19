@@ -79,7 +79,7 @@ Isolated launchers may set `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` to an absolute pub
 
 ## Upstream status
 
-Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab session from anywhere](https://github.com/can1357/oh-my-pi/discussions/6460).
+Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab session from anywhere](https://github.com/can1357/oh-my-pi/discussions/6460). Project writeup: [#9036](https://github.com/can1357/oh-my-pi/discussions/9036).
 
 | Piece | Upstream state |
 | --- | --- |
