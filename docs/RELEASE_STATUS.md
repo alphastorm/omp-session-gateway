@@ -1,6 +1,6 @@
 # Release status
 
-**Updated:** 2026-07-26<br>
+**Updated:** 2026-08-19<br>
 **Repository version:** `0.1.0` (`v0.1.0-prealpha.13`; no alpha)<br>
 **Classification:** implemented pre-alpha<br>
 **Alpha decision:** **NO-GO**<br>
@@ -11,6 +11,14 @@ pre-alpha archives for evaluation. It is not production-qualified, no alpha arti
 approved for publication, and no operating system, browser, or Android device is currently
 supported. Repository commits, pre-alpha archives, and provenance-test archives are engineering
 inputs for qualification only.
+
+**Pin refreshed to `v17.3.8` on 2026-08-19.** The OMP pin moved from `v17.0.6` /
+`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` to `v17.3.8` /
+`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`. Every row below whose evidence predates that date was
+recorded against the previous pin. Source-level rows were re-run and are marked; native host,
+Tailscale, relay, Android, signed-artifact, and browser rows were **not** re-run and are **NOT RUN**
+for this pin regardless of the status they carry for the old one. Nothing here promotes `v17.3.8`
+to a qualified platform claim.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
@@ -38,11 +46,11 @@ gaps in the next section.
 
 | Scope | Status | Recorded evidence |
 |---|---|---|
-| Exact upstream pin | **PASS** | `UPSTREAM.lock.json` pins `can1357/oh-my-pi@89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`, nearest release `v17.0.6`, with package and Bun versions; the four-commit patch applies cleanly to the pristine pin. |
+| Exact upstream pin | **PASS** | `UPSTREAM.lock.json` pins `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, tag `v17.3.8`, with package and Bun versions. The regenerated five-commit mbox applies cleanly to the pristine pin and reproduces tree `1320e3e7e7596dbe2f6a130d568072a9a38f2943`. Its first four commits are the reviewed handoff artifact `gateway-collaboration-v17.3.8.mbox` (sha256 `f63f74c90d72776ca1ebcb4b1a75b18130b3c65d1c6e0133c9bbb3a8e5b4af49`) applied verbatim with plain `git am`; the fifth restores the health-probe commit that the maintained series no longer carries. Recorded 2026-08-19. |
 | Repository check | **PASS** | On explicit-Ask recommendation commit `f8c199ebcd415ee0885ab400f98306e6ba156792`, `bun run check` passed handoff validation, four workspace typechecks, production web/client builds, 113 tests with 589 assertions across 21 files, and capability-leak scanning. Twelve Playwright cases passed at both `412 × 915` and `390 × 844`, including active and late-join recommendation rendering, the ask-first/all-clear layouts, same-document View/Control, background Push, transport recovery, and deferred PWA activation. Protected PR #35's implementation and Windows workflows also passed before merge. |
 | Host-suspension recovery experiment | **PASS** | The downloaded and independently verified `provenance-test-v0.1.0.10` gateway plus the exact patched OMP publisher were suspended beyond a five-second test TTL, then resumed gateway-first, publisher-first, and together. Every order first lost the expired card, mutually re-authenticated, sent a full upsert, and restored one session within eight seconds. This finite missed-timer reproduction does not replace actual macOS sleep/wake qualification. |
 | Dependency audit | **PASS** | `bun audit` reported no vulnerabilities for the recorded lockfile. |
-| OMP patch application and lifecycle fixtures | **PASS** | The v17.0.6 patch apply-check passed against the pristine pin; 114 focused tests with 531 assertions passed across controller/publisher leases, pre-writer retention and bounds, View exclusion, multi-writer settlement, response-race cleanup, collaboration-before-hooks startup, metadata refresh, lifecycle revocation, settings, session ordering, and slash commands. |
+| OMP patch application and lifecycle fixtures | **PASS** | Re-run at `v17.3.8` on 2026-08-19: `git apply --check` passed against the pristine pin, and the documented suite passed 108 tests with 506 assertions across nine files plus five slash-command tests with 29 assertions. `bunx tsc --noEmit -p packages/coding-agent/tsconfig.json` produced 66 errors on the patched tree and the identical 66 on pristine `v17.3.8`, with none unique to the patch; those are upstream-baseline errors in advisor, eval, markit, stt, tts, and vibe files, several from optional dependencies such as `mupdf` that are absent in a fresh checkout. |
 | Registry mutual authentication | **PASS** | Shared gateway and standalone OMP proof-vector tests agree; stale client proof replay is rejected; a fake server receives only `hello`; and an isolated real gateway/synthetic-publisher smoke published metadata then revoked it on disconnect without key/capability log output. |
 | Full pinned OMP checkout | **PASS** | `bun run ci:check:full` passed. Every official TypeScript test outside five independently reproduced pristine-baseline failures passed in its official bucket. The unchanged baseline failures are two Python completion-runtime assertions, two status-path assertions, and one session-file timestamp-ordering assertion; no patch-specific failure remained. |
 | Deterministic runtime archive | **PASS** | Two clean local builds from hardening commit `99e34ee866d30dbb6424346404dc293727daa319` produced byte-identical 848,896-byte archives, SPDX 2.3 inventories, and checksum manifests. `SHA256SUMS` verified archive digest `7c25c37dd25bf2e93f7b8c48d1f0214c51f46709d82fcb830f7a0b7aae80e472` and SPDX digest `730097f950f9f2f4684b0358907870b889f32b690f7a6bbfe0d544be50b686fd`; `release-info.json` pins that source commit, upstream `39c95e5e29b1c8b082059f57421ce445c3dffdd4`, and the exact lock digest. This is unsigned local preflight, not signed-candidate qualification. |
@@ -63,6 +71,7 @@ gaps in the next section.
 | Hosted signing and provenance | **PASS** | Corrected [`provenance-test-v0.1.0.10`](https://github.com/alphastorm/omp-session-gateway/releases/tag/provenance-test-v0.1.0.10) at protected-main merge commit `1c33c90252643d7d0f572fe57a0e560f00b72afb` ([run `29792234310`](https://github.com/alphastorm/omp-session-gateway/actions/runs/29792234310)) published six immutable-release-attested assets. Downloaded checksums, all three GitHub build attestations, all three Cosign bundles, and release provenance verified independently. A clean exact-tag rebuild was byte-identical for the archive (`b446d405d97c2bec181b9d0f4be03c83ede7407d24d603a9d117be428b95576e`), SPDX inventory (`4cb0b1b2c81fdcaf56044cd38259a9ad979bff88efd75ca9a7a2fe3f30d6e8f1`), and checksum manifest (`08d28faa291f7b374dc8d6d88656c5e7e84cda93f65707acdc6a530415b39326`). |
 | Signed candidate packaging/runtime smoke | **PASS** | The downloaded and independently verified `provenance-test-v0.1.0.10` archive installed with `--no-start` into an isolated macOS root, launched the installed runtime through the existing real Tailscale Serve mapping, and mutually authenticated three reconnect-capable patched OMP publisher fixtures. A real gateway restart restored all three cards in approximately 227 ms; a patched interactive OMP process auto-published a fourth card and revoked it immediately on shutdown. The controlled suspension experiment used this installed gateway and restored each expired session within eight seconds in all three resume orders. This is packaging/runtime and finite-suspension evidence, not complete LaunchAgent, distinct-device identity, actual sleep/wake, real collaboration, or Android qualification. |
 | Repository security controls | **PASS** | Private vulnerability reporting, dependency alerts and automated security updates, secret scanning and push protection, and immutable releases are enabled. `main` requires signed commits, pull requests, current implementation/Windows checks, resolved conversations, and blocks force-pushes and deletion. |
+| Production registry-socket rebind | **PASS** | On 2026-08-19 the installed macOS daemon (PID 9994, started 2026-08-16 23:13) was observed listening on a `registry.sock` whose inode was created 2026-08-17 09:31 — about ten hours after process start — so the watchdog re-bound the rendezvous point after macOS reaped the per-user `TMPDIR` entry, with no operator action and no daemon restart. `doctor` returned all sixteen checks true and four `omp-code-mode` publishers were connected to the re-bound socket. This is unsolicited production evidence for the fix merged in PR #47; it does not advance the macOS host lifecycle gate below. |
 
 The evidence date and caveats above come from the implementation handoff and the current
 provenance-test artifact. Every later candidate must rerun the applicable clean-checkout CI and
@@ -108,8 +117,12 @@ The alpha decision remains **NO-GO** until, at minimum:
 3. a physical Android device passes install, automatic discovery, View, Control, interrupt,
    generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak checks;
 4. the candidate OMP path passes switch, branch, resume, crash-by-TTL, and applicable default-relay
-   connectivity scenarios without exposing a stale capability; and
-5. every advertised host/client combination completes its candidate-artifact capability-leak
+   connectivity scenarios without exposing a stale capability;
+5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
+   current `v17.3.8` pin. The pin was refreshed on 2026-08-19 and only source-level evidence was
+   regenerated with it, so every platform row still carries evidence gathered against
+   `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`; and
+6. every advertised host/client combination completes its candidate-artifact capability-leak
    acceptance across all forbidden sinks.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.

@@ -19,6 +19,13 @@
 - [ ] Android and lifecycle E2E suite.
 - [x] Install, doctor, uninstall, token rotation.
 - [x] Update the README with a neutral comparison to [`omp-deck`](https://libraries.io/npm/omp-deck): explain that OMP Session Gateway is a minimal tailnet session directory and capability broker for already-running terminal OMP processes that reuses OMP's existing `collab-web`, rather than a persistent full agent cockpit with its own chat, task board, routines, knowledge base, and messaging integrations; state when each approach is the better fit.
+- [ ] Profile the Windows publisher-token ACL path. Both the test fixture and the production
+      `assertWindowsPublisherTokenPrivate` check spawn `powershell.exe`; on `windows-2025-vs2026`
+      the first spawn pair cost 13.7 s on 2026-08-19 versus 685 ms on 2026-07-21. Test budgets were
+      widened to absorb it, but every Windows OMP publisher start pays this at runtime. Consider a
+      native `icacls`/`whoami` path or a single cached probe.
+- [ ] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
+      the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only.
 
 ## v1.1 candidates
 
