@@ -97,16 +97,16 @@ source locations, and required attributions are included at the stated archive p
 - License text: `licenses/runtime/jws/LICENSE`
 
 
-### lucide-react@1.24.0
+### lucide-react@1.31.0
 
-- Source: <https://github.com/lucide-icons/lucide/tree/1.24.0/packages/lucide-react>
+- Source: <https://github.com/lucide-icons/lucide/tree/1.31.0/packages/lucide-react>
 - License: ISC, with the included Feather-derived icons under MIT
 - Copyright: Copyright (c) 2026 Lucide Icons and Contributors; Copyright (c) 2013-present Cole Bemis
 - License text: `licenses/runtime/lucide-react/LICENSE`
 
-### marked@18.0.6
+### marked@18.0.9
 
-- Source: <https://github.com/markedjs/marked/tree/39bd884c5f17a8370cf957b8d46a15751868ab4d>
+- Source: <https://github.com/markedjs/marked/tree/8e858a4f8e7f53ffeae7392a4c9f455e693aa737>
 - License: MIT, with the reproduced Markdown license and attribution
 - Copyright: Copyright (c) 2018+ MarkedJS; Copyright (c) 2011-2018 Christopher Jeffrey; Copyright (c) 2004 John Gruber
 - License text: `licenses/runtime/marked/LICENSE`
