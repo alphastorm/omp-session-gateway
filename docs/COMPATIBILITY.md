@@ -33,11 +33,20 @@ The pre-alpha targets one immutable upstream source revision:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
-| `0.1.0` (unreleased) | `can1357/oh-my-pi@89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` | `v17.0.6` | coding-agent `17.0.6`; wire `17.0.6` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit pre-alpha qualification only |
+| `0.1.0` (unreleased) | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit pre-alpha qualification only |
 
-`v17.0.6` is the nearest release and package baseline recorded on **2026-07-21**. It is
-not a claim that every checkout or package combination labeled `v17.0.6` is compatible.
+`v17.3.8` is the release tag and package baseline recorded on **2026-08-19**. It is
+not a claim that every checkout or package combination labeled `v17.3.8` is compatible.
 No earlier or later OMP release, commit, fork, or loose semver range is supported.
+
+**Pin refreshed 2026-08-19, from `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`.** The
+previous mbox did not apply at this commit (`interactive-mode.ts`, `agent-session.ts`,
+`session-manager.ts`, and `builtin-registry.ts` all conflicted), so the shipped patch was
+regenerated against `v17.3.8`. The refresh carries source-level evidence only: it re-ran the
+documented patch suite and the repository suite, and it did **not** re-run native host, Tailscale,
+relay, Android, or signed-artifact qualification. Every platform row below and in
+[`RELEASE_STATUS.md`](RELEASE_STATUS.md) was recorded against the previous pin and is therefore
+**NOT RUN** for this one until re-executed. Do not read an unchanged row as coverage of `v17.3.8`.
 
 The immutable source paths, versions, observation date, and upstream findings live in
 [`UPSTREAM.lock.json`](../UPSTREAM.lock.json). The gateway integration currently requires:

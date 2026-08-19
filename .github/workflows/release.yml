@@ -134,7 +134,7 @@ jobs:
           This release exercises the pre-alpha build and keyless provenance path. It is not an alpha or production-qualified release.
 
           - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6\` (nearest release v17.0.6)
+          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8)
           - Runtime: Bun 1.3.14 or newer
           - Registry protocol: 1
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
@@ -163,7 +163,7 @@ jobs:
           ### Compatibility and known issues
 
           - Source commit: \`$GITHUB_SHA\`
-          - Exact release baseline: OMP v17.0.6 at \`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6\` with the included patch.
+          - Exact release baseline: OMP v17.3.8 at \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` with the included patch.
           - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 2.
           - The unchanged OMP publisher exposes boolean attention only, so Preview currently falls back to Session detail until a bounded preview source is qualified.
           - Automated unit, protocol, gateway, service-worker, leak, and Android-sized browser checks pass. The new request-specific lock-screen, force-stop, stale-request, roaming, and forbidden-sink matrix remains to be repeated on the physical Android candidate.

@@ -1,19 +1,21 @@
-From cf7a55308f292a53c5e69c4c8140e4b752c77dfc Mon Sep 17 00:00:00 2001
+From 0158f3c7f5666c29f9b1f3590ff81473910165ef Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 10:22:26 -0400
-Subject: [PATCH 1/5] feat: add gateway collaboration controller
+Subject: [PATCH 1/5] fix: rework gateway collaboration controller
 
+Adaptation: Rerolled onto v17.3.5: SessionManager keeps upstream's #persistenceErrorCallbacks/onPersistenceError beside the downstream #modelChangedCallbacks/onModelChanged hook, so both subscription sets survive.
 ---
  .../coding-agent/src/collab/controller.ts     | 308 +++++++++
  packages/coding-agent/src/collab/host.ts      |   5 +-
  .../src/collab/registry-publisher.ts          | 603 ++++++++++++++++++
  .../src/config/settings-schema.ts             |  28 +
- .../controllers/extension-ui-controller.ts    |   6 +-
+ .../controllers/extension-ui-controller.ts    |   8 +-
  .../src/modes/interactive-mode.ts             |  23 +-
  packages/coding-agent/src/modes/types.ts      |   4 +-
- .../coding-agent/src/session/agent-session.ts |  46 +-
+ .../coding-agent/src/session/agent-session.ts |  54 +-
+ .../src/session/session-handoff.ts            |   6 +
  .../src/session/session-manager.ts            |  19 +
- .../src/slash-commands/builtin-registry.ts    |  52 +-
+ .../slash-commands/builtin-collaboration.ts   |  52 +-
  ...ent-session-bash-session-ownership.test.ts |  17 +
  .../test/collab/chunked-welcome.test.ts       |   1 -
  .../test/collab/controller.test.ts            | 245 +++++++
@@ -24,9 +26,10 @@ Subject: [PATCH 1/5] feat: add gateway collaboration controller
  .../test/collab/replication-shrink.test.ts    |   1 -
  .../test/collab/steer-queue.test.ts           |   1 -
  .../test/config/collab-settings.test.ts       |   8 +
+ .../extension-ui-controller.test.ts           |   4 +
  .../test/session-manager-branch-order.test.ts |  14 +
  .../test/slash-commands/collab-qrcode.test.ts |  79 ++-
- 22 files changed, 2005 insertions(+), 78 deletions(-)
+ 24 files changed, 2016 insertions(+), 87 deletions(-)
  create mode 100644 packages/coding-agent/src/collab/controller.ts
  create mode 100644 packages/coding-agent/src/collab/registry-publisher.ts
  create mode 100644 packages/coding-agent/test/collab/controller.test.ts
@@ -349,10 +352,10 @@ index 000000000..7f838661f
 +	}
 +}
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 74a021a80..8e19799c5 100644
+index 2ece267dd..668677455 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -138,6 +138,8 @@ export class CollabHost {
+@@ -139,6 +139,8 @@ export class CollabHost {
  	#busUnsubscribers: (() => void)[] = [];
  	#registryUnsubscribe?: () => void;
  	#stopped = false;
@@ -361,7 +364,7 @@ index 74a021a80..8e19799c5 100644
  
  	constructor(ctx: InteractiveModeContext) {
  		this.#ctx = ctx;
-@@ -245,7 +247,7 @@ export class CollabHost {
+@@ -246,7 +248,7 @@ export class CollabHost {
  			if (willReconnect) {
  				this.#ctx.showStatus(`Collab relay connection lost (${reason}), reconnecting…`, { dim: true });
  			} else {
@@ -370,7 +373,7 @@ index 74a021a80..8e19799c5 100644
  				this.#ctx.session.emitNotice("warning", `Collab ended: ${reason}`, "collab");
  			}
  		};
-@@ -314,7 +316,6 @@ export class CollabHost {
+@@ -315,7 +317,6 @@ export class CollabHost {
  		this.#peers.clear();
  		this.#socket?.close();
  		this.#socket = null;
@@ -988,10 +991,10 @@ index 000000000..d68c1615b
 +	}
 +}
 diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
-index 23b0e6800..78cfefa7c 100644
+index 4ddcd045a..51b60f02b 100644
 --- a/packages/coding-agent/src/config/settings-schema.ts
 +++ b/packages/coding-agent/src/config/settings-schema.ts
-@@ -1830,6 +1830,34 @@ export const SETTINGS_SCHEMA = {
+@@ -2000,6 +2000,34 @@ export const SETTINGS_SCHEMA = {
  	},
  
  	// Collab
@@ -1027,10 +1030,19 @@ index 23b0e6800..78cfefa7c 100644
  		type: "string",
  		default: DEFAULT_RELAY_URL,
 diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-index fa75dd615..4d78bdb26 100644
+index fce13e198..d0c068620 100644
 --- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-@@ -563,7 +563,7 @@ export class ExtensionUiController {
+@@ -86,7 +86,7 @@ export class ExtensionUiController {
+ 		// Create and set hook & tool UI context
+ 		const uiContext: ExtensionUIContext = {
+ 			timeoutStartsOnPresentation: true,
+-			select: (title, options, dialogOptions) => this.showCollabAwareSelector(title, options, dialogOptions),
++			select: (title, options, dialogOptions) => this.showHookSelector(title, options, dialogOptions),
+ 			confirm: (title, message, dialogOptions) => this.showHookConfirm(title, message, dialogOptions),
+ 			input: (title, placeholder, dialogOptions) => this.showHookInput(title, placeholder, dialogOptions),
+ 			askDialog: (questions, dialogOptions) => this.showAskDialog(questions, dialogOptions),
+@@ -597,7 +597,7 @@ export class ExtensionUiController {
  		questions: ExtensionAskDialogQuestion[],
  		dialogOptions?: ExtensionUIDialogOptions,
  	): Promise<ExtensionAskDialogResult | undefined> {
@@ -1039,7 +1051,7 @@ index fa75dd615..4d78bdb26 100644
  		if (!host) return this.#showLocalAskDialog(questions, dialogOptions);
  		const localAbort = new AbortController();
  		const remoteAbort = new AbortController();
-@@ -671,7 +671,7 @@ export class ExtensionUiController {
+@@ -726,7 +726,7 @@ export class ExtensionUiController {
  		signal: AbortSignal | undefined,
  		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
  	): Promise<string | undefined> {
@@ -1048,7 +1060,7 @@ index fa75dd615..4d78bdb26 100644
  		if (!host) return local(signal);
  		const localAbort = new AbortController();
  		const remoteAbort = new AbortController();
-@@ -811,7 +811,7 @@ export class ExtensionUiController {
+@@ -866,7 +866,7 @@ export class ExtensionUiController {
  	}
  
  	async #requestGuestUiString(request: CollabUiRequestDraft, signal: AbortSignal): Promise<GuestUiResult> {
@@ -1058,20 +1070,20 @@ index fa75dd615..4d78bdb26 100644
  		const remote = host.requestGuestUi(request, signal);
  		if (!remote) return { kind: "unavailable" };
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index c2008d51f..dbfd2d96d 100644
+index fc2ebb6f9..c96f8b72e 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -52,8 +52,8 @@ import {
+@@ -55,8 +55,8 @@ import {
  } from "@oh-my-pi/pi-utils";
- import chalk from "chalk";
+ import chalk from "@oh-my-pi/pi-utils/chalk";
  import { reset as resetCapabilities } from "../capability";
 +import { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
 -import type { CollabHost } from "../collab/host";
  import { KeybindingsManager } from "../config/keybindings";
- import type { ResolvedModelRoleValue } from "../config/model-resolver";
+ import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
  import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
-@@ -525,7 +525,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -635,7 +635,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	fileSlashCommands: Set<string> = new Set();
  	skillCommands: Map<string, Skill> = new Map();
  	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
@@ -1080,7 +1092,7 @@ index c2008d51f..dbfd2d96d 100644
  	collabGuest?: CollabGuestLink;
  
  	#pendingCommandOutput: Component[] = [];
-@@ -756,6 +756,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -891,6 +891,7 @@ export class InteractiveMode implements InteractiveModeContext {
  
  		const skillCommandList = this.#rebuildSkillCommandsFromSession();
  
@@ -1088,7 +1100,7 @@ index c2008d51f..dbfd2d96d 100644
  		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
  		// Store pending commands for init() where file commands are loaded async
  		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
-@@ -982,6 +983,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1140,6 +1141,7 @@ export class InteractiveMode implements InteractiveModeContext {
  			this.sessionManager.onSessionNameChanged(() => {
  				setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
  				this.#handleSessionAccentInputsChanged();
@@ -1096,10 +1108,10 @@ index c2008d51f..dbfd2d96d 100644
  			}),
  		);
  		this.#syncEditorMaxHeight();
-@@ -992,7 +994,14 @@ export class InteractiveMode implements InteractiveModeContext {
- 		await this.initHooksAndCustomTools();
- 
- 		// Restore mode from session (e.g. plan mode on resume)
+@@ -1167,7 +1169,14 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			await this.#liveCommandController.stop();
+ 			await this.#quiesceVibeForSessionSwitch();
+ 		});
 -		this.session.setSessionSwitchReconciler?.(() => this.#reconcileModeFromSession({ preserveActiveGoal: true }));
 +		this.session.setSessionSwitchReconciler?.(async phase => {
 +			if (phase === "before") {
@@ -1112,8 +1124,8 @@ index c2008d51f..dbfd2d96d 100644
  		await this.#reconcileModeFromSession();
  
  		// Brand-new sessions optionally start in plan mode when the user has made it
-@@ -1040,6 +1049,9 @@ export class InteractiveMode implements InteractiveModeContext {
- 			this.session.subscribe(event => {
+@@ -1211,6 +1220,9 @@ export class InteractiveMode implements InteractiveModeContext {
+ 				}
  				void this.#handleGoalSessionEvent(event);
  			}),
 +			this.sessionManager.onModelChanged(() => {
@@ -1122,7 +1134,7 @@ index c2008d51f..dbfd2d96d 100644
  			onStatusLineSessionAccentChanged(() => {
  				this.#syncStatusLineSettings();
  				this.#handleSessionAccentInputsChanged();
-@@ -1091,6 +1103,9 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1297,6 +1309,9 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.statusLine.watchBranch(() => {
  			this.ui.requestRender();
  		});
@@ -1132,24 +1144,24 @@ index c2008d51f..dbfd2d96d 100644
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -1229,6 +1244,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1434,6 +1449,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		await this.refreshSlashCommandState(newCwd);
  		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
- 		this.statusLine.invalidate();
- 		this.ui.requestRender();
+ 		this.statusLine.applyCwdChange();
 +		await this.collabController.refreshMetadata();
  	}
  
  	async getUserInput(): Promise<SubmittedUserInput> {
-@@ -3762,6 +3778,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -4255,6 +4271,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	async shutdown(): Promise<void> {
  		if (this.#isShuttingDown) return;
  		this.#isShuttingDown = true;
 +		await this.collabController.shutdown();
  
- 		this.#btwController.dispose();
- 		this.#omfgController.dispose();
+ 		await this.#liveCommandController.stop();
+ 
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 57ed56bb3..8d22f181a 100644
+index 541dc45fc..083336b45 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
 @@ -2,8 +2,8 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
@@ -1162,7 +1174,7 @@ index 57ed56bb3..8d22f181a 100644
  import type { KeybindingsManager } from "../config/keybindings";
  import type { Settings } from "../config/settings";
  import type {
-@@ -133,7 +133,7 @@ export interface InteractiveModeContext {
+@@ -144,7 +144,7 @@ export interface InteractiveModeContext {
  	historyStorage?: HistoryStorage;
  	mcpManager?: MCPManager;
  	lspServers?: LspStartupServerInfo[];
@@ -1172,11 +1184,19 @@ index 57ed56bb3..8d22f181a 100644
  	eventController: EventController;
  	eventBus?: EventBus;
 diff --git a/packages/coding-agent/src/session/agent-session.ts b/packages/coding-agent/src/session/agent-session.ts
-index 28f4ee31d..216ea5dea 100644
+index d5a5570b0..3b6c2f7f6 100644
 --- a/packages/coding-agent/src/session/agent-session.ts
 +++ b/packages/coding-agent/src/session/agent-session.ts
-@@ -3955,12 +3955,24 @@ export class AgentSession {
- 		this.#planProposalHandler = handler ?? undefined;
+@@ -1590,6 +1590,7 @@ export class AgentSession {
+ 			sessionFile: () => this.sessionFile,
+ 			baseSystemPrompt: () => this.#tools.baseSystemPrompt,
+ 			assertVibeSessionTransitionAllowed: action => this.#assertVibeSessionTransitionAllowed(action),
++			reconcileSessionSwitch: (phase, reason) => this.#reconcileSessionSwitch(phase, reason),
+ 			setSkipPostTurnMaintenance: timestamp => {
+ 				this.#maintenance.skipPostTurnMaintenanceAssistantTimestamp = timestamp;
+ 			},
+@@ -1748,12 +1749,24 @@ export class AgentSession {
+ 		this.#sessionBeforeSwitchReconciler = reconciler ?? undefined;
  	}
  
 -	#sessionSwitchReconciler: (() => Promise<void>) | undefined;
@@ -1202,93 +1222,77 @@ index 28f4ee31d..216ea5dea 100644
  	/** Provider-scoped mutable state store for transport/session caches. */
  	get providerSessionState(): Map<string, ProviderSessionState> {
  		return this.#providerSessionState;
-@@ -9955,6 +9967,7 @@ export class AgentSession {
+@@ -6756,6 +6769,7 @@ export class AgentSession {
  			}
  		}
  
 +		await this.#reconcileSessionSwitch("before", "new");
  		this.#disconnectFromAgent();
+ 		let advisorRecordersDetached = false;
  		await this.abort();
- 		this.#cancelOwnAsyncJobs();
-@@ -9988,6 +10001,7 @@ export class AgentSession {
- 			sessionTransitioned = true;
- 		} finally {
- 			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
-+			if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "new rollback");
- 		}
+@@ -6790,6 +6804,7 @@ export class AgentSession {
+ 				sessionTransitioned = true;
+ 			} finally {
+ 				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
++				if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "new rollback");
+ 			}
  
- 		this.#clearCheckpointRuntimeState();
-@@ -10012,6 +10026,7 @@ export class AgentSession {
- 		this.#planReferencePath = "local://PLAN.md";
- 		this.#resetAdvisorSessionState();
- 		this.#reconnectToAgent();
-+		await this.#reconcileSessionSwitch("after", "new");
+ 			this.#clearSessionScopedToolState();
+@@ -6817,6 +6832,7 @@ export class AgentSession {
+ 			// The workspace-roots block must reflect the new session's directory set,
+ 			// not the previous session's — refresh before the next turn goes out.
+ 			await this.refreshBaseSystemPrompt();
++			await this.#reconcileSessionSwitch("after", "new");
  
- 		// Emit session_switch event with reason "new" to hooks
- 		if (this.#extensionRunner) {
-@@ -10054,6 +10069,7 @@ export class AgentSession {
+ 			// Emit session_switch event with reason "new" to hooks
+ 			if (this.#extensionRunner) {
+@@ -6867,6 +6883,7 @@ export class AgentSession {
  			}
  		}
  
 +		await this.#reconcileSessionSwitch("before", "fork");
- 		await this.#flushPendingBashMessages();
+ 		await this.#bash.flushPending();
  		// Flush current session to ensure all entries are written
  		await this.sessionManager.flush();
-@@ -10065,10 +10081,12 @@ export class AgentSession {
- 			forkResult = await this.sessionManager.fork();
- 		} catch (error) {
- 			this.#finishBashSessionTransition(bashTransition, false);
-+			await this.#reconcileSessionSwitch("after", "fork rollback");
- 			throw error;
- 		}
- 		if (!forkResult) {
- 			this.#finishBashSessionTransition(bashTransition, false);
-+			await this.#reconcileSessionSwitch("after", "fork rollback");
- 			return false;
- 		}
- 		this.#markBashSessionTransition(bashTransition);
-@@ -10100,6 +10118,7 @@ export class AgentSession {
- 		this.#rekeyHindsightMemoryForCurrentSessionId();
- 		this.#rekeyMnemopiMemoryForCurrentSessionId();
- 		await this.#resetMemoryContextForNewTranscript();
-+		await this.#reconcileSessionSwitch("after", "fork");
- 
- 		// Emit session_switch event with reason "fork" to hooks
- 		if (this.#extensionRunner) {
-@@ -11458,6 +11477,7 @@ export class AgentSession {
- 					return undefined;
- 				}
+@@ -6884,10 +6901,12 @@ export class AgentSession {
+ 				forkResult = await this.sessionManager.fork();
+ 			} catch (error) {
+ 				this.#bash.finishSessionTransition(bashTransition, false);
++				await this.#reconcileSessionSwitch("after", "fork rollback");
+ 				throw error;
  			}
-+			await this.#reconcileSessionSwitch("before", "handoff");
- 			await this.#flushPendingBashMessages();
- 			await this.sessionManager.flush();
- 			const bashTransition = this.#beginBashSessionTransition();
-@@ -11471,6 +11491,7 @@ export class AgentSession {
- 				sessionTransitioned = true;
- 			} finally {
- 				this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
-+				if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "handoff rollback");
+ 			if (!forkResult) {
+ 				this.#bash.finishSessionTransition(bashTransition, false);
++				await this.#reconcileSessionSwitch("after", "fork rollback");
+ 				return false;
  			}
+ 			this.#bash.markSessionTransition(bashTransition);
+@@ -6906,6 +6925,7 @@ export class AgentSession {
+ 			this.#advisors.reattachRecorderFeeds();
+ 			advisorRecordersDetached = false;
+ 			await this.#memory.resetContextForNewTranscript();
++			await this.#reconcileSessionSwitch("after", "fork");
  
- 			this.#clearCheckpointRuntimeState();
-@@ -11525,6 +11546,7 @@ export class AgentSession {
- 			this.agent.replaceMessages(sessionContext.messages);
- 			this.#resetAllAdvisorRuntimes();
- 			this.#syncTodoPhasesFromBranch();
-+			await this.#reconcileSessionSwitch("after", "handoff");
+ 			// Emit session_switch event with reason "fork" to hooks
  			if (this.#extensionRunner) {
- 				await this.#extensionRunner.emit({
- 					type: "session_switch",
-@@ -16596,6 +16618,7 @@ export class AgentSession {
+@@ -6920,6 +6940,7 @@ export class AgentSession {
+ 		} finally {
+ 			if (advisorRecordersDetached) this.#advisors.reattachRecorderFeeds();
+ 		}
++
+ 	}
+ 
+ 	/** Move the active session and artifacts after enforcing mode transition invariants. */
+@@ -7795,6 +7816,7 @@ export class AgentSession {
  			}
  		}
  
 +		await this.#reconcileSessionSwitch("before", "resume");
  		this.#disconnectFromAgent();
  		await this.abort({ goalReason: "internal" });
- 
-@@ -16774,14 +16797,7 @@ export class AgentSession {
- 				await this.#resetMemoryContextForNewTranscript();
+ 		await this.#sessionBeforeSwitchReconciler?.();
+@@ -7974,14 +7996,7 @@ export class AgentSession {
+ 				this.#clearSessionScopedToolState();
  			}
  			this.#reconnectToAgent();
 -			try {
@@ -1300,18 +1304,26 @@ index 28f4ee31d..216ea5dea 100644
 -				});
 -			}
 +			await this.#reconcileSessionSwitch("after", "resume");
- 			this.#finishBashSessionTransition(bashTransition, true);
- 			return true;
- 		} catch (error) {
-@@ -16814,6 +16830,7 @@ export class AgentSession {
- 			this.#syncTodoPhasesFromBranch();
- 			this.#resetAllAdvisorRuntimes();
+ 			// Refresh the workspace-roots block to match the resumed session's directory set.
+ 			// Wrapped so a rebuild failure (e.g. a gate that intentionally fails in tests)
+ 			// doesn't roll back an otherwise-successful session switch.
+@@ -8054,14 +8069,7 @@ export class AgentSession {
+ 			this.#advisors.resetAllRuntimes();
+ 			this.#advisors.reattachRecorderFeeds();
  			this.#reconnectToAgent();
+-			try {
+-				await this.#sessionSwitchReconciler?.();
+-			} catch (reconcileError) {
+-				logger.warn("Failed to reconcile session mode after switch rollback", {
+-					targetSessionFile: sessionPath,
+-					error: String(reconcileError),
+-				});
+-			}
 +			await this.#reconcileSessionSwitch("after", "resume rollback");
- 			this.#finishBashSessionTransition(bashTransition, false);
+ 			this.#bash.finishSessionTransition(bashTransition, false);
  			throw error;
  		}
-@@ -16856,6 +16873,7 @@ export class AgentSession {
+@@ -8107,6 +8115,7 @@ export class AgentSession {
  			skipConversationRestore = result?.skipConversationRestore ?? false;
  		}
  
@@ -1319,23 +1331,23 @@ index 28f4ee31d..216ea5dea 100644
  		// Clear pending messages (bound to old session state)
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
-@@ -16879,6 +16897,7 @@ export class AgentSession {
- 			sessionTransitioned = true;
- 		} finally {
- 			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
-+			if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "branch rollback");
- 		}
- 		this.#rehydrateCheckpointRewindState();
- 		this.#syncTodoPhasesFromBranch();
-@@ -16905,6 +16924,7 @@ export class AgentSession {
- 			this.#resetAdvisorSessionState();
- 			this.#closeCodexProviderSessionsForHistoryRewrite();
- 		}
-+		await this.#reconcileSessionSwitch("after", "branch");
+@@ -8140,6 +8149,7 @@ export class AgentSession {
+ 				sessionTransitioned = true;
+ 			} finally {
+ 				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
++				if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "branch rollback");
+ 			}
+ 			this.#clearSessionScopedToolState();
+ 			this.#rehydrateCheckpointRewindState();
+@@ -8166,6 +8176,7 @@ export class AgentSession {
+ 				this.#advisors.resetSessionState();
+ 				this.#closeCodexProviderSessionsForHistoryRewrite();
+ 			}
++			await this.#reconcileSessionSwitch("after", "branch");
  
- 		return { selectedText, cancelled: false };
- 	}
-@@ -16955,6 +16975,7 @@ export class AgentSession {
+ 			this.#advisors.reattachRecorderFeeds();
+ 			advisorRecordersDetached = false;
+@@ -8236,6 +8247,7 @@ export class AgentSession {
  			throw new Error("Cannot branch /btw while session maintenance or user work is still running");
  		}
  
@@ -1343,59 +1355,105 @@ index 28f4ee31d..216ea5dea 100644
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
  		this.agent.replaceQueues([], []);
-@@ -16976,6 +16997,7 @@ export class AgentSession {
- 			sessionTransitioned = true;
- 		} finally {
- 			this.#finishBashSessionTransition(bashTransition, sessionTransitioned);
-+			if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "btw branch rollback");
+@@ -8263,6 +8275,7 @@ export class AgentSession {
+ 				sessionTransitioned = true;
+ 			} finally {
+ 				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
++				if (!sessionTransitioned) await this.#reconcileSessionSwitch("after", "btw branch rollback");
+ 			}
+ 
+ 			this.#clearSessionScopedToolState();
+@@ -8292,6 +8305,7 @@ export class AgentSession {
+ 			this.agent.replaceMessages(sessionContext.messages);
+ 			this.#advisors.resetSessionState();
+ 			this.#closeCodexProviderSessionsForHistoryRewrite();
++			await this.#reconcileSessionSwitch("after", "btw branch");
+ 			advisorRecordersDetached = false;
+ 
+ 			return { cancelled: false, sessionFile: this.sessionFile };
+@@ -8301,6 +8315,7 @@ export class AgentSession {
+ 				else this.#advisors.reattachRecorderFeeds();
+ 			}
  		}
- 
- 		this.#rehydrateCheckpointRewindState();
-@@ -17004,6 +17026,7 @@ export class AgentSession {
- 		this.agent.replaceMessages(sessionContext.messages);
- 		this.#resetAdvisorSessionState();
- 		this.#closeCodexProviderSessionsForHistoryRewrite();
-+		await this.#reconcileSessionSwitch("after", "btw branch");
- 
- 		return { cancelled: false, sessionFile: this.sessionFile };
++
  	}
-@@ -17158,6 +17181,7 @@ export class AgentSession {
+ 
+ 	// =========================================================================
+@@ -8570,6 +8585,7 @@ export class AgentSession {
  			newLeafId = targetId;
  		}
  
 +		await this.#reconcileSessionSwitch("before", "tree navigation");
  		// Switch leaf (with or without summary)
  		// Summary is attached at the navigation target position (newLeafId), not the old branch
- 		const bashTransition = this.#beginBashSessionTransition();
-@@ -17182,6 +17206,7 @@ export class AgentSession {
+ 		const bashTransition = this.#bash.beginSessionTransition();
+@@ -8594,6 +8610,7 @@ export class AgentSession {
  			branchTransitioned = true;
  		} finally {
- 			this.#finishBashSessionTransition(bashTransition, branchTransitioned);
+ 			this.#bash.finishSessionTransition(bashTransition, branchTransitioned);
 +			if (!branchTransitioned) await this.#reconcileSessionSwitch("after", "tree navigation rollback");
  		}
  
  		// Update agent state — build display context to populate agent messages.
-@@ -17192,6 +17217,7 @@ export class AgentSession {
- 		this.#resetAdvisorSessionState();
- 		this.#syncTodoPhasesFromBranch();
+@@ -8604,6 +8621,7 @@ export class AgentSession {
+ 		this.#advisors.resetSessionState({ preserveCost: true });
+ 		this.#todo.syncFromBranch();
  		this.#closeCodexProviderSessionsForHistoryRewrite();
 +		await this.#reconcileSessionSwitch("after", "tree navigation");
  
  		this.#branchSummaryAbortController = undefined;
  
+diff --git a/packages/coding-agent/src/session/session-handoff.ts b/packages/coding-agent/src/session/session-handoff.ts
+index 85e15879e..8c2dcddfa 100644
+--- a/packages/coding-agent/src/session/session-handoff.ts
++++ b/packages/coding-agent/src/session/session-handoff.ts
+@@ -57,6 +57,7 @@ export interface SessionHandoffHost {
+ 	sessionFile(): string | undefined;
+ 	baseSystemPrompt(): string[];
+ 	assertVibeSessionTransitionAllowed(action: string): void;
++	reconcileSessionSwitch(phase: "before" | "after", reason: string): Promise<void>;
+ 	setSkipPostTurnMaintenance(timestamp: number | undefined): void;
+ 	obfuscateTextForProvider(text: string | undefined): string | undefined;
+ 	deobfuscateFromProvider(text: string): string;
+@@ -250,6 +251,7 @@ export class SessionHandoff {
+ 					return undefined;
+ 				}
+ 			}
++			await this.#host.reconcileSessionSwitch("before", "handoff");
+ 			await this.#host.flushPendingBash();
+ 			await this.#host.sessionManager.flush();
+ 			advisorRecordersDetached = true;
+@@ -279,6 +281,9 @@ export class SessionHandoff {
+ 				sessionTransitioned = true;
+ 			} finally {
+ 				this.#host.finishBashSessionTransition(bashTransition, sessionTransitioned);
++				if (!sessionTransitioned) {
++					await this.#host.reconcileSessionSwitch("after", "handoff rollback");
++				}
+ 			}
+ 
+ 			this.#host.clearSessionScopedToolState();
+@@ -342,6 +347,7 @@ export class SessionHandoff {
+ 			this.#host.resetAdvisorSessionState();
+ 			advisorRecordersDetached = false;
+ 			this.#host.syncTodoPhasesFromBranch();
++			await this.#host.reconcileSessionSwitch("after", "handoff");
+ 			if (this.#host.extensionRunner) {
+ 				await this.#host.extensionRunner.emit({
+ 					type: "session_switch",
 diff --git a/packages/coding-agent/src/session/session-manager.ts b/packages/coding-agent/src/session/session-manager.ts
-index ef78771d4..3923459d2 100644
+index 8aa0e6aec..fd4d2ebc7 100644
 --- a/packages/coding-agent/src/session/session-manager.ts
 +++ b/packages/coding-agent/src/session/session-manager.ts
-@@ -454,6 +454,7 @@ export class SessionManager {
- 	 */
+@@ -548,6 +548,7 @@ export class SessionManager {
  	#breadcrumbFresh = false;
  	#sessionNameChangedCallbacks = new Set<() => void>();
+ 	#persistenceErrorCallbacks = new Set<(error: Error) => void>();
 +	#modelChangedCallbacks = new Set<(model: string) => void>();
  
  	private constructor(cwd: string, sessionDir: string, persist: boolean, storage: SessionStorage) {
  		this.#cwd = cwd;
-@@ -918,6 +919,16 @@ export class SessionManager {
+@@ -1261,6 +1262,16 @@ export class SessionManager {
  		}
  	}
  
@@ -1412,7 +1470,7 @@ index ef78771d4..3923459d2 100644
  	static #cleanTitle(raw: string): string {
  		return raw
  			.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-@@ -1437,6 +1448,13 @@ export class SessionManager {
+@@ -2071,6 +2082,13 @@ export class SessionManager {
  		};
  	}
  
@@ -1426,28 +1484,28 @@ index ef78771d4..3923459d2 100644
  	/**
  	 * Set the session display name.
  	 * @param source "user" for explicit renames; "auto" for generated titles.
-@@ -1570,6 +1588,7 @@ export class SessionManager {
- 	appendModelChange(model: string, role?: string): string {
- 		const entry: ModelChangeEntry = { type: "model_change", ...this.#freshEntryFields(), model, role };
+@@ -2212,6 +2230,7 @@ export class SessionManager {
+ 			resolvedModelIsFallback,
+ 		};
  		this.#recordEntry(entry);
 +		this.#notifyModelChangedListeners(model);
  		return entry.id;
  	}
  
-diff --git a/packages/coding-agent/src/slash-commands/builtin-registry.ts b/packages/coding-agent/src/slash-commands/builtin-registry.ts
-index b564b5471..3c6a1a674 100644
---- a/packages/coding-agent/src/slash-commands/builtin-registry.ts
-+++ b/packages/coding-agent/src/slash-commands/builtin-registry.ts
-@@ -6,7 +6,7 @@ import { type AutocompleteItem, Spacer } from "@oh-my-pi/pi-tui";
- import { APP_NAME, getProjectDir, setProjectDir } from "@oh-my-pi/pi-utils";
- import { reset as resetCapabilities } from "../capability";
- import { COLLAB_GUEST_ALLOWED_COMMANDS, CollabGuestLink } from "../collab/guest";
+diff --git a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+index 0bf8d71f3..a106d93f4 100644
+--- a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
++++ b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+@@ -1,7 +1,7 @@
+ import { Spacer } from "@oh-my-pi/pi-tui";
+ import { APP_NAME } from "@oh-my-pi/pi-utils";
+ import { CollabGuestLink } from "../collab/guest";
 -import { CollabHost } from "../collab/host";
 +import type { CollabHost } from "../collab/host";
- import { expandRoleAlias, getModelMatchPreferences, resolveCliModel } from "../config/model-resolver";
- import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
  import type { SettingPath, SettingValue } from "../config/settings";
-@@ -698,8 +698,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+ import { settings } from "../config/settings";
+ import { parseExportArgs } from "../export/html/args";
+@@ -261,8 +261,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  		],
  		allowArgs: true,
  		getTuiAutocompleteDescription: runtime => {
@@ -1458,7 +1516,7 @@ index b564b5471..3c6a1a674 100644
  			}
  			if (runtime.ctx.collabGuest?.readOnly) return "Collab: read-only guest";
  			if (runtime.ctx.collabGuest) return "Collab: guest";
-@@ -711,20 +711,22 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -274,20 +274,22 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			const args = command.args.trim();
  			const { verb, rest } = parseSubcommand(args);
  			if (verb === "stop") {
@@ -1486,7 +1544,7 @@ index b564b5471..3c6a1a674 100644
  				} else if (ctx.collabGuest) {
  					ctx.showStatus(
  						ctx.collabGuest.readOnly
-@@ -742,16 +744,12 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -305,16 +307,12 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			}
  			const knownStartVerb = verb === "start" || verb === "view";
  			const view = verb === "view";
@@ -1507,7 +1565,7 @@ index b564b5471..3c6a1a674 100644
  			const relayInput = explicitUrl || ctx.settings.get("collab.relayUrl") || "";
  			if (!relayInput) {
  				ctx.showError(
-@@ -762,14 +760,22 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -325,14 +323,22 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			// Scheme-less relay args default to wss (ws:// must be spelled out for localhost).
  			const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
  			const webUrl = ctx.settings.get("collab.webUrl") || "";
@@ -1533,7 +1591,7 @@ index b564b5471..3c6a1a674 100644
  			showCollabLink(ctx, host, "Collab session started!", view);
  		},
  	},
-@@ -786,7 +792,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -349,7 +355,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  				ctx.showError("Usage: /join <link>");
  				return;
  			}
@@ -1542,7 +1600,7 @@ index b564b5471..3c6a1a674 100644
  				ctx.showError("Stop hosting first (/collab stop)");
  				return;
  			}
-@@ -805,7 +811,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -368,7 +374,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  		name: "leave",
  		description: "Leave the collab session",
  		getTuiAutocompleteDescription: runtime => {
@@ -1551,7 +1609,7 @@ index b564b5471..3c6a1a674 100644
  			if (runtime.ctx.collabGuest) return "Leave collab: guest";
  			return "Leave collab: not in collab";
  		},
-@@ -816,8 +822,8 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+@@ -379,8 +385,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  				await ctx.collabGuest.leave("left");
  				return;
  			}
@@ -1563,7 +1621,7 @@ index b564b5471..3c6a1a674 100644
  				return;
  			}
 diff --git a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
-index 46e02e995..50d52a1e5 100644
+index 7fd2826bf..f1f1039bc 100644
 --- a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 +++ b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 @@ -113,6 +113,23 @@ describe("AgentSession bash session ownership", () => {
@@ -1591,7 +1649,7 @@ index 46e02e995..50d52a1e5 100644
  		const sessionManager = SessionManager.inMemory(tempDir.path());
  		let returnEmptyStop = true;
 diff --git a/packages/coding-agent/test/collab/chunked-welcome.test.ts b/packages/coding-agent/test/collab/chunked-welcome.test.ts
-index 53d786845..ca6e17e5c 100644
+index 9c110fb54..bb25da094 100644
 --- a/packages/coding-agent/test/collab/chunked-welcome.test.ts
 +++ b/packages/coding-agent/test/collab/chunked-welcome.test.ts
 @@ -82,7 +82,6 @@ function makeHostContext(snapshot: SizedSnapshot): InteractiveModeContext {
@@ -1854,10 +1912,10 @@ index 000000000..eafda3952
 +	});
 +});
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 76330b0d3..94b319882 100644
+index f1a829628..281512a61 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-@@ -472,7 +472,7 @@ function makeHostContext(): InteractiveModeContext {
+@@ -473,7 +473,7 @@ function makeHostContext(): InteractiveModeContext {
  		},
  		ui: { requestRender: () => {} },
  		showStatus: () => {},
@@ -1894,10 +1952,10 @@ index 76330b0d3..94b319882 100644
  		try {
  			const guest = await joinRawGuest(host.link, COLLAB_PROTO);
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 84a7dc006..0fa169eab 100644
+index 3f627b804..0f78dd47d 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
-@@ -73,7 +73,6 @@ function makeHostContext(): HostHarness {
+@@ -75,7 +75,6 @@ function makeHostContext(): HostHarness {
  		},
  		ui: { requestRender: () => {} },
  		showStatus: () => {},
@@ -2569,6 +2627,21 @@ index 000000000..ac6c9bf01
 +	expect(getEnumValues("collab.autoStart")).toEqual(["off", "view", "control"]);
 +	expect(getDefault("collab.registryEndpoint")).toBe("auto");
 +});
+diff --git a/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts b/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
+index 7f3aea80a..52ccced47 100644
+--- a/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
++++ b/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
+@@ -45,6 +45,10 @@ function makeHarness() {
+ 			extensionRunner: undefined,
+ 			setUsageFallbackConfirmer: vi.fn(),
+ 		},
++		collabController: {
++			host: undefined,
++			beginInputRequired: vi.fn(() => vi.fn()),
++		},
+ 		setToolUIContext(context: ExtensionUIContext, hasUI: boolean): void {
+ 			expect(hasUI).toBe(true);
+ 			uiContext = context;
 diff --git a/packages/coding-agent/test/session-manager-branch-order.test.ts b/packages/coding-agent/test/session-manager-branch-order.test.ts
 index 435927e66..365fc67b8 100644
 --- a/packages/coding-agent/test/session-manager-branch-order.test.ts
@@ -2747,7 +2820,7 @@ index 8a63482d0..65c08959d 100644
 2.50.1 (Apple Git-155)
 
 
-From 6b2318b5f7f226ec71e1096686ec71ed2f5ea35b Mon Sep 17 00:00:00 2001
+From a8c555dbbed69eec4241b60479d25b905ccc2087 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:25:56 -0400
 Subject: [PATCH 2/5] fix(collab): retain UI requests until a writer joins
@@ -2759,10 +2832,10 @@ Subject: [PATCH 2/5] fix(collab): retain UI requests until a writer joins
  3 files changed, 104 insertions(+), 12 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 8e19799c5..1f8eae359 100644
+index 668677455..fc5346cba 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -110,6 +110,7 @@ const TRANSCRIPT_ENTRY_TOO_LARGE_ERROR = `transcript entry exceeds transcript fe
+@@ -111,6 +111,7 @@ const TRANSCRIPT_ENTRY_TOO_LARGE_ERROR = `transcript entry exceeds transcript fe
   * ship in a chunk of their own.
   */
  const SNAPSHOT_CHUNK_BYTES = 512 * 1024;
@@ -2770,7 +2843,7 @@ index 8e19799c5..1f8eae359 100644
  /**
   * Outcome of {@link CollabHost.requestGuestUi}. `answered` carries the guest's
   * response (an `undefined` value is a genuine guest cancel); `unavailable`
-@@ -173,7 +174,7 @@ export class CollabHost {
+@@ -174,7 +175,7 @@ export class CollabHost {
  	}
  
  	requestGuestUi(request: CollabUiRequestDraft, signal?: AbortSignal): Promise<CollabGuestUiResult> | null {
@@ -2779,7 +2852,7 @@ index 8e19799c5..1f8eae359 100644
  		const reqId = ++this.#uiReqSeq;
  		const fullRequest: CollabUiRequest = { ...request, reqId };
  		const { promise, resolve } = Promise.withResolvers<CollabGuestUiResult>();
-@@ -187,20 +188,12 @@ export class CollabHost {
+@@ -188,20 +189,12 @@ export class CollabHost {
  			resolve(result);
  		};
  		const onAbort = (): void => settle({ kind: "unavailable" });
@@ -2801,10 +2874,10 @@ index 8e19799c5..1f8eae359 100644
  		const socket = this.#socket;
  		if (!socket) return;
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 94b319882..8a2b8f0e9 100644
+index 281512a61..7716a720c 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-@@ -528,10 +528,14 @@ describe("collab proto handshake (#4049)", () => {
+@@ -529,10 +529,14 @@ describe("collab proto handshake (#4049)", () => {
  			expect(reply.message).toContain("protocol mismatch");
  			expect(reply.message).toContain(`host speaks v${COLLAB_PROTO}`);
  			expect(reply.message).toContain(`guest sent v${COLLAB_PROTO - 1}`);
@@ -2823,10 +2896,10 @@ index 94b319882..8a2b8f0e9 100644
  			guest.socket.close();
  			await host.stop("test done");
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 0fa169eab..805d56bbb 100644
+index 0f78dd47d..9778f4fe1 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
-@@ -166,6 +166,101 @@ afterAll(async () => {
+@@ -168,6 +168,101 @@ afterAll(async () => {
  });
  
  describe("collab read-only links", () => {
@@ -2932,7 +3005,7 @@ index 0fa169eab..805d56bbb 100644
 2.50.1 (Apple Git-155)
 
 
-From 0ba85712195e7b76dcf726a546f5984cda55aee7 Mon Sep 17 00:00:00 2001
+From 11f371c0e2f35c70df829eac75d506616978fe5b Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:31:08 -0400
 Subject: [PATCH 3/5] feat(collab): publish response-required state
@@ -3278,26 +3351,30 @@ index 83332b59f..5936e3792 100644
 2.50.1 (Apple Git-155)
 
 
-From dcb55ae7b59fda510cdf87c83d2c58f9435cd09f Mon Sep 17 00:00:00 2001
+From 5e222791484f860bc1c2e5b2078d77382e9de77f Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:45:28 -0400
 Subject: [PATCH 4/5] feat(collab): mirror response UI safely
 
+Adaptation: Rerolled safe guest UI mirroring onto the v17.2.11 extension controller while preserving upstream provider lifecycle changes.
+
+Adaptation: Rerolled onto v17.3.2, keeping upstream's awaited renderInitialMessages and the "tui" extension-runner surface, and placing the collaboration-ordering test after upstream's startupDecisionHarness helper.
+Adaptation: Re-anchored onto v17.3.5: the interactive-mode pi-utils import context is now sanitizeText instead of prompt; guest UI mirroring behavior is unchanged.
 ---
  packages/coding-agent/src/collab/guest.ts     |  14 +-
- .../controllers/extension-ui-controller.ts    | 245 ++++++++++++------
+ .../controllers/extension-ui-controller.ts    | 237 ++++++++++++------
  .../src/modes/interactive-mode.ts             |  24 +-
  packages/coding-agent/src/modes/types.ts      |  10 +-
  .../test/collab/guest-ui-request.test.ts      | 204 ++++++++++++++-
  .../coding-agent/test/hook-editor.test.ts     |   3 +-
  ...interactive-mode-default-plan-mode.test.ts |  15 ++
- 7 files changed, 409 insertions(+), 106 deletions(-)
+ 7 files changed, 405 insertions(+), 102 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/guest.ts b/packages/coding-agent/src/collab/guest.ts
-index 2ae87719e..6a2d15ce0 100644
+index 26b7dde57..f76cae0ac 100644
 --- a/packages/coding-agent/src/collab/guest.ts
 +++ b/packages/coding-agent/src/collab/guest.ts
-@@ -625,18 +625,8 @@ export class CollabGuestLink {
+@@ -658,18 +658,8 @@ export class CollabGuestLink {
  		if (this.#readOnly || this.#pendingUiRequests.has(request.reqId)) return;
  		const abort = new AbortController();
  		this.#pendingUiRequests.set(request.reqId, abort);
@@ -3319,7 +3396,7 @@ index 2ae87719e..6a2d15ce0 100644
  				// Identity check: only the presentation that still owns the reqId
  				// may respond. An abort from #endUiRequest / #clearUiRequests
 diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-index 4d78bdb26..3dbd19965 100644
+index d0c068620..f1d044c5f 100644
 --- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 @@ -1,6 +1,6 @@
@@ -3330,18 +3407,7 @@ index 4d78bdb26..3dbd19965 100644
  import { KeybindingsManager } from "../../config/keybindings";
  import type {
  	CompactOptions,
-@@ -79,8 +79,8 @@ export class ExtensionUiController {
- 		// Create and set hook & tool UI context
- 		const uiContext: ExtensionUIContext = {
- 			timeoutStartsOnPresentation: true,
--			select: (title, options, dialogOptions) => this.showCollabAwareSelector(title, options, dialogOptions),
--			confirm: (title, message, _dialogOptions) => this.showHookConfirm(title, message),
-+			select: (title, options, dialogOptions) => this.showHookSelector(title, options, dialogOptions),
-+			confirm: (title, message, dialogOptions) => this.showHookConfirm(title, message, dialogOptions),
- 			input: (title, placeholder, dialogOptions) => this.showHookInput(title, placeholder, dialogOptions),
- 			askDialog: (questions, dialogOptions) => this.showAskDialog(questions, dialogOptions),
- 			notify: (message, type) => this.showHookNotify(message, type),
-@@ -100,7 +100,7 @@ export class ExtensionUiController {
+@@ -107,7 +107,7 @@ export class ExtensionUiController {
  			},
  			getEditorText: () => this.ctx.editor.getText(),
  			editor: (title, prefill, dialogOptions, editorOptions) =>
@@ -3350,7 +3416,7 @@ index 4d78bdb26..3dbd19965 100644
  			addAutocompleteProvider: factory => this.ctx.addAutocompleteProvider(factory),
  			get theme() {
  				return theme;
-@@ -526,60 +526,46 @@ export class ExtensionUiController {
+@@ -560,60 +560,46 @@ export class ExtensionUiController {
  		this.ctx.ui.requestRender();
  	}
  
@@ -3444,7 +3510,7 @@ index 4d78bdb26..3dbd19965 100644
  	}
  
  	#showLocalAskDialog(
-@@ -671,34 +657,41 @@ export class ExtensionUiController {
+@@ -726,34 +712,41 @@ export class ExtensionUiController {
  		signal: AbortSignal | undefined,
  		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
  	): Promise<string | undefined> {
@@ -3506,7 +3572,7 @@ index 4d78bdb26..3dbd19965 100644
  			if (result === "unavailable" || result === undefined) return result;
  			if (result === "chat") return { kind: "chat" };
  			results.push(result);
-@@ -709,6 +702,7 @@ export class ExtensionUiController {
+@@ -764,6 +757,7 @@ export class ExtensionUiController {
  	async #runGuestAskQuestion(
  		question: ExtensionAskDialogQuestion,
  		signal: AbortSignal,
@@ -3514,7 +3580,7 @@ index 4d78bdb26..3dbd19965 100644
  	): Promise<ExtensionAskDialogResultItem | "chat" | "unavailable" | undefined> {
  		const selected = new Set<string>();
  		let customInput: string | undefined;
-@@ -742,6 +736,7 @@ export class ExtensionUiController {
+@@ -797,6 +791,7 @@ export class ExtensionUiController {
  							: "up/down navigate  enter toggle  esc cancel",
  					},
  					signal,
@@ -3522,7 +3588,7 @@ index 4d78bdb26..3dbd19965 100644
  				);
  				if (choice.kind === "unavailable") return "unavailable";
  				if (choice.kind === "cancelled") return undefined;
-@@ -751,6 +746,7 @@ export class ExtensionUiController {
+@@ -806,6 +801,7 @@ export class ExtensionUiController {
  					const input = await this.#requestGuestUiString(
  						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
  						signal,
@@ -3530,7 +3596,7 @@ index 4d78bdb26..3dbd19965 100644
  					);
  					if (input.kind === "unavailable") return "unavailable";
  					// Guest cancelled the Other editor: keep the ask open and
-@@ -780,6 +776,7 @@ export class ExtensionUiController {
+@@ -835,6 +831,7 @@ export class ExtensionUiController {
  						helpText: "up/down navigate  enter select  esc cancel",
  					},
  					signal,
@@ -3538,7 +3604,7 @@ index 4d78bdb26..3dbd19965 100644
  				);
  				if (choice.kind === "unavailable") return "unavailable";
  				if (choice.kind === "cancelled") return undefined;
-@@ -788,6 +785,7 @@ export class ExtensionUiController {
+@@ -843,6 +840,7 @@ export class ExtensionUiController {
  					const input = await this.#requestGuestUiString(
  						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
  						signal,
@@ -3546,7 +3612,7 @@ index 4d78bdb26..3dbd19965 100644
  					);
  					if (input.kind === "unavailable") return "unavailable";
  					// Guest cancelled the Other editor: re-show the select list
-@@ -810,11 +808,16 @@ export class ExtensionUiController {
+@@ -865,11 +863,16 @@ export class ExtensionUiController {
  		};
  	}
  
@@ -3564,7 +3630,7 @@ index 4d78bdb26..3dbd19965 100644
  		const result = await remote;
  		if (result.kind === "unavailable") return { kind: "unavailable" };
  		return typeof result.value === "string" ? { kind: "answered", value: result.value } : { kind: "cancelled" };
-@@ -828,6 +831,61 @@ export class ExtensionUiController {
+@@ -883,6 +886,61 @@ export class ExtensionUiController {
  		options: ExtensionUISelectItem[],
  		dialogOptions?: InteractiveSelectorDialogOptions,
  		extra?: { slider?: HookSelectorSlider },
@@ -3626,18 +3692,7 @@ index 4d78bdb26..3dbd19965 100644
  	): Promise<string | undefined> {
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			const maxVisible = Math.max(4, Math.min(15, this.ctx.ui.terminal.rows - 12));
-@@ -888,8 +946,8 @@ export class ExtensionUiController {
- 	/**
- 	 * Show a confirmation dialog for hooks.
- 	 */
--	async showHookConfirm(title: string, message: string): Promise<boolean> {
--		const result = await this.showHookSelector(`${title}\n${message}`, ["Yes", "No"]);
-+	async showHookConfirm(title: string, message: string, dialogOptions?: ExtensionUIDialogOptions): Promise<boolean> {
-+		const result = await this.showHookSelector(`${title}\n${message}`, ["Yes", "No"], dialogOptions);
- 		return result === "Yes";
- 	}
- 
-@@ -900,6 +958,17 @@ export class ExtensionUiController {
+@@ -955,6 +1013,17 @@ export class ExtensionUiController {
  		title: string,
  		placeholder?: string,
  		dialogOptions?: ExtensionUIDialogOptions,
@@ -3655,7 +3710,7 @@ index 4d78bdb26..3dbd19965 100644
  	): Promise<string | undefined> {
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			this.ctx.hookInput = new HookInputComponent(
-@@ -941,6 +1010,34 @@ export class ExtensionUiController {
+@@ -996,6 +1065,34 @@ export class ExtensionUiController {
  		prefill?: string,
  		dialogOptions?: ExtensionUIDialogOptions,
  		editorOptions?: { promptStyle?: boolean },
@@ -3691,20 +3746,20 @@ index 4d78bdb26..3dbd19965 100644
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			this.ctx.hookEditor = new HookEditorComponent(
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index dbfd2d96d..344fe9f18 100644
+index c96f8b72e..6ba47b4bb 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -50,6 +50,7 @@ import {
- 	prompt,
+@@ -53,6 +53,7 @@ import {
+ 	sanitizeText,
  	setProjectDir,
  } from "@oh-my-pi/pi-utils";
 +import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
- import chalk from "chalk";
+ import chalk from "@oh-my-pi/pi-utils/chalk";
  import { reset as resetCapabilities } from "../capability";
  import { CollabController } from "../collab/controller";
-@@ -990,6 +991,10 @@ export class InteractiveMode implements InteractiveModeContext {
- 		this.isInitialized = true;
- 		this.ui.requestRender(true);
+@@ -1161,6 +1162,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			}
+ 		});
  
 +		// Collaboration starts once the interactive context and session are ready,
 +		// before extension startup hooks can present response-producing UI.
@@ -3713,7 +3768,7 @@ index dbfd2d96d..344fe9f18 100644
  		// Initialize hooks with TUI-based UI context
  		await this.initHooksAndCustomTools();
  
-@@ -1103,9 +1108,6 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1309,9 +1314,6 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.statusLine.watchBranch(() => {
  			this.ui.requestRender();
  		});
@@ -3723,7 +3778,7 @@ index dbfd2d96d..344fe9f18 100644
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -4499,8 +4501,8 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -5104,8 +5106,8 @@ export class InteractiveMode implements InteractiveModeContext {
  		return runProviderSetupWizard(this);
  	}
  
@@ -3734,7 +3789,7 @@ index dbfd2d96d..344fe9f18 100644
  	}
  
  	// Input handling
-@@ -4680,8 +4682,12 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -5320,8 +5322,12 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.#extensionUiController.hideHookSelector();
  	}
  
@@ -3749,7 +3804,7 @@ index dbfd2d96d..344fe9f18 100644
  	}
  
  	hideHookInput(): void {
-@@ -4697,6 +4703,10 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -5337,6 +5343,10 @@ export class InteractiveMode implements InteractiveModeContext {
  		return this.#extensionUiController.showHookEditor(title, prefill, dialogOptions, editorOptions);
  	}
  
@@ -3761,7 +3816,7 @@ index dbfd2d96d..344fe9f18 100644
  		this.#extensionUiController.hideHookEditor();
  	}
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 8d22f181a..6481398df 100644
+index 083336b45..6298926c8 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
 @@ -2,6 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
@@ -3772,8 +3827,8 @@ index 8d22f181a..6481398df 100644
  import type { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
  import type { KeybindingsManager } from "../config/keybindings";
-@@ -377,7 +378,7 @@ export interface InteractiveModeContext {
- 	showOAuthSelector(mode: "login" | "logout", providerId?: string): Promise<void>;
+@@ -417,7 +418,7 @@ export interface InteractiveModeContext {
+ 	showSessionPinSelector(): Promise<void>;
  	showResetUsageSelector(): Promise<void>;
  	showProviderSetup(): Promise<void>;
 -	showHookConfirm(title: string, message: string): Promise<boolean>;
@@ -3781,7 +3836,7 @@ index 8d22f181a..6481398df 100644
  	showDebugSelector(): Promise<void>;
  	showAgentHub(options?: { requireContent?: boolean; armCloseTap?: boolean }): void;
  	resetObserverRegistry(): void;
-@@ -434,7 +435,11 @@ export interface InteractiveModeContext {
+@@ -493,7 +494,11 @@ export interface InteractiveModeContext {
  		dialogOptions?: InteractiveSelectorDialogOptions,
  	): Promise<string | undefined>;
  	hideHookSelector(): void;
@@ -3794,7 +3849,7 @@ index 8d22f181a..6481398df 100644
  	hideHookInput(): void;
  	showHookEditor(
  		title: string,
-@@ -442,6 +447,7 @@ export interface InteractiveModeContext {
+@@ -501,6 +506,7 @@ export interface InteractiveModeContext {
  		dialogOptions?: ExtensionUIDialogOptions,
  		editorOptions?: { promptStyle?: boolean },
  	): Promise<string | undefined>;
@@ -3803,7 +3858,7 @@ index 8d22f181a..6481398df 100644
  	showHookNotify(message: string, type?: "info" | "warning" | "error"): void;
  	showHookCustom<T>(
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 8a2b8f0e9..e18711bf9 100644
+index 7716a720c..6e82777cb 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -11,10 +11,10 @@
@@ -3827,7 +3882,7 @@ index 8a2b8f0e9..e18711bf9 100644
  import { installInMemoryRelay, uninstallInMemoryRelay } from "./helpers/in-memory-relay";
  
  // In-memory transport: shared FakeWebSocket + InMemoryRelay harness (see
-@@ -251,6 +252,27 @@ async function makeHarness(opts?: { readOnly?: boolean }): Promise<GuestUiHarnes
+@@ -252,6 +253,27 @@ async function makeHarness(opts?: { readOnly?: boolean }): Promise<GuestUiHarnes
  			prefill?: string,
  			dialogOptions?: ExtensionUIDialogOptions,
  		): Promise<string | undefined> => presentStub({ kind: "editor", title, prefill, dialogOptions }),
@@ -3855,7 +3910,7 @@ index 8a2b8f0e9..e18711bf9 100644
  	} as unknown as InteractiveModeContext;
  
  	const guest = new CollabGuestLink(ctx);
-@@ -440,8 +462,13 @@ describe("collab TUI guest ui-request handling (#4049)", () => {
+@@ -441,8 +463,13 @@ describe("collab TUI guest ui-request handling (#4049)", () => {
  // join must fail fast with the host's reason instead of hanging until the
  // welcome timeout.
  
@@ -3870,7 +3925,7 @@ index 8a2b8f0e9..e18711bf9 100644
  	return {
  		settings: { get: () => "" },
  		sessionManager: {
-@@ -472,8 +499,20 @@ function makeHostContext(): InteractiveModeContext {
+@@ -473,8 +500,20 @@ function makeHostContext(): InteractiveModeContext {
  		},
  		ui: { requestRender: () => {} },
  		showStatus: () => {},
@@ -4131,16 +4186,15 @@ index 8a2b8f0e9..e18711bf9 100644
 +			expect(ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
  			const firstLabels = selectLabels(first);
  			expect(firstLabels).not.toContain("Next →");
- 			expect(firstLabels).toContain("Option A");
-@@ -849,6 +1031,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 
+@@ -846,12 +1028,14 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
  
  			// Second ui-request: Next must now be present.
  			const second = await nextUiRequest(guest);
 +			expect(ctx.attentionLeases).toEqual({ begun: 1, released: 0 });
  			const secondLabels = selectLabels(second);
  			expect(secondLabels).toContain("Next →");
- 			expect(secondLabels).toContain("Option A");
-@@ -856,6 +1039,7 @@ describe("guest ask multi-select Next gating (#4375 PRRT_kwDOQxs0bc6OFbDW)", ()
+ 
  			// Guest selects Next to submit.
  			guest.socket.send({ t: "ui-response", reqId: second.request.reqId, value: "Next →" });
  			const settled = await result;
@@ -4149,7 +4203,7 @@ index 8a2b8f0e9..e18711bf9 100644
  			if (settled?.kind === "submit") {
  				expect(settled.results[0]?.selectedOptions).toEqual(["Option A"]);
 diff --git a/packages/coding-agent/test/hook-editor.test.ts b/packages/coding-agent/test/hook-editor.test.ts
-index 06ff5d95b..928202ad6 100644
+index f55c33531..89c46ea03 100644
 --- a/packages/coding-agent/test/hook-editor.test.ts
 +++ b/packages/coding-agent/test/hook-editor.test.ts
 @@ -65,7 +65,7 @@ function createControllerContext() {
@@ -4170,11 +4224,11 @@ index 06ff5d95b..928202ad6 100644
  	} as unknown as TestContext;
  
 diff --git a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
-index 308f58b79..6e51e0f82 100644
+index f49748752..d095526ea 100644
 --- a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
 +++ b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
-@@ -118,6 +118,21 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
- 		return mode;
+@@ -132,6 +132,21 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
+ 		);
  	}
  
 +	it("starts collaboration before extension startup hooks can present UI", async () => {
@@ -4199,7 +4253,7 @@ index 308f58b79..6e51e0f82 100644
 2.50.1 (Apple Git-155)
 
 
-From 5ccdaabeccfdcb896f5d029ecacbc74d43856e15 Mon Sep 17 00:00:00 2001
+From c7912a6e192562f3c6b9b3d067a0d6be4b36d278 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Sun, 26 Jul 2026 22:48:20 -0400
 Subject: [PATCH 5/5] feat(collab): acknowledge web health and responses
@@ -4211,10 +4265,10 @@ Subject: [PATCH 5/5] feat(collab): acknowledge web health and responses
  3 files changed, 47 insertions(+), 11 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 1f8eae359..bfe960ee8 100644
+index fc5346cba..1d915fbd4 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -119,6 +119,9 @@ const MAX_PENDING_UI_REQUESTS = 64;
+@@ -120,6 +120,9 @@ const MAX_PENDING_UI_REQUESTS = 64;
   */
  export type CollabGuestUiResult = { kind: "answered"; value: CollabUiResponseValue } | { kind: "unavailable" };
  
@@ -4224,7 +4278,7 @@ index 1f8eae359..bfe960ee8 100644
  export class CollabHost {
  	#ctx: InteractiveModeContext;
  	#socket: CollabSocket | null = null;
-@@ -227,7 +230,7 @@ export class CollabHost {
+@@ -228,7 +231,7 @@ export class CollabHost {
  				firstOpen.resolve();
  			}
  		};
@@ -4233,7 +4287,7 @@ index 1f8eae359..bfe960ee8 100644
  		socket.onControl = msg => {
  			if (msg.t === "peer-left") this.#handlePeerLeft(msg.peer);
  		};
-@@ -323,7 +326,7 @@ export class CollabHost {
+@@ -324,7 +327,7 @@ export class CollabHost {
  		this.#socket.send(frame);
  	}
  
@@ -4242,7 +4296,7 @@ index 1f8eae359..bfe960ee8 100644
  		switch (frame.t) {
  			case "hello":
  				this.#handleHello(frame.name, frame.proto, frame.writeToken, fromPeer);
-@@ -340,6 +343,9 @@ export class CollabHost {
+@@ -341,6 +344,9 @@ export class CollabHost {
  			case "ui-response":
  				this.#handleUiResponse(frame.reqId, frame.value, fromPeer);
  				break;
@@ -4252,7 +4306,7 @@ index 1f8eae359..bfe960ee8 100644
  			case "fetch-transcript":
  				void this.#handleFetchTranscript(frame.reqId, frame.agentId, frame.fromByte, fromPeer);
  				break;
-@@ -401,6 +407,7 @@ export class CollabHost {
+@@ -402,6 +408,7 @@ export class CollabHost {
  			fromPeer,
  		);
  		this.#sendSnapshotChunks(entries, fromPeer);
@@ -4260,7 +4314,7 @@ index 1f8eae359..bfe960ee8 100644
  		if (canWrite) {
  			for (const pending of this.#pendingUi.values()) {
  				socket.send({ t: "ui-request", request: pending.request }, fromPeer);
-@@ -450,13 +457,20 @@ export class CollabHost {
+@@ -451,13 +458,20 @@ export class CollabHost {
  		}
  	}
  
@@ -4283,10 +4337,10 @@ index 1f8eae359..bfe960ee8 100644
  
  	#handlePrompt(text: string, images: ImageContent[] | undefined, fromPeer: number): void {
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index e18711bf9..286bee42a 100644
+index 6e82777cb..14fa8a606 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-@@ -537,6 +537,7 @@ async function joinRawGuest(
+@@ -538,6 +538,7 @@ async function joinRawGuest(
  		event: true,
  		bus: true,
  		"snapshot-chunk": true,
@@ -4295,10 +4349,10 @@ index e18711bf9..286bee42a 100644
  	socket.onFrame = frame => {
  		if (filtered[frame.t]) return;
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 805d56bbb..8146e2845 100644
+index 9778f4fe1..39097ee19 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
-@@ -82,9 +82,11 @@ function makeHostContext(): HostHarness {
+@@ -84,9 +84,11 @@ function makeHostContext(): HostHarness {
  	return { ctx, prompts, aborts, nextPrompt };
  }
  
@@ -4311,7 +4365,7 @@ index 805d56bbb..8146e2845 100644
  }
  
  /**
-@@ -108,27 +110,33 @@ const FILTERED_FRAME_TYPES: Record<string, true> = {
+@@ -110,27 +112,33 @@ const FILTERED_FRAME_TYPES: Record<string, true> = {
   * broadcast races the first prompt's error reply), so `nextFrame` drops them and yields only the
   * welcome/error frames these tests assert on.
   */
@@ -4352,7 +4406,7 @@ index 805d56bbb..8146e2845 100644
  		waiters.push(resolve);
  		return promise;
  	};
-@@ -166,6 +174,17 @@ afterAll(async () => {
+@@ -168,6 +176,17 @@ afterAll(async () => {
  });
  
  describe("collab read-only links", () => {
@@ -4370,7 +4424,7 @@ index 805d56bbb..8146e2845 100644
  	it("retains host UI before any writer joins and replays it only to a later writer", async () => {
  		const abort = new AbortController();
  		const pending = host.requestGuestUi(
-@@ -191,6 +210,8 @@ describe("collab read-only links", () => {
+@@ -193,6 +212,8 @@ describe("collab read-only links", () => {
  			writer.socket.send({ t: "ui-response", reqId: request.request.reqId, value: "Yes" });
  			expect(await pending).toEqual({ kind: "answered", value: "Yes" });
  			expect(await writer.nextFrame()).toEqual({ t: "ui-request-end", reqId: request.request.reqId });

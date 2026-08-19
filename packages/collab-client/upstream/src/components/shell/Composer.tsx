@@ -1,5 +1,5 @@
 import { SendHorizontal, Square } from "lucide-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode, RefObject } from "react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestClient, GuestSnapshot } from "../../lib/client";
 import { recommendedOptionIndex } from "./ask-recommendation";
@@ -23,6 +23,39 @@ function autosize(el: HTMLTextAreaElement | null): void {
 	el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
 }
 
+/**
+ * Decides whether an Enter keydown should commit the composer. Returns `false` while an IME
+ * composition is active so the keystroke confirms the composition instead of submitting.
+ * `nativeEvent.isComposing` covers most browsers; `composing` bridges WebKit, which fires the
+ * confirming Enter keydown *after* `compositionend`.
+ */
+export function shouldSubmitOnEnter(e: KeyboardEvent<HTMLTextAreaElement>, composing: boolean): boolean {
+	if (e.key !== "Enter" || e.shiftKey) return false;
+	return !(e.nativeEvent.isComposing || composing);
+}
+
+/**
+ * Tracks IME composition state via a ref the keydown handler reads synchronously. The
+ * `compositionend` reset is deferred a tick because WebKit dispatches the confirming Enter
+ * keydown after `compositionend`, when `nativeEvent.isComposing` is already `false`.
+ */
+function useCompositionGuard(): {
+	composingRef: RefObject<boolean>;
+	onCompositionStart(): void;
+	onCompositionEnd(): void;
+} {
+	const composingRef = useRef(false);
+	const onCompositionStart = useCallback((): void => {
+		composingRef.current = true;
+	}, []);
+	const onCompositionEnd = useCallback((): void => {
+		setTimeout(() => {
+			composingRef.current = false;
+		}, 0);
+	}, []);
+	return { composingRef, onCompositionStart, onCompositionEnd };
+}
+
 interface AskEditorProps {
 	prefill: string | undefined;
 	disabled: boolean;
@@ -39,13 +72,14 @@ interface AskEditorProps {
 function AskEditor({ disabled, prefill, sending, onSubmit, submitLabel = "Submit" }: AskEditorProps): ReactNode {
 	const [draft, setDraft] = useState(prefill ?? "");
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
+	const { composingRef, onCompositionStart, onCompositionEnd } = useCompositionGuard();
 
 	useLayoutEffect(() => {
 		autosize(taRef.current);
 	}, [draft]);
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (shouldSubmitOnEnter(e, composingRef.current)) {
 			e.preventDefault();
 			if (!disabled) onSubmit(draft);
 		}
@@ -60,6 +94,8 @@ function AskEditor({ disabled, prefill, sending, onSubmit, submitLabel = "Submit
 				onChange={e => setDraft(e.target.value)}
 				onKeyDown={onKeyDown}
 				disabled={disabled}
+				onCompositionStart={onCompositionStart}
+				onCompositionEnd={onCompositionEnd}
 				placeholder="type your response…"
 				rows={1}
 				spellCheck={false}
@@ -168,13 +204,14 @@ function SelectAsk({ client, disabled, embedded, recommendedIndex, request, send
 export function Composer({ client, snapshot, embedded = false }: ComposerProps): ReactNode {
 	const [text, setText] = useState("");
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
+	const { composingRef, onCompositionStart, onCompositionEnd } = useCompositionGuard();
 
 	const live = snapshot.phase === "live";
 	const readOnly = snapshot.readOnly;
 	const uiRequest = snapshot.uiRequest;
 	const sendingResponse = snapshot.uiResponsePending;
 	const canPrompt = live && !readOnly;
-	const busy = snapshot.working || (snapshot.state?.isStreaming ?? false);
+	const busy = snapshot.working;
 	const queued = snapshot.state?.queuedMessageCount ?? 0;
 	const canSend = canPrompt && text.trim().length > 0;
 	const recommendedIndex = useMemo(
@@ -194,7 +231,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	}, [client, live, readOnly, text]);
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (shouldSubmitOnEnter(e, composingRef.current)) {
 			e.preventDefault();
 			send();
 		}
@@ -265,6 +302,8 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					value={text}
 					onChange={e => setText(e.target.value)}
 					onKeyDown={onKeyDown}
+					onCompositionStart={onCompositionStart}
+					onCompositionEnd={onCompositionEnd}
 					placeholder={
 						readOnly
 							? "read-only session — watching only"

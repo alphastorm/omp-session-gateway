@@ -1,14 +1,26 @@
 # OMP patch handoff
 
 `0001-collab-controller-autostart-registry.patch` is based on OMP commit
-`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` (nearest release: v17.0.6).
+`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` (tag: v17.3.8).
 The artifact is one mbox containing five reviewable commits:
 
-- `cf7a55308` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
-- `6b2318b5f` — bounded, replayable host UI requests retained before a writable guest joins;
-- `0ba857121` — generation-scoped `inputRequired` publication;
-- `dcb55ae7b` — safe response-UI mirroring, race cleanup, and startup ordering; and
-- `5ccdaabec` — optional encrypted health probes and idempotent response acknowledgement.
+- `0158f3c7f` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
+- `a8c555dbb` — bounded, replayable host UI requests retained before a writable guest joins;
+- `11f371c0e` — generation-scoped `inputRequired` publication;
+- `5e2227914` — safe response-UI mirroring, race cleanup, and startup ordering; and
+- `c7912a6e1` — optional encrypted health probes and idempotent response acknowledgement.
+
+The first four commits are the maintained downstream `gateway-collaboration` series in its
+authoritative order (`0006 → 0002 → 0003 → 0004`, indices 0–3, so they sit directly on pristine
+`858f7dd9`). They were taken verbatim from the reviewed handoff artifact
+`gateway-collaboration-v17.3.8.mbox`, sha256
+`f63f74c90d72776ca1ebcb4b1a75b18130b3c65d1c6e0133c9bbb3a8e5b4af49`, 173,604 bytes.
+
+The fifth commit is carried only here. The maintained series no longer contains it, and no
+`gateway-health` seam exists in upstream `v17.3.8`, but the pinned collab client in this repository
+requires it: `#relayProbeSupported` becomes true only when the host sends a seed
+`gateway-health-pong`, so without this commit the browser's relay probes never start and relay
+liveness silently degrades to passive traffic only. Re-apply it on every refresh.
 
 It:
 
@@ -46,7 +58,7 @@ bun test packages/coding-agent/test/collab/controller.test.ts \
 bun test packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 ```
 
-The v17.0.6 attention-path verification suite covers same-generation metadata refresh and
+The v17.3.8 attention-path verification suite covers same-generation metadata refresh and
 protocol-label bounds, generation-scoped nested and concurrent attention leases, pre-writer
 retention, the 64-request admission cap, View exclusion, multi-writer exactly-once settlement,
 symmetric response-race cleanup, mutual authentication, reconnect/token reread,
