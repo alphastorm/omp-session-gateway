@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GatewayConfig } from "./config.ts";
 type ServicePathConfig = Pick<GatewayConfig, "paths">;
@@ -88,6 +88,56 @@ async function commandSucceeds(command: readonly string[]): Promise<boolean> {
   }
 }
 
+async function commandOutput(command: readonly string[]): Promise<string | undefined> {
+  try {
+    const subprocess = Bun.spawn([...command], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+    const stdout = await new Response(subprocess.stdout).text();
+    return (await subprocess.exited) === 0 ? stdout : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a service manager's rendering of a loaded unit names a program under `stateDir`.
+ *
+ * Installed runtimes live at `<stateDir>/installation/versions/<id>/...`, so the install root is a
+ * path prefix of the program the OS is actually executing. The trailing separator matters: without
+ * it `/tmp/x/state/omp-session-gateway` would match a sibling root like
+ * `/tmp/x/state/omp-session-gateway-2`.
+ */
+export function serviceProgramBelongsTo(programText: string | undefined, stateDir: string): boolean {
+  return programText !== undefined && programText.includes(stateDir + sep);
+}
+
+/**
+ * Whether the service instance the OS currently has loaded was installed from *this* config root.
+ *
+ * Service managers key their registry on identity that no filesystem override can scope: launchd on
+ * `gui/<uid>/<label>`, systemd on the user unit name, Task Scheduler on the task name. Pointing
+ * `HOME`/`XDG_CONFIG_HOME` at a sandbox therefore isolates every file this program writes and none
+ * of the state it reads back, so an install rooted in a temp directory observes the real service and
+ * reports it as its own. On 2026-08-19 that cost a live daemon: an isolated archive smoke saw
+ * `active: true` from the production service and `rotate-publisher-token` booted it out.
+ *
+ * The loaded service's own program path is the one piece of identity that does carry the root, so
+ * compare against it rather than trusting the label. Returns false when nothing is loaded.
+ */
+async function loadedServiceIsOurs(config: ServicePathConfig): Promise<boolean> {
+  const owns = (text: string | undefined): boolean => serviceProgramBelongsTo(text, config.paths.stateDir);
+  if (process.platform === "linux") {
+    if (!(await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]))) return false;
+    return owns(
+      await commandOutput(["systemctl", "--user", "show", "-p", "ExecStart", "--value", "omp-session-gateway.service"]),
+    );
+  }
+  if (process.platform === "darwin") {
+    return owns(await commandOutput(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]));
+  }
+  if (!(await windowsTaskActive())) return false;
+  return owns(await commandOutput(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway", "/XML"]));
+}
+
 
 async function bootstrapLaunchAgent(domain: string, path: string): Promise<void> {
   let lastError: unknown;
@@ -140,18 +190,16 @@ async function stopWindowsTask(): Promise<void> {
 export async function userServiceStatus(config: ServicePathConfig): Promise<UserServiceStatus> {
   const definition = serviceDefinition(config);
   const definitionExists = await fileExists(definition.path);
+  // `active` means "a service this install owns is running", never "some service holds our label".
+  // Everything downstream acts on it: rotation restarts, stop boots out, uninstall refuses.
+  const active = await loadedServiceIsOurs(config);
   if (process.platform === "linux") {
     const installed =
       definitionExists && (await commandSucceeds(["systemctl", "--user", "is-enabled", "omp-session-gateway.service"]));
-    const active = await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]);
     return { installed, active };
   }
-  if (process.platform === "darwin") {
-    const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
-    return { installed: definitionExists, active: await commandSucceeds(["launchctl", "print", target]) };
-  }
+  if (process.platform === "darwin") return { installed: definitionExists, active };
   const installed = await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]);
-  const active = installed && (await windowsTaskActive());
   return { installed, active };
 }
 
@@ -178,7 +226,18 @@ export async function installUserService(
   } else if (process.platform === "darwin") {
     if (!activate) return definition;
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
-    if (await commandSucceeds(["launchctl", "print", target])) await run(["launchctl", "bootout", target]);
+    if (await commandSucceeds(["launchctl", "print", target])) {
+      // Replacing our own running instance is the ordinary upgrade path. Booting out a service that
+      // belongs to a different install root is how a sandboxed run kills the real daemon, so refuse
+      // instead: launchd keys the label on uid alone and cannot tell the two apart for us.
+      if (!(await loadedServiceIsOurs(config))) {
+        throw new Error(
+          "another gateway service already holds this launchd label from a different install root; " +
+            "uninstall it from that root before installing here",
+        );
+      }
+      await run(["launchctl", "bootout", target]);
+    }
     await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path);
   } else {
     const status = await userServiceStatus(config);

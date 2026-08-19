@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { join, sep } from "node:path";
 import type { GatewayConfig } from "../src/config.ts";
-import { serviceDefinition } from "../src/service.ts";
+import { serviceDefinition, serviceProgramBelongsTo } from "../src/service.ts";
 
 const config: GatewayConfig = {
   http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
@@ -53,5 +54,52 @@ describe("service packaging", () => {
     expect(definition.content).toContain("<AllowHardTerminate>true</AllowHardTerminate>");
     expect(definition.content).not.toContain("HighestAvailable");
     expect(definition.content).not.toContain("cmd.exe");
+  });
+});
+
+/**
+ * Regression for a live outage on 2026-08-19. Service managers key their registry on identity no
+ * filesystem override can scope — launchd on `gui/<uid>/<label>`, systemd on the unit name, Task
+ * Scheduler on the task name — so an install rooted in a sandbox sees the real machine's service and
+ * previously reported it as its own. An isolated archive smoke then ran `rotate-publisher-token`,
+ * which took the active branch and booted out the production daemon.
+ */
+describe("loaded service ownership", () => {
+  // Build fixtures with the host separator: the predicate compares against `stateDir + sep`, so a
+  // hard-coded POSIX fixture would vacuously fail on Windows and pass for the wrong reason on macOS.
+  const stateDir = join(sep, "Users", "example", ".local", "state", "omp-session-gateway");
+  const installedCli = join(stateDir, "installation", "versions", "0.1.0-77e3a6914cea", "apps", "gateway", "src", "cli.js");
+  const otherRoot = join(sep, "tmp", "smoke.abc123", "state", "omp-session-gateway");
+  const launchctlPrint = `gui/501/omp-session-gateway = {
+	program = /opt/homebrew/Cellar/bun/1.3.14/bin/bun
+	arguments = {
+		/opt/homebrew/Cellar/bun/1.3.14/bin/bun
+		${installedCli}
+		serve
+	}
+}`;
+
+  test("claims a loaded service whose program lives under this install root", () => {
+    expect(serviceProgramBelongsTo(launchctlPrint, stateDir)).toBe(true);
+  });
+
+  test("disclaims a service installed from a different root", () => {
+    expect(serviceProgramBelongsTo(launchctlPrint, otherRoot)).toBe(false);
+  });
+
+  test("disclaims a sibling root that shares a path prefix", () => {
+    // Without the trailing separator this matches, and a second install silently adopts the first.
+    expect(serviceProgramBelongsTo(launchctlPrint, `${stateDir}-2`)).toBe(false);
+    expect(serviceProgramBelongsTo(join(`${stateDir}-2`, "installation", "x", "cli.js"), stateDir)).toBe(false);
+  });
+
+  test("disclaims when the service manager reports nothing loaded", () => {
+    expect(serviceProgramBelongsTo(undefined, stateDir)).toBe(false);
+  });
+
+  test("reads a systemd ExecStart line", () => {
+    const execStart = `{ path=/usr/bin/bun ; argv[]=/usr/bin/bun ${installedCli} serve ; ignore_errors=no }`;
+    expect(serviceProgramBelongsTo(execStart, stateDir)).toBe(true);
+    expect(serviceProgramBelongsTo(execStart, otherRoot)).toBe(false);
   });
 });
