@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chmod } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { chmod, lstat } from "node:fs/promises";
 import {
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
@@ -18,6 +19,7 @@ import {
 } from "@omp-session-gateway/protocol/ipc-auth";
 import {
   assertSocketPrivate,
+  ensureRuntimeDirectories,
   type GatewayConfig,
   removeRuntimeSocket,
 } from "./config.ts";
@@ -66,6 +68,14 @@ const runtimeDeadlineScheduler: RegistryIpcDeadlineScheduler = {
 export interface RegistryIpcServer {
   readonly endpoint: string;
   readonly publishers: number;
+  /** Last observed state of the filesystem rendezvous point. */
+  readonly endpointHealthy: boolean;
+  /**
+   * Confirms the bound socket path still resolves to this listener, re-binding when the path was
+   * removed underneath us (macOS reaps `TMPDIR` entries, so a long-lived daemon otherwise keeps an
+   * unlinked inode that no publisher can ever reach). Returns the resulting endpoint health.
+   */
+  verifyEndpoint(): Promise<boolean>;
   stop(): Promise<void>;
 }
 
@@ -254,75 +264,119 @@ export async function startRegistryIpcServer(options: {
     registry.remove(state.ownerId, message.instanceId, message.generation);
   };
 
-  const server = Bun.listen<ConnectionState>({
-    unix: config.paths.socketPath,
-    socket: {
-      open(socket) {
-        socket.data = {
-          ownerId: randomUUID(),
-          buffer: Buffer.alloc(MAX_HANDSHAKE_FRAME_BYTES),
-          bufferedBytes: 0,
-          authenticated: false,
-          closed: false,
-        };
-        if (publisherCount >= config.registry.maxPublishers) {
-          socket.data.closed = true;
-          socket.end('{"v":1,"op":"error","code":"capacity"}\n');
-          return;
-        }
-        publisherCount += 1;
-        connections.add(socket);
-        armDeadline(socket, HELLO_TIMEOUT_MILLISECONDS);
-      },
-      data(socket, chunk) {
-        const state = socket.data;
-        if (state.closed) return;
-        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        let offset = 0;
-        while (offset < bytes.byteLength && !state.closed) {
-          const newline = bytes.indexOf(0x0a, offset);
-          const end = newline < 0 ? bytes.byteLength : newline;
-          if (!appendFrameBytes(socket, bytes.subarray(offset, end))) return;
-          if (newline < 0) return;
-          if (state.bufferedBytes === 0) {
-            closeWithProtocolError(socket);
+  const bind = () =>
+    Bun.listen<ConnectionState>({
+      unix: config.paths.socketPath,
+      socket: {
+        open(socket) {
+          socket.data = {
+            ownerId: randomUUID(),
+            buffer: Buffer.alloc(MAX_HANDSHAKE_FRAME_BYTES),
+            bufferedBytes: 0,
+            authenticated: false,
+            closed: false,
+          };
+          if (publisherCount >= config.registry.maxPublishers) {
+            socket.data.closed = true;
+            socket.end('{"v":1,"op":"error","code":"capacity"}\n');
             return;
           }
+          publisherCount += 1;
+          connections.add(socket);
+          armDeadline(socket, HELLO_TIMEOUT_MILLISECONDS);
+        },
+        data(socket, chunk) {
+          const state = socket.data;
+          if (state.closed) return;
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          let offset = 0;
+          while (offset < bytes.byteLength && !state.closed) {
+            const newline = bytes.indexOf(0x0a, offset);
+            const end = newline < 0 ? bytes.byteLength : newline;
+            if (!appendFrameBytes(socket, bytes.subarray(offset, end))) return;
+            if (newline < 0) return;
+            if (state.bufferedBytes === 0) {
+              closeWithProtocolError(socket);
+              return;
+            }
 
-          const frameLength = state.bufferedBytes;
-          try {
-            processFrame(socket, state.buffer.subarray(0, frameLength));
-            if (!state.closed && state.authenticated) armDeadline(socket, idleTimeoutMilliseconds);
-          } catch {
-            closeWithProtocolError(socket);
-          } finally {
-            state.buffer.fill(0, 0, frameLength);
-            state.bufferedBytes = 0;
+            const frameLength = state.bufferedBytes;
+            try {
+              processFrame(socket, state.buffer.subarray(0, frameLength));
+              if (!state.closed && state.authenticated) armDeadline(socket, idleTimeoutMilliseconds);
+            } catch {
+              closeWithProtocolError(socket);
+            } finally {
+              state.buffer.fill(0, 0, frameLength);
+              state.bufferedBytes = 0;
+            }
+            offset = newline + 1;
           }
-          offset = newline + 1;
-        }
+        },
+        close(socket) {
+          releaseConnection(socket);
+        },
+        error(socket) {
+          if (!socket.data.closed) logger.event("warn", "ipc.connection_error");
+        },
       },
-      close(socket) {
-        releaseConnection(socket);
-      },
-      error(socket) {
-        if (!socket.data.closed) logger.event("warn", "ipc.connection_error");
-      },
-    },
-  });
+    });
 
+  let boundDevice = -1;
+  let boundInode = -1;
+  let endpointHealthy = true;
 
-  if (process.platform !== "win32") {
+  const secureEndpoint = async (): Promise<void> => {
+    if (process.platform === "win32") return;
     await chmod(config.paths.socketPath, 0o600);
     await assertSocketPrivate(config);
-  }
+    const info = await lstat(config.paths.socketPath);
+    boundDevice = info.dev;
+    boundInode = info.ino;
+  };
+
+  let server = bind();
+  await secureEndpoint();
   logger.event("info", "ipc.listening");
+
+  const verifyEndpoint = async (): Promise<boolean> => {
+    if (process.platform === "win32") return true;
+    let info: Stats | undefined;
+    try {
+      info = await lstat(config.paths.socketPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (info !== undefined) {
+      const ours = info.isSocket() && info.dev === boundDevice && info.ino === boundInode;
+      if (!ours && endpointHealthy) logger.event("warn", "ipc.endpoint_replaced");
+      endpointHealthy = ours;
+      return ours;
+    }
+    try {
+      server.stop(false);
+      await ensureRuntimeDirectories(config);
+      server = bind();
+      await secureEndpoint();
+      endpointHealthy = true;
+      logger.event("warn", "ipc.endpoint_rebound");
+      return true;
+    } catch {
+      endpointHealthy = false;
+      logger.event("error", "ipc.endpoint_rebind_failed");
+      return false;
+    }
+  };
 
   return {
     endpoint: config.paths.socketPath,
     get publishers() {
       return publisherCount;
     },
+    get endpointHealthy() {
+      return endpointHealthy;
+    },
+    verifyEndpoint,
     async stop() {
       for (const socket of connections) {
         releaseConnection(socket);

@@ -4,6 +4,35 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Fixed
+
+- Re-bind the registry socket when its path disappears underneath the daemon. macOS reaps idle
+  per-user `TMPDIR` entries, which deleted `registry.sock` and its parent directory while Bun kept
+  listening on the unlinked inode, so every OMP publisher failed to connect with `ENOENT` and no
+  session could ever appear. The daemon now records the bound device/inode, re-checks the path every
+  15 seconds, and recreates the private runtime directory and listener when the path is gone. A path
+  owned by a different inode is reported as unhealthy instead of being clobbered.
+- Report `status: "degraded"` from `GET /api/v1/health` when publishers cannot reach the registry
+  endpoint. Readiness previously proved only that the HTTP listener answered, so a daemon that no
+  publisher could reach still passed `status`, `doctor`, and install readiness checks.
+
+### Testing
+
+- Scale the OMP publisher fixtures' per-test and handshake budgets by platform. Every Windows
+  publisher-token fixture is secured, and the publisher's token ACL validated, by spawning
+  `powershell.exe`; hosted runner images made that spawn cost seconds rather than milliseconds, so
+  the file's first test — which pays two cold starts — exceeded the 5-second default and the
+  2-second handshake budget while asserting security behavior that had not regressed. The patch is
+  regenerated, so its five commit SHAs changed.
+- Drive a virtual clock in the collab-client fake-timer harness. `CollabSocket` schedules its idle
+  relay probe as `lastRelayActivityAt + RELAY_IDLE_PROBE_MS - Date.now()`, and `#commit()` runs
+  between the two reads, so faking `setTimeout` while leaving `Date.now()` on the wall clock let
+  real milliseconds shorten the delay to `9_99x`. The relay-probe test failed roughly one full-suite
+  run in six. The clock now advances only when a fake timer fires; injecting 3 ms of real work into
+  `#commit()` reproduced `9997` before the change and `10000` after.
+
 ## [0.1.0-prealpha.14] - 2026-07-26
 
 ### Added

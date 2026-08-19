@@ -338,3 +338,45 @@ needed to guarantee pending-action convergence across reconnect. The extension a
 timing traffic and no session data, capability, storage, URL, native surface, Workbox dependency,
 or Background Sync queue. ADR-016's fixed collaboration-client probe cadence and reconnect
 mechanics are superseded by this decision; its SSE heartbeat contract remains.
+
+---
+
+## ADR-021 — Treat the registry rendezvous path as failure-prone and make readiness prove it
+
+**Status:** Accepted
+
+**Context:** A production daemon ran continuously for a week yet published no sessions. It had not
+crashed: macOS reaps entries under the per-user `TMPDIR` after roughly three idle days, and it had
+deleted `omp-session-gateway-<uid>/registry.sock` together with its parent directory. Bun kept the
+listening socket alive on the now-unlinked inode, so `lsof` still showed the bound path while
+`stat` returned `ENOENT`. Publishers resolve that path by name, so every OMP `upsert` attempt failed
+with `ENOENT`. ADR-required behavior — a missing gateway never breaks OMP — then converted a total
+outage into silence: bounded retry, no UI noise, and nothing in the daemon log. `GET /api/v1/health`
+returned `{"status":"ready"}` throughout because it only proved that the HTTP listener answered, so
+`omp-gateway status`, `doctor`, and the install readiness probe all agreed the daemon was healthy.
+The runtime directory cannot simply move: OMP's publisher independently computes the same darwin
+`TMPDIR` path, so changing one side alone breaks the rendezvous until a patched OMP ships.
+
+**Decision:** Treat the filesystem rendezvous point as failure-prone rather than assuming the OS
+preserves it. The IPC server records the device and inode it bound, and `verifyEndpoint()`
+re-`lstat`s that path on a bounded 15-second cadence. A missing path means our own rendezvous point
+vanished, so the daemon stops the orphaned listener, recreates the `0700` runtime directory, re-binds,
+re-applies `0600`, and re-asserts private permissions. A path that exists but resolves to a different
+inode means another process owns it; the daemon reports an unhealthy endpoint and never clobbers it,
+because two daemons fighting over one socket is worse than one daemon reporting degraded. Readiness
+becomes state-faithful: `/api/v1/health` returns `degraded` whenever the endpoint is unreachable,
+keeping the HMAC challenge shape unchanged and still exposing no paths, counts, or publisher detail.
+`gatewayReady` already requires `status === "ready"`, so an unreachable endpoint now fails readiness
+instead of passing it.
+
+Moving the darwin runtime directory out of the reapable `TMPDIR` to
+`~/.local/state/omp-session-gateway/run/` remains the preferred way to remove the trigger, but it is
+a rendezvous-contract change that must ship in lockstep with a regenerated OMP publisher patch. It is
+deferred to that coordinated release; the watchdog is not a reason to skip it.
+
+**Consequences:** A reaped socket now self-heals within one watchdog interval instead of causing a
+silent multi-day outage, and the same control covers any other cause of socket loss. Detection costs
+one `lstat` per interval. Sessions published before a reap survive the re-bind because live publisher
+connections are not closed. The `degraded` status is a new observable value for health consumers, so
+monitoring that only checked HTTP reachability now distinguishes a serving daemon from a usable one.
+Until the lockstep path migration lands, the reap still happens; the daemon merely repairs it.

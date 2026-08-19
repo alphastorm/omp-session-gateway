@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -662,6 +662,85 @@ test("IPC closes authenticated publishers when heartbeat state is absent", async
     await waitFor(() => socket.data.closed && server.publishers === 0);
     expect(socket.data.text).not.toContain("protocol_error");
   } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("IPC rebinds the rendezvous point after the runtime directory is reaped", async () => {
+  if (process.platform === "win32") return;
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-reaped-"));
+  const config = testConfig(root);
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const logs: string[] = [];
+  const logger = new SafeLogger({ write: line => logs.push(line) });
+  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
+  const token = "T".repeat(43);
+  const server = await startRegistryIpcServer({ config, token, registry, logger });
+
+  try {
+    expect(server.endpointHealthy).toBeTrue();
+    expect(await server.verifyEndpoint()).toBeTrue();
+
+    // Reproduce the macOS temp reaper: the socket and its parent directory disappear while the
+    // daemon keeps holding the now-unlinked listening inode.
+    await rm(config.paths.runtimeDir, { recursive: true, force: true });
+    await expect(connect(config.paths.socketPath)).rejects.toThrow();
+
+    expect(await server.verifyEndpoint()).toBeTrue();
+    expect(server.endpointHealthy).toBeTrue();
+    expect(logs.join("\n")).toContain("ipc.endpoint_rebound");
+
+    const socket = await connect(config.paths.socketPath);
+    const instanceId = "ipc-instance-rebound";
+    await authenticatePublisher(socket, token, instanceId, 700);
+    socket.write(
+      `${JSON.stringify({
+        v: 1,
+        op: "upsert",
+        session: {
+          instanceId,
+          generation: 1,
+          pid: 700,
+          sessionId: "ipc-session-rebound",
+          startedAt: "2026-07-21T00:00:00.000Z",
+          inputRequired: false,
+          viewLink: `REBOUND_VIEW_${"R".repeat(20)}`,
+        },
+      })}\n`,
+    );
+    await waitFor(() => registry.size === 1);
+    socket.end();
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("IPC reports an unhealthy endpoint when another process replaces the socket", async () => {
+  if (process.platform === "win32") return;
+  const root = await mkdtemp(join(tmpdir(), "gateway-ipc-replaced-"));
+  const config = testConfig(root);
+  await mkdir(config.paths.runtimeDir, { recursive: true, mode: 0o700 });
+  const logs: string[] = [];
+  const logger = new SafeLogger({ write: line => logs.push(line) });
+  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: 5 });
+  const server = await startRegistryIpcServer({ config, token: "T".repeat(43), registry, logger });
+  const usurper = Bun.listen({
+    unix: join(root, "usurper.sock"),
+    socket: { open() {}, data() {}, close() {}, error() {} },
+  });
+
+  try {
+    await rm(config.paths.socketPath);
+    await rename(join(root, "usurper.sock"), config.paths.socketPath);
+
+    expect(await server.verifyEndpoint()).toBeFalse();
+    expect(server.endpointHealthy).toBeFalse();
+    expect(logs.join("\n")).toContain("ipc.endpoint_replaced");
+    expect(logs.join("\n")).not.toContain("ipc.endpoint_rebound");
+  } finally {
+    usurper.stop(true);
     await server.stop();
     await rm(root, { recursive: true, force: true });
   }

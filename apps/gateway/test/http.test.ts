@@ -133,6 +133,31 @@ describe("HTTP boundary", () => {
     expect((await handler(healthRequest, { address: "192.168.1.20" })).status).toBe(403);
   });
 
+  test("reports degraded readiness when the registry endpoint is unreachable", async () => {
+    const readinessToken = "T".repeat(43);
+    const challenge = "C".repeat(43);
+    const handler = createHttpHandler({
+      config: config(),
+      registry: populatedRegistry(),
+      staticAssets: assets,
+      readinessToken,
+      endpointHealthy: () => false,
+    });
+
+    const proven = await handler(
+      new Request("http://127.0.0.1:4317/api/v1/health", { headers: { "X-OMP-Readiness-Challenge": challenge } }),
+      peer,
+    );
+    expect(proven.status).toBe(200);
+    expect(await proven.json()).toEqual({
+      status: "degraded",
+      proof: createHmac("sha256", readinessToken).update(challenge).update("\0").update("").digest("base64url"),
+    });
+
+    const plain = await handler(new Request("http://127.0.0.1:4317/api/v1/health"), peer);
+    expect(await plain.json()).toEqual({ status: "degraded" });
+  });
+
   test("fails closed for missing, disallowed, forged remote, and tagged-style identities", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
