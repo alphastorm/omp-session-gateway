@@ -38,6 +38,7 @@ These links informed the design snapshot. OMP and Tailscale are active projects;
 ## Upstream collaboration thread
 
 - Discussion #6460 (remote access to collab sessions): https://github.com/can1357/oh-my-pi/discussions/6460
+- Our Show and tell writeup: https://github.com/can1357/oh-my-pi/discussions/9036
 - Our contribution, bounded pending UI retention: https://github.com/can1357/oh-my-pi/pull/9031
 - Related enrollment work by others: https://github.com/can1357/oh-my-pi/pull/6354 and https://github.com/can1357/oh-my-pi/issues/6171
 
