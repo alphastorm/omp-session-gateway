@@ -77,6 +77,19 @@ again.
 
 Isolated launchers may set `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` to an absolute publisher-token file so OMP can use a trial gateway without replacing `XDG_CONFIG_HOME` for OMP tools and child processes. The same regular-file, no-symlink, current-user ownership, mode, ACL, length, and alphabet checks apply; the environment variable carries only the path, never the token.
 
-No upstream PR or fork commit exists yet. Rebase by revalidating the paths in `UPSTREAM.lock.json`, applying
+## Upstream status
+
+Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab session from anywhere](https://github.com/can1357/oh-my-pi/discussions/6460).
+
+| Piece | Upstream state |
+| --- | --- |
+| Bounded pending host UI retention (`0002` lineage) | Submitted as [PR #9031](https://github.com/can1357/oh-my-pi/pull/9031) from `alphastorm:contrib/collab-retain-pending-ui`. Isolated from the controller/registry stack: three files, no wire-protocol change. |
+| Controller, auto-start, and registry publisher | Not submitted. It is a new subsystem spanning several packages, which upstream `CONTRIBUTING.md` requires be discussed in Discord *before* implementation; it also overlaps [#6354](https://github.com/can1357/oh-my-pi/pull/6354) and [#6171](https://github.com/can1357/oh-my-pi/issues/6171). |
+| Optional encrypted `gateway-health` probes (commit five) | Not submitted; no upstream seam exists at `v17.3.8`. Flagged in the discussion because it fails inert rather than loudly. |
+| Gateway daemon, PWA, Tailscale identity, capability broker | Out of scope for upstream by design. |
+
+Do not open an upstream issue for work that is about to be submitted: upstream `CONTRIBUTING.md` treats actionable issues as work its bot may pick up in parallel. Link an existing issue from the pull request instead. Every pull request body must also contain at least one sentence written by the human contributor.
+
+Rebase by revalidating the paths in `UPSTREAM.lock.json`, applying
 with `git apply --3way`, resolving only narrow collaboration conflicts, then rerunning all listed and
 coding-agent tests. Keep generated assets, gateway code, and an optional future extension API out of this patch.

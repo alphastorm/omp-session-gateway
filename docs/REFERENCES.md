@@ -35,6 +35,12 @@ These links informed the design snapshot. OMP and Tailscale are active projects;
 - WebAuthn: https://www.w3.org/TR/webauthn-3/
 - MessageChannel: https://developer.mozilla.org/docs/Web/API/MessageChannel
 
+## Upstream collaboration thread
+
+- Discussion #6460 (remote access to collab sessions): https://github.com/can1357/oh-my-pi/discussions/6460
+- Our contribution, bounded pending UI retention: https://github.com/can1357/oh-my-pi/pull/9031
+- Related enrollment work by others: https://github.com/can1357/oh-my-pi/pull/6354 and https://github.com/can1357/oh-my-pi/issues/6171
+
 ## Notes for the implementer
 
 - Verify that OMP has not added a supported collaboration automation API since this snapshot.
