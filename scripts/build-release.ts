@@ -209,8 +209,8 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
     licensePath: "licenses/runtime/web-push/LICENSE",
   },
   "lucide-react": {
-    version: "1.24.0",
-    source: "https://github.com/lucide-icons/lucide/tree/1.24.0/packages/lucide-react",
+    version: "1.31.0",
+    source: "https://github.com/lucide-icons/lucide/tree/1.31.0/packages/lucide-react",
     licenseDeclared: "ISC",
     licenseConcluded: "ISC AND MIT",
     copyrightText:
@@ -218,8 +218,8 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
     licensePath: "licenses/runtime/lucide-react/LICENSE",
   },
   marked: {
-    version: "18.0.6",
-    source: "https://github.com/markedjs/marked/tree/39bd884c5f17a8370cf957b8d46a15751868ab4d",
+    version: "18.0.9",
+    source: "https://github.com/markedjs/marked/tree/8e858a4f8e7f53ffeae7392a4c9f455e693aa737",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT AND BSD-3-Clause",
     copyrightText:
