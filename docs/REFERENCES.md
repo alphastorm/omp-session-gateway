@@ -7,7 +7,7 @@ These links informed the design snapshot. OMP and Tailscale are active projects;
 ## Oh My Pi
 
 - Repository and collaboration overview: https://github.com/can1357/oh-my-pi
-- Release baseline observed for this handoff (`v17.0.6`): https://github.com/can1357/oh-my-pi/releases/tag/v17.0.6
+- Release baseline observed for this handoff (`v17.3.8`): https://github.com/can1357/oh-my-pi/releases/tag/v17.3.8
 - Collaboration protocol, link roles, browser client, settings, and relay architecture: https://github.com/can1357/oh-my-pi/blob/main/docs/collab.md
 - Browser collaboration client package: https://github.com/can1357/oh-my-pi/tree/main/packages/collab-web
 - Browser client source: https://github.com/can1357/oh-my-pi/tree/main/packages/collab-web/src

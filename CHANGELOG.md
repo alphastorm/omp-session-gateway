@@ -18,6 +18,26 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   endpoint. Readiness previously proved only that the HTTP listener answered, so a daemon that no
   publisher could reach still passed `status`, `doctor`, and install readiness checks.
 
+### Changed
+
+- Refresh the OMP pin from `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` to `v17.3.8` /
+  `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`. The previous mbox no longer applied
+  (`interactive-mode.ts`, `agent-session.ts`, `session-manager.ts`, and `builtin-registry.ts`
+  conflicted), so it is regenerated as five commits reproducing tree
+  `1320e3e7e7596dbe2f6a130d568072a9a38f2943`. The first four are the reviewed handoff artifact
+  `gateway-collaboration-v17.3.8.mbox` (sha256 `f63f74c9…`) applied verbatim; the fifth restores the
+  health-probe commit the maintained series no longer carries. `@oh-my-pi/pi-wire` moves to `17.3.8`; `collab-web`
+  stays at package version `16.3.6` with refreshed source.
+- Re-vendor the pinned collab client onto `v17.3.8`. Only `Composer.tsx` needed manual resolution
+  (upstream added `RefObject` and composition handlers; the gateway had added `useMemo` and
+  `disabled`); all eleven prior local patches survived unchanged. The client keeps npm `marked`
+  rather than upstream's new `@oh-my-pi/pi-utils/marked`, because that import pulls
+  `@oh-my-pi/pi-natives` and its per-platform binaries into a previously pure-JavaScript runtime
+  closure. The `Marked` API is identical, so the divergence is one import line.
+- Reset every native, Tailscale, relay, Android, browser, and signed-artifact ledger row to
+  **NOT RUN** for the new pin. Only source-level evidence was regenerated; the previous pin's
+  platform qualification does not transfer.
+
 ### Testing
 
 - Scale the OMP publisher fixtures' per-test and handshake budgets by platform. Every Windows
