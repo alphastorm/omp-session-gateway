@@ -11,6 +11,7 @@ import {
   publicOriginHttpsPort,
   restoreGatewayConfigFile,
   rotatePublisherToken,
+  windowsAclSpawnCostMs,
 } from "../src/config.ts";
 
 const roots: string[] = [];
@@ -80,6 +81,122 @@ async function makeFixtureUnsafe(path: string): Promise<void> {
   });
   const stderr = await new Response(subprocess.stderr).text();
   if ((await subprocess.exited) !== 0) throw new Error(`failed to loosen test fixture ACL: ${stderr.trim()}`);
+}
+
+const FAKE_CURRENT_SID = "S-1-5-21-2000000000-2000000001-2000000002-1001";
+const FULL_CONTROL_MASK = 2_032_127;
+
+type FakeAclOutcome = "private" | "foreign-principal" | "missing";
+
+const fakeAcl = {
+  spawns: 0,
+  requests: [] as string[],
+  outcomes: new Map<string, FakeAclOutcome>(),
+  desynchronise: false,
+};
+
+function answerFakeAclRequest(line: string): string {
+  const request = JSON.parse(line) as { readonly i: number; readonly op: string; readonly p: string; readonly dir: number };
+  fakeAcl.requests.push(`${request.op} ${request.p}`);
+  const identifier = fakeAcl.desynchronise ? request.i + 1 : request.i;
+  const outcome = fakeAcl.outcomes.get(request.p) ?? "private";
+  if (outcome === "missing") {
+    return JSON.stringify({ i: identifier, ok: false, e: `Cannot find path '${request.p}' because it does not exist.` });
+  }
+  if (request.op === "apply") return JSON.stringify({ i: identifier, ok: true });
+  const flags = request.dir === 1 ? 3 : 0;
+  const rules = [
+    { Sid: "S-1-5-18", Type: "AccessAllowed", Mask: FULL_CONTROL_MASK, Flags: flags },
+    { Sid: FAKE_CURRENT_SID, Type: "AccessAllowed", Mask: FULL_CONTROL_MASK, Flags: flags },
+  ];
+  // Mirrors `icacls /grant *S-1-1-0:F`, which is how the real fixtures above are loosened.
+  if (outcome === "foreign-principal") {
+    rules.push({ Sid: "S-1-1-0", Type: "AccessAllowed", Mask: FULL_CONTROL_MASK, Flags: flags });
+  }
+  return JSON.stringify({
+    i: identifier,
+    ok: true,
+    acl: { Protected: true, Current: FAKE_CURRENT_SID, Owner: FAKE_CURRENT_SID, Rules: rules },
+  });
+}
+
+/**
+ * Stands in for `powershell.exe` speaking the ACL helper's newline-delimited JSON protocol, so the
+ * Windows-only contract can be exercised on every platform. Spawns of anything else pass through.
+ * Returns the restore function; call it in a `finally` so a failure cannot leak the fake platform.
+ */
+function installFakePowerShell(): () => void {
+  const realSpawn = Bun.spawn;
+  const realPlatform = process.platform;
+  const setPlatform = (value: string): void => {
+    Object.defineProperty(process, "platform", { value, writable: true, configurable: true, enumerable: true });
+  };
+  const fakeSpawn = (command: readonly string[], options?: unknown): unknown => {
+    if (command[0] !== "powershell.exe") {
+      return (realSpawn as unknown as (used: readonly string[], rest?: unknown) => unknown)(command, options);
+    }
+    fakeAcl.spawns += 1;
+    const encoder = new TextEncoder();
+    const pending: Uint8Array[] = [];
+    let waiting: ((result: { value?: Uint8Array; done: boolean }) => void) | undefined;
+    let stdin = "";
+    return {
+      stdin: {
+        write: (chunk: string): number => {
+          stdin += chunk;
+          return chunk.length;
+        },
+        flush: (): number => {
+          for (;;) {
+            const newline = stdin.indexOf("\n");
+            if (newline < 0) return 0;
+            const line = stdin.slice(0, newline);
+            stdin = stdin.slice(newline + 1);
+            const reply = encoder.encode(`${answerFakeAclRequest(line)}\n`);
+            const resolve = waiting;
+            waiting = undefined;
+            if (resolve === undefined) pending.push(reply);
+            else resolve({ value: reply, done: false });
+          }
+        },
+      },
+      stdout: {
+        getReader: () => ({
+          read: async (): Promise<{ value?: Uint8Array; done: boolean }> => {
+            const next = pending.shift();
+            if (next !== undefined) return { value: next, done: false };
+            const gate = Promise.withResolvers<{ value?: Uint8Array; done: boolean }>();
+            waiting = gate.resolve;
+            return await gate.promise;
+          },
+        }),
+      },
+      unref: (): undefined => undefined,
+      kill: (): undefined => undefined,
+    };
+  };
+  Bun.spawn = fakeSpawn as unknown as typeof Bun.spawn;
+  setPlatform("win32");
+  return () => {
+    Bun.spawn = realSpawn;
+    setPlatform(realPlatform);
+    fakeAcl.outcomes.clear();
+    fakeAcl.desynchronise = false;
+  };
+}
+
+/**
+ * Discards whatever helper process an earlier test left cached inside `config.ts`, by answering one
+ * request with the wrong id. The product treats that desynchronisation as fatal and drops the
+ * helper, which both pins that guard and makes the following spawn count exact.
+ */
+async function dropCachedAclHelper(config: GatewayConfig): Promise<void> {
+  fakeAcl.desynchronise = true;
+  try {
+    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("answered out of order");
+  } finally {
+    fakeAcl.desynchronise = false;
+  }
 }
 
 describe("secure config", () => {
@@ -265,4 +382,92 @@ describe("secure config", () => {
     await secureWindowsFixture(config.paths.tokenPath);
     await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("invalid encoding or length");
   }, 20_000);
+});
+
+describe("Windows private-path ACL enforcement", () => {
+  test("secures every private path of a run from a single PowerShell process", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      await dropCachedAclHelper(config);
+      const spawnsBefore = fakeAcl.spawns;
+      fakeAcl.requests.length = 0;
+      await loadOrCreatePublisherToken(config);
+      await loadOrCreatePublisherToken(config);
+      await rotatePublisherToken(config);
+      // Each call applies and inspects the config and state directories and touches the token once:
+      // fifteen ACL operations that used to cost fifteen `powershell.exe` starts.
+      expect(fakeAcl.requests).toHaveLength(15);
+      expect(fakeAcl.spawns - spawnsBefore).toBe(1);
+      // `install` derives its readiness budget from this, so losing the measurement matters.
+      expect(windowsAclSpawnCostMs()).toBeGreaterThanOrEqual(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test("rejects an ACL that admits a foreign principal and blames the offending path", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      await loadOrCreatePublisherToken(config);
+      fakeAcl.outcomes.set(config.paths.stateDir, "foreign-principal");
+      fakeAcl.requests.length = 0;
+      const failure = await loadOrCreatePublisherToken(config).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain("unsafe private Windows ACL");
+      expect((failure as Error).message).toContain(config.paths.stateDir);
+      expect((failure as Error).message).not.toContain(config.paths.configDir);
+      // The safe directory ahead of it was verified, and the run stopped at the unsafe one.
+      expect(fakeAcl.requests).toEqual([
+        `apply ${config.paths.configDir}`,
+        `inspect ${config.paths.configDir}`,
+        `apply ${config.paths.stateDir}`,
+        `inspect ${config.paths.stateDir}`,
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("rejects a directory the ACL helper cannot resolve, naming the one that failed", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      fakeAcl.outcomes.set(config.paths.stateDir, "missing");
+      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+        `failed to secure private Windows path ${config.paths.stateDir}`,
+      );
+      fakeAcl.outcomes.set(config.paths.configDir, "missing");
+      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+        `failed to secure private Windows path ${config.paths.configDir}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test("treats an unreadable token ACL as fatal instead of a missing token", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      await loadOrCreatePublisherToken(config);
+      const stored = await readFile(config.paths.tokenPath, "utf8");
+      fakeAcl.outcomes.set(config.paths.tokenPath, "missing");
+      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+        `failed to inspect private Windows ACL for ${config.paths.tokenPath}`,
+      );
+      // A helper failure must never be mistaken for ENOENT and remediated by minting a new token.
+      expect(await readFile(config.paths.tokenPath, "utf8")).toBe(stored);
+    } finally {
+      restore();
+    }
+  });
 });

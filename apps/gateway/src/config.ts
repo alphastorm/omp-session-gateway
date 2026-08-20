@@ -55,57 +55,201 @@ function currentUserId(): number {
   return uid;
 }
 
-function windowsPowerShellEnvironment(overrides: Record<string, string>): Record<string, string> {
+/**
+ * Environment for the ACL helper. `PSModulePath` is dropped so a writable module directory inherited
+ * from the caller cannot inject code into the helper; every other variable is inherited because
+ * `powershell.exe` needs `SystemRoot` and friends to start at all.
+ */
+function windowsPowerShellEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key.toLowerCase() !== "psmodulepath") environment[key] = value;
   }
-  return { ...environment, ...overrides };
+  return environment;
+}
+
+/**
+ * Newline-delimited JSON request loop over `Get-Acl`/`Set-Acl`.
+ *
+ * Starting `powershell.exe` measured 1.8-2.1 s on a 2-vCPU Windows Server 2025 host, and the daemon
+ * secures or verifies five private paths before it can bind its loopback listener, so one process per
+ * path consumed more than the whole `install` readiness budget and every install was torn back down
+ * (#90). One process answers every request of a run instead.
+ *
+ * Paths arrive as JSON data and are never spliced into the script, so a hostile path cannot become
+ * code. Each reply carries its request id back, so a failure can only be attributed to the path that
+ * produced it. Reply text is squeezed to printable ASCII because a redirected PowerShell writes
+ * stdout in the console code page, which would otherwise corrupt the framing.
+ */
+const WINDOWS_ACL_HELPER_SCRIPT = [
+  "$ErrorActionPreference='Stop'",
+  "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+  "$out=[Console]::Out",
+  "while($true){ $line=[Console]::In.ReadLine(); if($null -eq $line){break}; if($line.Length -eq 0){continue}; " +
+    "$id=0; try{ $request=$line|ConvertFrom-Json; $id=[int]$request.i; $path=[string]$request.p; " +
+    "if($request.dir -eq 1){$flags='OICI'}else{$flags=''}; " +
+    "if($request.op -eq 'apply'){ " +
+    "$sddl='D:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;'+$sid+')'; " +
+    "$acl=Get-Acl -LiteralPath $path; $acl.SetSecurityDescriptorSddlForm($sddl); " +
+    "$acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
+    "Set-Acl -LiteralPath $path -AclObject $acl; $reply=[pscustomobject]@{i=$id;ok=$true} " +
+    "}elseif($request.op -eq 'inspect'){ " +
+    "$acl=Get-Acl -LiteralPath $path; $owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; " +
+    "$descriptor=[System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl); " +
+    "$rules=@($descriptor.DiscretionaryAcl | ForEach-Object { [pscustomobject]@{ " +
+    "Sid=$_.SecurityIdentifier.Value; Type=$_.AceType.ToString(); Mask=$_.AccessMask; Flags=[int]$_.AceFlags } }); " +
+    "$reply=[pscustomobject]@{i=$id;ok=$true;acl=[pscustomobject]@{ " +
+    "Protected=$acl.AreAccessRulesProtected; Current=$sid; Owner=$owner; Rules=@($rules) }} " +
+    "}else{ throw 'unsupported private ACL operation' } " +
+    "}catch{ $reply=[pscustomobject]@{i=$id;ok=$false;e=([string]$_.Exception.Message -replace '[^\\x20-\\x7E]','?')} }; " +
+    "$out.WriteLine(($reply|ConvertTo-Json -Compress -Depth 6)); $out.Flush() }",
+].join("; ");
+
+interface WindowsAclHelper {
+  readonly send: (line: string) => Promise<void>;
+  readonly receive: () => Promise<Uint8Array | undefined>;
+  readonly kill: () => void;
+  readonly decoder: TextDecoder;
+  buffer: string;
+  nextRequestId: number;
+  spawnCostMs: number | undefined;
+}
+
+let windowsAclHelper: WindowsAclHelper | undefined;
+let windowsAclHelperSpawnCostMs: number | undefined;
+let windowsAclRequestTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * JSON restricted to printable ASCII, so the helper's stdin code page cannot mangle a path. Matching
+ * per UTF-16 code unit is deliberate: each surrogate half becomes its own escape, which
+ * `ConvertFrom-Json` recombines into the original code point.
+ */
+function asciiJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[^\x20-\x7E]/g,
+    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+function startWindowsAclHelper(): WindowsAclHelper {
+  const subprocess = Bun.spawn(
+    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACL_HELPER_SCRIPT],
+    { env: windowsPowerShellEnvironment(), stdin: "pipe", stdout: "pipe", stderr: "ignore" },
+  );
+  // The helper must never hold the daemon's event loop open. It ends by itself: closing our stdin at
+  // exit makes its `ReadLine` return null and the loop break.
+  subprocess.unref();
+  const stdout = subprocess.stdout.getReader();
+  return {
+    send: async line => {
+      subprocess.stdin.write(line);
+      await subprocess.stdin.flush();
+    },
+    receive: async () => (await stdout.read()).value,
+    kill: () => subprocess.kill(),
+    decoder: new TextDecoder(),
+    buffer: "",
+    nextRequestId: 1,
+    spawnCostMs: undefined,
+  };
+}
+
+function stopWindowsAclHelper(): void {
+  const helper = windowsAclHelper;
+  windowsAclHelper = undefined;
+  if (helper === undefined) return;
+  try {
+    helper.kill();
+  } catch {
+    // Already gone; there is nothing left to reclaim.
+  }
+}
+
+async function readWindowsAclReply(helper: WindowsAclHelper): Promise<string> {
+  for (;;) {
+    const newline = helper.buffer.indexOf("\n");
+    if (newline >= 0) {
+      const line = helper.buffer.slice(0, newline).trim();
+      helper.buffer = helper.buffer.slice(newline + 1);
+      if (line.length > 0) return line;
+      continue;
+    }
+    const chunk = await helper.receive();
+    if (chunk === undefined) throw new Error("the private Windows ACL helper exited before replying");
+    helper.buffer += helper.decoder.decode(chunk, { stream: true });
+  }
+}
+
+async function performWindowsAclRequest(
+  operation: "apply" | "inspect",
+  path: string,
+  directory: boolean,
+): Promise<unknown> {
+  const started = performance.now();
+  let requestId = 0;
+  let reply: unknown;
+  try {
+    const helper = (windowsAclHelper ??= startWindowsAclHelper());
+    requestId = helper.nextRequestId;
+    helper.nextRequestId += 1;
+    await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
+    reply = JSON.parse(await readWindowsAclReply(helper));
+    if (helper.spawnCostMs === undefined) {
+      // Only the first round trip pays for `powershell.exe` starting; the rest are pipe writes.
+      helper.spawnCostMs = performance.now() - started;
+      windowsAclHelperSpawnCostMs = Math.max(windowsAclHelperSpawnCostMs ?? 0, helper.spawnCostMs);
+    }
+  } catch (error) {
+    stopWindowsAclHelper();
+    throw new Error(`the private Windows ACL helper failed for ${path}`, { cause: error });
+  }
+  const envelope = typeof reply === "object" && reply !== null ? reply : undefined;
+  if (envelope === undefined || Reflect.get(envelope, "i") !== requestId) {
+    // Answering the wrong request would clear the wrong path, so a desynchronised helper is fatal.
+    stopWindowsAclHelper();
+    throw new Error(`the private Windows ACL helper answered out of order for ${path}`);
+  }
+  if (Reflect.get(envelope, "ok") !== true) {
+    const failure = Reflect.get(envelope, "e");
+    const detail = typeof failure === "string" && failure.length > 0 ? failure : "unknown helper failure";
+    throw new Error(
+      operation === "apply"
+        ? `failed to secure private Windows path ${path}: ${detail}`
+        : `failed to inspect private Windows ACL for ${path}: ${detail}`,
+    );
+  }
+  return Reflect.get(envelope, "acl");
+}
+
+/**
+ * Requests are strictly serialised: the helper answers one line per line it reads, so overlapping
+ * writers would race for each other's replies.
+ */
+function windowsAclRequest(operation: "apply" | "inspect", path: string, directory: boolean): Promise<unknown> {
+  const attempt = windowsAclRequestTail
+    .catch(() => undefined)
+    .then(() => performWindowsAclRequest(operation, path, directory));
+  windowsAclRequestTail = attempt.catch(() => undefined);
+  return attempt;
+}
+
+/**
+ * Cost of the single `powershell.exe` start this process paid for ACL enforcement, or `undefined`
+ * when no ACL work happened (every non-Windows platform). `install` derives its readiness budget
+ * from it, because the daemon it starts must pay the same start before it can bind.
+ */
+export function windowsAclSpawnCostMs(): number | undefined {
+  return windowsAclHelperSpawnCostMs;
 }
 
 async function applyWindowsAcl(path: string, directory: boolean): Promise<void> {
   if (process.platform !== "win32") return;
-  const script =
-    "$Path=$env:OMP_GATEWAY_ACL_PATH; $Directory=$env:OMP_GATEWAY_ACL_DIRECTORY; " +
-    "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
-    "$flags=if($Directory -eq '1'){'OICI'}else{''}; " +
-    "$sddl='D:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;'+$sid+')'; " +
-    "$acl=Get-Acl -LiteralPath $Path; " +
-    "$acl.SetSecurityDescriptorSddlForm($sddl); " +
-    "$acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); Set-Acl -LiteralPath $Path -AclObject $acl";
-  const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
-    env: windowsPowerShellEnvironment({
-      OMP_GATEWAY_ACL_PATH: path,
-      OMP_GATEWAY_ACL_DIRECTORY: directory ? "1" : "0",
-    }),
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "pipe",
-  });
-  const stderr = await new Response(subprocess.stderr).text();
-  if ((await subprocess.exited) !== 0) throw new Error(`failed to secure private Windows path: ${stderr.trim()}`);
+  await windowsAclRequest("apply", path, directory);
 }
 
 async function assertWindowsAclPrivate(path: string, directory: boolean): Promise<void> {
   if (process.platform !== "win32") return;
-  const script =
-    "$Path=$env:OMP_GATEWAY_ACL_PATH; $acl=Get-Acl -LiteralPath $Path; " +
-    "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
-    "$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; " +
-    "$descriptor=[System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl); " +
-    "$rules=@($descriptor.DiscretionaryAcl | ForEach-Object { [pscustomobject]@{ " +
-    "Sid=$_.SecurityIdentifier.Value; Type=$_.AceType.ToString(); Mask=$_.AccessMask; Flags=[int]$_.AceFlags } }); " +
-    "[pscustomobject]@{ Protected=$acl.AreAccessRulesProtected; Current=$sid; Owner=$owner; Rules=@($rules) } " +
-    "| ConvertTo-Json -Compress -Depth 3";
-  const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
-    env: windowsPowerShellEnvironment({ OMP_GATEWAY_ACL_PATH: path }),
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const text = await new Response(subprocess.stdout).text();
-  if ((await subprocess.exited) !== 0) throw new Error("failed to inspect private Windows ACL");
-  const value: unknown = JSON.parse(text);
+  const value = await windowsAclRequest("inspect", path, directory);
   const protectedAcl = typeof value === "object" && value !== null ? Reflect.get(value, "Protected") : undefined;
   const current = typeof value === "object" && value !== null ? Reflect.get(value, "Current") : undefined;
   const owner = typeof value === "object" && value !== null ? Reflect.get(value, "Owner") : undefined;
@@ -142,7 +286,7 @@ async function assertWindowsAclPrivate(path: string, directory: boolean): Promis
         })
       : "not-array";
     throw new Error(
-      `unsafe private Windows ACL (protected=${String(protectedAcl)}, ownerMatches=${String(owner === current)}, currentIsSystem=${String(current === "S-1-5-18")}, rules=${JSON.stringify(ruleDiagnostics)})`,
+      `unsafe private Windows ACL for ${path} (protected=${String(protectedAcl)}, ownerMatches=${String(owner === current)}, currentIsSystem=${String(current === "S-1-5-18")}, rules=${JSON.stringify(ruleDiagnostics)})`,
     );
   }
 }
