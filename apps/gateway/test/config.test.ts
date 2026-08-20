@@ -122,6 +122,8 @@ function devDocument(patch: ConfigPatch = {}): Record<string, unknown> {
     auth: { mode: "dev-localhost", allowedLogins: [], ...patch.auth },
     registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10, ...patch.registry },
   };
+}
+
 const FAKE_CURRENT_SID = "S-1-5-21-2000000000-2000000001-2000000002-1001";
 const FULL_CONTROL_MASK = 2_032_127;
 
@@ -1383,7 +1385,7 @@ describe("Windows private-path ACL enforcement", () => {
       await dropCachedAclHelper(config);
       fakeAcl.stderr = "ParserError: unexpected token in expression";
       fakeAcl.exitBeforeReply = true;
-      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("ParserError: unexpected token in expression");
+      await expect(loadOrCreateReadinessToken(config)).rejects.toThrow("ParserError: unexpected token in expression");
     } finally {
       restore();
     }
