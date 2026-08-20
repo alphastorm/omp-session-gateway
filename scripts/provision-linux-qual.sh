@@ -104,10 +104,15 @@ droplet_exists_quietly() {
   doctl compute droplet list --format Name --no-header 2>/dev/null | grep -qx "$DROPLET_NAME"
 }
 
+# Set once a delete has been observed to complete. The EXIT trap runs immediately afterwards, when
+# DigitalOcean's list endpoint can still report the droplet present, so without this a fully
+# successful destroy prints the "STILL BILLING" banner and teaches the operator to ignore it.
+DESTROY_CONFIRMED=0
+
 on_exit() {
   local code=$?
   if [ -n "$LOCAL_TEMP" ] && [ -d "$LOCAL_TEMP" ]; then rm -rf "$LOCAL_TEMP"; fi
-  if droplet_exists_quietly; then
+  if [ "$DESTROY_CONFIRMED" -eq 0 ] && droplet_exists_quietly; then
     printf '\n'
     printf '  ############################################################\n'
     printf '  #  %-54s#\n' "$DROPLET_NAME IS STILL RUNNING AND STILL BILLING"
@@ -547,6 +552,7 @@ REMOTE
     for ((index = 1; index <= 30; index++)); do
       if ! droplet_exists_quietly; then
         deleted=1
+        DESTROY_CONFIRMED=1
         break
       fi
       sleep 5
