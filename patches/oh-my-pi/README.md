@@ -2,13 +2,14 @@
 
 `0001-collab-controller-autostart-registry.patch` is based on OMP commit
 `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` (tag: v17.3.8).
-The artifact is one mbox containing five reviewable commits:
+The artifact is one mbox containing six reviewable commits:
 
 - `0158f3c7f` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
 - `a8c555dbb` — bounded, replayable host UI requests retained before a writable guest joins;
 - `11f371c0e` — generation-scoped `inputRequired` publication;
-- `5e2227914` — safe response-UI mirroring, race cleanup, and startup ordering; and
-- `c7912a6e1` — optional encrypted health probes and idempotent response acknowledgement.
+- `5e2227914` — safe response-UI mirroring, race cleanup, and startup ordering;
+- `c7912a6e1` — optional encrypted health probes and idempotent response acknowledgement; and
+- `bfc555227` — publication recovery after transient registry faults.
 
 The first four commits are the maintained downstream `gateway-collaboration` series in its
 authoritative order (`0006 → 0002 → 0003 → 0004`, indices 0–3, so they sit directly on pristine
@@ -21,6 +22,21 @@ The fifth commit is carried only here. The maintained series no longer contains 
 requires it: `#relayProbeSupported` becomes true only when the host sends a seed
 `gateway-health-pong`, so without this commit the browser's relay probes never start and relay
 liveness silently degrades to passive traffic only. Re-apply it on every refresh.
+
+The sixth commit returns to the maintained series as `0007`. It fixes
+[#61](https://github.com/alphastorm/omp-session-gateway/issues/61): `CollabRegistryPublisher`
+latched publication off in one place and never reset it, and its setup `catch` treated every error
+that was not `ENOENT`/`ECONNREFUSED` as a security event, so a transient token read — `EACCES`,
+`EMFILE`, or a torn rewrite while the gateway recreates its runtime directory — was
+indistinguishable from a real privacy violation. Because `CollabController` builds the publisher
+once behind `??=`, `/collab stop` then `/collab` reused the latched instance, and a live session
+stayed absent from the directory for the rest of the OMP process lifetime while the daemon reported
+healthy. The fix splits the classification rather than widening the retry: a non-IPC
+`collab.registryEndpoint` and a world-readable socket raise `PublisherSecurityViolation` and still
+latch, since both are deterministic properties of the machine that no retry can clear, while every
+other setup failure retries with backoff. `publisher.resume()` clears a latch on an explicit manual
+`/collab` only, never on auto-start, and `/collab status` now reports
+`off`/`publishing`/`retrying`/`disabled` so the state is diagnosable instead of silent.
 
 It:
 
@@ -44,10 +60,11 @@ Apply from the OMP repository root:
 ```sh
 git apply --check /path/to/0001-collab-controller-autostart-registry.patch
 git apply /path/to/0001-collab-controller-autostart-registry.patch
-# Or preserve the five reviewable commits:
+# Or preserve the six reviewable commits:
 git am /path/to/0001-collab-controller-autostart-registry.patch
 bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/collab/registry-publisher.test.ts \
+  packages/coding-agent/test/collab/collab-command-publication.test.ts \
   packages/coding-agent/test/config/collab-settings.test.ts \
   packages/coding-agent/test/collab/guest-ui-request.test.ts \
   packages/coding-agent/test/collab/read-only.test.ts \

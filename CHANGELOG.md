@@ -8,6 +8,17 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ### Fixed
 
+- Mirror the upstream fix for the silent publisher latch
+  ([#61](https://github.com/alphastorm/omp-session-gateway/issues/61)) as the sixth commit of the
+  OMP handoff patch. `CollabRegistryPublisher` latched publication off in one place and never reset
+  it, and its setup `catch` treated every error that was not `ENOENT`/`ECONNREFUSED` as a security
+  event, so a transient publisher-token read was indistinguishable from a real privacy violation.
+  Because `CollabController` builds the publisher once behind `??=`, `/collab stop` then `/collab`
+  reused the latched instance, and a live session stayed absent from the directory for the rest of
+  the OMP process lifetime while the daemon reported healthy. Only a deterministic
+  `PublisherSecurityViolation` now latches; everything else retries with backoff, a manual
+  `/collab` resumes, and `/collab status` reports the publication state.
+
 - Re-bind the registry socket when its path disappears underneath the daemon. macOS reaps idle
   per-user `TMPDIR` entries, which deleted `registry.sock` and its parent directory while Bun kept
   listening on the unlinked inode, so every OMP publisher failed to connect with `ENOENT` and no

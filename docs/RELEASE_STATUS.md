@@ -133,15 +133,20 @@ The alpha decision remains **NO-GO** until, at minimum:
    `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`;
 6. every advertised host/client combination completes its candidate-artifact capability-leak
    acceptance across all forbidden sinks; and
-7. the publisher stops latching itself off permanently and silently
-   ([#61](https://github.com/alphastorm/omp-session-gateway/issues/61)). On 2026-08-20 three live
-   OMP sessions disappeared from the directory and never returned while the daemon stayed healthy
-   (PID 41501, `ready`, doctor 16/16, socket listening, token unchanged since Jul 19); a freshly
-   started session published within 35s, proving the gateway side was sound. `#securityDisabled` is
-   a one-way latch that is never reset, the setup `catch` treats any non-`ENOENT`/`ECONNREFUSED`
-   error as a security event, and `this.#publisher ??=` means `/collab stop` plus `/collab` reuses
-   the latched instance. Only restarting the OMP process recovers, and nothing reports the state.
-   This defeats automatic discovery without appearing broken.
+7. the publisher's recovery from a transient registry fault is verified end-to-end against the
+   candidate ([#61](https://github.com/alphastorm/omp-session-gateway/issues/61)). The defect is
+   **fixed in the patch**: `PublisherSecurityViolation` is now raised only by
+   `resolveCollabRegistryEndpoint` for a non-IPC endpoint and by `assertPublisherEndpointPrivate`
+   for a world-readable socket, and only those latch; every other setup failure retries with
+   backoff. `publisher.resume()` clears a latch on an explicit manual `/collab` but never on
+   auto-start, and `/collab status` reports `off`/`publishing`/`retrying`/`disabled`. Mirrored here
+   as the sixth commit (`bfc555227`) and clean-room verified on 2026-08-20: all six commits `git am`
+   onto pristine `858f7dd9` from a fresh shallow clone, `registry-publisher.test.ts` passes 13/13
+   including "a transient publisher token failure retries instead of latching off" and "a genuine
+   endpoint violation latches publication until an explicit resume", and `controller.test.ts`
+   passes 15/15. What remains is behavioral: no live session has yet been observed recovering from
+   an induced transient fault against a candidate artifact, and `collab-command-publication.test.ts`
+   could not run here because a shallow clone does not build `@oh-my-pi/pi-natives`.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.
 It does not promote untested rows or broaden the pinned OMP range.
