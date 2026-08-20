@@ -18,6 +18,7 @@
  * Usage: `bun scripts/android-acceptance.ts <origin> <session-cwd-label>`
  */
 import { withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
+import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 
 const WAKE = "224";
 const MENU = "82";
@@ -204,14 +205,50 @@ async function authorizationMatrix(driver: AndroidChromeDriver, label: string): 
   return value;
 }
 
-const origin = process.argv[2];
-const label = process.argv[3];
+const args = process.argv.slice(2);
+const acknowledgedDisposable = args.includes("--disposable-target");
+const [origin, label] = args.filter(value => !value.startsWith("--"));
 if (!origin || !label) {
-  console.error("usage: bun scripts/android-acceptance.ts <origin> <session-cwd-label>");
+  console.error("usage: bun scripts/android-acceptance.ts <origin> <session-cwd-label> [--disposable-target]");
+  process.exit(2);
+}
+
+// Refused before any network call, so the refusal cannot depend on whether the protected session
+// happens to be published at this instant.
+if (isProtectedLabel(label)) {
+  console.error(`REFUSED: "${label}" matches a protected pattern and can never be a target.`);
+  console.error("this harness fires real view, control, and stale-generation launches at the target.");
+  console.error("create a disposable session instead; a relay soak host lost 7h40m to exactly this.");
   process.exit(2);
 }
 
 const host = new URL(origin).hostname;
+
+// Refuse an ineligible target before touching the device or the session. This runs against the
+// gateway rather than the phone precisely so an ineligible target costs nothing and cannot be
+// discovered halfway through a run that has already fired launches at it.
+const listResponse = await fetch(new URL("/api/v1/sessions", origin), { headers: { accept: "application/json" } });
+if (!listResponse.ok) {
+  console.error(`could not read the session list to validate the target: HTTP ${listResponse.status}`);
+  process.exit(2);
+}
+const listed: unknown = await listResponse.json();
+const sessions =
+  listed && typeof listed === "object" && "sessions" in listed && Array.isArray(listed.sessions) ? listed.sessions : [];
+const match = sessions.find(
+  (session): session is { cwdLabel: string; startedAt?: string } =>
+    session !== null && typeof session === "object" && "cwdLabel" in session && session.cwdLabel === label,
+);
+if (!match) {
+  console.error(`target "${label}" is not published; nothing was touched`);
+  process.exit(2);
+}
+const eligibility = targetEligibility(label, match.startedAt, Date.now(), acknowledgedDisposable);
+if (!eligibility.eligible) {
+  console.error(`REFUSED: ${eligibility.reason}`);
+  console.error("this harness fires real view, control, and stale-generation launches at the target.");
+  process.exit(2);
+}
 
 const summary = await withAndroidChrome(async driver => {
   serial = driver.serial;

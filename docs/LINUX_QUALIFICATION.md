@@ -305,9 +305,11 @@ commit (relevant to the ledger's requirement that platform rows be re-run at the
 `doctor` true/false split with the false checks named, and a literal search of
 `doctor --bundle` output for the publisher token and the home path.
 
-**Not this lane.** `Configuration migration and rollback` needs an explicit forward upgrade and
-rollback; that is `docs/UPGRADE_ROLLBACK.md` and `scripts/qualify-upgrade-rollback.sh`. This lane does
-not upgrade anything, so its `qualify` can run before or after that one on the same droplet.
+**The sibling lane.** `Configuration migration and rollback` is also measured on macOS by
+[`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) and `scripts/qualify-rollback.sh`. That harness has no
+user unit, no `enable` state, and no service manager owning the runtime directory, which is why lane
+`migration` above exists: the Linux half of the same claim. The two are independent, so this
+`qualify` can run before or after that one.
 
 ## 6. Teardown and cost
 
@@ -380,7 +382,162 @@ how tailnets accumulate dead nodes across runs.
   establish that the bytes are the ones the release workflow produced at that tag. They say nothing
   about whether that build passes any behavioural gate.
 
-## 9. Related documents
+## 9. Unattended runs in CI
+
+[`.github/workflows/droplet-qualification.yml`](../.github/workflows/droplet-qualification.yml) runs
+this same script on a hosted runner: `workflow_dispatch` at any time, plus a weekly `schedule` at
+11:17 UTC on Mondays. It runs nowhere else. In particular it never runs on `pull_request`, because the
+job spends money and a fork's pull request has no access to the secrets below — and because an
+arbitrary edit of this script must never execute against these credentials.
+
+Nothing about the workflow changes what the lanes measure. It exists so the Linux evidence stops
+depending on somebody remembering to run it, and so a regression like
+[#69](https://github.com/alphastorm/omp-session-gateway/issues/69) has a standing chance of being
+caught by the `persistence` lane rather than by a release attempt.
+
+**This has not been executed yet.** The workflow was validated statically and its shell steps were
+exercised against stubs; the first real run is the lead's to trigger.
+
+### 9.1 Secrets to configure first
+
+All three are repository secrets, set under **Settings → Secrets and variables → Actions**. Each is
+passed as `env` on only the steps that need it, never as a command-line argument, and none is ever
+echoed. A missing one fails the first preflight step by name instead of failing a lane twenty minutes
+into a paid droplet.
+
+| Secret | Created at | Used by | Notes |
+|---|---|---|---|
+| `DIGITALOCEAN_ACCESS_TOKEN` | DigitalOcean → API → Tokens → Generate New Token, read **and** write scope for droplets | every step that talks to DigitalOcean, including teardown | The preflight calls `doctl account get` so an expired token is named as such rather than surfacing as a droplet fault. |
+| `TS_AUTHKEY` | Tailscale admin console → Settings → Keys → Generate auth key | the `provision` step only | Must carry `tag:omp-session-gateway`, be pre-approved if your tailnet requires device approval, and **not** be ephemeral. See [section 3](#3-prerequisites); the reasoning there is unchanged. |
+| `TS_API_KEY` | the same Keys page, as an API access token | the teardown step only | Without it `destroy` logs the node out but cannot delete the tailnet machine record, and logged-out records accumulate until Tailscale starts appending `-1`, `-2`, `-3` to the node name. The auth-key preflight also uses it to read the key's expiry. |
+
+`GITHUB_TOKEN` is the automatic per-job token; there is nothing to configure. It is deliberately
+exported as `GITHUB_TOKEN` and not as `GH_TOKEN`: `gh` accepts either, but this script forwards
+`GH_TOKEN` to the droplet so it can verify attestations online. Leaving `GH_TOKEN` unset selects the
+offline `--bundle` path instead, so the bundles are downloaded on the runner and verified on the
+droplet and no token ever reaches a throwaway public-Internet box. The workflow fails the lane step if
+`GH_TOKEN` is ever set, so that property cannot be lost by a rename.
+
+### 9.2 Rotation
+
+Tailscale caps auth-key lifetime at ninety days, so a weekly schedule outlives every key it is given.
+`TS_AUTHKEY` therefore needs rotating at least quarterly, and that rotation has exactly one reminder:
+the auth-key preflight prints the expiry date and the days remaining on every run, and emits a
+workflow warning at fourteen days or fewer. Treat that warning as the task, not as noise. An expired
+key fails the run before a droplet is created.
+
+`TS_API_KEY` expires on the same schedule and is checked implicitly: a `401` or `403` from the key
+lookup is reported as an API-token failure, distinct from the auth key being dead.
+`DIGITALOCEAN_ACCESS_TOKEN` expires only if it was created with an expiry.
+
+### 9.3 How SSH works there, and why the preflight is untouched
+
+The script refuses to create a droplet it could not then log into: preflight fetches the DigitalOcean
+key's fingerprint and requires a matching local private key, because a droplet you cannot reach is
+pure cost. A hosted runner starts with neither half, so the workflow mints an RSA keypair in
+`$RUNNER_TEMP`, registers the public half with DigitalOcean, and hands the script the two variables it
+already reads: `OMP_QUAL_SSH_KEY_ID` and `OMP_QUAL_SSH_IDENTITY`. **The script is unchanged**, and the
+preflight still fails closed — a runner that cannot log into the droplet it created still stops before
+creating one.
+
+The keypair is RSA rather than ed25519 because the fingerprint DigitalOcean returns for an RSA key is
+the legacy MD5 form the preflight compares against, which is the shape this account is observed to
+return. The workflow makes that comparison itself, immediately after registering the key and before
+any droplet exists, so a change in DigitalOcean's fingerprint format fails with that reason rather
+than as "no local private key matches". The DigitalOcean key record is deleted in teardown; it is
+named `omp-qual-ci-<run id>-<attempt>` and deleting the record does not touch the droplet's
+`authorized_keys`.
+
+### 9.4 Teardown is the point
+
+Teardown is a separate `if: always()` step, so a failed lane, a cancelled run, and an expired
+`timeout-minutes` all still run `destroy`. It fails the job when it cannot finish, even if every lane
+passed, because the two outcomes are not comparable: a lane failure is information the lead can
+re-measure for a cent, while a droplet that outlives its job bills every hour until a human notices.
+
+Three related choices exist for the same reason:
+
+- `concurrency` uses one constant group with `cancel-in-progress: false`. This is load-bearing, not
+  hygiene: the droplet name is fixed and two runs have already collided over it in practice, and a
+  second run would adopt the first run's droplet, install over its lanes and reboot it underneath
+  them. Cancelling is worse than queueing, because a cancelled run may not reach teardown.
+- `timeout-minutes: 50`. A full sequence is about twenty-five minutes and the script's own bounded
+  waits keep a slow-but-legitimate run under forty. Fifty keeps the whole job inside a single billed
+  DigitalOcean hour, so a hung step costs one hour rather than accruing indefinitely.
+- The workflow **refuses to adopt** an existing `omp-gateway-qual` droplet, and teardown destroys a
+  droplet only when this job's `provision` step ran. A successful run always destroys its own droplet,
+  so a pre-existing one is either a leak from an earlier run or a run the lead is driving by hand, and
+  neither may be stomped by CI.
+
+Ways a droplet can still be leaked, none of which the workflow can eliminate:
+
+- the runner or GitHub itself dying mid-job, which skips every remaining step including teardown;
+- a cancellation whose grace period ends before `destroy` finishes;
+- `destroy` failing against a DigitalOcean API that is down, which fails the job loudly but leaves the
+  droplet;
+- the schedule silently stopping. GitHub disables scheduled workflows in repositories with sixty days
+  of no activity, so an unattended lane can stop running without any failure to notice.
+
+In every case the next run refuses to start and says why, and the recovery is the same:
+`./scripts/provision-linux-qual.sh destroy` from an authenticated workstation. A leaked droplet is
+also findable as `doctl compute droplet list --tag-name omp-gateway-qual`.
+
+One more property worth stating, because a scheduled job is exactly the shape that breaks it: this
+workflow only ever touches things it created. It installs the gateway on its own droplet and probes
+that droplet, and it never reads a session, relay room, or gateway from any published list. That
+matters because a run that picks up a live session label on a timer will eventually fire probes into
+something a human is using — which is how the relay soak was lost once already, to an acceptance run
+that reused a session it did not own. Nothing here has a path to the production daemon on
+`127.0.0.1:4317`, to the soak, or to any OMP process.
+
+### 9.5 Which lanes run, and what CI cannot measure
+
+A scheduled run uses the script's full default order. The droplet-hour is the entire cost and the whole
+sequence fits inside it, so running a subset saves nothing; and the lanes that justify provisioning a
+machine at all only exist in the full set — `persistence`, which reboots twice and is what caught #69,
+and `identity`, the only place a denied Tailscale identity is observable. The `lanes` dispatch input
+exists for re-observing one lane after a fix. Because every CI run starts on a fresh droplet, a subset
+must be self-sufficient: anything after `lifecycle` needs `artifact lifecycle` in front of it, and the
+preflight refuses a subset that does not, before a droplet is created.
+
+Two lanes are weaker on a runner than on a workstation, by construction:
+
+- **`identity` loses its allowed half.** Lane 4a is unaffected: the tagged droplet's self-probe still
+  measures the denial, with `tailscale whois` printed beside it. Lane 4b needs a *user-owned* tailnet
+  node, which a hosted runner is not, so `OMP_QUAL_ALLOWED_LOGIN` is left unset and the script prints
+  that the allowed half was not exercised. The `200`, the `no-store` check, and the forged-header pair
+  come only from a workstation run.
+- **The public-IP probe is better from CI, not worse.** A GitHub runner is a genuine public-Internet
+  host, so "connection refused to the droplet's public IP on `4317`" is measured from one.
+
+`migration` needs `OMP_QUAL_PREVIOUS_TAG` to name a published release that is `v0.1.0-prealpha.15` or
+later, for the reason in [section 4](#4-running-the-lane). Both tags are inputs with explicit
+defaults rather than a lookup of the newest release: a scheduled run must qualify a decided candidate,
+and silently following the newest tag would change what the evidence is about without anybody choosing
+that. The preflight checks that both tags exist and carry all six expected assets before provisioning.
+
+### 9.6 Reading a failure
+
+Failures are ordered so that the cheap ones happen first. Everything up to and including the SSH-key
+step runs before any droplet exists, and every message from those steps says so.
+
+| What you see | What it means |
+|---|---|
+| `::error title=Missing secret: …` | That repository secret is not configured. Nothing was created. |
+| `::error title=DigitalOcean token rejected` | `DIGITALOCEAN_ACCESS_TOKEN` is revoked, expired, or lacks write scope. |
+| `::error title=Tailscale auth key is expired or revoked` or `… expired on <date>` | The first of the two likely scheduled failures. Generate a replacement carrying `tag:omp-session-gateway`, pre-approved and not ephemeral, and update `TS_AUTHKEY`. |
+| `::error title=Tailscale API token rejected` | `TS_API_KEY`, not the auth key. Teardown would also be unable to delete the machine record. |
+| `::error title=Candidate tag <tag> not found` or `… is missing <asset>` | The second likely scheduled failure. The tag was deleted or its assets were renamed; `OMP_QUAL_VERSION` overrides the name derivation if `package.json` has moved on. |
+| `::warning title=Auth key does not carry tag:…` | The droplet will join untagged and the `identity` lane will skip. Every other lane is unaffected. |
+| `::error title=Droplet omp-gateway-qual already exists` | A leak from an earlier run or a live workstation run. CI will not touch it; destroy it by hand or wait. |
+| `::error title=SSH key fingerprint mismatch` | DigitalOcean returned a fingerprint the script's preflight would not match. No droplet was created. |
+| A lane failure with the droplet destroyed afterwards | Normal. Read the measurements in the log; the lanes print numbers, not verdicts. |
+| `::error title=Teardown failed` | The serious one. Treat it as an unclosed billing risk, not a test failure. |
+
+A lane failure and a teardown failure look identical in the run list, so check the job summary: it
+records one line saying whether the droplet was destroyed, skipped, or possibly still billing.
+
+## 10. Related documents
 
 - [`RELEASE_STATUS.md`](RELEASE_STATUS.md) — the ledger; the only place a row's status changes.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — §4.E authorization and §4.F persistence scenarios this lane feeds.
@@ -388,3 +545,5 @@ how tailnets accumulate dead nodes across runs.
 - [`RELEASE.md`](RELEASE.md) — the canonical artifact verification commands this lane runs remotely.
 - [`OPERATIONS.md`](OPERATIONS.md) — install, Serve, paths, and `doctor` semantics.
 - [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) — the sibling lane for forward upgrade and rollback.
+- [`.github/workflows/droplet-qualification.yml`](../.github/workflows/droplet-qualification.yml) —
+  the scheduled unattended runner for this lane; see [section 9](#9-unattended-runs-in-ci).
