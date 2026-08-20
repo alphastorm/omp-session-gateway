@@ -38,9 +38,53 @@ async function sleep(milliseconds: number): Promise<void> {
   await settle.promise;
 }
 
-async function wake(): Promise<void> {
-  await adb("shell", "input", "keyevent", WAKE);
-  await adb("shell", "input", "keyevent", MENU);
+/**
+ * Wakes the display and confirms it, rather than firing keyevents and hoping.
+ *
+ * A run where the display never came back produced `cdp-timeout` on nearly every probe, because
+ * Chrome freezes the renderer while the screen is off and `Runtime.evaluate` then never resolves.
+ * That is unmeasurable, not a product result, and it silently looked like a stall. Returning the
+ * observed wakefulness lets a caller record "the harness could not present a visible page" instead
+ * of attributing the timeout to the application.
+ */
+async function wake(): Promise<string> {
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    await adb("shell", "input", "keyevent", WAKE);
+    await adb("shell", "input", "keyevent", MENU);
+    await sleep(1200);
+    const wakefulness = (await adb("shell", "dumpsys power | grep -m1 mWakefulness=")).split("=")[1]?.trim() ?? "";
+    if (wakefulness === "Awake") return wakefulness;
+  }
+  return (await adb("shell", "dumpsys power | grep -m1 mWakefulness=")).split("=")[1]?.trim() ?? "unknown";
+}
+
+/**
+ * Brings the owned tab to the foreground and confirms the page agrees it is visible.
+ *
+ * A woken display is not enough: the tab can still be backgrounded, and `document.visibilityState`
+ * is what actually governs whether the app's resume path runs. `Page.bringToFront` is the protocol
+ * way to do this; keyevents cannot.
+ */
+async function ensureVisible(driver: AndroidChromeDriver): Promise<string> {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      await driver.send("Page.bringToFront");
+    } catch {
+      // Not fatal: a frozen renderer rejects it, and the retry after another wake may succeed.
+    }
+    try {
+      const evaluation = await driver.send("Runtime.evaluate", {
+        expression: "document.visibilityState",
+        returnByValue: true,
+      });
+      const { result } = evaluation;
+      if (result && typeof result === "object" && "value" in result && result.value === "visible") return "visible";
+    } catch {
+      // CDP timeout means the renderer is still frozen; wake again and retry.
+    }
+    await wake();
+  }
+  return "not-visible";
 }
 
 /** One reachability attempt plus the app's own rendered state, generously bounded. */
@@ -109,12 +153,15 @@ async function awaitRecovery(
   let deviceReachableFirstMs: number | null = null;
   for (let index = 1; index <= attempts; index++) {
     await sleep(8000);
-    await adb("shell", "input", "keyevent", WAKE);
+    // The app's resume path is driven by visibilityState, so a probe against a hidden or frozen page
+    // measures nothing. Record the presentation state alongside the result so an unmeasurable run is
+    // visibly unmeasurable rather than looking like an application stall.
+    const presentation = await ensureVisible(driver);
     const deviceReachable = await deviceReachesHost(host);
     const probe = await attempt(driver, `${label}-${index}`);
     const sinceMs = Math.round(performance.now() - since);
     if (deviceReachable && deviceReachableFirstMs === null) deviceReachableFirstMs = sinceMs;
-    record({ ...probe, deviceReachable, sinceMs });
+    record({ ...probe, presentation, deviceReachable, sinceMs });
     if (probe.status === 200) return { recoveredMs: sinceMs, deviceReachableFirstMs };
   }
   return { recoveredMs: null, deviceReachableFirstMs };
@@ -187,9 +234,10 @@ const summary = await withAndroidChrome(async driver => {
     await adb("shell", "input", "keyevent", POWER);
     await sleep(20000);
     const wokeAt = performance.now();
-    await wake();
+    const wakefulness = await wake();
+    const presentation = await ensureVisible(driver);
     await sleep(3000);
-    const unlocked = await attempt(driver, "after-unlock");
+    const unlocked: Record<string, unknown> = { ...(await attempt(driver, "after-unlock")), wakefulness, presentation };
     unlockMs = Math.round(performance.now() - wokeAt);
     record({ ...unlocked, sinceMs: unlockMs });
     if (unlocked.status !== 200) unlockMs = null;
