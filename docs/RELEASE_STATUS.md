@@ -1,6 +1,6 @@
 # Release status
 
-**Updated:** 2026-08-19<br>
+**Updated:** 2026-08-20<br>
 **Repository version:** `0.1.0` (`v0.1.0-prealpha.13`; no alpha)<br>
 **Classification:** implemented pre-alpha<br>
 **Alpha decision:** **NO-GO**<br>
@@ -19,6 +19,12 @@ recorded against the previous pin. Source-level rows were re-run and are marked;
 Tailscale, relay, Android, signed-artifact, and browser rows were **not** re-run and are **NOT RUN**
 for this pin regardless of the status they carry for the old one. Nothing here promotes `v17.3.8`
 to a qualified platform claim.
+
+**Physical Android baseline changed on 2026-08-20.** The Pixel 10 Pro is now on Android 17
+build `CP2A.260805.005` (SDK 37) with Chrome `151.0.7922.139`. Every Android evidence row below
+predates this current device/browser combination and must be re-run before any result can be
+claimed for it. The older build and browser strings retained in those rows identify the trials
+actually run; they are historical evidence, not current-device values.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
