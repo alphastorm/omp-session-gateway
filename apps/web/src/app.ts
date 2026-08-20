@@ -494,7 +494,18 @@ function clearReconnectTimeout(): void {
   reconnectTimeout = undefined;
 }
 
-
+/**
+ * True only when the event stream has demonstrably been heard from inside the liveness window.
+ *
+ * Neither `events !== undefined` nor `eventStreamStale` survives a freeze. Chrome freezes the
+ * renderer while the display is off, so a page that resumes still holds an `EventSource` that
+ * reports open and a liveness timeout that never ran, however long the stream has been dead.
+ * Wall-clock freshness is the one signal a frozen page cannot have faked.
+ */
+function directoryStreamIsLive(): boolean {
+  if (events === undefined || eventStreamStale || lastFreshAt === undefined) return false;
+  return Date.now() - lastFreshAt < EVENT_LIVENESS_TIMEOUT_MS;
+}
 
 function scheduleReconnect(): void {
   if (authorizationDenied || reconnectTimeout !== undefined) return;
@@ -1443,6 +1454,25 @@ window.addEventListener("offline", () => {
   events = undefined;
   authorizationDenied = false;
   showTransportFailure("offline");
+  // `online` is not a dependable wake-up. Issue #65 measured `navigator.onLine` reporting true
+  // through a total outage on the device, so an offline state whose only exit is an `online` event
+  // is a state the page can never leave. Keep the bounded retry chain running instead.
+  scheduleReconnect();
+});
+
+/**
+ * Resume is a recovery signal Android actually delivers, so treat it as one.
+ *
+ * A page frozen across a network change has no way to notice the change: its timers did not run and
+ * its `EventSource` still reports open. `pageshow` does not cover this — it fires for a bfcache
+ * restore, not for freeze/resume of the foreground page. So on resume, unless the stream can be
+ * shown to be live, throw the whole connection away and build a new one now rather than waiting out
+ * a timer that was frozen with it.
+ */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || authorizationDenied) return;
+  if (directoryStreamIsLive()) return;
+  void refreshAndConnect();
 });
 
 const applicationWorkerRegistration = initializeApplicationWorker();
