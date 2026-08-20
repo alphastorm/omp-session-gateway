@@ -1,7 +1,7 @@
 From 0158f3c7f5666c29f9b1f3590ff81473910165ef Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 10:22:26 -0400
-Subject: [PATCH 1/5] fix: rework gateway collaboration controller
+Subject: [PATCH 1/6] fix: rework gateway collaboration controller
 
 Adaptation: Rerolled onto v17.3.5: SessionManager keeps upstream's #persistenceErrorCallbacks/onPersistenceError beside the downstream #modelChangedCallbacks/onModelChanged hook, so both subscription sets survive.
 ---
@@ -2823,7 +2823,7 @@ index 8a63482d0..65c08959d 100644
 From a8c555dbbed69eec4241b60479d25b905ccc2087 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:25:56 -0400
-Subject: [PATCH 2/5] fix(collab): retain UI requests until a writer joins
+Subject: [PATCH 2/6] fix(collab): retain UI requests until a writer joins
 
 ---
  packages/coding-agent/src/collab/host.ts      | 11 +--
@@ -3008,7 +3008,7 @@ index 0f78dd47d..9778f4fe1 100644
 From 11f371c0e2f35c70df829eac75d506616978fe5b Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:31:08 -0400
-Subject: [PATCH 3/5] feat(collab): publish response-required state
+Subject: [PATCH 3/6] feat(collab): publish response-required state
 
 ---
  .../coding-agent/src/collab/controller.ts     | 49 ++++++++++++
@@ -3354,7 +3354,7 @@ index 83332b59f..5936e3792 100644
 From 5e222791484f860bc1c2e5b2078d77382e9de77f Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:45:28 -0400
-Subject: [PATCH 4/5] feat(collab): mirror response UI safely
+Subject: [PATCH 4/6] feat(collab): mirror response UI safely
 
 Adaptation: Rerolled safe guest UI mirroring onto the v17.2.11 extension controller while preserving upstream provider lifecycle changes.
 
@@ -4256,7 +4256,7 @@ index f49748752..d095526ea 100644
 From c7912a6e192562f3c6b9b3d067a0d6be4b36d278 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Sun, 26 Jul 2026 22:48:20 -0400
-Subject: [PATCH 5/5] feat(collab): acknowledge web health and responses
+Subject: [PATCH 5/6] feat(collab): acknowledge web health and responses
 
 ---
  packages/coding-agent/src/collab/host.ts      | 20 ++++++++--
@@ -4433,6 +4433,664 @@ index 9778f4fe1..39097ee19 100644
  		} finally {
  			abort.abort();
  		}
+-- 
+2.50.1 (Apple Git-155)
+
+From bfc5552276303cdcd6be56eb256dbb67d91a23de Mon Sep 17 00:00:00 2001
+From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
+Date: Wed, 19 Aug 2026 20:48:51 -0700
+Subject: [PATCH 6/6] fix(collab): recover publication after transient registry
+ faults
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The registry publisher latched off permanently on any setup failure that was
+not ENOENT/ECONNREFUSED, and the controller built it once with `??=`, so a
+transient token read — EACCES, EMFILE, or a torn rewrite during a gateway
+restart — silently dropped a live session from the directory for the rest of
+the process lifetime. The only recovery was restarting OMP.
+
+Latching is now reserved for deterministic local violations: a non-IPC
+endpoint setting and a world-readable socket both throw
+PublisherSecurityViolation, and handshake protocol violations keep their
+existing behavior. Every other setup failure retries with backoff, reporting
+once unless it is the routine "registry is not running" state; failing open
+there is safe because the handshake still authenticates against the real
+token.
+
+Publication state is now observable via `/collab status` as publishing,
+retrying (attempt N: reason), or disabled with its reason, and an explicit
+`/collab` clears a latch — including on an already-hosting session, which
+returned early without ever reaching the controller.
+---
+ .../coding-agent/src/collab/controller.ts     |  26 ++++
+ .../src/collab/registry-publisher.ts          | 116 +++++++++++++++---
+ .../slash-commands/builtin-collaboration.ts   |  31 ++++-
+ .../collab/collab-command-publication.test.ts |  79 ++++++++++++
+ .../test/collab/controller.test.ts            |  55 ++++++++-
+ .../test/collab/registry-publisher.test.ts    | 102 +++++++++++++++
+ 6 files changed, 388 insertions(+), 21 deletions(-)
+ create mode 100644 packages/coding-agent/test/collab/collab-command-publication.test.ts
+
+diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
+index fb60f06cd4..4ea8b72101 100644
+--- a/packages/coding-agent/src/collab/controller.ts
++++ b/packages/coding-agent/src/collab/controller.ts
+@@ -3,6 +3,7 @@ import { basename } from "node:path";
+ import type { InteractiveModeContext } from "../modes/types";
+ import { CollabHost } from "./host";
+ import {
++	type CollabPublicationState,
+ 	type CollabPublisherRecord,
+ 	CollabRegistryPublisher,
+ 	type PublishedCapabilityMode,
+@@ -42,6 +43,8 @@ interface PublisherLike {
+ 	publish(record: CollabPublisherRecord): void;
+ 	remove(generation: number, reason: "stopped" | "shutdown" | "session_changed" | "faulted"): void;
+ 	shutdown(generation: number | undefined): void;
++	resume(): void;
++	publicationState(): CollabPublicationState;
+ }
+ 
+ export interface CollabControllerOptions {
+@@ -97,6 +100,11 @@ export class CollabController {
+ 		return this.#capabilities;
+ 	}
+ 
++	/** Directory publication state for `/collab status`. */
++	publicationState(): CollabPublicationState {
++		return this.#publisher?.publicationState() ?? { kind: "off" };
++	}
++
+ 	on(event: CollabControllerEvent, listener: (capabilities?: CollabCapabilities) => void): () => void {
+ 		let listeners = this.#listeners.get(event);
+ 		if (!listeners) {
+@@ -131,6 +139,9 @@ export class CollabController {
+ 	): Promise<CollabCapabilities> {
+ 		return this.#serialize(async () => {
+ 			this.#manualSuspended = false;
++			// An explicit start is unambiguous intent: clear a latched publisher so a
++			// transient token or socket fault cannot mute this session for good.
++			this.#publisher?.resume();
+ 			return this.#start(options);
+ 		});
+ 	}
+@@ -142,6 +153,21 @@ export class CollabController {
+ 		});
+ 	}
+ 
++	/**
++	 * Manual `/collab` on a session that is already hosting: clear a latched
++	 * publisher and re-announce the current capabilities without restarting the
++	 * host. That is the path a user whose session went silent actually takes, and
++	 * it never reaches `start()`.
++	 */
++	resumePublication(): Promise<void> {
++		return this.#serialize(async () => {
++			this.#publisher?.resume();
++			const capabilities = this.#capabilities;
++			const mode = this.#publicationMode;
++			if (capabilities && mode !== "off") this.#publish(capabilities, mode);
++		});
++	}
++
+ 	autoStart(): Promise<void> {
+ 		return this.#serialize(async () => {
+ 			const mode = this.#autoMode();
+diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
+index 55c34e7aa7..067f0df82c 100644
+--- a/packages/coding-agent/src/collab/registry-publisher.ts
++++ b/packages/coding-agent/src/collab/registry-publisher.ts
+@@ -13,6 +13,31 @@ const WINDOWS_PIPE_PREFIX = "\\\\.\\pipe\\";
+ 
+ export type PublishedCapabilityMode = "off" | "view" | "control";
+ 
++/**
++ * Observable publication state. A publisher that has stopped announcing itself
++ * must be diagnosable from `/collab status` rather than from a warning that has
++ * long since scrolled away.
++ */
++export type CollabPublicationState =
++	| { readonly kind: "off" }
++	| { readonly kind: "publishing" }
++	| { readonly kind: "retrying"; readonly attempt: number; readonly reason: string }
++	| { readonly kind: "disabled"; readonly reason: string };
++
++/**
++ * A local-configuration violation: the endpoint setting is not local IPC, or the
++ * socket is observable by another user. Both are deterministic properties of this
++ * machine, so no retry can clear them and publication latches off.
++ *
++ * Every other setup failure stays on the retry path — a registry that is not
++ * running yet, a token file torn by an in-flight rewrite, EACCES/EMFILE/EINTR
++ * while the runtime directory is recreated. Failing open on those is safe because
++ * the handshake still has to authenticate against the real token, and latching on
++ * them silently drops a live session out of the directory for the rest of the
++ * process lifetime.
++ */
++class PublisherSecurityViolation extends Error {}
++
+ export interface CollabPublisherRecord {
+ 	readonly instanceId: string;
+ 	readonly generation: number;
+@@ -204,16 +229,18 @@ export function resolveCollabRegistryEndpoint(setting: string): string | undefin
+ 	if (setting === "off") return undefined;
+ 	if (setting === "auto") return automaticEndpoint();
+ 	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting)) {
+-		throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
++		throw new PublisherSecurityViolation("collab.registryEndpoint must be local IPC, not a network URL");
+ 	}
+ 	if (process.platform === "win32") {
+ 		const name = setting.startsWith(WINDOWS_PIPE_PREFIX) ? setting.slice(WINDOWS_PIPE_PREFIX.length) : "";
+ 		if (!WINDOWS_PIPE_NAME_PATTERN.test(name)) {
+-			throw new Error("collab.registryEndpoint must be a local Windows named pipe");
++			throw new PublisherSecurityViolation("collab.registryEndpoint must be a local Windows named pipe");
+ 		}
+ 		return setting;
+ 	}
+-	if (!isAbsolute(setting)) throw new Error("collab.registryEndpoint must be an absolute local socket path");
++	if (!isAbsolute(setting)) {
++		throw new PublisherSecurityViolation("collab.registryEndpoint must be an absolute local socket path");
++	}
+ 	return setting;
+ }
+ 
+@@ -232,7 +259,7 @@ async function assertPublisherEndpointPrivate(endpoint: string): Promise<void> {
+ 		parentInfo.uid !== uid ||
+ 		(parentInfo.mode & 0o077) !== 0
+ 	) {
+-		throw new Error("unsafe OMP Session Gateway registry endpoint");
++		throw new PublisherSecurityViolation("unsafe OMP Session Gateway registry endpoint");
+ 	}
+ }
+ 
+@@ -356,8 +383,9 @@ export class CollabRegistryPublisher {
+ 	#reconnectTimer: Timer | undefined;
+ 	#connecting = false;
+ 	#stopping = false;
+-	#securityDisabled = false;
+-	#securityWarningShown = false;
++	#disabledReason: string | undefined;
++	#retryReason: string | undefined;
++	#concernReported = false;
+ 	#attempt = 0;
+ 
+ 	constructor(options: {
+@@ -409,8 +437,34 @@ export class CollabRegistryPublisher {
+ 		this.#current = undefined;
+ 	}
+ 
++	/** Publication state for `/collab status`; a latched publisher reports why. */
++	publicationState(): CollabPublicationState {
++		const disabled = this.#disabledReason;
++		if (disabled !== undefined) return { kind: "disabled", reason: disabled };
++		if (this.#socket) return { kind: "publishing" };
++		if (!this.#current) return { kind: "off" };
++		return { kind: "retrying", attempt: this.#attempt, reason: this.#retryReason ?? "connecting" };
++	}
++
++	/**
++	 * Clear a latched publisher and reconnect immediately. An explicit `/collab` is
++	 * unambiguous user intent and the only recovery short of restarting OMP, so it
++	 * also re-arms the one-shot warning: if the condition persists, say so again.
++	 */
++	resume(): void {
++		this.#disabledReason = undefined;
++		this.#retryReason = undefined;
++		this.#concernReported = false;
++		this.#attempt = 0;
++		clearTimeout(this.#reconnectTimer);
++		this.#reconnectTimer = undefined;
++		if (this.#current && !this.#stopping) void this.#connect();
++	}
++
+ 	async #connect(): Promise<void> {
+-		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#securityDisabled) return;
++		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#disabledReason !== undefined) {
++			return;
++		}
+ 		this.#connecting = true;
+ 		let endpoint: string;
+ 		let token: Buffer | undefined;
+@@ -431,12 +485,8 @@ export class CollabRegistryPublisher {
+ 		} catch (error) {
+ 			token?.fill(0);
+ 			this.#connecting = false;
+-			const code =
+-				typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+-					? error.code
+-					: undefined;
+-			if (code === "ENOENT" || code === "ECONNREFUSED") this.#scheduleReconnect();
+-			else this.#disableForSecurity(error);
++			if (error instanceof PublisherSecurityViolation) this.#disableForSecurity(error);
++			else this.#retryAfterFailure(error);
+ 			return;
+ 		}
+ 		if (token === undefined) {
+@@ -538,6 +588,7 @@ export class CollabRegistryPublisher {
+ 							owner.#connecting = false;
+ 							owner.#socket = socket;
+ 							owner.#attempt = 0;
++							owner.#retryReason = undefined;
+ 							socket.data.buffer = "";
+ 							const current = owner.#current;
+ 							if (current) owner.#sendUpsert(socket, current);
+@@ -555,6 +606,7 @@ export class CollabRegistryPublisher {
+ 						if (owner.#socket === socket) owner.#socket = undefined;
+ 						clearInterval(owner.#heartbeatTimer);
+ 						owner.#heartbeatTimer = undefined;
++						owner.#retryReason = "connection closed";
+ 						owner.#scheduleReconnect();
+ 					},
+ 					error() {},
+@@ -584,7 +636,7 @@ export class CollabRegistryPublisher {
+ 	}
+ 
+ 	#scheduleReconnect(): void {
+-		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#securityDisabled) return;
++		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#disabledReason !== undefined) return;
+ 		const base = Math.min(30_000, 250 * 2 ** Math.min(this.#attempt, 7));
+ 		const delay = Math.floor(base * (0.75 + Math.random() * 0.5));
+ 		this.#attempt += 1;
+@@ -594,11 +646,37 @@ export class CollabRegistryPublisher {
+ 		}, delay);
+ 	}
+ 
++	/**
++	 * Transient setup failure: keep retrying, and say so once unless this is the
++	 * routine "registry is not running" state. Reporting without latching is what
++	 * keeps a token-file hiccup from muting a live session permanently.
++	 */
++	#retryAfterFailure(error: unknown): void {
++		const code =
++			typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
++				? error.code
++				: undefined;
++		this.#retryReason = code ?? (error instanceof Error ? error.message : "unknown publication failure");
++		if (code !== "ENOENT" && code !== "ECONNREFUSED") this.#reportConcern(error);
++		this.#scheduleReconnect();
++	}
++
+ 	#disableForSecurity(error: unknown): void {
+-		this.#securityDisabled = true;
+-		if (this.#securityWarningShown) return;
+-		this.#securityWarningShown = true;
+-		const message = error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
+-		this.#onSecurityError(message);
++		const alreadyLatched = this.#disabledReason !== undefined;
++		this.#disabledReason =
++			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
++		// Latching is the severe state and always speaks once, even when a retryable
++		// concern already consumed the warning slot.
++		if (alreadyLatched) return;
++		this.#concernReported = true;
++		this.#onSecurityError(this.#disabledReason);
++	}
++
++	#reportConcern(error: unknown): void {
++		if (this.#concernReported) return;
++		this.#concernReported = true;
++		this.#onSecurityError(
++			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration",
++		);
+ 	}
+ }
+diff --git a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+index a106d93f4d..6c4e9ae699 100644
+--- a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
++++ b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+@@ -2,6 +2,7 @@ import { Spacer } from "@oh-my-pi/pi-tui";
+ import { APP_NAME } from "@oh-my-pi/pi-utils";
+ import { CollabGuestLink } from "../collab/guest";
+ import type { CollabHost } from "../collab/host";
++import type { CollabPublicationState } from "../collab/registry-publisher";
+ import type { SettingPath, SettingValue } from "../config/settings";
+ import { settings } from "../config/settings";
+ import { parseExportArgs } from "../export/html/args";
+@@ -22,6 +23,27 @@ function collabWebLinkClickable(webLink: string): string {
+ 	return urlHyperlinkAlways(webLink, display);
+ }
+ 
++/**
++ * Directory publication line for `/collab status`. A host can be perfectly
++ * healthy on the relay while its gateway publication is retrying or latched off,
++ * and that state is otherwise invisible.
++ */
++function collabPublicationHint(state: CollabPublicationState): string {
++	const bullet = theme.fg("accent", theme.format.bullet);
++	const label = theme.fg("muted", "Session directory:");
++	if (state.kind === "publishing") return ` ${bullet} ${label} publishing`;
++	if (state.kind === "retrying") {
++		return ` ${bullet} ${label} retrying (attempt ${state.attempt}: ${state.reason})`;
++	}
++	if (state.kind === "disabled") {
++		return [
++			` ${bullet} ${label} ${theme.fg("warning", `disabled — ${state.reason}`)}`,
++			theme.fg("dim", "Run /collab to clear it and retry publication."),
++		].join("\n");
++	}
++	return ` ${bullet} ${label} not published`;
++}
++
+ /** Join hint printed by /collab: compact terminal link + clickable browser deep link. */
+ function collabLinkHint(host: CollabHost, heading: string, view = false): string {
+ 	const bullet = theme.fg("accent", theme.format.bullet);
+@@ -288,7 +310,11 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 						p.role === "host" ? `${p.name} (host)` : p.readOnly ? `${p.name} (view-only)` : p.name,
+ 					);
+ 					ctx.showStatus(
+-						`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
++						[
++							`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
++							collabPublicationHint(ctx.collabController.publicationState()),
++						].join("\n"),
++						{ dim: false },
+ 					);
+ 				} else if (ctx.collabGuest) {
+ 					ctx.showStatus(
+@@ -310,6 +336,9 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 			const explicitUrl = knownStartVerb ? rest : args;
+ 			const existingHost = ctx.collabController.host;
+ 			if (existingHost && !explicitUrl) {
++				// A latched publisher is only recoverable through an explicit /collab,
++				// and an already-hosting session lands here rather than in start().
++				await ctx.collabController.resumePublication();
+ 				showCollabLink(ctx, existingHost, view ? "Read-only collab session active" : "Collab session active", view);
+ 				return;
+ 			}
+diff --git a/packages/coding-agent/test/collab/collab-command-publication.test.ts b/packages/coding-agent/test/collab/collab-command-publication.test.ts
+new file mode 100644
+index 0000000000..046ed96581
+--- /dev/null
++++ b/packages/coding-agent/test/collab/collab-command-publication.test.ts
+@@ -0,0 +1,79 @@
++import { beforeAll, expect, test } from "bun:test";
++import type { CollabPublicationState } from "../../src/collab/registry-publisher";
++import { initTheme } from "../../src/modes/theme/theme";
++import type { InteractiveModeContext } from "../../src/modes/types";
++import { lookupBuiltinSlashCommand } from "../../src/slash-commands/builtin-registry";
++
++/**
++ * A host can be perfectly healthy on the relay while its gateway publication is
++ * retrying or latched off. `/collab status` is the only place that state is
++ * observable — the publisher's single warning is long gone from scrollback — and
++ * a bare `/collab` on an already-hosting session is the only recovery short of
++ * restarting OMP, so it must reach the controller rather than return early.
++ */
++
++// Resolved through the registry: importing the collab module directly trips the
++// builtin-modes import cycle before the registry finishes initializing.
++const collabCommand = lookupBuiltinSlashCommand("collab");
++const SGR_PATTERN = /\x1b\[[0-9;]*m/gu;
++
++function harness(publication: CollabPublicationState) {
++	const statuses: string[] = [];
++	let resumes = 0;
++	const ctx = {
++		editor: { setText() {} },
++		present() {},
++		showStatus: (message: string) => statuses.push(message.replace(SGR_PATTERN, "")),
++		showError: (message: string) => statuses.push(`ERROR ${message}`),
++		settings: { get: () => "" },
++		collabController: {
++			host: {
++				participants: [{ name: "host", role: "host" as const }],
++				link: "CONTROL_CAPABILITY_FIXTURE",
++				viewLink: "VIEW_CAPABILITY_FIXTURE",
++				webLink: "https://example.invalid/client",
++				webViewLink: "https://example.invalid/client-view",
++			},
++			publicationState: () => publication,
++			resumePublication: async () => {
++				resumes += 1;
++			},
++		},
++	} as unknown as InteractiveModeContext;
++	return {
++		statuses,
++		resumeCount: () => resumes,
++		run: async (args: string) => {
++			await collabCommand?.handleTui?.({ name: "collab", args, text: `/collab ${args}`.trimEnd() }, {
++				ctx,
++			} as never);
++			return statuses.join("\n");
++		},
++	};
++}
++
++beforeAll(async () => {
++	await initTheme();
++});
++
++test("/collab status names a latched publisher and how to clear it", async () => {
++	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
++	const rendered = await collab.run("status");
++	expect(rendered).toContain("Session directory: disabled — unsafe OMP Session Gateway registry endpoint");
++	expect(rendered).toContain("Run /collab to clear it and retry publication.");
++});
++
++test("/collab status distinguishes publishing from retrying", async () => {
++	expect(await harness({ kind: "publishing" }).run("status")).toContain("Session directory: publishing");
++	expect(await harness({ kind: "retrying", attempt: 3, reason: "EACCES" }).run("status")).toContain(
++		"Session directory: retrying (attempt 3: EACCES)",
++	);
++	expect(await harness({ kind: "off" }).run("status")).toContain("Session directory: not published");
++});
++
++test("a bare /collab on a hosting session clears the latch instead of only reprinting the link", async () => {
++	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
++	const rendered = await collab.run("");
++	expect(collab.resumeCount()).toBe(1);
++	expect(rendered).toContain("Collab session active");
++});
+diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
+index 514db763c3..2c9d94013a 100644
+--- a/packages/coding-agent/test/collab/controller.test.ts
++++ b/packages/coding-agent/test/collab/controller.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, mock, test } from "bun:test";
+-import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
++import type { CollabPublicationState, CollabPublisherRecord } from "../../src/collab/registry-publisher";
+ import type { InteractiveModeContext } from "../../src/modes/types";
+ 
+ // Load after the host mock so controller lifecycle tests never open a relay.
+@@ -58,6 +58,9 @@ function harness(autoStart: "off" | "view" | "control") {
+ 	const operations: Array<
+ 		{ type: "publish"; record: CollabPublisherRecord } | { type: "remove"; generation: number }
+ 	> = [];
++	let publication: CollabPublicationState = { kind: "off" };
++	let lastPublished: CollabPublisherRecord | undefined;
++	let resumes = 0;
+ 	const controller = new CollabController(context, {
+ 		instanceId: "test-instance-id",
+ 		hostFactory: () => {
+@@ -67,6 +70,8 @@ function harness(autoStart: "off" | "view" | "control") {
+ 		},
+ 		publisherFactory: () => ({
+ 			publish(record: CollabPublisherRecord) {
++				lastPublished = { ...record };
++				publication = { kind: "publishing" };
+ 				published.push({ ...record });
+ 				operations.push({ type: "publish", record: { ...record } });
+ 				events.push({
+@@ -79,6 +84,14 @@ function harness(autoStart: "off" | "view" | "control") {
+ 				operations.push({ type: "remove", generation });
+ 			},
+ 			shutdown() {},
++			resume() {
++				resumes += 1;
++				// The real publisher retains its last record and reconnects on resume.
++				publication = lastPublished ? { kind: "publishing" } : { kind: "off" };
++			},
++			publicationState() {
++				return publication;
++			},
+ 		}),
+ 	});
+ 	return {
+@@ -89,6 +102,10 @@ function harness(autoStart: "off" | "view" | "control") {
+ 		published,
+ 		operations,
+ 		warnings,
++		latchPublisher(reason: string) {
++			publication = { kind: "disabled", reason };
++		},
++		resumeCount: () => resumes,
+ 		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
+ 			if ("sessionName" in next) sessionName = next.sessionName;
+ 			if ("cwd" in next && next.cwd !== undefined) cwd = next.cwd;
+@@ -316,4 +333,40 @@ describe("CollabController", () => {
+ 		staleRelease();
+ 		expect(published).toHaveLength(beforeStaleRelease);
+ 	});
++
++	test("publication state is reported and only a manual start clears a latch", async () => {
++		const { controller, latchPublisher, resumeCount } = harness("control");
++		expect(controller.publicationState()).toEqual({ kind: "off" });
++		await controller.autoStart();
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
++
++		latchPublisher("unsafe OMP Session Gateway registry endpoint");
++		expect(controller.publicationState()).toEqual({
++			kind: "disabled",
++			reason: "unsafe OMP Session Gateway registry endpoint",
++		});
++
++		// Auto-start keeps its caution: it must not clear a latch on its own.
++		await controller.autoStart();
++		expect(resumeCount()).toBe(0);
++		expect(controller.publicationState().kind).toBe("disabled");
++
++		await controller.start({ publish: "control" });
++		expect(resumeCount()).toBe(1);
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
++	});
++
++	test("resumePublication re-announces a hosting session without restarting the host", async () => {
++		const { controller, hosts, latchPublisher, resumeCount, operations } = harness("control");
++		await controller.autoStart();
++		latchPublisher("unsafe OMP Session Gateway registry endpoint");
++		const before = operations.length;
++
++		await controller.resumePublication();
++		expect(resumeCount()).toBe(1);
++		expect(hosts).toHaveLength(1);
++		expect(hosts[0]?.stops).toBe(0);
++		expect(operations.slice(before)).toMatchObject([{ type: "publish", record: { generation: 1 } }]);
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
++	});
+ });
+diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
+index 5936e37927..07edc8f252 100644
+--- a/packages/coding-agent/test/collab/registry-publisher.test.ts
++++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
+@@ -599,3 +599,105 @@ test("disabled publication is a no-op", () => {
+ 	publisher.publish(record);
+ 	publisher.shutdown(record.generation);
+ });
++
++test("a transient publisher token failure retries instead of latching off", async () => {
++	if (process.platform === "win32") return;
++	const fixture = await createPublisherFixture("transient-token");
++	const token = "A".repeat(43);
++	const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
++	const warnings: string[] = [];
++	const publisher = new CollabRegistryPublisher({
++		instanceId: record.instanceId,
++		pid: record.pid,
++		endpointSetting: fixture.endpoint,
++		onSecurityError: message => warnings.push(message),
++	});
++	const reconnectScheduled = Promise.withResolvers<() => void>();
++	const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
++		callback: (...callbackArguments: unknown[]) => void,
++		_delay?: number,
++		...callbackArguments: unknown[]
++	) => {
++		reconnectScheduled.resolve(() => callback(...callbackArguments));
++		return undefined as never;
++	}) as unknown as typeof setTimeout);
++	try {
++		await prepareServerEndpoint(fixture.endpoint);
++		// A token file caught mid-rewrite: the byte length is briefly wrong. The
++		// gateway is healthy, so this must not mute the session permanently.
++		await writeFile(fixture.tokenPath, "A".repeat(46), { mode: 0o600 });
++		publisher.publish(record);
++		const reconnect = await beforeTimeout(reconnectScheduled.promise, "publisher did not schedule a retry");
++		timeoutSpy.mockRestore();
++		expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
++		expect(publisher.publicationState()).toEqual({
++			kind: "retrying",
++			attempt: 1,
++			reason: "invalid OMP Session Gateway publisher token",
++		});
++
++		await writeFile(fixture.tokenPath, `${token}\n`, { mode: 0o600 });
++		reconnect();
++		await beforeTimeout(server.upsertReceived, "publisher never recovered after the token became readable");
++		expect(server.frames.at(-1)).toHaveProperty("session.viewLink", record.viewLink);
++		expect(publisher.publicationState()).toEqual({ kind: "publishing" });
++		expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
++	} finally {
++		vi.restoreAllMocks();
++		publisher.shutdown(record.generation);
++		server.server.stop(true);
++		await cleanupPublisherFixture(fixture);
++	}
++}, PUBLISHER_TEST_TIMEOUT_MS);
++
++test("a genuine endpoint violation latches publication until an explicit resume", async () => {
++	if (process.platform === "win32") return;
++	const fixture = await createPublisherFixture("latched-endpoint");
++	const token = "A".repeat(43);
++	const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
++	const warnings: string[] = [];
++	const violation = Promise.withResolvers<string>();
++	const publisher = new CollabRegistryPublisher({
++		instanceId: record.instanceId,
++		pid: record.pid,
++		endpointSetting: fixture.endpoint,
++		onSecurityError: message => {
++			warnings.push(message);
++			violation.resolve(message);
++		},
++	});
++	try {
++		// A world-readable socket is a real privacy violation: no retry can fix it.
++		await chmod(fixture.endpoint, 0o666);
++		publisher.publish(record);
++		expect(await beforeTimeout(violation.promise, "publisher accepted a world-readable endpoint")).toBe(
++			"unsafe OMP Session Gateway registry endpoint",
++		);
++		expect(publisher.publicationState()).toEqual({
++			kind: "disabled",
++			reason: "unsafe OMP Session Gateway registry endpoint",
++		});
++
++		// Latched means latched: the connect guard rejects a further publish
++		// synchronously, so nothing can reach the endpoint.
++		publisher.publish({ ...record, inputRequired: true });
++		expect(publisher.publicationState().kind).toBe("disabled");
++		expect(server.frames).toEqual([]);
++
++		// An explicit /collab is unambiguous intent and re-arms publication.
++		await prepareServerEndpoint(fixture.endpoint);
++		publisher.resume();
++		await beforeTimeout(server.upsertReceived, "an explicit resume did not restore publication");
++		expect(publisher.publicationState()).toEqual({ kind: "publishing" });
++		// One handshake only — the frame log proves the latched publish never
++		// opened a connection, without waiting on a clock to say so.
++		expect(server.frames[0]?.op).toBe("hello");
++		expect(server.frames.at(-1)).toHaveProperty("session.inputRequired", true);
++		expect(warnings).toEqual(["unsafe OMP Session Gateway registry endpoint"]);
++		expect(JSON.stringify(server.frames)).not.toContain(token);
++	} finally {
++		publisher.shutdown(record.generation);
++		server.server.stop(true);
++		await cleanupPublisherFixture(fixture);
++	}
++}, PUBLISHER_TEST_TIMEOUT_MS);
 -- 
 2.50.1 (Apple Git-155)
 
