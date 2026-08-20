@@ -13,6 +13,7 @@ import {
   publicOriginHttpsPort,
   restoreGatewayConfigFile,
   rotatePublisherToken,
+  windowsAclSpawnCostMs,
   writeGatewayConfigFile,
 } from "./config.ts";
 import { createDiagnosticsBundle } from "./diagnostics.ts";
@@ -191,13 +192,32 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   }
 }
 
+const READINESS_BASE_MS = 15_000;
+const READINESS_ACL_ALLOWANCE_CEILING_MS = 30_000;
+
+/**
+ * Loopback readiness budget for a freshly started service.
+ *
+ * The base covers a healthy host. On Windows the daemon must start one `powershell.exe` to enforce
+ * ACLs on its private paths before it can bind, and that start measured 1762-2132 ms on a 2-vCPU
+ * Windows Server 2025 host and has been recorded far higher under contention (#90). `install` paid
+ * for the same start in this process while writing the config, so the observed cost is the evidence
+ * the budget is extended by - exactly one start, because exactly one remains on the daemon's path -
+ * and the extension is capped so a genuinely broken install still fails in bounded time.
+ */
+function readinessBudgetMs(): number {
+  const observed = windowsAclSpawnCostMs();
+  if (observed === undefined) return READINESS_BASE_MS;
+  return READINESS_BASE_MS + Math.min(Math.round(observed), READINESS_ACL_ALLOWANCE_CEILING_MS);
+}
+
 async function waitForGateway(
   config: Awaited<ReturnType<typeof loadGatewayConfig>>,
   readinessToken: string,
   readinessInstance?: string,
   requireManagedService = false,
 ): Promise<void> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + readinessBudgetMs();
   while (Date.now() < deadline) {
     if (await gatewayReady(config, readinessToken, readinessInstance)) {
       if (!requireManagedService) return;
