@@ -214,15 +214,32 @@ sequence again:
 ```sh
 ./scripts/provision-linux-qual.sh qualify host
 ./scripts/provision-linux-qual.sh qualify artifact lifecycle
+./scripts/provision-linux-qual.sh qualify migration
 ./scripts/provision-linux-qual.sh qualify identity
 ./scripts/provision-linux-qual.sh qualify persistence
 ./scripts/provision-linux-qual.sh qualify uninstall
 ```
 
-Default order is `host artifact lifecycle identity persistence uninstall`. The lanes are ordered so
-the identity matrix is captured before the reboots: a reboot failure then costs no identity evidence.
-`identity` and `persistence` both assume `lifecycle` has already installed the service; run them
-after it, or after a previous full run, not standalone on a fresh droplet.
+Default order is `host artifact lifecycle migration identity persistence uninstall`. The lanes are
+ordered so the identity matrix is captured before the reboots: a reboot failure then costs no
+identity evidence. `migration`, `identity`, and `persistence` all assume `lifecycle` has already
+installed the service; run them after it, or after a previous full run, not standalone on a fresh
+droplet.
+
+Lane `migration` proves explicit forward upgrade and rollback on a real systemd user manager, which
+the macOS harness in [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) cannot do: it has no user unit, no
+`enable` state, and no service manager that owns the runtime directory, and
+[#69](https://github.com/alphastorm/omp-session-gateway/issues/69) showed those are exactly where
+Linux differs. It installs `OMP_QUAL_PREVIOUS_TAG`, upgrades to `OMP_QUAL_RELEASE_TAG`, then
+installs the predecessor again, and checks at each step that `current.json` names the expected
+version, the predecessor's version directory survives the upgrade, `config.json` stays
+byte-identical, the publisher-token digest and mode are unchanged, the unit's `ExecStart` tracks the
+active version instead of going stale, the unit is still `enabled`, the main pid actually changes
+across the upgrade so the daemon is genuinely replaced, and the listener stays loopback-only. It
+skips with a message rather than failing when the two tags are equal.
+
+Do not set `OMP_QUAL_PREVIOUS_TAG` to `v0.1.0-prealpha.14` or earlier: those units predate the
+`RuntimeDirectory=` fix and fail after a reboot, which would confound a rollback result with #69.
 
 Lane `uninstall` leaves the droplet clean — no service, no Serve mapping — so the next `qualify` starts
 from the same state as the first.
@@ -244,6 +261,7 @@ from the same state as the first.
 | `OMP_QUAL_GH_VERSION` | `2.97.0` | `gh` release fetched onto the droplet. |
 | `OMP_QUAL_COSIGN_VERSION` | `3.1.3` | `cosign` release fetched onto the droplet. |
 | `OMP_QUAL_TAG` | `tag:omp-session-gateway` | Tag the auth key is expected to carry; used in messages only. |
+| `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-prealpha.15` | Predecessor tag for the `migration` lane. Must be `.15` or later; earlier units predate the `RuntimeDirectory=` fix. |
 | `GH_TOKEN` | unset | If set, the droplet verifies attestations online instead of offline. |
 
 ### Why the gateway runs as a non-root user
