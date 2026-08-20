@@ -499,7 +499,7 @@ cmd_destroy() {
   init_ssh_options
   HOURLY_RATE="$(size_hourly_rate)"
 
-  local present=0 node_id created code index
+  local present=0 node_id created code index deleted
   if load_droplet; then present=1; fi
   node_id="$(state_read ts_node_id)"
 
@@ -540,12 +540,19 @@ REMOTE
     created="$(printf '%s' "$DROPLET_JSON" | jq -r '.created_at')"
     measure "final cost" "$(accrued_cost "$created" "$HOURLY_RATE")"
     doctl compute droplet delete "$DROPLET_NAME" --force
+    # DigitalOcean's list endpoint is eventually consistent right after a delete, so it can report
+    # the droplet absent and then present again moments later. Trust the poll that observed it gone
+    # rather than re-asking afterwards, which once failed a destroy that had actually succeeded.
+    deleted=0
     for ((index = 1; index <= 30; index++)); do
-      droplet_exists_quietly || break
+      if ! droplet_exists_quietly; then
+        deleted=1
+        break
+      fi
       sleep 5
     done
-    droplet_exists_quietly &&
-      die "delete was accepted but $DROPLET_NAME is still listed; check the DigitalOcean console"
+    [ "$deleted" -eq 1 ] ||
+      die "delete was accepted but $DROPLET_NAME is still listed after 150s; check the DigitalOcean console"
     measure "$DROPLET_NAME" "deleted and no longer listed"
   fi
   rm -f "$KNOWN_HOSTS" "$STATE_FILE"
