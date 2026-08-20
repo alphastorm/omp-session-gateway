@@ -31,23 +31,24 @@ describe("service packaging", () => {
     // Regression for #69. ReadWritePaths= naming a missing path makes systemd refuse to start the
     // unit. The runtime directory only exists once the daemon has bound its socket, so the unit
     // installed fine and then failed after every reboot, leaving the gateway silently absent.
+    // `serviceDefinition` compares against `join(XDG_RUNTIME_DIR, …)`, which uses the host
+    // separator, so the fixture must be built the same way or this silently stops asserting
+    // anything on Windows. The same separator assumption already broke the ownership fixtures once.
     const previous = process.env.XDG_RUNTIME_DIR;
-    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    const xdgRuntimeDir = join("/run", "user", "1000");
+    const runtimeDir = join(xdgRuntimeDir, "omp-session-gateway");
+    process.env.XDG_RUNTIME_DIR = xdgRuntimeDir;
     try {
       const linuxConfig: GatewayConfig = {
         ...config,
-        paths: {
-          ...config.paths,
-          runtimeDir: "/run/user/1000/omp-session-gateway",
-          socketPath: "/run/user/1000/omp-session-gateway/registry.sock",
-        },
+        paths: { ...config.paths, runtimeDir, socketPath: join(runtimeDir, "registry.sock") },
       };
       const definition = serviceDefinition(linuxConfig, "linux");
       expect(definition.content).toContain("RuntimeDirectory=omp-session-gateway");
       // systemd defaults this to 0755, which the gateway's private-directory assertion rejects.
       expect(definition.content).toContain("RuntimeDirectoryMode=0700");
       // A RuntimeDirectory= path is implicitly writable; repeating it here is what broke boot.
-      expect(definition.content).not.toContain('"/run/user/1000/omp-session-gateway"');
+      expect(definition.content).not.toContain(JSON.stringify(runtimeDir));
     } finally {
       if (previous === undefined) delete process.env.XDG_RUNTIME_DIR;
       else process.env.XDG_RUNTIME_DIR = previous;
