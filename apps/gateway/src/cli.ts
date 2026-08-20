@@ -18,7 +18,13 @@ import {
 import { createDiagnosticsBundle } from "./diagnostics.ts";
 import { gatewayReady, loopbackHttpResponds, runDoctorChecks } from "./doctor.ts";
 import { startHttpServer } from "./http.ts";
-import { activateRuntime, currentInstalledRuntime, stageRuntimePayload } from "./installation.ts";
+import {
+  activateRuntime,
+  activationState,
+  currentInstalledRuntime,
+  resolveRollbackTarget,
+  stageRuntimePayload,
+} from "./installation.ts";
 import { startRegistryIpcServer } from "./ipc.ts";
 import { SafeLogger } from "./logger.ts";
 import { PushService } from "./push.ts";
@@ -26,6 +32,7 @@ import { SessionRegistry } from "./registry.ts";
 import {
   assertServiceInstallPreflight,
   installUserService,
+  serviceDefinition,
   uninstallUserService,
   stopUserService,
   userServiceStatus,
@@ -74,6 +81,7 @@ const COMMAND_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   serve: new Set(["--dev-localhost", "--port", "--origin", "--readiness-instance"]),
   install: new Set(["--origin", "--allow", "--port", "--no-start"]),
   uninstall: new Set(["--no-stop"]),
+  rollback: new Set(["--to"]),
   status: new Set(),
   doctor: new Set(["--bundle", "--output"]),
   "rotate-publisher-token": new Set(),
@@ -333,11 +341,64 @@ async function runUninstall(arguments_: ParsedArguments): Promise<void> {
   console.log("Uninstalled omp-session-gateway service. Configuration and publisher token were preserved.");
 }
 
+async function runRollback(arguments_: ParsedArguments): Promise<void> {
+  const requested = oneOption(arguments_, "--to");
+  const config = await loadGatewayConfig();
+  const service = await userServiceStatus(config);
+  if (service.active && !service.installed) {
+    throw new Error("refusing rollback while an unmanaged gateway service is active");
+  }
+  if (!service.installed) throw new Error("refusing rollback without an installed gateway service");
+  const target = await resolveRollbackTarget(config, requested);
+  const readinessToken = await loadPublisherToken(config);
+  try {
+    // Same commit order as install: the service definition is rewritten first and `current.json`
+    // only advances once the predecessor has proven readiness. See `activationState`.
+    const readinessInstance =
+      target.runtime.readinessProtocol === "instance-v1" ? randomBytes(32).toString("base64url") : undefined;
+    const definition = await installUserService(config, service.active, target.runtime.cliPath, readinessInstance);
+    if (service.active) {
+      await waitForGateway(config, readinessToken, readinessInstance, target.runtime.readinessProtocol === "legacy");
+    }
+    await activateRuntime(config, target.runtime);
+    console.log(
+      `Rolled back ${definition.identifier} from ${target.from} to ${basename(target.runtime.directory)} (${target.selection}); loopback health ${service.active ? "ready" : "not started"}.`,
+    );
+    console.log("Configuration and publisher token were preserved.");
+  } catch (error) {
+    // The pointer never moved, so it still names the runtime that was last proven ready. Rebuilding
+    // the service definition from it is the repair half of the pointer-is-authority invariant.
+    const repairErrors: unknown[] = [];
+    try {
+      const authoritative = await currentInstalledRuntime(config);
+      if (authoritative === undefined) throw new Error("current.json no longer names a verified installed runtime");
+      const repairInstance =
+        authoritative.readinessProtocol === "instance-v1" ? randomBytes(32).toString("base64url") : undefined;
+      await installUserService(config, service.active, authoritative.cliPath, repairInstance);
+      if (service.active) {
+        await waitForGateway(config, readinessToken, repairInstance, authoritative.readinessProtocol === "legacy");
+      }
+    } catch (repairError) {
+      repairErrors.push(repairError);
+    }
+    if (repairErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...repairErrors],
+        "gateway rollback failed and the service definition could not be rebuilt from current.json",
+      );
+    }
+    throw error;
+  }
+}
 
 async function runStatus(): Promise<void> {
   const config = await loadGatewayConfig();
   const readinessToken = await loadPublisherToken(config);
-  const [ready, service] = await Promise.all([gatewayReady(config, readinessToken), userServiceStatus(config)]);
+  const [ready, service, activation] = await Promise.all([
+    gatewayReady(config, readinessToken),
+    userServiceStatus(config),
+    activationState(config, serviceDefinition(config).path),
+  ]);
   console.log(
     JSON.stringify({
       service: "omp-session-gateway",
@@ -345,9 +406,19 @@ async function runStatus(): Promise<void> {
       active: service.active,
       ready,
       authMode: config.auth.mode,
+      activeVersion: activation.pointerVersion ?? null,
+      serviceVersion: activation.serviceVersion ?? null,
+      diverged: activation.diverged,
     }),
   );
-  if (!ready || !service.installed || !service.active) process.exitCode = 1;
+  if (activation.diverged) {
+    console.error(
+      "DIVERGED: the installed service definition does not execute the version current.json names. " +
+        "status only reports this and changes nothing; run `omp-gateway rollback --to <version>` or " +
+        "reinstall to rewrite the service definition from current.json.",
+    );
+  }
+  if (!ready || !service.installed || !service.active || activation.diverged) process.exitCode = 1;
 }
 
 async function runDoctor(arguments_: ParsedArguments): Promise<void> {
@@ -420,6 +491,7 @@ function printHelp(): void {
 Usage:
   omp-gateway install --origin https://host.tailnet.ts.net --allow user@example.com [--no-start]
   omp-gateway uninstall [--no-stop]
+  omp-gateway rollback [--to 0.1.0-0123456789ab]
   omp-gateway status
   omp-gateway doctor [--bundle] [--output omp-gateway-diagnostics.tar]
   omp-gateway serve-guidance
@@ -436,6 +508,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (parsed.command === "serve") await runServe(parsed);
   else if (parsed.command === "install") await runInstall(parsed);
   else if (parsed.command === "uninstall") await runUninstall(parsed);
+  else if (parsed.command === "rollback") await runRollback(parsed);
   else if (parsed.command === "status") await runStatus();
   else if (parsed.command === "doctor") await runDoctor(parsed);
   else if (parsed.command === "rotate-publisher-token") await runRotateToken();

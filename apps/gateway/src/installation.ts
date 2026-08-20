@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { Dirent, Stats } from "node:fs";
 import { chmod, cp, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,14 @@ const VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9
 const VERSION_NAME_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?-[0-9a-f]{12}$/u;
 
+/**
+ * Retained activations, newest last. Bounds a file that only ever grows by one short name per
+ * successful activation, and is far larger than any plausible rollback horizon.
+ */
+const ACTIVATION_HISTORY_LIMIT = 64;
+const ACTIVATION_HISTORY_MAX_BYTES = 4_096;
+const SERVICE_DEFINITION_MAX_BYTES = 16_384;
+
 export interface InstalledRuntime {
   readonly directory: string;
   readonly cliPath: string;
@@ -17,6 +26,22 @@ export interface InstalledRuntime {
 
 export interface StagedRuntime extends InstalledRuntime {
   readonly previous: InstalledRuntime | undefined;
+}
+
+export interface ActivationState {
+  /** Version directory named by `current.json`, or `undefined` when no runtime is activated. */
+  readonly pointerVersion: string | undefined;
+  /** Version directory the on-disk service definition executes, if it names an installed one. */
+  readonly serviceVersion: string | undefined;
+  readonly serviceDefinitionPresent: boolean;
+  readonly diverged: boolean;
+}
+
+export interface RollbackTarget {
+  readonly runtime: InstalledRuntime;
+  /** Version directory that is active now, which the rollback moves away from. */
+  readonly from: string;
+  readonly selection: "requested" | "recorded-predecessor";
 }
 
 interface RuntimeSourceOptions {
@@ -103,22 +128,26 @@ async function payloadDigest(directory: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function writeCurrentPointer(config: GatewayConfig, versionDirectory: string): Promise<void> {
+async function writeInstallationFile(config: GatewayConfig, name: string, content: string): Promise<void> {
   const root = installationRoot(config);
   await mkdir(root, { recursive: true, mode: 0o700 });
-  const temporary = join(root, `.current-${randomUUID()}.json`);
+  const temporary = join(root, `.tmp-${randomUUID()}`);
   const handle = await open(temporary, "wx", 0o600);
   try {
-    await handle.writeFile(`${JSON.stringify({ versionDirectory })}\n`, "utf8");
+    await handle.writeFile(content, "utf8");
     await handle.sync();
   } finally {
     await handle.close();
   }
   try {
-    await rename(temporary, currentPointerPath(config));
+    await rename(temporary, join(root, name));
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+async function writeCurrentPointer(config: GatewayConfig, versionDirectory: string): Promise<void> {
+  await writeInstallationFile(config, "current.json", `${JSON.stringify({ versionDirectory })}\n`);
 }
 
 async function validatedRuntime(directory: string): Promise<InstalledRuntime> {
@@ -159,7 +188,7 @@ async function validatedRuntime(directory: string): Promise<InstalledRuntime> {
   };
 }
 
-export async function currentInstalledRuntime(config: GatewayConfig): Promise<InstalledRuntime | undefined> {
+async function readCurrentPointer(config: GatewayConfig): Promise<string | undefined> {
   let parsed: unknown;
   try {
     const pointer = currentPointerPath(config);
@@ -175,8 +204,64 @@ export async function currentInstalledRuntime(config: GatewayConfig): Promise<In
   if (typeof versionDirectory !== "string" || !VERSION_NAME_PATTERN.test(versionDirectory)) {
     throw new Error("invalid installed runtime pointer");
   }
-  const directory = join(versionsRoot(config), versionDirectory);
-  return validatedRuntime(directory);
+  return versionDirectory;
+}
+
+export async function currentInstalledRuntime(config: GatewayConfig): Promise<InstalledRuntime | undefined> {
+  const versionDirectory = await readCurrentPointer(config);
+  if (versionDirectory === undefined) return undefined;
+  return validatedRuntime(join(versionsRoot(config), versionDirectory));
+}
+
+/**
+ * Version directories that successfully became active, oldest first.
+ *
+ * Ordering is recorded rather than inferred. Directory mtime is the tempting alternative and is
+ * wrong twice over: re-installing an already-staged payload hits `EEXIST` and reuses the existing
+ * directory untouched, so mtime tracks first staging rather than last activation, and it cannot
+ * distinguish a version that was staged from one that was ever run.
+ */
+export async function activationHistory(config: GatewayConfig): Promise<readonly string[]> {
+  let parsed: unknown;
+  try {
+    const path = join(installationRoot(config), "history.json");
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > ACTIVATION_HISTORY_MAX_BYTES) {
+      throw new Error("unsafe installed runtime activation history");
+    }
+    parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const activations = typeof parsed === "object" && parsed !== null ? Reflect.get(parsed, "activations") : undefined;
+  if (!Array.isArray(activations) || activations.length > ACTIVATION_HISTORY_LIMIT) {
+    throw new Error("invalid installed runtime activation history");
+  }
+  const history: string[] = [];
+  for (const entry of activations) {
+    if (typeof entry !== "string" || !VERSION_NAME_PATTERN.test(entry)) {
+      throw new Error("invalid installed runtime activation history");
+    }
+    history.push(entry);
+  }
+  return history;
+}
+
+async function installedVersions(config: GatewayConfig): Promise<readonly string[]> {
+  let entries: readonly Dirent[];
+  try {
+    entries = await readdir(versionsRoot(config), { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory() && VERSION_NAME_PATTERN.test(entry.name)) names.push(entry.name);
+  }
+  names.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return names;
 }
 
 export async function stageRuntimePayload(
@@ -245,6 +330,31 @@ export async function stageRuntimePayload(
   }
 }
 
+/**
+ * Records a realized activation, after the pointer has committed it.
+ *
+ * Appending before the pointer write would be fail-before-commit but would let a failed install
+ * leave a phantom predecessor: `install` reverts by re-activating the prior runtime, so a version
+ * that never ran would sit between two real activations and `rollback` would target it. History
+ * therefore describes what ran, never what was attempted. The cost is that a write failure here
+ * surfaces as a failed activation whose pointer already moved, which `install` reports and reverts.
+ */
+async function appendActivation(config: GatewayConfig, versionDirectory: string): Promise<void> {
+  let history: readonly string[];
+  try {
+    history = await activationHistory(config);
+  } catch {
+    // An unreadable history is advisory metadata, not authority. Restarting it at the version that
+    // is now active costs automatic predecessor selection once; refusing would brick every install.
+    history = [];
+  }
+  // Idempotent re-installs are the common case. Without this, a run of identical entries would
+  // evict genuine predecessors from the retained window.
+  if (history[history.length - 1] === versionDirectory) return;
+  const activations = [...history, versionDirectory].slice(-ACTIVATION_HISTORY_LIMIT);
+  await writeInstallationFile(config, "history.json", `${JSON.stringify({ activations })}\n`);
+}
+
 export async function activateRuntime(config: GatewayConfig, runtime: InstalledRuntime): Promise<void> {
   const versionDirectory = basename(runtime.directory);
   if (!VERSION_NAME_PATTERN.test(versionDirectory) || dirname(runtime.directory) !== versionsRoot(config)) {
@@ -253,4 +363,132 @@ export async function activateRuntime(config: GatewayConfig, runtime: InstalledR
   const validated = await validatedRuntime(runtime.directory);
   if (validated.cliPath !== runtime.cliPath) throw new Error("refusing to activate an untrusted gateway CLI path");
   await writeCurrentPointer(config, versionDirectory);
+  await appendActivation(config, versionDirectory);
+}
+
+async function readServiceDefinition(path: string): Promise<string | undefined> {
+  let info: Stats;
+  try {
+    info = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (!info.isFile() || info.isSymbolicLink() || info.size > SERVICE_DEFINITION_MAX_BYTES) {
+    throw new Error("unsafe gateway service definition");
+  }
+  const bytes = await readFile(path);
+  // Windows task XML is UTF-16LE with a BOM; the LaunchAgent plist and systemd unit are UTF-8.
+  return bytes[0] === 0xff && bytes[1] === 0xfe ? bytes.toString("utf16le", 2) : bytes.toString("utf8");
+}
+
+/**
+ * The version directory whose CLI a rendered service definition executes.
+ *
+ * Matched against this install's own versions root rather than by a generic path shape, so a
+ * definition left behind by a different install root reads as "no installed version" instead of
+ * being mistaken for one of ours.
+ */
+function serviceDefinitionVersion(config: GatewayConfig, content: string): string | undefined {
+  const marker = versionsRoot(config) + sep;
+  const start = content.indexOf(marker);
+  if (start < 0) return undefined;
+  const remainder = content.slice(start + marker.length);
+  const end = remainder.indexOf(sep);
+  if (end < 0) return undefined;
+  const name = remainder.slice(0, end);
+  return VERSION_NAME_PATTERN.test(name) ? name : undefined;
+}
+
+/**
+ * Whether the installed service definition and `current.json` still agree.
+ *
+ * INVARIANT: `current.json` is the sole authority for which installed runtime the service must
+ * execute. The service definition — LaunchAgent plist, systemd user unit, or Windows task XML —
+ * is a derived artifact that embeds an absolute path into exactly one version directory. When the
+ * two disagree the definition is rewritten from the pointer, never the reverse.
+ *
+ * `install` and `rollback` write the definition first and advance the pointer only after the new
+ * runtime has proven loopback readiness, so nothing becomes authoritative until it has been
+ * observed working. The two writes are not atomic, so exactly one divergence direction remains
+ * reachable: a crash between them leaves the definition naming a *newer* version than the pointer,
+ * and repair conservatively returns the service to the older version that was proven ready. The
+ * opposite direction — a pointer naming a version the definition does not — is unreachable through
+ * these commands, because none of them writes the pointer before the definition.
+ *
+ * Detection is read-only on purpose: `status` reports divergence and mutates nothing. Repair
+ * happens on the next `install` or `rollback`, each of which rewrites the definition from the
+ * runtime the pointer names.
+ */
+export async function activationState(
+  config: GatewayConfig,
+  serviceDefinitionPath: string,
+): Promise<ActivationState> {
+  const [pointerVersion, content] = await Promise.all([
+    readCurrentPointer(config),
+    readServiceDefinition(serviceDefinitionPath),
+  ]);
+  const serviceVersion = content === undefined ? undefined : serviceDefinitionVersion(config, content);
+  return {
+    pointerVersion,
+    serviceVersion,
+    serviceDefinitionPresent: content !== undefined,
+    diverged: content !== undefined && serviceVersion !== pointerVersion,
+  };
+}
+
+async function recordedPredecessor(
+  config: GatewayConfig,
+  active: string,
+  installed: readonly string[],
+): Promise<string> {
+  const history = await activationHistory(config);
+  const guidance = `pass --to <version-directory>; installed: ${installed.join(", ")}`;
+  const index = history.lastIndexOf(active);
+  if (index < 0) {
+    throw new Error(`refusing to guess a rollback target: no activation of the active version ${active} is recorded; ${guidance}`);
+  }
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = history[cursor];
+    if (candidate === undefined || candidate === active) continue;
+    if (!installed.includes(candidate)) {
+      throw new Error(`refusing rollback: recorded predecessor ${candidate} is no longer installed; ${guidance}`);
+    }
+    return candidate;
+  }
+  throw new Error(`refusing to guess a rollback target: no activation is recorded before ${active}; ${guidance}`);
+}
+
+/**
+ * The installed runtime a rollback must activate.
+ *
+ * "Previous" means the activation recorded immediately before the active one, so repeating
+ * `rollback` oscillates between two versions the way any previous-revision undo does. Every
+ * ambiguity refuses instead of guessing: an install that predates the activation history has no
+ * recorded predecessor and must name `--to` explicitly.
+ */
+export async function resolveRollbackTarget(config: GatewayConfig, requested?: string): Promise<RollbackTarget> {
+  const active = await readCurrentPointer(config);
+  if (active === undefined) throw new Error("refusing rollback without an active installed runtime");
+  const installed = await installedVersions(config);
+  if (installed.length < 2) {
+    throw new Error(`refusing rollback: ${active} is the only installed version, so no predecessor is retained`);
+  }
+  let target: string;
+  let selection: RollbackTarget["selection"];
+  if (requested === undefined) {
+    target = await recordedPredecessor(config, active, installed);
+    selection = "recorded-predecessor";
+  } else {
+    if (!VERSION_NAME_PATTERN.test(requested)) {
+      throw new Error(`refusing rollback to a malformed version directory: ${requested}`);
+    }
+    if (requested === active) throw new Error(`refusing rollback to the active version: ${active}`);
+    if (!installed.includes(requested)) {
+      throw new Error(`refusing rollback to a version that is not installed: ${requested}; installed: ${installed.join(", ")}`);
+    }
+    target = requested;
+    selection = "requested";
+  }
+  return { runtime: await validatedRuntime(join(versionsRoot(config), target)), from: active, selection };
 }
