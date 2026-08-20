@@ -957,6 +957,124 @@ REMOTE
   note "nobody logged in, and its age tracks system uptime rather than the age of our connection."
 }
 
+# Explicit forward upgrade and rollback on a real systemd user manager. `qualify-rollback.sh` proves
+# this on macOS, but it cannot exercise a user unit, an `enable` state, or a service manager that
+# owns the runtime directory, and #69 showed those are exactly where Linux differs. Staged here
+# rather than by generalising `lane_artifact`, so the existing lanes keep their behaviour byte for
+# byte; this lane only adds a second extracted root beside the primary one and reuses the tools
+# `lane_artifact` has already placed on the droplet.
+lane_migration() {
+  local previous_tag successor_tag version archive sbom local_dir dns_name
+  successor_tag="${OMP_QUAL_RELEASE_TAG:-}"
+  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.1.0-prealpha.15}"
+  [ -n "$successor_tag" ] || die "set OMP_QUAL_RELEASE_TAG to the successor candidate tag"
+
+  step "Lane 4: explicit upgrade and rollback"
+  if [ "$previous_tag" = "$successor_tag" ]; then
+    note "predecessor and successor tags are both $successor_tag, so there is nothing to migrate."
+    note "set OMP_QUAL_PREVIOUS_TAG to an earlier signed tag to run this lane."
+    return 0
+  fi
+
+  version="$(release_version)"
+  archive="omp-session-gateway-${version}-bun.tar"
+  sbom="omp-session-gateway-${version}.spdx.json"
+  local_dir="$STATE_DIR/release/$previous_tag"
+  dns_name="$(require_dns_name)"
+  measure "predecessor / successor" "$previous_tag -> $successor_tag"
+
+  mkdir -p "$local_dir"
+  if [ -f "$local_dir/$archive" ]; then
+    measure "predecessor assets" "already downloaded to $local_dir"
+  else
+    gh release download "$previous_tag" --repo "$REPO_SLUG" --dir "$local_dir"
+    measure "predecessor downloaded" "$previous_tag assets into $local_dir"
+  fi
+  for asset in "$archive" SHA256SUMS "$archive.sigstore.json" SHA256SUMS.sigstore.json; do
+    [ -f "$local_dir/$asset" ] || die "release $previous_tag is missing asset $asset"
+  done
+  measure "predecessor archive sha256" "$(sha256_of "$local_dir/$archive")"
+
+  note "uploading the predecessor to the droplet"
+  remote_user <<'REMOTE'
+rm -rf ~/candidate-prev && mkdir -p ~/candidate-prev
+REMOTE
+  scp "${SSH_OPTS[@]}" -q "$local_dir"/* "${QUAL_USER}@${DROPLET_IP}:candidate-prev/"
+
+  remote_user \
+    ARCHIVE="$archive" SBOM="$sbom" PREV_TAG="$previous_tag" REPO_SLUG="$REPO_SLUG" \
+    DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
+set -euo pipefail
+show() { printf '   %-38s %s\n' "$1:" "$2"; }
+bun=~/.bun/bin/bun
+
+# Verify the predecessor on the droplet with the tools lane_artifact already installed, so a bad
+# download cannot be installed even though this lane staged it separately.
+cd ~/candidate-prev
+sha256sum --check SHA256SUMS >/dev/null
+identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${PREV_TAG}"
+~/tools/cosign verify-blob --bundle "${ARCHIVE}.sigstore.json" --certificate-identity "$identity" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$ARCHIVE" >/dev/null 2>&1
+show "predecessor verified" "checksum and signature for $PREV_TAG"
+
+rm -rf ~/runtime-prev && mkdir -p ~/runtime-prev
+tar -xf "$ARCHIVE" -C ~/runtime-prev
+prev_root="$(find ~/runtime-prev -maxdepth 1 -mindepth 1 -type d | head -1)"
+next_root="$(cat ~/runtime-root)"
+show "predecessor root" "$(basename "$prev_root")"
+show "successor root" "$(basename "$next_root")"
+
+state_dir="$HOME/.local/state/omp-session-gateway"
+unit="$HOME/.config/systemd/user/omp-session-gateway.service"
+
+# One line per step so the comparison below is textual and auditable rather than remembered.
+snapshot() {
+  local active_version versions config_digest token_digest token_mode exec_path enabled main_pid listener
+  active_version="$(jq -r '.versionDirectory' "$state_dir/installation/current.json")"
+  versions="$(find "$state_dir/installation/versions" -maxdepth 1 -mindepth 1 -type d -printf '%f ' | tr ' ' '\n' | sort | tr '\n' ' ')"
+  config_digest="$(sha256sum "$HOME/.config/omp-session-gateway/config.json" | awk '{print $1}')"
+  token_digest="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
+  token_mode="$(stat -c '%a' "$HOME/.config/omp-session-gateway/publisher-token")"
+  exec_path="$(systemctl --user show -p ExecStart --value omp-session-gateway.service | grep -o '/[^ ]*cli\.js' | head -1)"
+  enabled="$(systemctl --user is-enabled omp-session-gateway.service 2>&1 || true)"
+  main_pid="$(systemctl --user show -p MainPID --value omp-session-gateway.service)"
+  listener="$(ss -ltnH "sport = :${GATEWAY_PORT}" | awk '{print $4}' | tr '\n' ' ' | grep . || echo none)"
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    "$active_version" "$versions" "$config_digest" "$token_digest" "$token_mode" \
+    "$exec_path" "$enabled" "$main_pid" "$listener"
+}
+
+install_root() {
+  "$bun" "$1/apps/gateway/src/cli.js" install --origin "https://${DNS_NAME}" --allow "$ALLOWED_LOGIN" >/dev/null
+}
+
+install_root "$prev_root"; a="$(snapshot)"; show "after install predecessor" "$a"
+install_root "$next_root"; b="$(snapshot)"; show "after upgrade to successor" "$b"
+install_root "$prev_root"; c="$(snapshot)"; show "after rollback to predecessor" "$c"
+
+field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
+fail=0
+check() {
+  if [ "$2" = "$3" ]; then printf '   %-44s %-24s %s\n' "$1" "$2" PASS
+  else printf '   %-44s %-24s %s\n' "$1" "expected $3, got $2" FAIL; fail=1; fi
+}
+printf '\n   %-44s %-24s %s\n' INVARIANT OBSERVED RESULT
+check "predecessor install names a version" "$([ -n "$(field "$a" 1)" ] && echo named || echo empty)" named
+check "active version changes on upgrade" "$([ "$(field "$a" 1)" != "$(field "$b" 1)" ] && echo changed || echo same)" changed
+check "active version restored on rollback" "$(field "$c" 1)" "$(field "$a" 1)"
+check "predecessor version dir survives upgrade" "$(printf '%s' "$(field "$b" 2)" | grep -qF "$(field "$a" 1)" && echo present || echo missing)" present
+check "config identical across all steps" "$([ "$(field "$a" 3)" = "$(field "$b" 3)" ] && [ "$(field "$b" 3)" = "$(field "$c" 3)" ] && echo identical || echo differs)" identical
+check "token digest unchanged" "$([ "$(field "$a" 4)" = "$(field "$b" 4)" ] && [ "$(field "$b" 4)" = "$(field "$c" 4)" ] && echo unchanged || echo changed)" unchanged
+check "token mode unchanged" "$([ "$(field "$a" 5)" = "$(field "$c" 5)" ] && echo "$(field "$a" 5)" || echo drifted)" 600
+check "ExecStart tracks active version" "$(printf '%s' "$(field "$c" 6)" | grep -qF "$(field "$c" 1)" && echo tracks || echo stale)" tracks
+check "unit still enabled after rollback" "$(field "$c" 7)" enabled
+check "main pid changed across upgrade" "$([ "$(field "$a" 8)" != "$(field "$b" 8)" ] && echo changed || echo same)" changed
+check "listener loopback only after rollback" "$(printf '%s' "$(field "$c" 9)" | grep -qE '^127\.0\.0\.1:' && echo loopback || echo "$(field "$c" 9)")" loopback
+
+[ "$fail" -eq 0 ] || { echo "migration invariants failed" >&2; exit 1; }
+REMOTE
+}
+
 lane_uninstall() {
   step "Lane 6: uninstall from the artifact"
   remote_user GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
@@ -984,12 +1102,12 @@ REMOTE
 
 cmd_qualify() {
   local lane lanes="$*"
-  [ -n "$lanes" ] || lanes="host artifact lifecycle identity persistence uninstall"
+  [ -n "$lanes" ] || lanes="host artifact lifecycle migration identity persistence uninstall"
   # Reject a typo before anything slow or billable is touched.
   for lane in $lanes; do
     case "$lane" in
-      host | artifact | lifecycle | identity | persistence | uninstall) ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle identity persistence uninstall" ;;
+      host | artifact | lifecycle | migration | identity | persistence | uninstall) ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall" ;;
     esac
   done
 
@@ -1006,10 +1124,11 @@ cmd_qualify() {
       host) lane_host ;;
       artifact) lane_artifact ;;
       lifecycle) lane_lifecycle ;;
+      migration) lane_migration ;;
       identity) lane_identity ;;
       persistence) lane_persistence ;;
       uninstall) lane_uninstall ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle identity persistence uninstall" ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall" ;;
     esac
   done
 
