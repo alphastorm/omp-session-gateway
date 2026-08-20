@@ -1,34 +1,56 @@
-# Release status **Updated:** 2026-08-20<br>
+# Release status
+
+**Updated:** 2026-08-20<br>
 **Repository version:** `0.1.0` (`v0.1.0-prealpha.14`; no alpha)<br>
 **Classification:** implemented pre-alpha<br>
 **Alpha decision:** **NO-GO**<br>
-**Advertised host/client platforms:** none The repository implements the intended v1 path and may publish deterministic Bun-runtime
+**Advertised host/client platforms:** none
+
+The repository implements the intended v1 path and may publish deterministic Bun-runtime
 pre-alpha archives for evaluation. It is not production-qualified, no alpha artifact is
 approved for publication, and no operating system, browser, or Android device is currently
 supported. Repository commits, pre-alpha archives, and provenance-test archives are engineering
-inputs for qualification only. **Pin refreshed to `v17.3.8` on 2026-08-19.** The OMP pin moved from `v17.0.6` /
+inputs for qualification only.
+
+**Pin refreshed to `v17.3.8` on 2026-08-19.** The OMP pin moved from `v17.0.6` /
 `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` to `v17.3.8` /
 `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`. Every row below whose evidence predates that date was
 recorded against the previous pin. Source-level rows were re-run and are marked; native host,
 Tailscale, relay, Android, signed-artifact, and browser rows were **not** re-run and are **NOT RUN**
 for this pin regardless of the status they carry for the old one. Nothing here promotes `v17.3.8`
-to a qualified platform claim. **Physical Android baseline changed on 2026-08-20.** The Pixel 10 Pro is now on Android 17
+to a qualified platform claim.
+
+**Physical Android baseline changed on 2026-08-20.** The Pixel 10 Pro is now on Android 17
 build `CP2A.260805.005` (SDK 37) with Chrome `151.0.7922.139`. Every Android evidence row below
 predates this current device/browser combination and must be re-run before any result can be
 claimed for it. The older build and browser strings retained in those rows identify the trials
-actually run; they are historical evidence, not current-device values. This ledger is the source of truth for the current release decision. Compatibility claims live
+actually run; they are historical evidence, not current-device values.
+
+This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
 [`TEST_PLAN.md`](TEST_PLAN.md); the detailed implementation evidence is recorded in
-[`../HANDOFF_MANIFEST.md`](../HANDOFF_MANIFEST.md). ## Status rules | Status | Meaning |
+[`../HANDOFF_MANIFEST.md`](../HANDOFF_MANIFEST.md).
+
+## Status rules
+
+| Status | Meaning |
 |---|---|
 | **PASS** | The named scope has current, reproducible evidence. It says nothing about a broader scope. |
 | **PARTIAL** | Some automated or smoke evidence exists, but the complete release scenario has not passed. |
 | **NOT RUN** | No completed result is recorded for the required environment or scenario. |
 | **BLOCKED** | A known prerequisite prevents completion or publication. |
-| **N/A** | Deliberately excluded from this release and not advertised. | An alpha requires every applicable release-blocking row below to be **PASS**. Automated tests,
+| **N/A** | Deliberately excluded from this release and not advertised. |
+
+An alpha requires every applicable release-blocking row below to be **PASS**. Automated tests,
 mocks, a desktop mobile viewport, or generated service definitions do not substitute for native
-OS, real Tailscale, real relay, or Android qualification. ## Recorded implementation evidence These checks establish the implemented pre-alpha baseline; they do not resolve the acceptance
-gaps in the next section. | Scope | Status | Recorded evidence |
+OS, real Tailscale, real relay, or Android qualification.
+
+## Recorded implementation evidence
+
+These checks establish the implemented pre-alpha baseline; they do not resolve the acceptance
+gaps in the next section.
+
+| Scope | Status | Recorded evidence |
 |---|---|---|
 | Exact upstream pin | **PASS** | `UPSTREAM.lock.json` pins `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, tag `v17.3.8`, with package and Bun versions. The regenerated five-commit mbox applies cleanly to the pristine pin and reproduces tree `1320e3e7e7596dbe2f6a130d568072a9a38f2943`. Its first four commits are the reviewed handoff artifact `gateway-collaboration-v17.3.8.mbox` (sha256 `f63f74c90d72776ca1ebcb4b1a75b18130b3c65d1c6e0133c9bbb3a8e5b4af49`) applied verbatim with plain `git am`; the fifth restores the health-probe commit that the maintained series no longer carries. Recorded 2026-08-19. |
 | Repository check | **PASS** | Re-run at the `v17.3.8` pin on 2026-08-19, at doctor pin-contract commit `bb0a852b0c4c72181718033f261e0ff2901a08c8`. `bun run check` passed handoff validation, four workspace typechecks, production web/client builds, 133 tests with 767 assertions across 22 files, and capability-leak scanning. Twenty Android-sized Playwright cases passed at both `412 × 915` and `390 × 844`: installed-PWA View/Control handoff, the embedded active-ask 3d shell, direct client navigation returning to the directory, answer-feedback dismissal by keyboard/tap-out/swipe/timeout, transport-interruption reconnect, stale-session failure states, metadata-only attention and background-alert settings, and automatic plus collaboration-preserving PWA activation. |
@@ -56,9 +78,15 @@ gaps in the next section. | Scope | Status | Recorded evidence |
 | Signed candidate packaging/runtime smoke | **PASS** | The downloaded and independently verified `provenance-test-v0.1.0.10` archive installed with `--no-start` into an isolated macOS root, launched the installed runtime through the existing real Tailscale Serve mapping, and mutually authenticated three reconnect-capable patched OMP publisher fixtures. A real gateway restart restored all three cards in approximately 227 ms; a patched interactive OMP process auto-published a fourth card and revoked it immediately on shutdown. The controlled suspension experiment used this installed gateway and restored each expired session within eight seconds in all three resume orders. This is packaging/runtime and finite-suspension evidence, not complete LaunchAgent, distinct-device identity, actual sleep/wake, real collaboration, or Android qualification. |
 | Repository security controls | **PASS** | Private vulnerability reporting, dependency alerts and automated security updates, secret scanning and push protection, and immutable releases are enabled. `main` requires signed commits, pull requests, current implementation/Windows checks, resolved conversations, and blocks force-pushes and deletion. |
 | Production registry-socket rebind | **PASS** | On 2026-08-19 the installed macOS daemon (PID 9994, started 2026-08-16 23:13) was observed listening on a `registry.sock` whose inode was created 2026-08-17 09:31 — about ten hours after process start — so the watchdog re-bound the rendezvous point after macOS reaped the per-user `TMPDIR` entry, with no operator action and no daemon restart. `doctor` returned all sixteen checks true and four `omp-code-mode` publishers were connected to the re-bound socket. This is unsolicited production evidence for the fix merged in PR #47; it does not advance the macOS host lifecycle gate below. |
-| Live `doctor` at the refreshed pin | **PASS** | On 2026-08-19, after the `v17.3.8` refresh, `doctor` run from the updated checkout against the installed macOS daemon returned all sixteen checks true, including `compatibility`, `serveMapping`, `identityAllowed`, `funnelDisabled`, `listenerLoopbackOnly`, and `publisherHealth`. The first attempt returned `compatibility: false` because `doctor` hardcodes the expected upstream identity and the refresh had left it naming `v17.0.6`; that is fixed and now bound to `UPSTREAM.lock.json` by a pin-contract test. Four `omp-code-mode` publishers from the previous `17.3.5` release were connected throughout, so this is not evidence that a `17.3.8` OMP process publishes. | The evidence date and caveats above come from the implementation handoff and the current
+| Live `doctor` at the refreshed pin | **PASS** | On 2026-08-19, after the `v17.3.8` refresh, `doctor` run from the updated checkout against the installed macOS daemon returned all sixteen checks true, including `compatibility`, `serveMapping`, `identityAllowed`, `funnelDisabled`, `listenerLoopbackOnly`, and `publisherHealth`. The first attempt returned `compatibility: false` because `doctor` hardcodes the expected upstream identity and the refresh had left it naming `v17.0.6`; that is fixed and now bound to `UPSTREAM.lock.json` by a pin-contract test. Four `omp-code-mode` publishers from the previous `17.3.5` release were connected throughout, so this is not evidence that a `17.3.8` OMP process publishes. |
+
+The evidence date and caveats above come from the implementation handoff and the current
 provenance-test artifact. Every later candidate must rerun the applicable clean-checkout CI and
-native qualification and attach those records to its tag. ## Alpha gate ledger | Release gate | Status | Evidence or missing proof | Required to close |
+native qualification and attach those records to its tag.
+
+## Alpha gate ledger
+
+| Release gate | Status | Evidence or missing proof | Required to close |
 |---|---|---|---|
 | Exact OMP and collab-web provenance | **PASS** | Immutable source commit, package versions, relevant paths, local integration, and patch are recorded in `UPSTREAM.lock.json` and `packages/collab-client/upstream/UPSTREAM.json`. | Revalidate unchanged data at the candidate tag. |
 | Repository automated suite | **PASS** | Re-run at the `v17.3.8` pin on 2026-08-19: 133 tests with 767 assertions across 22 files and twenty Android-sized Playwright cases at both target viewports, plus a new pin-contract test binding `doctor`'s expected upstream identity to `UPSTREAM.lock.json`. The previous exact-3d candidate passed the complete clean-checkout release suite: handoff validation, all workspace typechecks, production assets, 118 unit/integration/release tests with 673 assertions across 21 files, and capability-leak scanning. Eighteen Android-sized Playwright cases also passed across both target viewports. Deterministic coverage exercises FIFO triage/all-clear home, embedded Ask selection and submission, single transcript/composer chrome, relay reconnect and clean-ended shell states, non-overlapping composer/triage geometry, request-bound Control, in-memory Back restoration, silent SSE recovery, and automatic PWA activation without persisting a capability. | Repeat the complete suite from clean CI for every subsequent candidate. |
@@ -66,7 +94,7 @@ native qualification and attach those records to its tag. ## Alpha gate ledger |
 | Fifty-publisher capacity | **PASS** | The signed `v0.1.0-prealpha.5` daemon held 50 authenticated publishers and sessions for a 642-second measured window at the normal 10-second heartbeat cadence. It consumed 0.80 CPU seconds over that interval (0.125% of one core average), stayed below 63,760 KiB observed RSS, retained 50 fresh records, logged no warnings/errors, and removed all 50 on clean publisher shutdown. The capacity files contained no synthetic capability marker. | Repeat on every later candidate and investigate any material regression from this baseline. |
 | Capability non-persistence | **PARTIAL** | Automated scans and desktop Chromium storage/history/cache checks passed. On 2026-08-20 a physical Pixel 10 Pro (the paired device, Android 17 `CP2A.260805.005`, Chrome `151.0.7922.139`) swept a real view capability minted by the live tailnet gateway at the `v17.3.8` pin via `scripts/android-leak-sweep.ts`. The launch returned `200` with `cache-control: no-store, max-age=0` and body keys `capability,generation,mode`, carrying the secret in JSON to same-origin JavaScript rather than any URL component; the 66-character capability (`sha256:d107fb0d826278b5`) and its long opaque segment were absent from Local Storage, Session Storage, cookies, Cache Storage keys and bodies (only `omp-sessions-shell-c304cf72b454` present), IndexedDB (no databases), `location`/fragment (0-character hash, so no fragment fallback was used), `history.state`, referrer, resource-timing entries, and serialized DOM. The same run first proved its own detector by planting a synthetic secret in all seven sinks and requiring all seven to be found, then removing them with no residue. Re-run on 2026-08-20 against the signed candidate serving the live tailnet origin: the sweep was clean across all seven sinks with the detector again proving itself (7 planted, 7 detected, no residue), launch `200` `no-store`, capability `sha256:39478ea244d0c1ef`, zero-character fragment.| Sweep the collaboration client page itself after it connects, cover `control` mode, and scan release CI artifacts, recordings, and diagnostics with canary capabilities from a signed candidate artifact rather than a development install. |
 | Loopback-only exposure | **PARTIAL** | macOS listener inspection and direct LAN/Tailscale-IP connection attempts proved the development checkout loopback-only. | Repeat with every signed candidate artifact and qualified host OS. |
-| Tailscale Serve identity and application allowlist | **PASS** | Real macOS Serve accepted requests as this node's exact allowlisted identity; the loopback backend rejected wrong and missing identities and accepted the allowed identity. Serve overwrites caller-supplied identity headers, so same-node requests cannot prove denied-device behavior. Direct LAN and Tailscale-IP access failed and Funnel was disabled. On 2026-08-20 a **distinct** tailnet device — the physical Pixel 10 Pro, not the host — reached the same origin over tailnet HTTPS and received `200` for `GET /api/v1/sessions` and for a `POST …/launch`, with identity headers supplied by Serve rather than by the caller. That closes the allowed-device half from a genuinely separate node; the same-node limitation had previously left it unproven. On 2026-08-20 the denial half was measured directly with an A/B against two allowlists. A second gateway was run on loopback `4320` in `tailscale-serve` auth mode with `allowedLogins` set to `denied-identity@qual.invalid`, exposed on a **third** Serve port `:9443` so the production `/` mapping was never touched. From the same tailnet device carrying the same real Serve-injected identity, `:443` returned `200` and `:9443` returned `403` with body `{"code":"forbidden","message":"Forbidden"}` and no session data. The temporary Serve port was removed and the isolated root deleted; `:443` still answers `200`, loopback still `403`, and `:9443` is unreachable. The same A/B was then repeated from the **physical Pixel** (the paired device), a distinct tailnet node rather than the host: `:443` returned `200` carrying session data and `:9443` returned `403` with `{"code":"forbidden"}` and no `instanceId` or `cwdLabel` anywhere in the body. Both halves were closed on 2026-08-20 against signed candidate `v0.1.0-prealpha.16` using a **tagged** DigitalOcean droplet, carrying `tag:omp-session-gateway`, confirmed by both `tailscale status` and `tailscale whois`. A tagged node has no user identity, which is the denial case a same-account device cannot produce. From that node through Serve, `/api/v1/sessions` and `/` both returned `403`, and a loopback request supplying no identity returned `403`. From this workstation, a distinct user-owned node, the full matrix was measured: a real identity absent from the allowlist got `403`; a **forged** `Tailscale-User-Login` naming an allowlisted login while the caller's real identity was not allowlisted also got `403`; the real allowlisted identity got `200`; and a forged header sent by an already-allowlisted caller was simply ignored, still `200`. That last pair is the proof that Serve owns the header rather than the caller, so remote identity-header spoofing cannot bypass the Serve path.| Repeat on each newly advertised host platform; the evidence is macOS-hosted Serve. |
+| Tailscale Serve identity and application allowlist | **PASS** | Real macOS Serve accepted requests as this node's exact allowlisted identity; the loopback backend rejected wrong and missing identities and accepted the allowed identity. Serve overwrites caller-supplied identity headers, so same-node requests cannot prove denied-device behavior. Direct LAN and Tailscale-IP access failed and Funnel was disabled. On 2026-08-20 a **distinct** tailnet device — the physical Pixel 10 Pro, not the host — reached the same origin over tailnet HTTPS and received `200` for `GET /api/v1/sessions` and for a `POST …/launch`, with identity headers supplied by Serve rather than by the caller. That closes the allowed-device half from a genuinely separate node; the same-node limitation had previously left it unproven. On 2026-08-20 the denial half was measured directly with an A/B against two allowlists. A second gateway was run on loopback `4320` in `tailscale-serve` auth mode with `allowedLogins` set to `denied-identity@qual.invalid`, exposed on a **third** Serve port `:9443` so the production `/` mapping was never touched. From the same tailnet device carrying the same real Serve-injected identity, `:443` returned `200` and `:9443` returned `403` with body `{"code":"forbidden","message":"Forbidden"}` and no session data. The temporary Serve port was removed and the isolated root deleted; `:443` still answers `200`, loopback still `403`, and `:9443` is unreachable. The same A/B was then repeated from the **physical Pixel** (the paired device), a distinct tailnet node rather than the host: `:443` returned `200` carrying session data and `:9443` returned `403` with `{"code":"forbidden"}` and no `instanceId` or `cwdLabel` anywhere in the body. Both halves were closed on 2026-08-20 against signed candidate `v0.1.0-prealpha.16` using a **tagged** DigitalOcean droplet, a node carrying `tag:omp-session-gateway`, confirmed by both `tailscale status` and `tailscale whois`. A tagged node has no user identity, which is the denial case a same-account device cannot produce. From that node through Serve, `/api/v1/sessions` and `/` both returned `403`, and a loopback request supplying no identity returned `403`. From this workstation, a distinct user-owned node, the full matrix was measured: a real identity absent from the allowlist got `403`; a **forged** `Tailscale-User-Login` naming an allowlisted login while the caller's real identity was not allowlisted also got `403`; the real allowlisted identity got `200`; and a forged header sent by an already-allowlisted caller was simply ignored, still `200`. That last pair is the proof that Serve owns the header rather than the caller, so remote identity-header spoofing cannot bypass the Serve path.| Repeat on each newly advertised host platform; the evidence is macOS-hosted Serve. |
 | Linux host lifecycle | **PARTIAL** | Debian 13 arm64 container runs with a real systemd user manager passed both development-checkout and unsigned extracted-archive install, readiness, permissions, loopback isolation, active reinstall/PID replacement, token rotation/restart, redacted diagnostics generation, active `--no-stop` refusal, uninstall, and process/listener cleanup. The full sequence was re-run at the `v17.3.8` pin on 2026-08-20 against a real systemd user manager from the extracted archive; see the evidence row above for the measured PIDs, permissions, and redaction results. On 2026-08-20 the lane moved off containers onto a real machine: a DigitalOcean droplet running Debian 13 (trixie), kernel `6.12.94+deb13-amd64`, systemd 257, virtualisation `kvm`, provisioned by `scripts/provision-linux-qual.sh` and qualified against the signed candidate `v0.1.0-prealpha.14`. Install from the verified artifact reported `{installed:true, active:true, ready:true, authMode:tailscale-serve}` with the listener bound to `127.0.0.1:4317` only and `doctor` at 12/16; the four false checks were `identityAllowed`, `pwa`, `securityHeaders`, and `publisherHealth`, all expected with no Serve mapping and no publishers. Publisher-token rotation succeeded with the service still `active` and `ready`. **Reboot persistence failed** ([#69](https://github.com/alphastorm/omp-session-gateway/issues/69)): with lingering enabled, `loginctl Linger=yes`, and the boot id confirmed changed, `user@1000.service` came back `active` while the gateway daemon did not, leaving no pid and no listeners. The droplet was destroyed after the run (0.19 h, about $0). **Reboot persistence now passes.** The cause was the unit naming the runtime directory in `ReadWritePaths=`, which systemd refuses to start when the path does not exist; the runtime directory only exists once the daemon has bound its socket. Fixed by `RuntimeDirectory=` with `RuntimeDirectoryMode=0700` and re-proved on a fresh droplet with signed candidate `v0.1.0-prealpha.15`: after a clean reboot with **no interactive login**, `loginctl` showed the uid-1000 session as class `manager` (the lingering-created user manager), the gateway ran as pid 766 with the listener bound to `127.0.0.1:4317`, and the process was 57s old against 69s of system uptime, so it started about 12s after boot rather than on connection. The same procedure on `v0.1.0-prealpha.14` left no pid and no listener. Install on `.15` also reported `installed/active/ready`, `doctor` 12/16 with the same four expected false checks, socket mode 600 under the systemd-owned runtime directory, token rotation across pids 2208 to 2305, and a diagnostics bundle containing zero token bytes and zero home-path hits. On signed candidate `v0.1.0-prealpha.16` the previously open `--no-stop` question was settled: with the service genuinely active (`installed/active/ready`, listener on `127.0.0.1:4317`, token rotation clean), `uninstall --no-stop` **refused, as required**, and a real uninstall then left no unit file, no gateway pid, and no listener. The earlier contrary observation was a false premise created by [#69](https://github.com/alphastorm/omp-session-gateway/issues/69) itself: the daemon had never started, so there was nothing for `--no-stop` to refuse.| Run the identity lane from a tagged node, and complete explicit upgrade and rollback on Linux; rollback is currently proven on macOS only. Note `kvm` is a virtual machine, so this is not literally bare metal. |
 | macOS host lifecycle | **PARTIAL** | macOS 26.5.2 arm64 passed live LaunchAgent install, private permissions, restart/reinstall, token rotation, diagnostics/bundle, Serve checks, and uninstall from a development checkout. The independently verified `provenance-test-v0.1.0.10` archive passed an isolated `--no-start` install/runtime smoke, real Serve routing, gateway-restart recovery, one patched interactive OMP publication/removal, and three controlled publisher/gateway suspension orders beyond TTL. On 2026-08-20 the signed candidate `v0.1.0-prealpha.14` was published, independently verified from a clean directory (`shasum -c` OK, `gh attestation verify` exit 0, and `cosign verify-blob` "Verified OK" for the archive, SBOM, and `SHA256SUMS` against certificate identity `https://github.com/alphastorm/omp-session-gateway/.github/workflows/release.yml@refs/tags/v0.1.0-prealpha.14`), and installed over the live macOS service. The in-place upgrade replaced version `0.1.0-61114587f124` with the candidate build `0.1.0-8773d783ca96`, moved the daemon from PID 41501 to 51469, kept `doctor` at 16/16, and left the tailnet origin answering `200` with loopback still `403`. All three live publishers reconnected within 40 seconds and the in-memory registry correctly restarted empty at revision 0 before repopulating. Configuration and the publisher token survived the upgrade unchanged (token digest `f361650a4974`, mode 600). A second in-place upgrade followed on 2026-08-20, from candidate build `0.1.0-8773d783ca96` to `0.1.0-2813d6b23306` (`v0.1.0-prealpha.16`, independently verified by `shasum -c`, `gh attestation verify`, and `cosign verify-blob`), moving the daemon from PID 51469 to 12327 with **`doctor` at 16/16** and the tailnet origin still answering `200`.| Complete the corrected signed candidate's LaunchAgent lifecycle, actual sleep/wake and relay/browser recovery, reboot/login persistence, explicit upgrade/rollback, distinct-device identity isolation, real OMP collaboration, and capability-leak acceptance. |
 | Windows host lifecycle | **PARTIAL** | Hosted run `29791906104` passed the exact candidate OMP publisher's current-user pipe derivation, strict token ACL inspection, eleven mutual-authentication/fake-server/restart/token-reread/explicit-path fixtures, and coding-agent typecheck together with the complete gateway lifecycle and cross-user denial workflow. | Repeat with a signed candidate artifact and qualify reboot/login persistence, diagnostics, upgrade, and rollback. |
@@ -82,20 +110,45 @@ native qualification and attach those records to its tag. ## Alpha gate ledger |
 | Private vulnerability reporting | **PASS** | GitHub private vulnerability reporting is enabled and repository security guidance identifies the private path. | Reverify before publication. |
 | Release signing, SBOM, and provenance | **PASS** | Corrected `provenance-test-v0.1.0.10` verified the protected tag workflow and sleep-recovery payload: archive `b446d405d97c2bec181b9d0f4be03c83ede7407d24d603a9d117be428b95576e`, SPDX inventory `4cb0b1b2c81fdcaf56044cd38259a9ad979bff88efd75ca9a7a2fe3f30d6e8f1`, and checksum manifest `08d28faa291f7b374dc8d6d88656c5e7e84cda93f65707acdc6a530415b39326`. The archive records exact source commit `1c33c90252643d7d0f572fe57a0e560f00b72afb` and its `bun.lock` digest, includes reviewed licenses and the distributed OMP patch, and its SBOM identifies that patch component. All six immutable release assets, three GitHub attestations, and three Cosign bundles verified; a clean exact-tag rebuild was byte-identical for all three payload files. | Repeat for every subsequent candidate; this PASS does not qualify a host or Android client. |
 | Known limitations and exact compatibility matrix | **PASS** | This ledger and `COMPATIBILITY.md` state the pre-alpha boundary, exact OMP pin, unqualified platforms, and unsupported modes. | Keep both synchronized with every candidate. |
-| Self-hosted/proxied relay | **N/A** | Explicitly unsupported and deferred. | Do not advertise; a future release needs the dedicated WebSocket soak and a separate security qualification. | > **Candidate artifacts `v0.1.0-prealpha.14`, `.15`, and `.16` have been deleted.** The build
-> identifiers and tag names cited in the evidence below therefore no longer resolve to a
-> downloadable artifact. Nothing depends on their presence: `main` carries all of the code and
-> evidence they were cut from, there were no consumers beyond this workstation and disposable
-> machines that have since been destroyed, and a measurement does not stop being true because
-> the artifact that produced it is gone. This is a traceability gap, not a correctness one. The
-> next candidate will be cut when an artifact is actually needed.
+| Self-hosted/proxied relay | **N/A** | Explicitly unsupported and deferred. | Do not advertise; a future release needs the dedicated WebSocket soak and a separate security qualification. |
 
-## Current release blockers The alpha decision remains **NO-GO** until, at minimum: 1. at least one proposed host platform passes its complete native lifecycle and security matrix from the signed candidate artifact, including reboot/login persistence, upgrade, rollback, diagnostics, token rotation, and uninstall;
-2. ~~real Tailscale Serve authorization and LAN/public isolation pass from distinct allowed and denied devices against that candidate host~~ — **closed 2026-08-20**. A tagged droplet (`tag:omp-session-gateway`) carries no user identity and was refused `403` through Serve on both `/api/v1/sessions` and `/`; this workstation, a distinct user-owned node, got `403` for a non-allowlisted real identity, `403` for a forged `Tailscale-User-Login` naming an allowlisted login, and `200` for the real allowlisted identity, with a forged header from an already-allowlisted caller simply ignored. Direct LAN and Tailscale-IP access already failed and Funnel is disabled. Measured against candidate `v0.1.0-prealpha.16`;
-3. a physical Android device passes install, automatic discovery, View, Control, interrupt, generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak checks;
-4. the candidate OMP path passes branch, saved-session resume, and applicable default-relay connectivity scenarios without exposing a stale capability. Switch ordering, socket-close crash removal, and TTL-sweeper expiry were measured at the `v17.3.8` pin on 2026-08-19 and are recorded above; branch and resume still need a session carrying real conversation history;
-5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the current `v17.3.8` pin. The pin was refreshed on 2026-08-19 and only source-level evidence was regenerated with it, so every platform row still carries evidence gathered against `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`; and
-6. every advertised host/client combination completes its candidate-artifact capability-leak acceptance across all forbidden sinks. Blocker 7, the silent publisher latch
+> **Candidate artifacts `v0.1.0-prealpha.14`, `.15`, and `.16` have been deleted.** The build
+> identifiers and tag names cited below therefore no longer resolve to a downloadable artifact.
+> Nothing depends on their presence: `main` carries all of the code and evidence they were cut
+> from, there were no consumers beyond machines that have since been destroyed, and a
+> measurement does not stop being true because the artifact that produced it is gone. This is a
+> traceability gap, not a correctness one. The next candidate will be cut when an artifact is
+> actually needed.
+
+## Current release blockers
+
+The alpha decision remains **NO-GO** until, at minimum:
+
+1. at least one proposed host platform passes its complete native lifecycle and security matrix
+   from the signed candidate artifact, including reboot/login persistence, upgrade, rollback,
+   diagnostics, token rotation, and uninstall;
+2. ~~real Tailscale Serve authorization and LAN/public isolation pass from distinct allowed and
+   denied devices against that candidate host~~ — **closed 2026-08-20**. A tagged droplet
+   (`tag:omp-session-gateway`) carries no user identity and was refused `403`
+   through Serve on both `/api/v1/sessions` and `/`; this workstation, a distinct user-owned node,
+   got `403` for a non-allowlisted real identity, `403` for a forged `Tailscale-User-Login` naming an
+   allowlisted login, and `200` for the real allowlisted identity, with a forged header from an
+   already-allowlisted caller simply ignored. Direct LAN and Tailscale-IP access already failed and
+   Funnel is disabled. Measured against candidate `v0.1.0-prealpha.16`;
+3. a physical Android device passes install, automatic discovery, View, Control, interrupt,
+   generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak checks;
+4. the candidate OMP path passes branch, saved-session resume, and applicable default-relay
+   connectivity scenarios without exposing a stale capability. Switch ordering, socket-close crash
+   removal, and TTL-sweeper expiry were measured at the `v17.3.8` pin on 2026-08-19 and are recorded
+   above; branch and resume still need a session carrying real conversation history;
+5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
+   current `v17.3.8` pin. The pin was refreshed on 2026-08-19 and only source-level evidence was
+   regenerated with it, so every platform row still carries evidence gathered against
+   `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`; and
+6. every advertised host/client combination completes its candidate-artifact capability-leak
+   acceptance across all forbidden sinks.
+
+Blocker 7, the silent publisher latch
 ([#61](https://github.com/alphastorm/omp-session-gateway/issues/61)), is **closed**. The fix is
 mirrored here as the sixth handoff commit (`bfc555227`) and was clean-room verified on 2026-08-20:
 all six commits `git am` onto pristine `858f7dd9` from a fresh shallow clone,
@@ -108,14 +161,31 @@ isolated gateway to force a token reread; the card vanished (revision 0, listene
 returned about 20 seconds after the mode was restored (revision 1, same instance `aac1c980`, two
 socket descriptors). Production was untouched throughout: daemon `51469` stayed alive on the
 candidate, its publisher token digest `f361650a4974` is unchanged since Jul 19, and the tailnet
-origin kept answering `200`. Passing one platform permits advertising only that exact qualified platform/version combination.
-It does not promote untested rows or broaden the pinned OMP range. ## Known limitations - The gateway requires the exact pinned OMP source plus the repository patch; there is no upstream release/API compatibility promise yet.
-- A daemon restart intentionally starts with an empty in-memory registry until live publishers reconnect.
-- Browser reload intentionally returns to the session directory because collaboration capabilities are not persisted.
+origin kept answering `200`.
+
+Passing one platform permits advertising only that exact qualified platform/version combination.
+It does not promote untested rows or broaden the pinned OMP range.
+
+## Known limitations
+
+- The gateway requires the exact pinned OMP source plus the repository patch; there is no
+  upstream release/API compatibility promise yet.
+- A daemon restart intentionally starts with an empty in-memory registry until live publishers
+  reconnect.
+- Browser reload intentionally returns to the session directory because collaboration
+  capabilities are not persisted.
 - The existing OMP relay remains an availability and traffic-metadata dependency.
-- Same-desktop-user malware, a compromised browser/OS, and an unlocked authorized phone are outside or inherited trust boundaries described in `SECURITY.md`.
-- Tagged Tailscale source devices, Tailscale Funnel, public/LAN HTTP, self-hosted relays, WebAuthn gating, TWA/native clients, and multi-host federation are not supported by this release line. Background Web Push is implemented but remains unqualified until the physical Android closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop, and network matrix passes.
-- No production upgrade or rollback path has completed cross-platform qualification. ## Updating this ledger Change a row only with a reproducible command result or a named manual qualification record that
+- Same-desktop-user malware, a compromised browser/OS, and an unlocked authorized phone are
+  outside or inherited trust boundaries described in `SECURITY.md`.
+- Tagged Tailscale source devices, Tailscale Funnel, public/LAN HTTP, self-hosted relays,
+  WebAuthn gating, TWA/native clients, and multi-host federation are not supported by this release
+  line. Background Web Push is implemented but remains unqualified until the physical Android
+  closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop, and network matrix passes.
+- No production upgrade or rollback path has completed cross-platform qualification.
+
+## Updating this ledger
+
+Change a row only with a reproducible command result or a named manual qualification record that
 identifies the source commit, artifact checksum, OS/browser/device versions, deployment path, and
 date. Record failures as failures; do not turn a narrower automated pass into a broader platform
 claim. Update this file, `COMPATIBILITY.md`, `CHANGELOG.md`, and release notes together whenever a
