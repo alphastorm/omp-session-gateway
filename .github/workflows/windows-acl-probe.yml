@@ -44,14 +44,22 @@ jobs:
           // Three candidate spawns. `-Command <string>` is what the daemon does today and is the
           // one already measured as never answering. `-File` is the documented way to run a script
           // that reads its own stdin, and `-Command -` tells powershell to take commands from stdin.
+          const stripped = {};
+          for (const [k, v] of Object.entries(process.env)) {
+            if (v !== undefined && k.toLowerCase() !== "psmodulepath") stripped[k] = v;
+          }
+          const withModules = { ...stripped, PSModulePath: process.env.PSModulePath ?? "" };
+          const noStop = script.replace("$ErrorActionPreference='Stop'; ", "");
+
           const variants = [
-            ["baseline -Command", ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]],
-            ["-File", ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", scriptPath]],
-            ["-File without -NonInteractive", ["powershell.exe", "-NoProfile", "-File", scriptPath]],
+            ["stripped PSModulePath (current)", ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], stripped],
+            ["PSModulePath restored", ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], withModules],
+            ["stripped, no ErrorActionPreference", ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", noStop], stripped],
+            ["-File with PSModulePath restored", ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", scriptPath], withModules],
           ];
 
-          for (const [label, argv] of variants) {
-            const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+          for (const [label, argv, env] of variants) {
+            const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe", env });
             const request = JSON.stringify({ i: 1, op: "inspect", p: process.cwd(), dir: 1 });
             child.stdin.write(request + "\n");
             await child.stdin.flush();
@@ -66,7 +74,7 @@ jobs:
 
             if (raced === "TIMEOUT") console.log(`RESULT ${label}: no reply within ${elapsed}ms`);
             else if (raced.done) console.log(`RESULT ${label}: stdout closed after ${elapsed}ms without a reply`);
-            else console.log(`RESULT ${label}: replied in ${elapsed}ms: ${new TextDecoder().decode(raced.value).trim()}`);
+            else console.log(`RESULT ${label}: replied in ${elapsed}ms: ${new TextDecoder().decode(raced.value).trim().slice(0, 400)}`);
 
             child.kill();
             const err = await Promise.race([
