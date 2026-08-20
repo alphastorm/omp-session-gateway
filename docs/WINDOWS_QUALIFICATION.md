@@ -36,21 +36,43 @@ should match it is a product decision, not a bug to fix silently — but the ope
 "will my phone see sessions after the computer reboots?" differs by platform today and should be
 documented wherever install is described.
 
-### Consequence for testing
+### The install failure is a separate defect, not the logon gating
 
-`install` cannot succeed over any non-interactive transport. Measured: over WinRM the install
-staged a version, registered nothing durable, and failed with
+An early reading blamed the non-interactive transport for `install` failing with
 
 ```
 service installed but the loopback readiness proof did not become valid
 ```
 
-leaving no Scheduled Task, an empty `current.json`, and nothing listening on the loopback port.
-That is the correct behaviour — it refused to claim success — and it is a useful negative
-result: **the readiness proof genuinely detects a service that cannot start.**
+**That was wrong, and a later run refuted it.** An RDP logon was established first — `query
+session` showed `rdp-tcp#1  Administrator  Active` and `explorer` was running — and `install`
+failed identically. The interactive session is required for the task to *run*, but it is not why
+install fails.
 
-Confirmed the session state directly rather than inferring it: `query session` showed the console
-session with no username and `Get-Process explorer` returned nothing.
+Polling every 3 s during the install shows what actually happens:
+
+| t | task | state | lastResult | bun procs | listener :4317 |
+| --- | --- | --- | --- | --- | --- |
+| 21s | absent | – | – | 1 | 0 |
+| 24s | present | Running | 267009 | 2 | 0 |
+| 39s | present | Running | 267009 | 2 | 0 |
+| 42s | present | Ready | 267014 | 2 | 0 |
+| 45s | absent | – | – | 0 | 0 |
+
+The Scheduled Task is created and genuinely runs — two `bun` processes, the daemon alive for
+about 18 s — but it never binds the loopback listener before `install` gives up and rolls back.
+
+The cause is a fixed 15 s readiness budget (`cli.ts:200`) against ACL verification that spawns a
+separate PowerShell process per path (`config.ts:66-95`, reached from 7 call sites). A single
+minimal `Get-Acl` spawn on this 2-vCPU host measured 2132, 1780, 1787, 1810, 1762 ms — mean
+1854 ms. Several of those exhaust the budget before the HTTP listener is reached.
+
+Tracked as [#90](https://github.com/alphastorm/omp-session-gateway/issues/90). It plausibly also
+explains the Windows CI job's recorded flakiness (`685 ms → 13.7 s → >30 s` spawn variance),
+which has been handled by rerunning rather than diagnosed.
+
+What survives from the original reading is narrower but still true: the readiness proof fails
+closed, rolls back completely, and does not claim success for a service that never served.
 
 ## Provider findings (Vultr)
 
@@ -90,18 +112,28 @@ Automatic logon is the obvious way to create the interactive session a Scheduled
 the registry; across two reboots `LogonUI` remained at the login screen and `explorer` never
 started. Do not spend more time on this knob.
 
-Remaining to close the row, in preference order:
+**RDP works and is solved.** `sdl-freerdp` connects headlessly from macOS with no X server,
+because SDL uses native Cocoa; `xfreerdp` cannot, since `DISPLAY` is unset and `+auth-only`
+deliberately skips the display and therefore creates no session. One short connection is enough:
+an RDP logon fires the `LogonTrigger`, and a disconnected RDP session keeps its processes
+running, so the client does not need to stay attached. Lock 3389 to the operator's egress
+address alongside 5985.
 
-1. Drive a real RDP logon (for example `xfreerdp`) to create the interactive session, then
-   `install`, reboot, log in again, and assert the task started with no manual step. This proves
-   the behaviour the product actually promises on Windows.
-2. Decide the product question above. If the gateway should survive a reboot with no login on
-   Windows, the task needs a boot trigger and a non-interactive principal, which is a behaviour
-   change with its own privilege and token-ACL consequences and must not be made casually.
+Remaining to close the row, in order:
 
-Until one of those happens, `Windows host lifecycle` stays **PARTIAL**, and the reason is now
-specific: not "untested", but "starts at interactive logon, and that logon has not been
-exercised across a reboot".
+1. Fix [#90](https://github.com/alphastorm/omp-session-gateway/issues/90). Until `install` can
+   finish on a modest Windows host, nothing downstream of it can be qualified there. This is now
+   the blocker, not session creation.
+2. Then, with an RDP session established: `install`, reboot, reconnect RDP to produce the logon,
+   and assert the task started with no manual step. That proves what the product actually
+   promises on Windows.
+3. Decide the product question above. If the gateway should survive a reboot with no login on
+   Windows, the task needs a boot trigger and a non-interactive principal — a behaviour change
+   with its own privilege and token-ACL consequences, not to be made casually.
+
+Until then, `Windows host lifecycle` stays **PARTIAL**. The reason is now specific and has two
+parts: the gateway starts at interactive logon rather than at boot, and that logon has not been
+exercised across a reboot because `install` cannot currently complete on a 2-vCPU host.
 
 ## Cost and hygiene
 
