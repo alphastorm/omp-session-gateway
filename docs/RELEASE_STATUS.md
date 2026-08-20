@@ -157,14 +157,36 @@ The alpha decision remains **NO-GO** until, at minimum:
    immediately. The defect survived a Chrome major-version bump from 150 to 151. Either these two
    gates are recorded as blocked-by-environment or they are dropped from the advertised claim; they
    must not be closed by re-running until Chrome cooperates;
-4. the candidate OMP path passes branch, saved-session resume, and applicable default-relay
-   connectivity scenarios without exposing a stale capability. Switch ordering, socket-close crash
-   removal, and TTL-sweeper expiry were measured at the `v17.3.8` pin on 2026-08-19 and are recorded
-   above; branch and resume still need a session carrying real conversation history;
+4. ~~the candidate OMP path passes branch, saved-session resume, and applicable default-relay
+   connectivity scenarios without exposing a stale capability~~ — **closed 2026-08-20**. Switch
+   ordering, socket-close crash removal, and TTL-sweeper expiry were measured at the `v17.3.8` pin on
+   2026-08-19. Branch and resume were then measured against `v0.1.0-prealpha.17` on a session
+   carrying **real conversation history** — two authored turns, the second explicitly referring back
+   to the first, with real tool calls and a file written and then edited.
+   **Branch:** generation 1 went absent at revision 21 and generation 2 appeared at revision 22, a
+   977 ms window in which no card existed; the sequence was never `200`→`200`. Both stale
+   `view` **and** stale `control` launches returned `409 generation_mismatch` while generation 2 was
+   live, the live generation returned `200`, and generation `0` returned `400`. A second
+   revoke/publish pair followed about 35 s later, independently reproducing the pair-of-pairs
+   behaviour first recorded in `docs/LIFECYCLE_BRANCH_RESUME.md`.
+   **Exit and resume:** `/exit` removed the record 6.6 s later, after which both generations of the
+   exited instance returned `404 not_found`. `--continue` republished 13.8 s later as a **new
+   instance** at generation 1, and the pre-exit instance stayed `404` for both generations
+   throughout. Conversation history survived: the resumed session recalled the specific distinction
+   discussed before the branch without re-reading the file. It also correctly reported the branched
+   timeline's bullet count rather than the file's, which is worth knowing — a branch forks the
+   conversation, not the filesystem;
 5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
-   current `v17.3.8` pin. The pin was refreshed on 2026-08-19 and only source-level evidence was
-   regenerated with it, so every platform row still carries evidence gathered against
-   `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`.
+   current `v17.3.8` pin. **Audited 2026-08-20**: of the 23 ledger rows, **10 are current**
+   (evidence at the refreshed pin or from a candidate built after it), **6 are stale** (Fifty-publisher
+   capacity, Android PWA installation, Three real OMP processes auto-discover, Android
+   lock/resume/network/back/reconnect, Android attention notification, Release signing/SBOM/provenance)
+   and **7 are indeterminate** because their text cites no pin or date at all (Exact OMP and collab-web
+   provenance, Loopback-only exposure, Real View and Control behavior, Platform install/doctor/uninstall,
+   Private vulnerability reporting, Known limitations and exact compatibility matrix, and the
+   deliberately N/A self-hosted relay row). Six rows are marked **PASS while their evidence is stale or
+   indeterminate** and are the priority: an indeterminate row cannot be treated as re-run, because doing
+   so is exactly how a stale row gets silently promoted.
    **The relay component of this blocker is accepted as satisfied by explicit one-time exception.**
    The re-run reached 27,600 of 28,800 seconds, 96% of the window, and terminated for a cause that
    was external, understood, and unrelated to the relay: an acceptance run fired real launches into
