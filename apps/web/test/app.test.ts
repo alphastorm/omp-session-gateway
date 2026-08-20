@@ -19,6 +19,12 @@ const nativeGlobals = Object.fromEntries(
   GLOBAL_NAMES.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
 ) as Record<(typeof GLOBAL_NAMES)[number], PropertyDescriptor | undefined>;
 
+// A frozen renderer runs no timers while wall-clock time keeps moving, so the test clock has to
+// advance independently of the fake timers.
+const nativeNow = Date.now;
+let clockOffset = 0;
+Date.now = (): number => nativeNow() + clockOffset;
+
 class FakeElement extends EventTarget {
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
@@ -120,7 +126,7 @@ class FakeMessageChannel {
 
 class FakeWindow extends EventTarget {
   readonly opened: string[] = [];
-  readonly timers = new Map<number, () => void>();
+  readonly timers = new Map<number, { readonly callback: () => void; readonly delay: number }>();
   scrollY = 0;
   #nextTimer = 1;
 
@@ -132,17 +138,22 @@ class FakeWindow extends EventTarget {
     this.timers.delete(handle);
   }
 
-  setTimeout(callback: () => void): number {
+  setTimeout(callback: () => void, delay = 0): number {
     const handle = this.#nextTimer;
     this.#nextTimer += 1;
-    this.timers.set(handle, callback);
+    this.timers.set(handle, { callback, delay });
     return handle;
   }
 
   runTimers(): void {
-    const callbacks = [...this.timers.values()];
+    const pending = [...this.timers.values()];
     this.timers.clear();
-    for (const callback of callbacks) callback();
+    for (const timer of pending) timer.callback();
+  }
+
+  /** Delays of every timer still waiting, so a test can bound a scheduled retry. */
+  pendingDelays(): number[] {
+    return [...this.timers.values()].map(timer => timer.delay);
   }
 
   scrollTo(_x: number, y: number): void {
@@ -152,6 +163,39 @@ class FakeWindow extends EventTarget {
   open(url?: string | URL): null {
     this.opened.push(String(url));
     return null;
+  }
+}
+
+class FakeDocument extends EventTarget {
+  readonly documentElement = {
+    dataset: {} as Record<string, string>,
+    style: {} as Record<string, string>,
+  };
+  visibilityState: "visible" | "hidden" = "visible";
+
+  constructor(
+    readonly bySelector: Record<string, FakeElement>,
+    readonly detailInputs: readonly FakeElement[],
+  ) {
+    super();
+  }
+
+  querySelector(selector: string): FakeElement | null {
+    return this.bySelector[selector] ?? null;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    return selector === 'input[name="notification-detail"]' ? [...this.detailInputs] : [];
+  }
+
+  createElement(tagName: string): FakeElement {
+    return new FakeElement(tagName);
+  }
+
+  /** Android freeze/resume delivers exactly this, and nothing else the page can observe. */
+  setVisibility(state: "visible" | "hidden"): void {
+    this.visibilityState = state;
+    this.dispatchEvent(new Event("visibilitychange"));
   }
 }
 
@@ -194,6 +238,9 @@ interface BrowserHarness {
   disconnectEvents(): void;
   expireEventLiveness(): void;
   runTimers(): void;
+  pendingDelays(): number[];
+  setVisibility(state: "visible" | "hidden"): void;
+  advanceClock(milliseconds: number): void;
   hangNextListRequest(): void;
   failNextListRequest(): void;
   setOnline(online: boolean): void;
@@ -257,6 +304,7 @@ async function bootApp(options: {
   readonly suffix: string;
 }): Promise<BrowserHarness> {
   FakeEventSource.instances.length = 0;
+  clockOffset = 0;
   const sessionList = new FakeElement("section");
   const emptyState = new FakeElement("section");
   const statusBanner = new FakeElement("div");
@@ -290,18 +338,7 @@ async function bootApp(options: {
     "#notification-settings-close": notificationSettingsClose,
     "#notification-disable": notificationDisable,
   };
-  const document = {
-    documentElement: { dataset: {} as Record<string, string>, style: {} as Record<string, string> },
-    querySelector(selector: string): FakeElement | null {
-      return bySelector[selector] ?? null;
-    },
-    querySelectorAll(selector: string): FakeElement[] {
-      return selector === 'input[name="notification-detail"]' ? notificationDetailInputs : [];
-    },
-    createElement(tagName: string): FakeElement {
-      return new FakeElement(tagName);
-    },
-  };
+  const document = new FakeDocument(bySelector, notificationDetailInputs);
   const window = new FakeWindow();
   const reloads = { count: 0 };
   const location = {
@@ -505,6 +542,15 @@ async function bootApp(options: {
     runTimers(): void {
       window.runTimers();
     },
+    pendingDelays(): number[] {
+      return window.pendingDelays();
+    },
+    setVisibility(state): void {
+      document.setVisibility(state);
+    },
+    advanceClock(milliseconds): void {
+      clockOffset += milliseconds;
+    },
     hangNextListRequest(): void {
       hangingListRequests += 1;
     },
@@ -532,6 +578,7 @@ afterAll(() => {
     if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
     else Object.defineProperty(globalThis, name, descriptor);
   }
+  Date.now = nativeNow;
 });
 
 describe("dashboard attention and notifications", () => {
@@ -832,5 +879,66 @@ describe("dashboard attention and notifications", () => {
     expect(unavailable.elements.notificationButton.textContent).toBe("Background alerts unavailable");
     expect(unavailable.elements.notificationButton.dataset.state).toBe("unavailable");
     expect(unavailable.elements.notificationButton.disabled).toBeTrue();
+  });
+
+  test("rebuilds a frozen directory connection on resume instead of trusting the old one", async () => {
+    const base = session("resume-session-00001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "frozen-resume",
+      initialSessions: [base],
+    });
+    const snapshots = (): number => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length;
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(snapshots()).toBe(1);
+    const frozen = FakeEventSource.instances[0];
+
+    // #65's reproduction recipe: display off freezes the renderer, so no timer runs and the liveness
+    // watchdog never fires, while wall-clock time passes and the stream silently dies. The
+    // EventSource still reports open because nothing in the page ran to notice otherwise.
+    harness.setVisibility("hidden");
+    harness.advanceClock(45_000);
+    harness.setList(2, [base]);
+    harness.setVisibility("visible");
+
+    // No timer is flushed anywhere below: resume alone has to produce the fresh connection.
+    expect(frozen?.closed).toBeTrue();
+    await settleUntil(() => FakeEventSource.instances.length === 2);
+    await settleUntil(() => snapshots() === 2);
+    expect(FakeEventSource.instances[1]?.closed).toBeFalse();
+    expect(harness.elements.statusBanner.hidden).toBeTrue();
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
+
+  test("keeps a bounded retry pending when the phone reports offline and no online event follows", async () => {
+    const base = session("offline-retry-000001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "offline-retry",
+      initialSessions: [base],
+    });
+    const snapshots = (): number => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length;
+
+    expect(snapshots()).toBe(1);
+    harness.setOnline(false);
+    harness.window.dispatchEvent(new Event("offline"));
+    expect(harness.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
+      "You're offline",
+    );
+
+    // The offline state must carry its own way out: #65 measured `navigator.onLine` reporting true
+    // through a total outage, so an `online` event is not a wake-up the page can count on. One
+    // retry is pending, and it is scheduled inside the backoff ceiling.
+    expect(harness.pendingDelays()).toHaveLength(1);
+    expect(harness.pendingDelays()[0]).toBeLessThanOrEqual(4_000);
+
+    harness.setOnline(true);
+    harness.setList(2, [base]);
+    harness.runTimers();
+    await settleUntil(() => snapshots() === 2);
+    await settleUntil(() => FakeEventSource.instances.length === 2);
+    expect(harness.elements.statusBanner.hidden).toBeTrue();
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
   });
 });
