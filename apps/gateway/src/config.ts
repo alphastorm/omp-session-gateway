@@ -109,7 +109,7 @@ interface WindowsAclHelper {
   readonly send: (line: string) => Promise<void>;
   readonly receive: () => Promise<Uint8Array | undefined>;
   readonly kill: () => void;
-  readonly stderrSnapshot: () => string;
+  readonly drainStderr: () => Promise<string>;
   readonly decoder: TextDecoder;
   buffer: string;
   nextRequestId: number;
@@ -143,26 +143,10 @@ function startWindowsAclHelper(): WindowsAclHelper {
     { env: windowsPowerShellEnvironment(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   );
   // The helper must never hold the daemon's event loop open. It ends by itself: closing our stdin at
-  // exit makes its `ReadLine` return null and the loop break. A pending stdout read still keeps the
-  // process alive on its own, verified on Bun 1.3.14: with the child unref'd and a read outstanding as
-  // the only pending work, the read settled after the child's full 5s delay rather than the process
-  // exiting early.
+  // exit makes its `ReadLine` return null and the loop break.
   subprocess.unref();
   const stdout = subprocess.stdout.getReader();
-  // The helper's own startup and parse failures are written to stderr, never to the structured reply
-  // channel, which only exists once its loop is already running. Discarding stderr made exactly the
-  // most likely failure of this design - an unstartable or malformed helper - report as nothing more
-  // than "exited before replying".
-  let stderrText = "";
-  void (async () => {
-    try {
-      for await (const chunk of subprocess.stderr as ReadableStream<Uint8Array>) {
-        if (stderrText.length < 2_000) stderrText += new TextDecoder().decode(chunk);
-      }
-    } catch {
-      // The helper is gone; whatever it managed to say is already captured.
-    }
-  })();
+  const stderr = subprocess.stderr as ReadableStream<Uint8Array>;
   return {
     send: async line => {
       subprocess.stdin.write(line);
@@ -170,7 +154,17 @@ function startWindowsAclHelper(): WindowsAclHelper {
     },
     receive: async () => (await stdout.read()).value,
     kill: () => subprocess.kill(),
-    stderrSnapshot: () => stderrText.trim().slice(0, 500),
+    // Read only after the helper has been killed, never as a standing background task. An
+    // open-ended read of this pipe is not free: a pending read keeps the process alive even though
+    // the child is unref'd, which hung `bun test` on Windows for 23 minutes until CI cancelled it.
+    // Killing first makes the pipe EOF, so this returns promptly; the race is a backstop only.
+    drainStderr: async () => {
+      const collected = await Promise.race([
+        new Response(stderr).text().catch(() => ""),
+        new Promise<string>(resolve => setTimeout(() => resolve(""), 250).unref?.()),
+      ]);
+      return collected.trim().slice(0, 500);
+    },
     decoder: new TextDecoder(),
     buffer: "",
     nextRequestId: 1,
@@ -235,12 +229,11 @@ async function performWindowsAclRequest(
       windowsAclHelperSpawnCostMs = Math.max(windowsAclHelperSpawnCostMs ?? 0, helper.spawnCostMs);
     }
   } catch (error) {
-    // stderr is read on its own task, so on a start-up failure it may not have arrived yet. Yield
-    // once before reading it: without this the most informative part of the message is lost to a
-    // race, which is precisely the case this reporting exists for.
-    await Bun.sleep(0);
-    const captured = active?.stderrSnapshot() ?? "";
+    // Kill first so the helper's stderr pipe reaches EOF, then read it. Reading before the kill
+    // would block on a live pipe, and reading it continuously in the background keeps the process
+    // alive even with the child unref'd.
     stopWindowsAclHelper();
+    const captured = active === undefined ? "" : await active.drainStderr();
     const reason = error instanceof Error ? error.message : String(error);
     const suffix = captured.length > 0 && !reason.includes(captured) ? `: ${captured}` : "";
     throw new Error(`the private Windows ACL helper failed for ${path}: ${reason}${suffix}`, { cause: error });

@@ -185,9 +185,12 @@ function installFakePowerShell(): () => void {
       },
       // The real helper writes start-up and parse failures only to stderr, so the fake has to offer
       // the same channel or a test can never observe that they reach the caller.
-      stderr: (async function* (): AsyncGenerator<Uint8Array> {
-        if (fakeAcl.stderr.length > 0) yield new TextEncoder().encode(fakeAcl.stderr);
-      })(),
+      stderr: new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (fakeAcl.stderr.length > 0) controller.enqueue(new TextEncoder().encode(fakeAcl.stderr));
+          controller.close();
+        },
+      }),
       unref: (): undefined => undefined,
       kill: (): undefined => undefined,
     };
