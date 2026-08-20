@@ -178,3 +178,169 @@ jobs:
             Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -ne $process) { throw "gateway process remained after uninstall" }
+
+  # Native aarch64 coverage for the repository's own suites and for the pinned OMP patch.
+  #
+  # Why this job exists. The real Linux lane moved from a Debian 13 aarch64 container to an x86-64
+  # DigitalOcean droplet (docs/LINUX_QUALIFICATION.md section 8). That trade bought a machine that
+  # boots, reboots, and carries a public address, and it cost the only aarch64 evidence in the
+  # ledger: "anything architecture-sensitive is newly covered rather than re-confirmed". GitHub's
+  # `ubuntu-24.04-arm` label is a native aarch64 host and is free for public repositories, which this
+  # one is, so the architecture dimension can be restored for everything that does not need a
+  # persistent machine, at no cost in minutes.
+  #
+  # What a green run proves, on aarch64:
+  #   - the repository suite, every workspace typecheck, and the production PWA build;
+  #   - that the pinned OMP patch applies and its documented collab fixtures pass, together with the
+  #     coding-agent typecheck. This is the half that earns the run: the publisher fixtures drive the
+  #     POSIX Unix-socket path with its owner, mode, and mutual-HMAC checks, and the guest/read-only
+  #     fixtures drive a real in-memory relay, so between them they reach Bun's native crypto,
+  #     socket, and WebSocket code. Nothing else in this repository's CI reaches those paths on
+  #     aarch64.
+  #
+  # What a green run does NOT prove. It is not arm64 platform qualification:
+  #   - no service is installed, so nothing here bears on a host lifecycle row. `install` on Linux
+  #     unconditionally runs `systemctl --user daemon-reload` and `enable`
+  #     (apps/gateway/src/service.ts), which needs a `systemd --user` manager; a hosted runner has no
+  #     lingering login session for its account, and the Linux implementation is systemd-only with no
+  #     non-systemd init supported, so this job does not attempt it. Install, doctor, rotation,
+  #     upgrade, rollback, and uninstall on Linux stay with scripts/provision-linux-qual.sh on a real
+  #     machine.
+  #   - no reboot and no persistence of any kind. The runner is destroyed when the job ends, so
+  #     nothing measured here can be observed a second time.
+  #   - no Tailscale: no Serve identity, no allowlist decision, no loopback/LAN/public isolation.
+  #   - no browser and no physical Android device. `browser-notifications` in ci.yml covers Chromium
+  #     on x86-64; Playwright's arm64 Chromium would add a second variable while answering no
+  #     architecture-specific question.
+  #   - no signed candidate artifact. This is a source checkout, like windows-service-lifecycle above.
+  #   - the repository-wide gates in `bun run check` are deliberately absent. Handoff validation and
+  #     the capability- and identifier-leak scans read tracked text, so they cannot differ by
+  #     architecture, and duplicating them here would only make a failure ambiguous.
+  #
+  # Ledger bearing: evidence toward `Repository automated suite` and `OMP patch compatibility` on an
+  # architecture neither has been run on. It closes no row, promotes nothing, and is deliberately not
+  # on any required-checks list until it has proven stable.
+  linux-arm64-source-checkout:
+    runs-on: ubuntu-24.04-arm
+    # Not yet measured; no run of this job exists. For scale, `implementation-checks` in ci.yml
+    # observes ~20s for `bun run check` on x86-64, and windows-service-lifecycle above bounds a
+    # strictly larger amount of work at 25 minutes. The genuine unknowns here are the pinned OMP
+    # checkout, its install, and its coding-agent typecheck. Thirty bounds a hung step far short of
+    # the 6h default; tighten it once a real run reports a duration.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - name: Assert the runner is native aarch64
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          machine="$(uname -m)"
+          bun_arch="$(bun --print 'process.arch')"
+          bun_platform="$(bun --print 'process.platform')"
+          printf 'uname -m:         %s\n' "$machine"
+          printf 'kernel:           %s\n' "$(uname -sr)"
+          printf 'bun version:      %s\n' "$(bun --version)"
+          printf 'bun platform:     %s\n' "$bun_platform"
+          printf 'bun arch:         %s\n' "$bun_arch"
+          printf 'RUNNER_ARCH:      %s\n' "${RUNNER_ARCH:-<unset>}"
+
+          # The architecture is the only reason this job exists, so it is asserted rather than
+          # assumed. If GitHub ever resolves this label to an x86-64 host, or setup-bun ever installs
+          # a translated x64 build, every step below would still pass and the run would be a
+          # duplicate of `implementation-checks` wearing an arm64 name. That is worse than no job:
+          # it would look like evidence.
+          [ "$machine" = aarch64 ] ||
+            fail "Runner is not aarch64" \
+              "uname -m reported '$machine'. This job exists only to cover aarch64, so a green run on any other machine would be misleading evidence."
+          [ "$bun_arch" = arm64 ] ||
+            fail "Bun is not an arm64 build" \
+              "Bun reports process.arch '$bun_arch' on an aarch64 host, so it is running translated and its native code paths are not the ones this job claims to measure."
+          [ "$bun_platform" = linux ] ||
+            fail "Runner is not Linux" \
+              "Bun reports process.platform '$bun_platform'."
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run build
+      # The repository suite runs before the pinned OMP checkout below. `bun test` with no path
+      # argument was measured not to descend into dot-directories, so `.qualification/` is not swept
+      # in either way; the ordering stands because the cheaper failure should come first.
+      - run: bun test
+      - name: Check out pinned OMP source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: can1357/oh-my-pi
+          ref: 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55
+          path: .qualification/oh-my-pi
+          persist-credentials: false
+      - name: Apply the OMP patch and run its collab fixtures on aarch64
+        working-directory: .qualification/oh-my-pi
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          # No `core.autocrlf` handling and no `reset --hard`, unlike windows-service-lifecycle above:
+          # that job normalizes because the Windows checkout rewrites the working tree to CRLF while
+          # the patch is stored with LF. Here `git apply` sees exactly the bytes the patch was
+          # generated from.
+          patch="$GITHUB_WORKSPACE/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+          git apply --check "$patch" ||
+            fail "OMP patch does not apply" \
+              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at 858f7dd9. This is patch/pin drift, not an architecture result."
+          git apply "$patch"
+          printf 'patch applied to pin 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\n'
+
+          # The step most likely to fail for a genuinely architectural reason. UPSTREAM.lock.json
+          # records that `@oh-my-pi/pi-natives` ships per-platform binaries — it is why the vendored
+          # collab client keeps npm `marked` — so a missing linux-arm64 build would surface right
+          # here. That is a finding worth having rather than a reason to skip the lane, which is why
+          # this job attempts the install instead of asserting in a comment that it would work.
+          bun install --frozen-lockfile ||
+            fail "OMP dependencies did not install on linux-arm64" \
+              "bun install --frozen-lockfile failed in the pinned OMP checkout on aarch64. Check whether a per-platform native dependency publishes no linux-arm64 build; that is an architecture finding, not a flake."
+
+          # MEASURED on run 32399852609: of the ten fixtures patches/oh-my-pi/README.md prescribes,
+          # nine fail at import on aarch64 with "Cannot find module pi_natives.linux-arm64.node".
+          # `bun install` succeeds; the pinned OMP release simply publishes no linux-arm64 build of
+          # @oh-my-pi/pi-natives. That is an upstream packaging gap, not a defect in this repository
+          # and not something to paper over, so the list is split by what the gap actually blocks.
+
+          # Required. registry-publisher.test.ts is the one fixture that loads without the native
+          # module, and it is also the one that matters most here: it drives the POSIX Unix-socket
+          # owner, mode, and mutual-HMAC paths this project owns. 13/13 passed on aarch64.
+          bun test packages/coding-agent/test/collab/registry-publisher.test.ts ||
+            fail "Patched OMP publisher fixtures failed on aarch64" \
+              "registry-publisher.test.ts failed on linux-arm64. It needs no native module, so this is a real architecture result rather than the known pi-natives packaging gap. Compare against a local run at the same pin."
+
+          # Attempted, not required — but a failure is only tolerated when it is the known native gap.
+          # Any other failure still fails the job, so this cannot silently absorb a genuine aarch64
+          # regression the way a blanket `|| true` would.
+          native_blocked=0
+          if ! bun test packages/coding-agent/test/collab/controller.test.ts \
+            packages/coding-agent/test/collab/collab-command-publication.test.ts \
+            packages/coding-agent/test/config/collab-settings.test.ts \
+            packages/coding-agent/test/collab/guest-ui-request.test.ts \
+            packages/coding-agent/test/collab/read-only.test.ts \
+            packages/coding-agent/test/hook-editor.test.ts \
+            packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts \
+            packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
+            packages/coding-agent/test/session-manager-branch-order.test.ts \
+            packages/coding-agent/test/slash-commands/collab-qrcode.test.ts \
+            >"$RUNNER_TEMP/native-dependent.log" 2>&1; then
+            native_blocked=1
+          fi
+          if [ "$native_blocked" -eq 1 ]; then
+            grep -q 'pi_natives.linux-arm64.node' "$RUNNER_TEMP/native-dependent.log" ||
+              { tail -40 "$RUNNER_TEMP/native-dependent.log"
+                fail "Native-dependent OMP fixtures failed for an unexpected reason on aarch64" \
+                  "These fixtures failed without mentioning pi_natives.linux-arm64.node, so this is not the known upstream packaging gap. Read the tail above before dismissing it."; }
+            printf '::notice::%s\n' "9 OMP collab fixtures cannot run on linux-arm64: the pin publishes no pi_natives.linux-arm64.node. Recorded as an upstream packaging gap; registry-publisher.test.ts passed."
+          else
+            printf '::notice::%s\n' "Native-dependent OMP fixtures now pass on linux-arm64 - the upstream pi-natives gap appears closed. Promote them to the required list above."
+          fi
+          bunx tsc --noEmit -p packages/coding-agent/tsconfig.json ||
+            fail "Patched OMP coding-agent typecheck failed" \
+              "bunx tsc --noEmit -p packages/coding-agent/tsconfig.json failed on linux-arm64."
