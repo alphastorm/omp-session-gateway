@@ -1,0 +1,442 @@
+# Scheduled Linux qualification on a throwaway DigitalOcean droplet.
+#
+# `scripts/provision-linux-qual.sh` already creates one droplet under a fixed name, joins it to the
+# tailnet as a tagged node, runs the qualification lanes, and deletes the droplet again. That makes it
+# the cheapest cross-platform automation this repository has: a full sequence is roughly twenty-five
+# minutes and one billed DigitalOcean hour, $0.01786. It has already produced two real findings, one
+# of which became #69 and its fix. This workflow runs that script unattended so the Linux evidence
+# stops depending on somebody remembering to run it by hand.
+#
+# Nothing here promotes a ledger row. The lanes print measurements; `docs/RELEASE_STATUS.md` is
+# changed by hand, by the lead, after reading them.
+#
+# The property that matters more than any lane result is that the droplet always goes away. A failed
+# lane costs nothing. A leaked droplet bills until somebody notices. Teardown is therefore its own
+# `if: always()` step, it runs after a failed, cancelled, or timed-out job, and it fails the job when
+# it cannot finish.
+#
+# SSH is the reason this needs more than a bare `run:` line. The script refuses to create a droplet it
+# could not then log into: preflight fetches the DigitalOcean key's fingerprint and requires a
+# matching local private key, because a droplet you cannot reach is pure cost. A hosted runner has
+# neither half. So this job mints an ephemeral keypair, registers the public half with DigitalOcean,
+# hands the script the resulting key id and identity path through the two variables it already reads
+# (`OMP_QUAL_SSH_KEY_ID`, `OMP_QUAL_SSH_IDENTITY`), and deletes the DigitalOcean key record in
+# teardown. The preflight itself is unchanged and still fails closed: if the fingerprint the API
+# returns ever stops matching the key we generated, this job stops before a droplet exists.
+
+name: Droplet Linux qualification
+
+on:
+  # Manual first. The candidate tag is an input with an explicit default rather than a lookup of "the
+  # newest release", because a scheduled run must qualify a decided candidate; silently following the
+  # newest tag would change what the evidence is about without anybody choosing that.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Signed candidate tag to qualify
+        required: false
+        default: v0.1.0-prealpha.16
+      previous_tag:
+        description: Predecessor tag for the migration lane (must be v0.1.0-prealpha.15 or later)
+        required: false
+        default: v0.1.0-prealpha.15
+      lanes:
+        description: >-
+          Space-separated lane subset; empty runs the script's full default order. A subset must be
+          self-sufficient on a fresh droplet, so anything after `lifecycle` needs `artifact lifecycle`
+          in front of it.
+        required: false
+        default: ""
+  schedule:
+    # Weekly. Off the hour because GitHub's shared cron queue is congested at :00, and early Monday so
+    # a failure is visible at the start of a week rather than discovered during a release attempt.
+    # Weekly is also the cost decision: one billed droplet-hour per week is about $0.93 a year.
+    - cron: "17 11 * * 1"
+  # Deliberately no `pull_request` and no `push`. This job spends money and needs three long-lived
+  # secrets. A fork's pull request receives none of them, so it would fail for a confusing reason, and
+  # more importantly a pull request must never be able to run an arbitrary edit of this script against
+  # these DigitalOcean and Tailscale credentials.
+
+permissions: {}
+
+# One group with a constant name, not keyed on ref: the droplet name is global, so two runs on any two
+# refs would collide. This guard is load-bearing rather than hygiene — two runs of this lane have
+# already collided over that fixed name in practice. `provision` is idempotent by name, so the second
+# run would adopt the first run's droplet, install over the top of its lanes, reboot it underneath
+# them, and then destroy it while the first run was still measuring. `cancel-in-progress` stays false
+# because cancelling a run can end it before its teardown step, which is the one failure that leaks a
+# billing droplet.
+concurrency:
+  group: droplet-linux-qualification
+  cancel-in-progress: false
+
+jobs:
+  droplet-qualification:
+    runs-on: ubuntu-24.04
+    # Observed full sequence is about twenty-five minutes. The script's own bounded waits (five minutes
+    # for SSH, ten for cloud-init, about five per reboot) put a slow but legitimate run under forty.
+    # Fifty keeps the whole job, teardown included, inside a single billed DigitalOcean hour, so a hung
+    # step costs $0.018 instead of accruing hour after hour: DigitalOcean bills whole hours and refunds
+    # none of them, which is exactly why the bound sits just under sixty rather than at some round
+    # multiple of the expected duration.
+    timeout-minutes: 50
+    permissions:
+      # Checkout, plus `gh release download` and `gh attestation download` for the candidate assets.
+      contents: read
+    env:
+      # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the two copies in
+      # step: the input default is what a human sees in the dispatch form, this is what cron uses.
+      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-prealpha.16' }}
+      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.1.0-prealpha.15' }}
+      QUAL_LANES: ${{ inputs.lanes || '' }}
+      # Pinned here rather than left to the script's default so the droplet name this workflow checks
+      # for, refuses to adopt, and destroys is the same string in every step.
+      OMP_QUAL_NAME: omp-gateway-qual
+      # The script hardcodes this slug for asset downloads, so the preflight must check the same repo
+      # rather than `github.repository`; on a fork those two are not the same place.
+      REPO_SLUG: alphastorm/omp-session-gateway
+      TAILNET_TAG: tag:omp-session-gateway
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned doctl and record runner tool versions
+        env:
+          # Version and digest are pinned together. 1.166.0 is the version this lane has actually been
+          # driven with from a workstation. The digest was read from that release's published
+          # `doctl-1.166.0-checksums.sha256` on 2026-08-20; it pins the bytes for that version, and it
+          # is not a signature check. Bump both lines or neither.
+          DOCTL_VERSION: 1.166.0
+          DOCTL_SHA256: 1596424b64091a7939bde561daf2402ca8a141966429928e688d20d17091ec89
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o doctl.tar.gz \
+            "https://github.com/digitalocean/doctl/releases/download/v${DOCTL_VERSION}/doctl-${DOCTL_VERSION}-linux-amd64.tar.gz"
+          printf '%s  doctl.tar.gz\n' "$DOCTL_SHA256" | sha256sum --check --strict -
+          tar -xzf doctl.tar.gz
+          # No sudo and no /usr/local/bin: a private bin directory on PATH is enough and leaves the
+          # runner image alone.
+          mkdir -p "$RUNNER_TEMP/bin"
+          install -m 0755 doctl "$RUNNER_TEMP/bin/doctl"
+          printf '%s\n' "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+          # `gh` and `jq` come from the runner image and are therefore floating. Printing their
+          # versions is what makes a run reproducible after the fact, since `gh attestation download`
+          # produces the bundles the droplet then verifies offline.
+          "$RUNNER_TEMP/bin/doctl" version
+          gh --version | head -1
+          jq --version
+          ssh -V
+
+      - name: Preflight the secrets, the candidate tags, and the lane list
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          TS_API_KEY: ${{ secrets.TS_API_KEY }}
+          # `GITHUB_TOKEN`, not `GH_TOKEN`, and the difference is deliberate. `gh` accepts either, but
+          # the script forwards `GH_TOKEN` to the droplet so it can verify attestations online. Leaving
+          # `GH_TOKEN` unset selects the offline `--bundle` path instead: the bundles are downloaded
+          # here and verified there, and no token ever reaches a throwaway public-Internet box.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          # Name the missing secret rather than letting a lane fail forty minutes later with an
+          # authentication error that reads like a gateway fault.
+          for name in DIGITALOCEAN_ACCESS_TOKEN TS_AUTHKEY TS_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              fail "Missing secret: $name" \
+                "$name is not configured for this repository. See docs/LINUX_QUALIFICATION.md section 9."
+            fi
+          done
+          printf 'all three secrets are present (values are never printed)\n'
+
+          # A DigitalOcean token can be created with an expiry. An expired one fails every later step
+          # in a way that looks like a droplet problem, so check it here where the message can be exact.
+          doctl account get --output json >/dev/null 2>&1 ||
+            fail "DigitalOcean token rejected" \
+              "doctl could not authenticate. DIGITALOCEAN_ACCESS_TOKEN is missing, revoked, or expired; regenerate it at DigitalOcean > API > Tokens with read and write scope."
+
+          # The second likely scheduled-run failure: a candidate tag that no longer exists, or whose
+          # assets were renamed. Both would otherwise surface as "release <tag> is missing asset ..."
+          # from inside the artifact lane, after a droplet had been created and paid for.
+          version="$(jq -r '.version' package.json)"
+          printf 'archive version from package.json: %s\n' "$version"
+          for tag in "$OMP_QUAL_RELEASE_TAG" "$OMP_QUAL_PREVIOUS_TAG"; do
+            if ! gh release view "$tag" --repo "$REPO_SLUG" --json assets \
+              --jq '.assets[].name' >"$RUNNER_TEMP/assets-$tag.txt" 2>/dev/null; then
+              fail "Candidate tag $tag not found" \
+                "$REPO_SLUG has no published release $tag. Dispatch this workflow with release_tag/previous_tag set to a published signed candidate, or publish that tag first. No droplet was created."
+            fi
+            for asset in \
+              "omp-session-gateway-${version}-bun.tar" \
+              "omp-session-gateway-${version}-bun.tar.sigstore.json" \
+              "omp-session-gateway-${version}.spdx.json" \
+              "omp-session-gateway-${version}.spdx.json.sigstore.json" \
+              SHA256SUMS \
+              SHA256SUMS.sigstore.json; do
+              grep -qxF -- "$asset" "$RUNNER_TEMP/assets-$tag.txt" ||
+                fail "Candidate $tag is missing $asset" \
+                  "Release $tag does not carry $asset. Either the release is incomplete or package.json's version no longer matches its asset names; set OMP_QUAL_VERSION in that case. No droplet was created."
+            done
+            printf 'release %s carries all six expected assets\n' "$tag"
+          done
+
+          # Lane names and lane ordering. The script validates names itself, but in CI that happens
+          # after `provision`, so a typo in the dispatch form would cost a droplet-hour. Ordering
+          # matters more here than on a workstation: every CI run starts on a fresh droplet, so a
+          # subset that skips `lifecycle` has nothing installed to measure.
+          if [ -n "$QUAL_LANES" ]; then
+            for lane in $QUAL_LANES; do
+              case "$lane" in
+                host | artifact | lifecycle | migration | identity | persistence | uninstall) ;;
+                *) fail "Unknown lane '$lane'" "Choose from: host artifact lifecycle migration identity persistence uninstall." ;;
+              esac
+            done
+            case " $QUAL_LANES " in
+              *" migration "* | *" identity "* | *" persistence "* | *" uninstall "*)
+                case " $QUAL_LANES " in
+                  *" lifecycle "*) ;;
+                  *) fail "Lane subset is not self-sufficient" \
+                    "migration, identity, persistence, and uninstall all measure an installed service, and every CI run starts on a fresh droplet. Include 'artifact lifecycle' before them." ;;
+                esac
+                ;;
+            esac
+            printf 'lane subset: %s\n' "$QUAL_LANES"
+          else
+            printf "lanes: the script's full default order\n"
+          fi
+
+      - name: Preflight the Tailscale auth key
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          TS_API_KEY: ${{ secrets.TS_API_KEY }}
+        run: |
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+          warn() { printf '::warning title=%s::%s\n' "$1" "$2"; }
+
+          # The first likely scheduled-run failure: the auth key expired since the last run. Tailscale
+          # caps auth keys at ninety days, so a weekly schedule outlives every key it is given. Without
+          # this check an expired key surfaces as `tailscale up` failing during provision, after a
+          # droplet exists, and reads like a network or policy fault.
+          #
+          # An auth key is `tskey-auth-<keyID>-<secret>`; the id is the third dash-separated field and
+          # is not itself a credential, but it is not printed either. Nothing below echoes any part of
+          # either key: the bearer token goes to curl through a stdin config file so it never appears
+          # in argv or in `ps`.
+          key_id="$(printf '%s' "$TS_AUTHKEY" | cut -d- -f3)"
+          case "$TS_AUTHKEY" in
+            tskey-auth-*) ;;
+            *) fail "TS_AUTHKEY is not an auth key" \
+              "The secret does not start with tskey-auth-. The identity lane needs a tagged auth key, not an OAuth client or API token." ;;
+          esac
+          if [ -z "$key_id" ]; then
+            warn "Auth key id could not be parsed" \
+              "TS_AUTHKEY has an unexpected shape, so its expiry could not be checked in advance. Provision will still validate it."
+            exit 0
+          fi
+
+          code="$(printf 'silent\nshow-error\nheader = "Authorization: Bearer %s"\n' "$TS_API_KEY" |
+            curl --config - -o "$RUNNER_TEMP/authkey.json" -w '%{http_code}' \
+              "https://api.tailscale.com/api/v2/tailnet/-/keys/${key_id}" || echo request-failed)"
+          case "$code" in
+            200) ;;
+            401 | 403)
+              fail "Tailscale API token rejected (HTTP $code)" \
+                "TS_API_KEY could not read the tailnet's keys. It is expired or lacks key read scope. Without it, teardown also cannot delete the tailnet machine record, so dead nodes accumulate." ;;
+            404)
+              fail "Tailscale auth key no longer exists (HTTP 404)" \
+                "The tailnet has no record of this auth key: it was deleted or has aged out. Generate a new tagged, pre-approved, non-ephemeral key and update the TS_AUTHKEY secret." ;;
+            *)
+              # A shape or availability change in the Tailscale API must not fail a run that would
+              # otherwise have worked. Losing the early warning is the correct degradation.
+              warn "Could not check the auth key (HTTP $code)" \
+                "The Tailscale API did not answer the key lookup, so expiry was not verified in advance. Provision will still fail loudly if the key is dead."
+              exit 0 ;;
+          esac
+
+          invalid="$(jq -r '.invalid // false' "$RUNNER_TEMP/authkey.json")"
+          expires="$(jq -r '.expires // ""' "$RUNNER_TEMP/authkey.json")"
+          tags="$(jq -r '(.capabilities.devices.create.tags // []) | join(",")' "$RUNNER_TEMP/authkey.json")"
+          ephemeral="$(jq -r '.capabilities.devices.create.ephemeral // false' "$RUNNER_TEMP/authkey.json")"
+          printf 'auth key expires: %s\n' "${expires:-<no expiry recorded>}"
+          printf 'auth key tags:    %s\n' "${tags:-<none>}"
+
+          if [ "$invalid" = "true" ]; then
+            fail "Tailscale auth key is expired or revoked" \
+              "The tailnet reports this key as invalid. Generate a replacement at Tailscale > Settings > Keys with tag ${TAILNET_TAG}, pre-approved, NOT ephemeral, and update the TS_AUTHKEY secret. No droplet was created."
+          fi
+          if [ -n "$expires" ]; then
+            remaining=$(( ( $(date -u -d "$expires" +%s) - $(date -u +%s) ) / 86400 ))
+            printf 'days until the auth key expires: %s\n' "$remaining"
+            if [ "$remaining" -le 0 ]; then
+              fail "Tailscale auth key expired on $expires" \
+                "Generate a replacement carrying ${TAILNET_TAG}, pre-approved and NOT ephemeral, and update the TS_AUTHKEY secret. No droplet was created."
+            fi
+            # Tailscale's maximum auth-key lifetime is ninety days, so this warning fires roughly once
+            # a quarter and is the only reminder the rotation gets.
+            if [ "$remaining" -le 14 ]; then
+              warn "Tailscale auth key expires in $remaining day(s)" \
+                "Rotate TS_AUTHKEY before it lapses, or the next scheduled runs fail at provision."
+            fi
+          fi
+          case ",$tags," in
+            *",${TAILNET_TAG},"*) ;;
+            *) warn "Auth key does not carry ${TAILNET_TAG}" \
+              "The droplet will join untagged, so it carries a user identity and the identity lane will skip instead of proving denial. Every other lane is unaffected." ;;
+          esac
+          if [ "$ephemeral" = "true" ]; then
+            warn "Auth key is ephemeral" \
+              "The persistence lane reboots the droplet twice; an ephemeral node can be removed while it is offline, taking the Serve mapping and node identity with it."
+          fi
+
+      - name: Refuse to adopt a droplet this run did not create
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          # A successful run always destroys its droplet, so an existing one means either a previous
+          # run leaked it or the lead is driving the same fixed name by hand right now. Adopting it
+          # would be wrong both ways: the leftover has a deleted run's key in authorized_keys and this
+          # run could not log in, and stomping the lead's droplet mid-measurement is worse than not
+          # running. Refusing here also keeps the teardown step honest, because teardown only destroys
+          # a droplet when `provision` in this job ran.
+          if doctl compute droplet list --output json |
+            jq -e --arg name "$OMP_QUAL_NAME" 'any(.[]; .name == $name)' >/dev/null; then
+            doctl compute droplet list --output json |
+              jq -r --arg name "$OMP_QUAL_NAME" \
+                '.[] | select(.name == $name) | "existing droplet: id \(.id), created \(.created_at), region \(.region.slug)"'
+            printf '::error title=Droplet %s already exists::Refusing to adopt it. If a previous run leaked it, it is still billing at USD 0.01786 per hour: run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation. If the lead is running this lane by hand, wait for that run to finish.\n' \
+              "$OMP_QUAL_NAME"
+            exit 1
+          fi
+          printf 'no droplet named %s exists; this run starts clean\n' "$OMP_QUAL_NAME"
+
+      - name: Create an ephemeral SSH key and register it with DigitalOcean
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          SSH_IDENTITY: ${{ runner.temp }}/omp-qual-ci
+        run: |
+          # RSA, not ed25519. The script's preflight compares `ssh-keygen -l -E md5` against the
+          # fingerprint the DigitalOcean API returns, and the MD5 form is what this account is observed
+          # to return for an RSA key. The fingerprint format for other key types was not verified here,
+          # and the preflight comparison is the one thing that must not be the reason a scheduled run
+          # dies. The key exists for under an hour and is deleted in teardown.
+          ssh-keygen -q -t rsa -b 4096 -N '' -C "omp-qual-ci-${GITHUB_RUN_ID}" -f "$SSH_IDENTITY"
+          # Name carries the run id and attempt so teardown can find it without depending on state
+          # passed between steps, and so re-running a failed job cannot collide with its first attempt.
+          key_name="omp-qual-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          created="$(doctl compute ssh-key create "$key_name" \
+            --public-key "$(cat "${SSH_IDENTITY}.pub")" --output json)"
+          # doctl has returned both a bare object and a single-element array from create in different
+          # versions; accept either rather than pinning on the shape.
+          key_id="$(printf '%s' "$created" | jq -r 'if type == "array" then .[0] else . end | .id')"
+          do_fingerprint="$(printf '%s' "$created" | jq -r 'if type == "array" then .[0] else . end | .fingerprint')"
+          # Exported before the assertion below, so teardown always has the id even if this step fails.
+          {
+            printf 'OMP_QUAL_SSH_KEY_ID=%s\n' "$key_id"
+            printf 'OMP_QUAL_SSH_IDENTITY=%s\n' "$SSH_IDENTITY"
+          } >>"$GITHUB_ENV"
+          printf 'registered DigitalOcean SSH key %s as id %s\n' "$key_name" "$key_id"
+
+          # The same comparison the script's preflight will make, made here where nothing has been
+          # created yet. If DigitalOcean ever stops returning an MD5 fingerprint, this fails with the
+          # reason instead of letting the preflight report "no local private key matches".
+          local_fingerprint="$(ssh-keygen -l -E md5 -f "${SSH_IDENTITY}.pub" | awk '{print $2}')"
+          if [ "$local_fingerprint" != "MD5:${do_fingerprint}" ]; then
+            printf '::error title=SSH key fingerprint mismatch::DigitalOcean returned %s for the key this job just generated, but ssh-keygen computes %s. The script preflight compares exactly these two values, so it would refuse to create a droplet. No droplet was created.\n' \
+              "MD5:${do_fingerprint}" "$local_fingerprint"
+            exit 1
+          fi
+          printf 'fingerprint round-trip matches: %s\n' "$local_fingerprint"
+
+      - name: Provision the droplet and join it to the tailnet
+        id: provision
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          # Only this step needs the auth key: `qualify` never touches it and teardown must not.
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: ./scripts/provision-linux-qual.sh provision
+
+      - name: Run the qualification lanes
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          # See the preflight step: `GITHUB_TOKEN` authenticates `gh` here while leaving `GH_TOKEN`
+          # unset, which keeps attestation verification on the offline `--bundle` path and keeps the
+          # token off the droplet.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # If a future edit renames the variable above, fail rather than silently shipping a repo
+          # token to a throwaway public-Internet host through the remote `env` prefix.
+          if [ -n "${GH_TOKEN:-}" ]; then
+            printf '::error title=GH_TOKEN is set::The artifact lane forwards GH_TOKEN to the droplet for online attestation verification. Use GITHUB_TOKEN so the offline bundle path is selected instead.\n'
+            exit 1
+          fi
+          # The full default order runs on a schedule. The droplet-hour is the entire cost, the whole
+          # sequence fits inside it, and the lanes that justify the box only exist in the full set:
+          # `persistence` reboots twice and is what caught #69, `identity` is the only place a denied
+          # Tailscale identity is observable at all. A dispatch subset exists for re-observing one lane
+          # after a fix, not for saving money.
+          #
+          # Two lanes are weaker here than on a workstation, by construction rather than by accident.
+          # `identity` measures the tagged droplet's own denial in full, but its allowed half needs a
+          # user-owned tailnet node; a hosted runner is not one, `OMP_QUAL_ALLOWED_LOGIN` is left
+          # unset, and the script prints that the allowed half was not exercised. The public-IP probe
+          # in that same lane is genuinely better from here: the runner is a real public-Internet host.
+          read -r -a lanes <<<"$QUAL_LANES"
+          ./scripts/provision-linux-qual.sh qualify "${lanes[@]}"
+
+      - name: Destroy the droplet and the ephemeral SSH key
+        # `always()`, so a failed lane, a cancelled run, and an expired job timeout all still tear
+        # down. A teardown failure is more serious than any lane failure: a lane result is information
+        # the lead can go and re-measure for a cent, while a droplet that outlives its job bills every
+        # hour until a human notices. That is why this step is separate, why it runs unconditionally,
+        # and why it fails the job even when every lane passed.
+        if: always()
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          # Only teardown needs the API token: without it `destroy` logs the node out but cannot delete
+          # the tailnet machine record, and logged-out records pile up until Tailscale starts appending
+          # -1, -2, -3 to the node name.
+          TS_API_KEY: ${{ secrets.TS_API_KEY }}
+          PROVISION_OUTCOME: ${{ steps.provision.outcome }}
+        run: |
+          status=0
+          # Destroy only when `provision` actually executed in this job. An unrecognised or empty
+          # outcome is treated as "did not run", because the refusal step above means a droplet that
+          # exists without this job having provisioned one belongs to somebody else — most likely the
+          # lead, mid-measurement, on the same fixed name. Deleting theirs is worse than the leak this
+          # would risk, and that leak needs an outcome value GitHub does not produce.
+          case "$PROVISION_OUTCOME" in
+            success | failure | cancelled)
+              if ./scripts/provision-linux-qual.sh destroy; then
+                printf 'teardown: droplet destroyed and tailnet record deleted\n' >>"$GITHUB_STEP_SUMMARY"
+              else
+                status=1
+                printf '::error title=Teardown failed::%s may still exist and may still be billing at USD 0.01786 per hour. Run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation, and check the DigitalOcean console for a droplet tagged %s.\n' \
+                  "$OMP_QUAL_NAME" "$OMP_QUAL_NAME"
+                printf 'teardown: FAILED, %s may still be billing\n' "$OMP_QUAL_NAME" >>"$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            *)
+              printf 'provision did not run (outcome: %s); not calling destroy\n' "${PROVISION_OUTCOME:-<none>}"
+              printf 'teardown: skipped, provision never ran\n' >>"$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+
+          # The DigitalOcean key record costs nothing but should not accumulate. Deleted by name so
+          # this works whether or not the creating step got as far as exporting the id, and skipped
+          # quietly if the job was cancelled before doctl was installed.
+          if command -v doctl >/dev/null 2>&1; then
+            doctl compute ssh-key list --output json |
+              jq -r --arg prefix "omp-qual-ci-${GITHUB_RUN_ID}" \
+                '.[] | select(.name | startswith($prefix)) | .id' |
+              while read -r stale_key; do
+                if doctl compute ssh-key delete "$stale_key" --force; then
+                  printf 'deleted ephemeral DigitalOcean SSH key %s\n' "$stale_key"
+                else
+                  # Not fatal: a leftover public key is inert and free, unlike a leftover droplet.
+                  printf '::warning title=Ephemeral SSH key %s was not deleted::Remove it under DigitalOcean > Settings > Security.\n' "$stale_key"
+                fi
+              done
+          fi
+          exit "$status"
