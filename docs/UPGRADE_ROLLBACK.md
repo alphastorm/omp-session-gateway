@@ -1,0 +1,305 @@
+# Upgrade and rollback lane
+
+One throwaway root on the operator's own macOS workstation, driven by
+[`scripts/qualify-rollback.sh`](../scripts/qualify-rollback.sh), that installs signed
+`v0.1.0-prealpha.13`, upgrades to signed `v0.1.0-prealpha.14`, and rolls back to `.13` again while
+the production daemon keeps running on the same machine.
+
+This document is the operating manual for that lane. It does not promote any ledger row. Every
+command below prints numbers; the lead decides what those numbers mean.
+
+## 1. Why rollback needs its own lane
+
+The forward upgrade is already measured: the ledger records the live macOS service moving from
+`0.1.0-61114587f124` to `0.1.0-8773d783ca96` in place on 2026-08-20 with `config.json` and the
+publisher token preserved. Rollback is the half that was never executed, and it is named in the
+"Required to close" column of four **PARTIAL** rows.
+
+Rollback is not a command. There is no `omp-gateway rollback`. The installer keeps every runtime
+side by side:
+
+```
+<stateDir>/installation/versions/<version>-<payload-digest-12>/…
+<stateDir>/installation/current.json      {"versionDirectory":"0.1.0-8773d783ca96"}
+```
+
+so rolling back means **installing the predecessor archive again**. That makes three questions
+worth answering with measurements rather than reasoning:
+
+1. does the predecessor's version directory actually survive the upgrade, which is the only reason
+   rollback is possible at all;
+2. does re-installing the predecessor move `current.json`, the LaunchAgent, `config.json`, and the
+   publisher token consistently, or does one of them lag behind;
+3. on macOS the LaunchAgent's `ProgramArguments` holds an **absolute path into a specific version
+   directory**, so flipping `current.json` alone would leave launchd executing the wrong runtime.
+
+## 2. The isolation model, and why it is trustworthy
+
+### 2.1 What scoping actually scopes
+
+`HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `TMPDIR` cover every path the gateway writes:
+
+| Scoped by | Covers |
+|---|---|
+| `XDG_CONFIG_HOME` | `config.json`, `publisher-token` |
+| `XDG_STATE_HOME` | `installation/versions/*`, `installation/current.json` |
+| `TMPDIR` | the registry socket directory on macOS |
+| `HOME` | `~/Library/LaunchAgents/omp-session-gateway.plist` |
+
+`HOME` is the one that is easy to miss and the most dangerous to miss. The macOS service definition
+path is built from `homedir()`, not from any `XDG_*` variable, so a root that scopes only the XDG
+variables writes its LaunchAgent **over the production one** and deletes it again on uninstall.
+`scripts/qualify-rollback.sh` asserts all five paths land inside the scratch root before anything
+else happens, and prints the host plist's digest so a change is visible rather than inferred.
+
+### 2.2 What scoping cannot scope, and the incident that proves it
+
+launchd keys a LaunchAgent on `gui/<uid>/<label>` alone. No environment variable narrows that
+namespace, so an isolated install still *sees* the production daemon under its own label. On
+2026-08-19 that cost a live daemon four minutes: an "isolated" archive smoke read `active: true` off
+the production service and booted it out.
+
+The fix in the working tree compares the loaded service's **program path** against `stateDir + sep`,
+so `active` means "a service this install root owns is running". `v0.1.0-prealpha.14` carries that
+fix. **`v0.1.0-prealpha.13` does not** — see [section 5](#5-findings). The lane therefore drives one
+artifact that will try to bootout the production daemon and one that will not, and has to survive
+both.
+
+### 2.3 The gate
+
+Every isolated command runs through `env -i` with a `launchctl` shim first on `PATH`. `env -i` is
+deliberate: an inherited `XDG_*` or `TMPDIR` is exactly how a "scoped" run leaks back onto the real
+root. The shim does two things and logs both:
+
+- **Refuses every mutating verb, unconditionally.** `bootout`, `bootstrap`, `kickstart`, `enable`,
+  `load`, anything that is not a read — exit 90, logged, never forwarded. Nothing this lane runs can
+  reach launchd's mutable state, whether or not the caller believed it owned the label.
+- **Scopes `print` of our exact label** to the scratch root: if the loaded program lives elsewhere,
+  the shim reports "not loaded". This is the launchd analogue of `XDG_STATE_HOME` — it shows an
+  isolated root the view a dedicated host would show it — and it is what lets `.13`'s installer
+  proceed at all.
+
+Trust in that gate does not rest on reading it. Step 2 fires a **real** `launchctl bootout` of the
+production label through the shim and aborts the run unless it comes back refused and logged, then
+confirms the production daemon is still alive. A gate that has never refused anything cannot be
+trusted to refuse anything, so the positive control is a gate, not an option.
+
+The scoping is measured, never hidden:
+
+- step 4b runs **both** artifacts' `status` with scoping **off**, against real launchd state, which
+  is how the `.13` ownership defect is observed rather than assumed;
+- step 8 replays the 2026-08-19 incident into the gate with scoping **off** and records what the
+  CLI tried to do;
+- every scoped read and every refusal is counted and printed.
+
+### 2.4 Belt and braces
+
+- Nothing is ever activated. `--no-start` throughout, so no isolated service is ever loaded, so no
+  bootout is ever legitimate.
+- The isolated root uses port **47317**, not 4317. The installer probes its own configured loopback
+  port for a live listener; reusing the production port would aim that probe at the live daemon.
+  Preflight aborts if anything is already listening on 47317.
+- The `EXIT` trap removes the scratch root on every path, and boots out a service only if the
+  loaded program path is *inside* the scratch root — using the real `/bin/launchctl`, never the
+  shim, because the gate must not be able to answer a safety question about itself.
+- The trap re-reads the host plist digest and the host daemon PID and fails the run if either
+  changed.
+
+## 3. Running it
+
+Prerequisites: macOS, `bun`, `gh` (authenticated), `cosign`. Not root.
+
+```sh
+./scripts/qualify-rollback.sh run      # full lane including both downloads, ~5 s
+./scripts/qualify-rollback.sh clean    # remove leftover scratch roots from earlier runs
+```
+
+`run` is self-contained: it creates `/tmp/omp-rollback-qual/run-<stamp>-<pid>`, downloads and
+verifies both tags into it, installs, upgrades, rolls back, prints the invariant table, uninstalls,
+and removes the root on the way out. It exits non-zero if any invariant fails. `clean` is safe when
+nothing exists.
+
+The verification the script performs per tag, if you want to reproduce it by hand:
+
+```sh
+gh release download v0.1.0-prealpha.13 -R alphastorm/omp-session-gateway -D . --clobber \
+  -p omp-session-gateway-0.1.0-bun.tar \
+  -p omp-session-gateway-0.1.0-bun.tar.sigstore.json \
+  -p SHA256SUMS -p SHA256SUMS.sigstore.json
+
+shasum -a 256 -c SHA256SUMS --ignore-missing
+
+for asset in omp-session-gateway-0.1.0-bun.tar SHA256SUMS; do
+  cosign verify-blob --bundle "$asset.sigstore.json" \
+    --certificate-identity 'https://github.com/alphastorm/omp-session-gateway/.github/workflows/release.yml@refs/tags/v0.1.0-prealpha.13' \
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+    "$asset"
+done
+```
+
+Note for anyone extending this with GitHub attestations: `gh attestation download` has **no**
+`--output-file` flag. It writes `sha256:<digest>.jsonl` into the working directory, so run it inside
+the scratch directory or it litters the repository.
+
+## 4. What the run measured
+
+macOS 26.6.1 arm64, Bun 1.3.14, 2026-08-20. Production daemon PID 51469 on
+`0.1.0-8773d783ca96` was running on the same machine throughout.
+
+| Artifact | Archive sha256 | Bundled `cli.js` | Stages version directory |
+|---|---|---|---|
+| `v0.1.0-prealpha.13` | `af79e1c563c386243e52dae1e6571b67adb5d5b8e9ccd080149d329e274397ad` | 194,026 bytes | `0.1.0-1b654b660ec4` |
+| `v0.1.0-prealpha.14` | `a2e1db2ad90e9ca092e84372ac503e41981c3782d62ddbb4f87db83c4ca57172` | 195,466 bytes | `0.1.0-8773d783ca96` |
+
+Both tags passed `shasum -c` and `cosign verify-blob` for the archive and for `SHA256SUMS`. `.14`
+stages the same payload digest the live daemon is running, which is the expected identity check on
+the candidate.
+
+**20 of 20 invariants passed.** The three-step sequence:
+
+| Step | `current.json` | Version directories present | LaunchAgent `ProgramArguments` | `config.json` sha256 | Token |
+|---|---|---|---|---|---|
+| install `.13` | `0.1.0-1b654b660ec4` | `.13` | `0.1.0-1b654b660ec4` | `60d9c36e…c17cd86c` | mode 600 |
+| upgrade `.14` | `0.1.0-8773d783ca96` | `.13` `.14` | `0.1.0-8773d783ca96` | `60d9c36e…c17cd86c` | unchanged, mode 600 |
+| rollback `.13` | `0.1.0-1b654b660ec4` | `.13` `.14` | `0.1.0-1b654b660ec4` | `60d9c36e…c17cd86c` | unchanged, mode 600 |
+
+The specific answers to [section 1](#1-why-rollback-needs-its-own-lane):
+
+- **The predecessor survives.** `0.1.0-1b654b660ec4` was still on disk after the upgrade; the
+  directory count went 1 → 2 and stayed at 2. Rollback re-used it rather than re-staging from
+  scratch: the installer's rename hits `EEXIST`, discards its staging copy, and re-validates the
+  existing directory against its recorded payload hash.
+- **The suspected LaunchAgent bug did not reproduce.** The plist's `ProgramArguments` named the
+  active version at all three steps, rollback included. `install` rewrites the service definition
+  with the newly staged CLI path before it writes `current.json`, so the plist cannot be left
+  pointing at the superseded directory by a *successful* install. By inspection of that ordering the
+  two writes are not atomic, so a crash between them would leave the plist ahead of the pointer;
+  that window was not exercised here and remains untested.
+- **Configuration and token are untouched.** `config.json` was byte-identical across all three
+  steps, and the publisher token's digest and mode `600` were identical across all three. The
+  uninstall preserved both, as it advertises, and the token digest still matched afterwards.
+
+Uninstall removed the isolated LaunchAgent and left 101 files under `config/` and `state/` — the two
+runtime payloads plus `config.json` and `publisher-token`. That is the documented behaviour
+("Configuration and publisher token were preserved"), not residue to clean up; the scratch root is
+then removed wholesale by the trap.
+
+Production was untouched: PID 51469 alive at every checkpoint, host plist digest
+`e01151c90aae50089f45792d8cee478e024a768a33a5e1e3d1e831fe0d79cb18` unchanged from preflight to
+teardown.
+
+Gate activity across a run: 4 scoped launchd reads, 2 refused mutating calls — the step 2 positive
+control and the one described below.
+
+## 5. Findings
+
+Both concern the **published `v0.1.0-prealpha.13` artifact**, and both are about service ownership
+rather than about rollback state.
+
+### 5.1 `.13` claims the production daemon as its own
+
+With launchd scoping **off**, both artifacts were asked the same question about the same real
+launchd state from the same isolated root:
+
+```
+.13  {"service":"omp-session-gateway","installed":true,"active":true, "ready":false,"authMode":"tailscale-serve"}
+.14  {"service":"omp-session-gateway","installed":true,"active":false,"ready":false,"authMode":"tailscale-serve"}
+```
+
+The only loaded service was
+`~/.local/state/omp-session-gateway/installation/versions/0.1.0-8773d783ca96/apps/gateway/src/cli.js`,
+which belongs to the production root. `.13`'s ownership test is `launchctl print <label>` exiting
+zero, with no check of which install root owns the loaded program; `.14` added the program-path
+comparison and answers correctly.
+
+### 5.2 `.13`'s uninstall targets the production daemon from an isolated root
+
+Running `.13`'s `uninstall` from the isolated root with scoping off produced exactly one mutating
+call: `launchctl bootout gui/<uid>/omp-session-gateway`. The gate refused it (exit 90), the CLI
+aborted with exit code 1, and PID 51469 was confirmed alive immediately afterwards. Without the
+gate that call would have stopped the production daemon — the 2026-08-19 incident, reproduced on
+demand and contained.
+
+The practical consequence, and the reason this is worth a ledger note rather than a shrug: **rolling
+back to `.13` restores a runtime whose own lifecycle commands cannot tell a foreign service from
+their own.** On a single-install host that is harmless, because the label really is theirs. It
+becomes a hazard the moment a second root exists on the same account, which is precisely what any
+qualification or recovery procedure creates.
+
+A secondary effect, visible only because of the defect: `.13` refuses `install --no-start` with
+"refusing --no-start while the gateway service is active" whenever any service holds the label. On a
+real host that refusal is correct. From an isolated root it fires for the wrong reason, and it is
+why the lane needs launchd read-scoping to exercise the rollback step at all.
+
+## 6. Which ledger rows these observables bear on
+
+They **bear on**, without promoting:
+
+- **Configuration migration and rollback** — the direct target. The row's forward-upgrade half is
+  already recorded; this adds an executed rollback with measured pointer, version-directory,
+  LaunchAgent, `config.json` and token observables from two independently verified signed archives.
+  It does not close the row: see [section 8](#8-what-this-lane-does-not-prove).
+- **macOS host lifecycle** — adds a signed-candidate install/upgrade/rollback/uninstall sequence and
+  the `.13` ownership findings. It adds nothing about reboot/login persistence, Serve, or a running
+  service.
+- **Platform install/doctor/uninstall** — adds signed-artifact install and uninstall on macOS. No
+  `doctor` run is part of this lane.
+
+They explicitly **do not bear on**:
+
+- **Linux host lifecycle** and **Windows host lifecycle**. Both name rollback in their "Required to
+  close" column and neither is exercised here; this script refuses to run anywhere but macOS.
+- Any row about Tailscale, relay, Android, browsers, or capability leakage.
+
+Per the ledger's own updating rule, the row text is the lead's to change; this document is the
+named record the change would cite.
+
+## 7. Secret handling
+
+- The publisher token is compared by digest and mode. Its bytes are never read into a variable,
+  printed, or written anywhere by this lane.
+- The recorded digest is `sha256:` plus the first 12 hex characters of the token file's SHA-256,
+  matching how the ledger records it. A fresh isolated root mints a fresh token, so the digest
+  differs between runs by design; the invariant is that it does not change *within* a run.
+- `rollback-qual@example.invalid` and `https://rollback-qual.example.ts.net` are placeholders. The
+  login is in a reserved TLD precisely so nobody can ever authenticate as it.
+- No capability, real login, tailnet name, or host path outside the scratch root is written by the
+  lane.
+
+## 8. What this lane does not prove
+
+- **Nothing was ever started.** `--no-start` throughout. This is the installer's state machine —
+  version directories, `current.json`, the service definition, config and token — not a running
+  service transition. No bootout/bootstrap, no readiness handshake, no PID replacement, no
+  post-rollback `status`/`doctor`/health probe. A rollback that leaves correct files behind but
+  fails to bring the predecessor back up would pass every invariant here.
+- **An isolated root is not a login-session service manager.** launchd's label namespace is
+  per-uid and cannot be scoped, so the lane substitutes a shim for the part of launchd it cannot
+  isolate. Everything downstream of "the service definition on disk is correct" — RunAtLoad,
+  KeepAlive, reboot and login persistence, `bootstrap` failure modes — is untested by construction.
+- **The rollback step depends on that shim.** `.13` cannot complete an isolated install while a
+  foreign service holds the label (see [section 5](#5-findings)). On a dedicated host the scoping
+  would be a no-op, but on this host the rollback result was obtained with launchd reads scoped, and
+  that is a difference from a bare rollback on a clean machine.
+- **Only one rollback shape was exercised.** `.13` was staged fresh in step 4 and re-installed over
+  its own existing directory in step 6. A rollback after the predecessor directory has been pruned,
+  a rollback across a `config.json` schema change, and a rollback across a readiness-protocol change
+  (`instance-v1` → `legacy`) are all untested.
+- **One host, one architecture, one Bun.** macOS 26.6.1 arm64 with Bun 1.3.14. Nothing here speaks
+  to Intel macOS, to another macOS release, or to another Bun.
+- **No OMP publisher, browser, or device.** No session discovery, View/Control, relay, or
+  capability-leak evidence comes out of this lane.
+- **Signature verification proves origin, not fitness.** Checksum and Cosign results establish that
+  the bytes are the ones the release workflow produced at that tag. They say nothing about whether
+  that build passes any behavioural gate.
+- **The two findings are observations about `.13`, not a rollback verdict.** The rollback state
+  transition itself was clean on every invariant measured.
+
+## 9. Related documents
+
+- [`RELEASE_STATUS.md`](RELEASE_STATUS.md) — the ledger; the only place a row's status changes.
+- [`SECURITY.md`](SECURITY.md) — §9 local IPC, §12 supply chain and updates.
+- [`RELEASE.md`](RELEASE.md) — the canonical artifact verification commands this lane runs.
+- [`OPERATIONS.md`](OPERATIONS.md) — install, paths, and `doctor` semantics.
+- [`LINUX_QUALIFICATION.md`](LINUX_QUALIFICATION.md) — the sibling lane; upgrade and rollback are
+  explicitly out of scope there.
