@@ -240,6 +240,26 @@ Forbidden:
 
 Test infrastructure must fail when a known canary appears in logs, files, Playwright traces, HARs, screenshots, video, browser history, DOM snapshots, caches, storage, service-worker state, or diagnostics archives.
 
+### Manual `/collab` is outside this boundary
+
+The rules above bind the gateway. Upstream OMP's manual `/collab` command deliberately prints the
+full capability to the terminal, because showing you the link is the entire point of that flow. It
+is not a defect there and this project cannot change it.
+
+The consequence is that anything recording an OMP terminal captures a live, unexpired capability:
+session transcripts, terminal recorders, CI logs of a PTY, and supervised process managers that
+retain stdout. Observed directly on 2026-08-19, when a `/collab` issued inside a supervised scratch
+session wrote a control link into that supervisor's log; the session was stopped and the capability
+revoked within seconds.
+
+This is the sharpest argument for the gateway's model rather than a gap in it. The gateway never
+renders a capability: the session list is metadata-only, a capability is fetched just-in-time after
+an explicit action, bound to the session's generation, and returned `no-store` to same-origin
+JavaScript that hands it straight to the pinned client. Nothing on that path is printable.
+
+Operationally: treat any recording of a terminal that ran `/collab` as containing a secret, and
+prefer gateway-mediated access wherever a session is being recorded or supervised.
+
 ## 12. Supply-chain and updates
 
 - minimal reviewed dependencies and committed lockfiles;
