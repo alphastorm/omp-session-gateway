@@ -189,8 +189,8 @@ jobs:
           if [ -n "$QUAL_LANES" ]; then
             for lane in $QUAL_LANES; do
               case "$lane" in
-                host | artifact | lifecycle | migration | identity | persistence | uninstall) ;;
-                *) fail "Unknown lane '$lane'" "Choose from: host artifact lifecycle migration identity persistence uninstall." ;;
+                host | artifact | lifecycle | migration | rollback | identity | persistence | uninstall) ;;
+                *) fail "Unknown lane '$lane'" "Choose from: host artifact lifecycle migration rollback identity persistence uninstall." ;;
               esac
             done
             case " $QUAL_LANES " in
