@@ -20,13 +20,13 @@ export default defineConfig({
     userAgent: androidUserAgent,
   },
   projects: [
-    // Measured on a Pixel 10 Pro on 2026-08-20: 411x816 layout viewport,
-    // 412x919 screen, and 2.625 device pixel ratio.
+    // Measured on a Pixel 10 Pro on 2026-08-20: 411x816 layout viewport, 412x919 screen, DPR 2.625.
+    // `screen` is recorded here rather than set, because this Playwright version does not accept it
+    // as a project `use` option; only the viewport and scale factor affect rendering anyway.
     {
       name: "pixel-10-pro-411x816",
       use: {
         viewport: { width: 411, height: 816 },
-        screen: { width: 412, height: 919 },
         deviceScaleFactor: 2.625,
       },
     },
