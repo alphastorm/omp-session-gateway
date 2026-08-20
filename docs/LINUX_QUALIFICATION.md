@@ -25,10 +25,15 @@ A droplet answers all four. It boots, it can be rebooted freely unlike the opera
 has a routable public IP, and it can join the tailnet as a **tagged** node, which is the only
 practical way to make Tailscale Serve present an identity that the gateway must refuse.
 
-The image is `debian-13-x64` deliberately. The ledger already carries Debian 13 evidence, so keeping
-the distribution fixed makes the container-versus-machine comparison clean instead of introducing a
-second variable. The architecture does change, from aarch64 to x86_64; see
+The default image is `debian-13-x64` deliberately. The ledger already carries Debian 13 evidence, so
+keeping the distribution fixed makes the container-versus-machine comparison clean instead of
+introducing a second variable. The architecture does change, from aarch64 to x86_64; see
 [section 8](#8-what-this-lane-does-not-prove).
+
+The image is a *parameter*, not a constant: `OMP_QUAL_IMAGE` also accepts a numeric DigitalOcean
+custom image id, which is how [section 10](#10-the-non-systemd-path-alpine-and-openrc) points this lane at
+an imported Alpine image to observe what the installer does on a host with no systemd. Leaving the
+knob unset reproduces the Debian run exactly.
 
 ## 2. The four gaps, and how each is closed
 
@@ -224,7 +229,9 @@ Default order is `host artifact lifecycle migration identity persistence uninsta
 ordered so the identity matrix is captured before the reboots: a reboot failure then costs no
 identity evidence. `migration`, `identity`, and `persistence` all assume `lifecycle` has already
 installed the service; run them after it, or after a previous full run, not standalone on a fresh
-droplet.
+droplet. With `OMP_QUAL_INIT=openrc` the default becomes `host artifact init` and the five lanes that
+need an installed service are refused by name before a droplet is touched; see
+[section 10](#10-the-non-systemd-path-alpine-and-openrc).
 
 Lane `migration` proves explicit forward upgrade and rollback on a real systemd user manager, which
 the macOS harness in [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) cannot do: it has no user unit, no
@@ -251,7 +258,7 @@ from the same state as the first.
 | `OMP_QUAL_NAME` | `omp-gateway-qual` | Fixed droplet name; the basis of idempotency. |
 | `OMP_QUAL_REGION` | `sfo3` | Any region carrying the size. |
 | `OMP_QUAL_SIZE` | `s-1vcpu-2gb` | Smallest size with enough memory for Bun plus the build tools. |
-| `OMP_QUAL_IMAGE` | `debian-13-x64` | Matches the distribution already in the ledger. |
+| `OMP_QUAL_IMAGE` | `debian-13-x64` | Distribution slug, or a numeric custom image id. A purely numeric value is treated as an imported image and validated against `doctl compute image get` for existence, `available` status, and this region; anything else is validated against the distribution list exactly as before. |
 | `OMP_QUAL_SSH_KEY_ID` | `11924832` | DigitalOcean SSH key id. |
 | `OMP_QUAL_SSH_IDENTITY` | unset | Explicit private key path for `ssh`/`scp`. |
 | `OMP_QUAL_USER` | `ompqual` | The non-root user the gateway is installed as. |
@@ -262,6 +269,7 @@ from the same state as the first.
 | `OMP_QUAL_COSIGN_VERSION` | `3.1.3` | `cosign` release fetched onto the droplet. |
 | `OMP_QUAL_TAG` | `tag:omp-session-gateway` | Tag the auth key is expected to carry; used in messages only. |
 | `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-prealpha.15` | Predecessor tag for the `migration` lane. Must be `.15` or later; earlier units predate the `RuntimeDirectory=` fix. |
+| `OMP_QUAL_INIT` | `systemd` | `systemd` is the historical path and changes nothing. `openrc` provisions a non-systemd box — no Tailscale, an Alpine-shaped cloud-config, the `init` lane instead of the install lanes — to measure the installer's refusal. Any other value is rejected in preflight before anything is created. |
 | `GH_TOKEN` | unset | If set, the droplet verifies attestations online instead of offline. |
 
 ### Why the gateway runs as a non-root user
@@ -299,6 +307,7 @@ what is measured and where; it does not assert that any row should change.
 | Loopback-only exposure | `qualify identity` | `ss` showing only `127.0.0.1:4317`; connection refused to the droplet's tailnet IP on `4317`; connection refused to the droplet's **public** IP on `4317` from the workstation; `tailscale funnel status` showing no funnel. |
 | Platform install/doctor/uninstall | `qualify artifact lifecycle uninstall` | `sha256sum --check` result and measured archive digest; `cosign verify-blob` against all three `.sigstore.json` bundles at the exact certificate identity; `gh attestation verify` for all three artifacts at `--source-ref refs/tags/<tag>`; then install/doctor/uninstall executed from that verified archive's CLI. |
 | Release signing, SBOM, and provenance (Linux re-verification) | `qualify artifact` | The same three verifications performed on a clean Debian host with freshly downloaded `cosign` and `gh` binaries whose digests are recorded. |
+| Linux host lifecycle (init-system scope) | `OMP_QUAL_INIT=openrc qualify host artifact init` | On a host where `/run/systemd/system` is absent and `systemctl` is not on `PATH`: the `install` exit status, its verbatim message, whether a systemd unit / `config.json` / `publisher-token` / staged version directory survives the failure, whether `status`, `doctor`, and `uninstall` then behave intelligibly, and the three asserted safety properties — install refused, no gateway process, nothing answering on `4317`. See [section 10](#10-the-non-systemd-path-alpine-and-openrc). |
 
 Supporting measurements that are not themselves a row: the bundled `UPSTREAM.lock.json` tag and
 commit (relevant to the ledger's requirement that platform rows be re-run at the `v17.3.8` pin), the
@@ -334,6 +343,33 @@ refund a partial one, so destroying at minute five still costs one hour.
 
 If `TS_API_KEY` is not set, `destroy` says so and names the device to remove by hand. Skipping that is
 how tailnets accumulate dead nodes across runs.
+
+### Imported images: the second resource class
+
+An imported custom image is billed separately from the droplet, and it is the one that actually leaks.
+DigitalOcean charges **$0.06 per GB per month** to store one, free to upload, with no extra charge for
+additional regions. The Alpine generic image is about 0.18 GB, so roughly **one cent a month** — but
+unlike the droplet it never stops, because nothing in this repository ever deletes it.
+
+**Can this change leak an image? Yes, and deliberately so.** `destroy` does *not* delete a custom
+image. Importing takes several minutes, the image is reusable across runs, and deleting it would tax
+every subsequent OpenRC run for a fraction of a cent a month. Silence about it, however, is exactly
+how one survives for a year, so `destroy` now ends by listing **every** user image in the account —
+not only the one `OMP_QUAL_IMAGE` names — with its id, status, size, and monthly cost, and prints the
+delete command:
+
+```sh
+doctl compute image list-user                 # what is accruing storage right now
+doctl compute image delete <image-id> --force # the only thing that stops it
+```
+
+Listing all of them rather than the configured one is the point: a leak is visible even when `destroy`
+is run months later by someone who never set the knob that created it.
+
+The droplet side of teardown is unchanged. A droplet provisioned with `OMP_QUAL_INIT=openrc` never
+joined a tailnet and has no `tailscale` binary, so `destroy` reports the logout as skipped and
+tolerates the failed node-id lookup instead of aborting — an unguarded lookup there would have exited
+before `droplet delete`, which is the one failure mode teardown must never have.
 
 ## 7. Secret handling
 
@@ -381,6 +417,21 @@ how tailnets accumulate dead nodes across runs.
 - **Signature verification proves origin, not fitness.** Checksum, attestation, and Cosign results
   establish that the bytes are the ones the release workflow produced at that tag. They say nothing
   about whether that build passes any behavioural gate.
+- **The OpenRC path proves a refusal, not portability.** Lane `init` shows what `install` does on a
+  host with no systemd. A clean refusal says the installer fails safe; it says nothing about whether
+  the gateway would *work* under OpenRC, and no OpenRC service backend exists. The lane deliberately
+  does not start a foreground `serve` to find out, because leaving a daemon on a throwaway box is
+  worse than not knowing. What it does establish for free is that Bun's musl build loads and executes
+  the archive's CLI, since `install`, `status`, `doctor`, and `uninstall` all run far enough to
+  produce messages.
+- **The OpenRC droplet contributes nothing to the other rows.** It has no tailnet, so no Serve, no
+  identity matrix, and no `doctor` origin probe. It is not rebooted, so it says nothing about
+  persistence. Lane `host`'s three systemd fields — `systemd-detect-virt`, `systemctl --version`, and
+  the systemd version string — come out blank there, which is expected rather than a fault; lane
+  `init` prints the init-system facts instead.
+- **Alpine is one non-systemd distribution, chosen because it imports cleanly.** A refusal observed
+  there does not enumerate every init system, and the refusal's *wording* is a property of the
+  current implementation rather than a contract.
 
 ## 9. Unattended runs in CI
 
@@ -537,7 +588,142 @@ step runs before any droplet exists, and every message from those steps says so.
 A lane failure and a teardown failure look identical in the run list, so check the job summary: it
 records one line saying whether the droplet was destroyed, skipped, or possibly still billing.
 
-## 10. Related documents
+## 10. The non-systemd path: Alpine and OpenRC
+
+### 10.1 Why this exists and what a pass means
+
+`apps/gateway/src/service.ts` builds a systemd **user unit** for every `linux` platform and then drives
+`systemctl --user daemon-reload`, `enable`, and `start`. Nothing on that path inspects the init system.
+So the Linux implementation is systemd-only, and whether that is acceptable for alpha is a decision
+nobody has evidence for. The cheapest input to that decision is to run the existing lane against a
+non-systemd distribution and read the failure.
+
+**The expected result of this lane is a refused install.** That is not a caveat, it is the deliverable.
+"Cannot succeed" has three very different shapes and only one of them is safe:
+
+| Shape | What it means for the ledger |
+|---|---|
+| Non-zero exit, no process, no listener, an intelligible message | The installer fails closed on an unsupported init system. The Linux row's scope is bounded by observation, not by assumption. |
+| Non-zero exit but a daemon, a listener, or a half-written install left behind | A real defect: an operator on such a host is left with state they did not ask for and cannot manage. |
+| Zero exit | The worst answer. A systemd unit was written on a machine that will never read it, and `status` would be reporting on something that cannot run. |
+
+Lane `init` therefore asserts exactly three things, each a safety property rather than a message:
+**install refused**, **no gateway process survives**, **nothing answers on the gateway port**. The
+curl exit status is what decides the third, not its `%{http_code}` output, because `-w` still prints
+`000` on a refused connection.
+
+Everything else is measured and printed rather than asserted, because those measurements *are* the
+findings and predicting them would hide a surprise: the verbatim install output; whether the systemd
+unit file, `config.json`, `publisher-token`, a staged version directory, or `installation/current.json`
+outlive the failure; and what `status`, `doctor`, and `uninstall` then print.
+
+**No OpenRC backend is implemented and none is implied.** This lane passing means the refusal is
+clean. It does not mean OpenRC is supported, and nothing here papers over the refusal or retries past
+it.
+
+### 10.2 Importing the Alpine image
+
+**This is a procedure, not something the script runs.** `provision-linux-qual.sh` never creates,
+deletes, or mutates an image; it only reads one. Run these three steps by hand once, then pass the
+id.
+
+Alpine publishes generic cloud images with cloud-init pre-installed, which is DigitalOcean's hard
+requirement for a custom image. Take the **`bios`** variant, not `uefi`: DigitalOcean does not support
+UEFI boot for custom images. Take the **`generic_`** prefix, not `aws_`, and the `.qcow2` rather than
+the `.vhd`.
+
+```sh
+# 1. Import. --region is required and is where the image will live.
+#    The hosting server must answer HEAD requests; dl-cdn.alpinelinux.org does.
+doctl compute image create omp-qual-alpine \
+  --region sfo3 \
+  --image-distribution Alpine \
+  --image-description "omp-session-gateway non-systemd qualification" \
+  --image-url "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/cloud/generic_alpine-3.24.1-x86_64-bios-cloudinit-r0.qcow2" \
+  --output json
+
+# 2. Wait for it. An import is asynchronous and takes several minutes; `status` moves
+#    NEW -> available. Poll until it reads available, and record the id.
+doctl compute image list-user --output json |
+  jq -r '.[] | select(.name == "omp-qual-alpine") | "\(.id) \(.status) \(.regions | join(","))"'
+
+# 3. Pass it. A numeric OMP_QUAL_IMAGE is treated as a custom image id.
+export OMP_QUAL_IMAGE=<image-id>
+export OMP_QUAL_INIT=openrc
+export OMP_QUAL_RELEASE_TAG=<a published signed candidate tag>
+./scripts/provision-linux-qual.sh provision
+./scripts/provision-linux-qual.sh qualify        # defaults to: host artifact init
+./scripts/provision-linux-qual.sh destroy
+```
+
+Check the current filename before copying the URL above: Alpine's `latest-stable` branch moves, and
+the `r0` suffix is a rebuild counter.
+
+```sh
+curl -sS https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/cloud/ |
+  grep -o 'generic_alpine-[0-9.]*-x86_64-bios-cloudinit-r[0-9]*\.qcow2' | sort -u
+```
+
+Pick the newest by eye rather than with `sort | tail`: a two-digit patch release sorts before a
+one-digit one lexicographically, and `sort -V` is not portable to the BSD `sort` on macOS.
+
+Constraints worth knowing before spending the minutes:
+
+- **Custom images are region-scoped.** The image exists in the region you imported it into. Passing an
+  id whose regions do not include `OMP_QUAL_REGION` fails in preflight, by name, before a droplet is
+  created. Adding regions afterwards is free and is done in the control panel.
+- **Unix-like only. DigitalOcean does not support Windows images at all**, custom or otherwise, so
+  this path can never extend to Windows coverage. Windows qualification stays on hosted runners.
+- **Requirements the image must meet:** cloud-init (or an equivalent), an `ext3`/`ext4` root, BIOS
+  boot, one of raw/qcow2/vhdx/vdi/vmdk, and 100 GB or less uncompressed. Alpine's
+  `generic_…-bios-cloudinit-…qcow2` satisfies all of them, which is why it is the image named here.
+- **Cost and teardown:** see [section 6](#imported-images-the-second-resource-class). The image bills
+  at $0.06 per GB per month until *you* delete it; `destroy` never does, and lists every user image so
+  the omission is visible.
+
+### 10.3 What `OMP_QUAL_INIT=openrc` changes
+
+Nothing when it is unset. When it is set to `openrc`:
+
+| Behaviour | systemd (default) | openrc |
+|---|---|---|
+| Image validated against | `doctl compute image list-distribution` by slug | `doctl compute image get` by id, for existence, `available`, and this region |
+| cloud-config packages | `ca-certificates curl jq unzip iproute2 procps` | adds `bash`, `coreutils`, `grep`, `libstdc++`; drops `procps` |
+| Qualified user's login shell | `/bin/bash` | `/bin/ash` — cloud-init creates users before it installs packages, so naming a shell that is not installed yet leaves the account unusable in between. `remote()` asks for `bash` explicitly, so the login shell need not be it. |
+| `disable_root` | image default | stated `false`, because the lane logs in as root to measure and an imported image's `cloud.cfg` is not ours to trust |
+| `TS_AUTHKEY` | required in preflight | not required, and not requested |
+| Tailscale | installed, joined, tagged, `--operator` granted | none. Serve only serves lanes that need a running gateway, and installing `tailscaled` would mean writing an OpenRC service — precisely the thing this lane must not quietly do |
+| `loginctl enable-linger` | applied | not applicable |
+| Provision's last check | tailnet DNS name, tags, node id | distribution, kernel, pid 1, `/run/systemd/system`, `systemctl`, `rc-service`, `bash`; **fails if systemd is present**, because a systemd box cannot answer the question it was paid for |
+| Default lanes | `host artifact lifecycle migration identity persistence uninstall` | `host artifact init` |
+| `lifecycle`, `migration`, `identity`, `persistence`, `uninstall` | run | refused by name in preflight, before the droplet is contacted |
+
+Lane `init` needs `artifact` to have run first — it executes the extracted archive's CLI, not a
+development checkout — and says so rather than failing obscurely if it has not. Run on a systemd host
+it prints the init facts, states that there is no refusal to observe, points at lane `lifecycle`, and
+returns success without touching the install.
+
+### 10.4 Which ledger row this bears on
+
+**`Linux host lifecycle`**, currently **PARTIAL**, and secondarily
+**`Platform install/doctor/uninstall`**. Neither is promoted here and this lane cannot promote either:
+a refusal is not a lifecycle pass.
+
+What a clean refusal would let the ledger say, once run, is narrower and more useful than a pass:
+
+- that the Linux row's systemd scope is **established by measurement** rather than left implicit — the
+  existing evidence happens to be Debian/systemd, and until now nothing showed what the other case
+  does;
+- that the installer **fails closed** on an unsupported init system, leaving no process, no listener,
+  and (as measured) whatever residue it actually leaves — which is a security-relevant property, not
+  just a usability one;
+- that "non-systemd Linux" can be stated as explicitly out of scope with an observation behind it,
+  which is a `COMPATIBILITY.md` change for the lead, not a ledger promotion.
+
+A **failing** run is the more valuable outcome: it would mean an unsupported host is left holding a
+token, a staged runtime, or a listener, and that is a defect to file rather than a scope note to write.
+
+## 11. Related documents
 
 - [`RELEASE_STATUS.md`](RELEASE_STATUS.md) — the ledger; the only place a row's status changes.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — §4.E authorization and §4.F persistence scenarios this lane feeds.
@@ -545,5 +731,7 @@ records one line saying whether the droplet was destroyed, skipped, or possibly 
 - [`RELEASE.md`](RELEASE.md) — the canonical artifact verification commands this lane runs remotely.
 - [`OPERATIONS.md`](OPERATIONS.md) — install, Serve, paths, and `doctor` semantics.
 - [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) — the sibling lane for forward upgrade and rollback.
+- [`COMPATIBILITY.md`](COMPATIBILITY.md) — where a "non-systemd Linux is out of scope" statement would
+  belong once [section 10](#10-the-non-systemd-path-alpine-and-openrc) has been run. Owned by the lead.
 - [`.github/workflows/droplet-qualification.yml`](../.github/workflows/droplet-qualification.yml) —
   the scheduled unattended runner for this lane; see [section 9](#9-unattended-runs-in-ci).
