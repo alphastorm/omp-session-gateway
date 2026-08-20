@@ -42,10 +42,25 @@ export function serviceDefinition(
   const argv = serviceArgv(installedCli, readinessInstance);
   if (platform === "linux") {
     const command = argv.map(value => JSON.stringify(value)).join(" ");
+    // systemd refuses to start a unit whose ReadWritePaths= names a path that does not exist, and
+    // the runtime directory does not exist until the daemon binds its socket. That is invisible at
+    // install time, when a previous run has already created it, and fatal after a reboot: the user
+    // manager comes up, the unit fails, and the gateway silently never returns. Let systemd own the
+    // directory instead. RuntimeDirectory= creates it before start and it is implicitly writable,
+    // so it must not also appear in ReadWritePaths=. The mode is explicit because systemd defaults
+    // to 0755 while the gateway asserts a private runtime directory and would refuse to start.
+    const xdgRuntimeDir = process.env.XDG_RUNTIME_DIR;
+    const runtimeManagedBySystemd =
+      xdgRuntimeDir !== undefined && config.paths.runtimeDir === join(xdgRuntimeDir, "omp-session-gateway");
+    const readWritePaths = [config.paths.configDir, config.paths.stateDir];
+    if (!runtimeManagedBySystemd) readWritePaths.push(config.paths.runtimeDir);
+    const runtimeDirectory = runtimeManagedBySystemd
+      ? "RuntimeDirectory=omp-session-gateway\nRuntimeDirectoryMode=0700\n"
+      : "";
     return {
       identifier: "omp-session-gateway",
       path: join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "systemd", "user", "omp-session-gateway.service"),
-      content: `[Unit]\nDescription=OMP Session Gateway\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=${JSON.stringify(config.paths.configDir)} ${JSON.stringify(config.paths.stateDir)} ${JSON.stringify(config.paths.runtimeDir)}\n\n[Install]\nWantedBy=default.target\n`,
+      content: `[Unit]\nDescription=OMP Session Gateway\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=read-only\n${runtimeDirectory}ReadWritePaths=${readWritePaths.map(value => JSON.stringify(value)).join(" ")}\n\n[Install]\nWantedBy=default.target\n`,
     };
   }
   if (platform === "darwin") {
