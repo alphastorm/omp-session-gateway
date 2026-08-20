@@ -65,6 +65,19 @@ The private publisher token and IPC permissions still prevent a different local 
 registering sessions or satisfying managed-install readiness, but they do not authenticate browser
 API requests.
 
+Concretely, and stated as an operator rule because the reasoning above is easy to read as advisory:
+**never point any other forwarder at the gateway's loopback port.** A tunnel, reverse proxy, port
+forward, container publish, or SSH `-L` that terminates remote traffic and relays it to
+`127.0.0.1:<port>` presents a loopback peer, which satisfies the first authorization check in
+`apps/gateway/src/auth.ts`, and then forwards whatever `Tailscale-User-Login` the remote caller
+chose. That is not a weakened boundary but a complete authentication bypass: any client reaching the
+forwarder can name an allowlisted login and receive the session directory and live view and control
+capabilities. Tailscale Serve is safe here only because it overwrites caller-supplied identity
+headers; nothing else in this design does. A future non-Serve path therefore requires its own
+authenticator plus unconditional stripping of `Tailscale-User-*`, not merely a transport swap. See
+[#74](https://github.com/alphastorm/omp-session-gateway/issues/74) for a worked example of a
+proposal that fails on exactly this point.
+
 Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
