@@ -27,6 +27,47 @@ describe("service packaging", () => {
     expect(definition.content).not.toContain("0.0.0.0");
   });
 
+  test("lets systemd own a runtime directory that does not exist at boot", () => {
+    // Regression for #69. ReadWritePaths= naming a missing path makes systemd refuse to start the
+    // unit. The runtime directory only exists once the daemon has bound its socket, so the unit
+    // installed fine and then failed after every reboot, leaving the gateway silently absent.
+    const previous = process.env.XDG_RUNTIME_DIR;
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    try {
+      const linuxConfig: GatewayConfig = {
+        ...config,
+        paths: {
+          ...config.paths,
+          runtimeDir: "/run/user/1000/omp-session-gateway",
+          socketPath: "/run/user/1000/omp-session-gateway/registry.sock",
+        },
+      };
+      const definition = serviceDefinition(linuxConfig, "linux");
+      expect(definition.content).toContain("RuntimeDirectory=omp-session-gateway");
+      // systemd defaults this to 0755, which the gateway's private-directory assertion rejects.
+      expect(definition.content).toContain("RuntimeDirectoryMode=0700");
+      // A RuntimeDirectory= path is implicitly writable; repeating it here is what broke boot.
+      expect(definition.content).not.toContain('"/run/user/1000/omp-session-gateway"');
+    } finally {
+      if (previous === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = previous;
+    }
+  });
+
+  test("keeps a persistent runtime directory in ReadWritePaths", () => {
+    // Without XDG_RUNTIME_DIR the runtime directory lives under the state directory, persists
+    // across reboots, and must stay writable the ordinary way.
+    const previous = process.env.XDG_RUNTIME_DIR;
+    delete process.env.XDG_RUNTIME_DIR;
+    try {
+      const definition = serviceDefinition(config, "linux");
+      expect(definition.content).not.toContain("RuntimeDirectory=");
+      expect(definition.content).toContain(JSON.stringify(config.paths.runtimeDir));
+    } finally {
+      if (previous !== undefined) process.env.XDG_RUNTIME_DIR = previous;
+    }
+  });
+
   test("binds managed service readiness to the installed instance", () => {
     const readinessInstance = "R".repeat(43);
     const definition = serviceDefinition(config, "linux", "/private/runtime/cli.js", readinessInstance);
