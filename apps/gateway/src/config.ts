@@ -109,6 +109,7 @@ interface WindowsAclHelper {
   readonly send: (line: string) => Promise<void>;
   readonly receive: () => Promise<Uint8Array | undefined>;
   readonly kill: () => void;
+  readonly stderrSnapshot: () => string;
   readonly decoder: TextDecoder;
   buffer: string;
   nextRequestId: number;
@@ -131,15 +132,37 @@ function asciiJson(value: unknown): string {
   );
 }
 
+// A helper that accepts a request and never answers would otherwise block this check forever. During
+// `install` the readiness budget bounds that, but a directly-run `serve` has no such bound, so the
+// wait is capped here and reported as a timeout rather than as a hang with no diagnostic.
+const WINDOWS_ACL_REPLY_TIMEOUT_MS = 20_000;
+
 function startWindowsAclHelper(): WindowsAclHelper {
   const subprocess = Bun.spawn(
     ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACL_HELPER_SCRIPT],
-    { env: windowsPowerShellEnvironment(), stdin: "pipe", stdout: "pipe", stderr: "ignore" },
+    { env: windowsPowerShellEnvironment(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   );
   // The helper must never hold the daemon's event loop open. It ends by itself: closing our stdin at
-  // exit makes its `ReadLine` return null and the loop break.
+  // exit makes its `ReadLine` return null and the loop break. A pending stdout read still keeps the
+  // process alive on its own, verified on Bun 1.3.14: with the child unref'd and a read outstanding as
+  // the only pending work, the read settled after the child's full 5s delay rather than the process
+  // exiting early.
   subprocess.unref();
   const stdout = subprocess.stdout.getReader();
+  // The helper's own startup and parse failures are written to stderr, never to the structured reply
+  // channel, which only exists once its loop is already running. Discarding stderr made exactly the
+  // most likely failure of this design - an unstartable or malformed helper - report as nothing more
+  // than "exited before replying".
+  let stderrText = "";
+  void (async () => {
+    try {
+      for await (const chunk of subprocess.stderr as ReadableStream<Uint8Array>) {
+        if (stderrText.length < 2_000) stderrText += new TextDecoder().decode(chunk);
+      }
+    } catch {
+      // The helper is gone; whatever it managed to say is already captured.
+    }
+  })();
   return {
     send: async line => {
       subprocess.stdin.write(line);
@@ -147,6 +170,7 @@ function startWindowsAclHelper(): WindowsAclHelper {
     },
     receive: async () => (await stdout.read()).value,
     kill: () => subprocess.kill(),
+    stderrSnapshot: () => stderrText.trim().slice(0, 500),
     decoder: new TextDecoder(),
     buffer: "",
     nextRequestId: 1,
@@ -166,6 +190,7 @@ function stopWindowsAclHelper(): void {
 }
 
 async function readWindowsAclReply(helper: WindowsAclHelper): Promise<string> {
+  const deadline = Date.now() + WINDOWS_ACL_REPLY_TIMEOUT_MS;
   for (;;) {
     const newline = helper.buffer.indexOf("\n");
     if (newline >= 0) {
@@ -174,7 +199,15 @@ async function readWindowsAclReply(helper: WindowsAclHelper): Promise<string> {
       if (line.length > 0) return line;
       continue;
     }
-    const chunk = await helper.receive();
+    const remaining = deadline - Date.now();
+    // The caller attaches the helper's stderr; these messages stay plain so there is one place that
+    // decides how a failure is reported.
+    if (remaining <= 0) throw new Error("the private Windows ACL helper did not reply in time");
+    const chunk = await Promise.race([
+      helper.receive(),
+      new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), remaining).unref?.()),
+    ]);
+    if (chunk === "timeout") throw new Error("the private Windows ACL helper did not reply in time");
     if (chunk === undefined) throw new Error("the private Windows ACL helper exited before replying");
     helper.buffer += helper.decoder.decode(chunk, { stream: true });
   }
@@ -188,8 +221,10 @@ async function performWindowsAclRequest(
   const started = performance.now();
   let requestId = 0;
   let reply: unknown;
+  let active: WindowsAclHelper | undefined;
   try {
     const helper = (windowsAclHelper ??= startWindowsAclHelper());
+    active = helper;
     requestId = helper.nextRequestId;
     helper.nextRequestId += 1;
     await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
@@ -200,8 +235,15 @@ async function performWindowsAclRequest(
       windowsAclHelperSpawnCostMs = Math.max(windowsAclHelperSpawnCostMs ?? 0, helper.spawnCostMs);
     }
   } catch (error) {
+    // stderr is read on its own task, so on a start-up failure it may not have arrived yet. Yield
+    // once before reading it: without this the most informative part of the message is lost to a
+    // race, which is precisely the case this reporting exists for.
+    await Bun.sleep(0);
+    const captured = active?.stderrSnapshot() ?? "";
     stopWindowsAclHelper();
-    throw new Error(`the private Windows ACL helper failed for ${path}`, { cause: error });
+    const reason = error instanceof Error ? error.message : String(error);
+    const suffix = captured.length > 0 && !reason.includes(captured) ? `: ${captured}` : "";
+    throw new Error(`the private Windows ACL helper failed for ${path}: ${reason}${suffix}`, { cause: error });
   }
   const envelope = typeof reply === "object" && reply !== null ? reply : undefined;
   if (envelope === undefined || Reflect.get(envelope, "i") !== requestId) {

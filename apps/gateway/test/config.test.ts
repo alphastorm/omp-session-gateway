@@ -93,6 +93,8 @@ const fakeAcl = {
   requests: [] as string[],
   outcomes: new Map<string, FakeAclOutcome>(),
   desynchronise: false,
+  stderr: "",
+  exitBeforeReply: false,
 };
 
 function answerFakeAclRequest(line: string): string {
@@ -152,6 +154,14 @@ function installFakePowerShell(): () => void {
             if (newline < 0) return 0;
             const line = stdin.slice(0, newline);
             stdin = stdin.slice(newline + 1);
+            // A helper that died during start-up consumes the request and answers nothing; its
+            // stdout closes instead, which the reader below reports as EOF.
+            if (fakeAcl.exitBeforeReply) {
+              const closed = waiting;
+              waiting = undefined;
+              closed?.({ done: true });
+              continue;
+            }
             const reply = encoder.encode(`${answerFakeAclRequest(line)}\n`);
             const resolve = waiting;
             waiting = undefined;
@@ -165,12 +175,19 @@ function installFakePowerShell(): () => void {
           read: async (): Promise<{ value?: Uint8Array; done: boolean }> => {
             const next = pending.shift();
             if (next !== undefined) return { value: next, done: false };
+            // A helper that dies without answering closes its stdout, which the reader sees as EOF.
+            if (fakeAcl.exitBeforeReply) return { done: true };
             const gate = Promise.withResolvers<{ value?: Uint8Array; done: boolean }>();
             waiting = gate.resolve;
             return await gate.promise;
           },
         }),
       },
+      // The real helper writes start-up and parse failures only to stderr, so the fake has to offer
+      // the same channel or a test can never observe that they reach the caller.
+      stderr: (async function* (): AsyncGenerator<Uint8Array> {
+        if (fakeAcl.stderr.length > 0) yield new TextEncoder().encode(fakeAcl.stderr);
+      })(),
       unref: (): undefined => undefined,
       kill: (): undefined => undefined,
     };
@@ -182,6 +199,8 @@ function installFakePowerShell(): () => void {
     setPlatform(realPlatform);
     fakeAcl.outcomes.clear();
     fakeAcl.desynchronise = false;
+    fakeAcl.stderr = "";
+    fakeAcl.exitBeforeReply = false;
   };
 }
 
@@ -466,6 +485,26 @@ describe("Windows private-path ACL enforcement", () => {
       );
       // A helper failure must never be mistaken for ENOENT and remediated by minting a new token.
       expect(await readFile(config.paths.tokenPath, "utf8")).toBe(stored);
+    } finally {
+      restore();
+    }
+  });
+
+  test("surfaces the helper's own stderr when it dies before replying", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      // The realistic failure of this design is a helper that never gets as far as its reply loop:
+      // a bad script, a missing powershell.exe, a blocked execution policy. That cause reaches only
+      // stderr, so discarding it would reduce every such case to "exited before replying" and leave
+      // the operator with nothing to act on.
+      // A helper cached by an earlier assertion would answer from its own queue and never reach the
+      // start-up path this test is about.
+      await dropCachedAclHelper(config);
+      fakeAcl.stderr = "ParserError: unexpected token in expression";
+      fakeAcl.exitBeforeReply = true;
+      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("ParserError: unexpected token in expression");
     } finally {
       restore();
     }
