@@ -33,7 +33,7 @@ jobs:
         run: |
           bun -e @'
           const source = await Bun.file("apps/gateway/src/config.ts").text();
-          const match = source.match(/const WINDOWS_ACL_HELPER_SCRIPT =([\s\S]*?);\n/);
+          const match = source.match(/const WINDOWS_ACL_HELPER_SCRIPT =([\s\S]*?);\r?\n/);
           if (!match) throw new Error("could not extract the helper script");
           const script = eval(match[1].trim());
           console.log(`script length: ${script.length}`);
