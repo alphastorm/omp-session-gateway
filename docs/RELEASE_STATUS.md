@@ -130,9 +130,18 @@ The alpha decision remains **NO-GO** until, at minimum:
 5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
    current `v17.3.8` pin. The pin was refreshed on 2026-08-19 and only source-level evidence was
    regenerated with it, so every platform row still carries evidence gathered against
-   `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`; and
+   `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`;
 6. every advertised host/client combination completes its candidate-artifact capability-leak
-   acceptance across all forbidden sinks.
+   acceptance across all forbidden sinks; and
+7. the publisher stops latching itself off permanently and silently
+   ([#61](https://github.com/alphastorm/omp-session-gateway/issues/61)). On 2026-08-20 three live
+   OMP sessions disappeared from the directory and never returned while the daemon stayed healthy
+   (PID 41501, `ready`, doctor 16/16, socket listening, token unchanged since Jul 19); a freshly
+   started session published within 35s, proving the gateway side was sound. `#securityDisabled` is
+   a one-way latch that is never reset, the setup `catch` treats any non-`ENOENT`/`ECONNREFUSED`
+   error as a security event, and `this.#publisher ??=` means `/collab stop` plus `/collab` reuses
+   the latched instance. Only restarting the OMP process recovers, and nothing reports the state.
+   This defeats automatic discovery without appearing broken.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.
 It does not promote untested rows or broaden the pinned OMP range.
