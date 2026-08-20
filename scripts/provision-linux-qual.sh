@@ -40,9 +40,22 @@
 # mode-0600 file that a remote EXIT trap removes, and `tailscale up` reads it with the documented
 # `file:` form. The service's one-time readiness nonce is redacted where ExecStart is printed.
 #
+# The image is a parameter. OMP_QUAL_IMAGE defaults to the same `debian-13-x64` slug this lane has
+# always used, and also accepts a numeric DigitalOcean *custom image* id. Custom images have no slug,
+# so a purely numeric value is the only shape an imported image can take and the distinction needs no
+# second knob. That exists for one reason: the Linux service backend in apps/gateway/src/service.ts
+# builds a systemd user unit for every `linux` platform and then drives `systemctl --user`, with no
+# check on what init system is actually running. Whether systemd-only is acceptable for alpha is a
+# decision, and the cheapest input to it is to point this lane at a non-systemd distribution and read
+# the failure. OMP_QUAL_INIT=openrc provisions an imported Alpine image and runs lane `init`, whose
+# expected result is a *refused* install that leaves nothing running. See docs/LINUX_QUALIFICATION.md
+# §10 for the import procedure; no OpenRC service backend is implemented here and none should be
+# inferred from this lane passing.
+#
 # Cost. One `s-1vcpu-2gb` droplet, one fixed name, reused rather than duplicated. The EXIT trap
 # always reprints the destroy command, because the only way this lane becomes expensive is by being
-# forgotten.
+# forgotten. An imported custom image is a *second* billable resource and `destroy` deliberately does
+# not delete it, so `destroy` lists every user image in the account and names the delete command.
 #
 # Usage:
 #   scripts/provision-linux-qual.sh provision
@@ -50,7 +63,8 @@
 #   scripts/provision-linux-qual.sh status
 #   scripts/provision-linux-qual.sh destroy
 #
-# Lanes: host artifact lifecycle identity persistence uninstall (default: all, in that order).
+# Lanes, systemd: host artifact lifecycle migration identity persistence uninstall (default: all).
+# Lanes, OpenRC:  host artifact init (default: all three; the rest presume a working install).
 #
 set -euo pipefail
 
@@ -67,9 +81,19 @@ readonly GH_CLI_VERSION="${OMP_QUAL_GH_VERSION:-2.97.0}"
 readonly COSIGN_VERSION="${OMP_QUAL_COSIGN_VERSION:-3.1.3}"
 readonly GATEWAY_PORT="${OMP_QUAL_PORT:-4317}"
 
+# Which init system the droplet is expected to run. `systemd` is the historical and only supported
+# shape; `openrc` provisions a non-systemd box so the installer's refusal can be observed. Validated
+# in preflight_tools so a typo cannot reach a billable resource.
+readonly QUAL_INIT="${OMP_QUAL_INIT:-systemd}"
+
 # An address in a reserved TLD. Nobody can ever authenticate as this, which is what makes it a usable
 # stand-in for "a well-formed login that is not on the allowlist".
 readonly SYNTHETIC_DENIED_LOGIN="denied-identity@qual.invalid"
+
+# The OpenRC path never joins a tailnet, so it has no MagicDNS name to install against. `install`
+# only requires an exact HTTPS origin and refuses long before it resolves anything, so a reserved-TLD
+# placeholder is both sufficient and unable to name a real host.
+readonly OPENRC_SYNTHETIC_ORIGIN="https://openrc-qual.example.invalid"
 
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omp-session-gateway-qual"
 readonly STATE_FILE="$STATE_DIR/${DROPLET_NAME}.json"
@@ -97,6 +121,17 @@ sha256_of() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+# `doctl compute droplet create --image` accepts either a distribution slug or a numeric image id.
+# Imported custom images are only ever addressable by id — DigitalOcean assigns them no slug — so the
+# value's own shape decides which catalog to validate against, and an operator cannot desynchronise a
+# "kind" flag from the value it describes.
+image_kind() {
+  case "$DROPLET_IMAGE" in
+    '' | *[!0-9]*) printf 'distribution' ;;
+    *) printf 'custom' ;;
+  esac
 }
 
 droplet_exists_quietly() {
@@ -250,6 +285,12 @@ preflight_tools() {
   need_command scp
   need_command ssh-keygen
   need_command curl
+  # Checked here rather than at first use: every command routes through this function, and a typo
+  # must be rejected before anything is created or measured.
+  case "$QUAL_INIT" in
+    systemd | openrc) ;;
+    *) die "OMP_QUAL_INIT must be 'systemd' or 'openrc', not '$QUAL_INIT'. Nothing was created." ;;
+  esac
   doctl account get --output json >/dev/null 2>&1 ||
     die "doctl is not authenticated. Export DIGITALOCEAN_ACCESS_TOKEN or run 'doctl auth init'."
 }
@@ -292,10 +333,16 @@ CANDIDATES
   die "no local private key matches DigitalOcean SSH key '$key_name' (MD5:${do_fingerprint}). Add that key to your agent, or set OMP_QUAL_SSH_IDENTITY=/path/to/private_key. No droplet was created."
 }
 
+# Validates the image against whichever catalog can actually contain it, and prints the same
+# `image / size / region` and `hourly rate` lines as before so a default run's output is unchanged.
 preflight_catalog() {
-  doctl compute image list-distribution --output json |
-    jq -e --arg slug "$DROPLET_IMAGE" 'any(.[]; .slug == $slug)' >/dev/null ||
-    die "image slug $DROPLET_IMAGE does not exist in this account's distribution list"
+  if [ "$(image_kind)" = "custom" ]; then
+    preflight_custom_image
+  else
+    doctl compute image list-distribution --output json |
+      jq -e --arg slug "$DROPLET_IMAGE" 'any(.[]; .slug == $slug)' >/dev/null ||
+      die "image slug $DROPLET_IMAGE does not exist in this account's distribution list"
+  fi
   doctl compute size list --output json |
     jq -e --arg slug "$DROPLET_SIZE" --arg region "$DROPLET_REGION" \
       'any(.[]; .slug == $slug and .available and (.regions | index($region)))' >/dev/null ||
@@ -305,9 +352,42 @@ preflight_catalog() {
   measure "hourly rate" "\$$HOURLY_RATE per hour"
 }
 
+# A custom image can fail in three ways a distribution slug cannot: it may not exist, it may still be
+# importing, and — because custom images are region-scoped — it may exist in a region other than the
+# one we are about to create a droplet in. All three are cheap to check and expensive to discover
+# after `droplet create` has already been accepted, so check them before anything is created.
+preflight_custom_image() {
+  local image_json record status regions size_gb monthly
+  image_json="$(doctl compute image get "$DROPLET_IMAGE" --output json 2>/dev/null || true)"
+  # `doctl compute image get` prints a single-element array on success and an {"errors":[...]} object
+  # on failure, so normalise the shape rather than trusting the exit status.
+  record="$(printf '%s' "$image_json" |
+    jq -c 'if type == "array" then (.[0] // empty) else empty end' 2>/dev/null || true)"
+  [ -n "$record" ] ||
+    die "custom image id $DROPLET_IMAGE is not in this DigitalOcean account. List imported images with 'doctl compute image list-user'. No droplet was created."
+  status="$(printf '%s' "$record" | jq -r '.status // "unknown"')"
+  regions="$(printf '%s' "$record" | jq -r '(.regions // []) | join(",")')"
+  size_gb="$(printf '%s' "$record" | jq -r '.size_gigabytes // 0')"
+  measure "custom image name" "$(printf '%s' "$record" | jq -r '.name // "<unnamed>"')"
+  measure "custom image distribution" "$(printf '%s' "$record" | jq -r '.distribution // "Unknown"')"
+  measure "custom image status" "$status"
+  measure "custom image regions" "${regions:-<none>}"
+  # $0.06 per GB per month, and unlike the droplet it keeps billing after `destroy`.
+  monthly="$(jq -nr --arg gb "$size_gb" '(($gb | tonumber) * 0.06 * 100 | round) / 100')"
+  measure "custom image stored size / cost" "$size_gb GB, about \$$monthly per month until deleted"
+  [ "$status" = "available" ] ||
+    die "custom image id $DROPLET_IMAGE reports status '$status', not 'available'. An import takes several minutes; wait and retry. No droplet was created."
+  printf '%s' "$record" | jq -e --arg region "$DROPLET_REGION" '(.regions // []) | index($region)' >/dev/null ||
+    die "custom image id $DROPLET_IMAGE exists in regions [${regions:-none}] but not in $DROPLET_REGION. Custom images are region-scoped: add the region in the DigitalOcean control panel, or set OMP_QUAL_REGION to one it already covers. No droplet was created."
+}
+
 # ---------------------------------------------------------------------------- provision
 
 cloud_init_user_data() {
+  if [ "$QUAL_INIT" = "openrc" ]; then
+    cloud_init_user_data_openrc
+    return 0
+  fi
   # Deliberately free of secrets: user data is retrievable from the droplet's metadata service and
   # from the DigitalOcean API. Tailscale is installed here and never authenticated here.
   cat <<CLOUDINIT
@@ -337,6 +417,52 @@ runcmd:
 CLOUDINIT
 }
 
+# The Alpine/OpenRC variant. Four deliberate differences from the systemd user data above, each of
+# which is a property of the distribution rather than a preference:
+#
+#   * `bash` is a package here, and `remote()` runs `bash -s`. `coreutils` and `grep` replace the
+#     busybox applets whose option sets differ (`stat -c`, `grep -c`), and `libstdc++` is what Bun's
+#     musl build links against.
+#   * the qualified user's login shell is `/bin/ash`, not `/bin/bash`. cloud-init creates users in
+#     `cloud_init_modules` and installs packages later in `cloud_config_modules`, so naming a shell
+#     that does not exist yet leaves the account unusable in between. `remote()` asks for `bash`
+#     explicitly, so the login shell does not need to be it.
+#   * `disable_root: false` is stated rather than assumed. The lane logs in as root to measure, and
+#     an imported image's `cloud.cfg` is not ours to trust on that point.
+#   * no Tailscale. Serve is only needed by the lanes that require a working install, and the install
+#     is expected to be refused here. Installing tailscaled would also mean writing an OpenRC service
+#     for it, which is exactly the thing this lane must not quietly do.
+cloud_init_user_data_openrc() {
+  cat <<CLOUDINIT
+#cloud-config
+package_update: true
+packages:
+  - bash
+  - ca-certificates
+  - coreutils
+  - curl
+  - grep
+  - iproute2
+  - jq
+  - libstdc++
+  - unzip
+disable_root: false
+users:
+  - default
+  - name: ${QUAL_USER}
+    shell: /bin/ash
+    lock_passwd: true
+write_files:
+  - path: /etc/omp-qual-provisioned
+    content: "omp-session-gateway linux qualification droplet (non-systemd)\n"
+runcmd:
+  - [ sh, -c, "install -d -m 700 -o ${QUAL_USER} -g ${QUAL_USER} /home/${QUAL_USER}/.ssh" ]
+  - [ sh, -c, "cp /root/.ssh/authorized_keys /home/${QUAL_USER}/.ssh/authorized_keys" ]
+  - [ sh, -c, "chown ${QUAL_USER}:${QUAL_USER} /home/${QUAL_USER}/.ssh/authorized_keys" ]
+  - [ sh, -c, "chmod 600 /home/${QUAL_USER}/.ssh/authorized_keys" ]
+CLOUDINIT
+}
+
 # Two stdin consumers cannot share one ssh invocation, so the key transfer and the join are separate
 # calls: the key goes over stdin under a fixed argv (never in `ps`), then a second call uses it via
 # the documented `file:` form and removes it. Removal is attempted on both the success and failure
@@ -359,54 +485,10 @@ REMOTE
     die "'tailscale up' failed on the droplet. The auth key file was removed; check that the key is still valid, preauthorized, and carries $TAILNET_TAG."
 }
 
-cmd_provision() {
-  step "Preflight"
-  preflight_tools
-  preflight_ssh_key
-  preflight_catalog
-  [ -n "${TS_AUTHKEY:-}" ] ||
-    die "TS_AUTHKEY is not set. Create a tagged, preauthorized, non-ephemeral auth key carrying $TAILNET_TAG (see docs/LINUX_QUALIFICATION.md) and export it. No droplet was created."
-  case "$TS_AUTHKEY" in
-    tskey-auth-*) measure "Tailscale auth key" "present, tskey-auth form, value not printed" ;;
-    *) die "TS_AUTHKEY does not look like a Tailscale auth key (expected a tskey-auth- prefix). No droplet was created." ;;
-  esac
-
-  init_ssh_options
-  LOCAL_TEMP="$(mktemp -d)"
-
-  local created
-  step "Droplet"
-  if load_droplet; then
-    created="$(printf '%s' "$DROPLET_JSON" | jq -r '.created_at')"
-    measure "reusing existing droplet" "id $DROPLET_ID, $DROPLET_IP, created $created"
-    measure "cost so far" "$(accrued_cost "$created" "$HOURLY_RATE")"
-  else
-    note "creating $DROPLET_NAME ($DROPLET_SIZE, $DROPLET_IMAGE, $DROPLET_REGION)"
-    cloud_init_user_data >"$LOCAL_TEMP/cloud-init.yaml"
-    doctl compute droplet create "$DROPLET_NAME" \
-      --image "$DROPLET_IMAGE" \
-      --size "$DROPLET_SIZE" \
-      --region "$DROPLET_REGION" \
-      --ssh-keys "$SSH_KEY_ID" \
-      --tag-names "$DROPLET_NAME" \
-      --user-data-file "$LOCAL_TEMP/cloud-init.yaml" \
-      --wait --output json >"$LOCAL_TEMP/created.json"
-    load_droplet || die "droplet creation reported success but the droplet is not listed"
-    created="$(printf '%s' "$DROPLET_JSON" | jq -r '.created_at')"
-    measure "created" "id $DROPLET_ID, $DROPLET_IP, created $created"
-  fi
-  state_write droplet_id "$DROPLET_ID"
-
-  step "Readiness"
-  wait_for "droplet status active" 30 5 droplet_is_active
-  wait_for "ssh as root" 60 5 ssh_is_up
-  wait_for "cloud-init finished" 60 10 cloud_init_done
-  remote_root <<'REMOTE'
-errors="$(jq -r '.v1.errors | length' /run/cloud-init/result.json)"
-printf '   %-38s %s\n' "cloud-init errors:" "$errors"
-test "$errors" = "0"
-REMOTE
-
+# Extracted from cmd_provision unchanged so the OpenRC path can skip it as a unit. Everything here is
+# specific to a tailnet-joined systemd host: Serve, the operator grant, and lingering all exist to
+# serve lanes that presume a working install.
+provision_tailnet() {
   step "Tailnet"
   if tailscale_is_online; then
     note "already joined; leaving the existing session alone"
@@ -446,6 +528,90 @@ REMOTE
   if [ -z "$tags" ]; then
     warn "joined as an UNTAGGED node: it carries a user identity, so the 'identity' lane cannot prove denial and will be skipped."
     warn "to run that lane, destroy and re-provision with an auth key that applies $TAILNET_TAG."
+  fi
+}
+
+# The OpenRC counterpart. It joins nothing and grants nothing; it only establishes that the machine we
+# just paid for is genuinely not running systemd, because every conclusion lane `init` can support
+# depends on that. An imported image that turns out to ship systemd is a wasted droplet, and saying so
+# here costs one round trip instead of a full lane sequence.
+provision_init_facts() {
+  step "Init system"
+  remote_root <<'REMOTE' || die "this droplet reports systemd as its init system, so it cannot show the installer's non-systemd behaviour. Check that OMP_QUAL_IMAGE names the imported Alpine image. The droplet is still running; remove it with the destroy command below."
+show() { printf '   %-38s %s\n' "$1:" "$2"; }
+. /etc/os-release
+show "distribution" "${PRETTY_NAME:-unknown}"
+show "kernel" "$(uname -srm)"
+show "pid 1" "$(tr '\0' ' ' </proc/1/cmdline | awk '{print $1}')"
+show "/run/systemd/system" "$(test -d /run/systemd/system && echo present || echo absent)"
+show "systemctl on PATH" "$(command -v systemctl || echo absent)"
+show "rc-service on PATH" "$(command -v rc-service || echo absent)"
+show "bash on PATH" "$(command -v bash || echo absent)"
+# The assertion this whole path rests on. Printed above, enforced here.
+test ! -d /run/systemd/system
+REMOTE
+  note "No tailnet was joined: Tailscale Serve only serves lanes that need a running gateway, and the"
+  note "install is expected to be refused here. Lingering is a systemd concept and does not apply."
+}
+
+cmd_provision() {
+  step "Preflight"
+  preflight_tools
+  preflight_ssh_key
+  preflight_catalog
+  if [ "$QUAL_INIT" = "systemd" ]; then
+    [ -n "${TS_AUTHKEY:-}" ] ||
+      die "TS_AUTHKEY is not set. Create a tagged, preauthorized, non-ephemeral auth key carrying $TAILNET_TAG (see docs/LINUX_QUALIFICATION.md) and export it. No droplet was created."
+    case "$TS_AUTHKEY" in
+      tskey-auth-*) measure "Tailscale auth key" "present, tskey-auth form, value not printed" ;;
+      *) die "TS_AUTHKEY does not look like a Tailscale auth key (expected a tskey-auth- prefix). No droplet was created." ;;
+    esac
+  else
+    # The OpenRC path needs no auth key because it joins no tailnet, so demanding one would refuse a
+    # run for a credential it will never use.
+    measure "init system requested" "$QUAL_INIT (no tailnet, no auth key required)"
+  fi
+
+  init_ssh_options
+  LOCAL_TEMP="$(mktemp -d)"
+
+  local created
+  step "Droplet"
+  if load_droplet; then
+    created="$(printf '%s' "$DROPLET_JSON" | jq -r '.created_at')"
+    measure "reusing existing droplet" "id $DROPLET_ID, $DROPLET_IP, created $created"
+    measure "cost so far" "$(accrued_cost "$created" "$HOURLY_RATE")"
+  else
+    note "creating $DROPLET_NAME ($DROPLET_SIZE, $DROPLET_IMAGE, $DROPLET_REGION)"
+    cloud_init_user_data >"$LOCAL_TEMP/cloud-init.yaml"
+    doctl compute droplet create "$DROPLET_NAME" \
+      --image "$DROPLET_IMAGE" \
+      --size "$DROPLET_SIZE" \
+      --region "$DROPLET_REGION" \
+      --ssh-keys "$SSH_KEY_ID" \
+      --tag-names "$DROPLET_NAME" \
+      --user-data-file "$LOCAL_TEMP/cloud-init.yaml" \
+      --wait --output json >"$LOCAL_TEMP/created.json"
+    load_droplet || die "droplet creation reported success but the droplet is not listed"
+    created="$(printf '%s' "$DROPLET_JSON" | jq -r '.created_at')"
+    measure "created" "id $DROPLET_ID, $DROPLET_IP, created $created"
+  fi
+  state_write droplet_id "$DROPLET_ID"
+
+  step "Readiness"
+  wait_for "droplet status active" 30 5 droplet_is_active
+  wait_for "ssh as root" 60 5 ssh_is_up
+  wait_for "cloud-init finished" 60 10 cloud_init_done
+  remote_root <<'REMOTE'
+errors="$(jq -r '.v1.errors | length' /run/cloud-init/result.json)"
+printf '   %-38s %s\n' "cloud-init errors:" "$errors"
+test "$errors" = "0"
+REMOTE
+
+  if [ "$QUAL_INIT" = "systemd" ]; then
+    provision_tailnet
+  else
+    provision_init_facts
   fi
 
   step "Provisioned"
@@ -514,10 +680,13 @@ cmd_destroy() {
   # is what actually removes it, and that needs the Tailscale API.
   if [ "$present" -eq 1 ] && [ -n "$DROPLET_IP" ] && ssh_is_up; then
     if [ -z "$node_id" ]; then
+      # A droplet provisioned with OMP_QUAL_INIT=openrc never joined a tailnet and has no `tailscale`
+      # binary at all, so this substitution fails. An unguarded assignment would abort destroy under
+      # `set -e` and leave the droplet billing, which is the one outcome teardown must never have.
       node_id="$(remote_root <<'REMOTE'
-tailscale status --json | jq -r '.Self.ID // ""'
+tailscale status --json 2>/dev/null | jq -r '.Self.ID // ""'
 REMOTE
-)"
+)" || node_id=""
     fi
     remote_root <<'REMOTE' || true
 tailscale serve reset >/dev/null 2>&1 || true
@@ -563,6 +732,31 @@ REMOTE
   fi
   rm -f "$KNOWN_HOSTS" "$STATE_FILE"
   measure "local state" "removed $STATE_DIR entries for $DROPLET_NAME"
+
+  report_imported_images
+}
+
+# An imported custom image is a second billable resource class, and it is the one that actually leaks:
+# the droplet stops billing the moment it is deleted, whereas an image keeps costing $0.06 per GB per
+# month forever. `destroy` deliberately does not delete it — an import takes several minutes and is
+# reusable across runs, so deleting it would tax every subsequent run for a fraction of a cent a month
+# — but silence would be how one survives for a year. Listing every user image in the account, rather
+# than only the one OMP_QUAL_IMAGE happens to name, means a leak is visible even when `destroy` is run
+# without the knob that created it.
+report_imported_images() {
+  local images count
+  step "Imported images (not deleted by destroy)"
+  images="$(doctl compute image list-user --output json 2>/dev/null || true)"
+  count="$(printf '%s' "$images" | jq -r 'if type == "array" then length else 0 end' 2>/dev/null || echo 0)"
+  if [ "$count" = "0" ]; then
+    measure "user images in this account" "none (nothing is accruing image storage)"
+    return 0
+  fi
+  measure "user images in this account" "$count, listed below with monthly storage cost"
+  printf '%s' "$images" | jq -r '.[] |
+    "   \(.id)  \(.status)  \(.size_gigabytes // 0) GB  about $\(((.size_gigabytes // 0) * 0.06 * 100 | round) / 100)/month  \(.name)"'
+  note "These are NOT deleted by destroy. Remove one with: doctl compute image delete <id> --force"
+  note "Keeping the Alpine image is the cheap default; deleting it means the next OpenRC run re-imports."
 }
 
 # ---------------------------------------------------------------------------- qualification lanes
@@ -1100,14 +1294,168 @@ show "serve mapping after reset" "$(tailscale serve status 2>&1 | head -1)"
 REMOTE
 }
 
+# Lane `init`: what the installer does on a host whose init system it does not support.
+#
+# apps/gateway/src/service.ts builds a systemd user unit for every `linux` platform and then drives
+# `systemctl --user daemon-reload`, `enable`, and `start`. Nothing in that path inspects the init
+# system, so on an OpenRC host `install` cannot succeed. This lane exists because "cannot succeed" has
+# two very different shapes and the ledger needs to know which one is real: a refusal that leaves the
+# machine as it found it, or a partial install that reports failure while leaving a token, a staged
+# runtime, and possibly a listener behind.
+#
+# A NON-ZERO install exit is therefore the expected, successful outcome of this lane. Only three things
+# are asserted, and each is a safety property rather than a message: the install refused, no gateway
+# process survives, and nothing is listening. Everything else — the verbatim message, the residue, and
+# how `status`, `doctor`, and `uninstall` behave afterwards — is measured and printed for the lead to
+# read, because those are the findings, and asserting a predicted answer would hide a surprise.
+#
+# This lane implements no OpenRC backend and its passing must not be read as OpenRC being supported.
+lane_init() {
+  step "Lane 7: install on a host with no systemd"
+  remote_user GATEWAY_PORT="$GATEWAY_PORT" ORIGIN="$OPENRC_SYNTHETIC_ORIGIN" \
+    ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" <<'REMOTE'
+show() { printf '   %-38s %s\n' "$1:" "$2"; }
+
+# Measured, never inferred from OMP_QUAL_INIT: the knob shaped provisioning, the machine decides what
+# is running now.
+. /etc/os-release
+show "distribution" "${PRETTY_NAME:-unknown}"
+show "kernel" "$(uname -srm)"
+show "pid 1" "$(tr '\0' ' ' </proc/1/cmdline | awk '{print $1}')"
+show "/run/systemd/system" "$(test -d /run/systemd/system && echo present || echo absent)"
+show "systemctl on PATH" "$(command -v systemctl || echo absent)"
+show "rc-service on PATH" "$(command -v rc-service || echo absent)"
+show "rc-status default runlevel" "$(rc-status -s 2>/dev/null | wc -l | tr -d ' ') services listed"
+
+if [ -d /run/systemd/system ]; then
+  show "verdict" "systemd is running here, so there is no refusal to observe"
+  echo "   This lane measures the installer on a NON-systemd host. On systemd the applicable lane is"
+  echo "   'lifecycle', which installs for real; running this one would only duplicate it."
+  exit 0
+fi
+
+if [ ! -f ~/runtime-root ]; then
+  echo "no extracted artifact on this droplet: run lane 'artifact' before lane 'init'" >&2
+  exit 1
+fi
+root="$(cat ~/runtime-root)"
+bun=~/.bun/bin/bun
+cli="$root/apps/gateway/src/cli.js"
+unit="$HOME/.config/systemd/user/omp-session-gateway.service"
+config_dir="$HOME/.config/omp-session-gateway"
+state_dir="$HOME/.local/state/omp-session-gateway"
+
+# The runtime's own portability is a separate question from the service manager's, and it is answered
+# for free: this is Bun's musl build, and every CLI invocation below is that binary executing the
+# archive's JavaScript. `ldd --version` exits non-zero on musl, hence the guard.
+show "bun version" "$("$bun" --version)"
+show "libc" "$(ldd --version 2>&1 | head -1 || true)"
+show "XDG_RUNTIME_DIR" "${XDG_RUNTIME_DIR:-<unset>}"
+show "unit before install" "$(test -e "$unit" && echo present || echo absent)"
+show "config dir before install" "$(test -d "$config_dir" && echo present || echo absent)"
+
+# Capture the failure instead of dying on it: the message is the evidence this lane exists to collect.
+install_log="$(mktemp)"
+install_status=0
+"$bun" "$cli" install --origin "$ORIGIN" --allow "$ALLOWED_LOGIN" >"$install_log" 2>&1 || install_status=$?
+show "install exit status" "$install_status"
+show "install output bytes" "$(wc -c <"$install_log" | tr -d ' ')"
+printf '   install output, verbatim:\n'
+sed 's/^/     | /' "$install_log"
+rm -f "$install_log"
+
+# Residue. Printed rather than asserted: whether a systemd unit is written on a machine with no
+# systemd, and whether a token and a staged runtime outlive the refusal, are the open questions.
+show "unit after install" "$(test -e "$unit" && echo present || echo absent)"
+show "config.json after install" "$(test -e "$config_dir/config.json" && stat -c 'mode %a' "$config_dir/config.json" || echo absent)"
+show "publisher-token after install" "$(test -e "$config_dir/publisher-token" && stat -c 'mode %a, %s bytes' "$config_dir/publisher-token" || echo absent)"
+# busybox `find` has no `-printf`, and `ls` would miscount a name containing a newline, so count
+# directory entries with the intersection of GNU and busybox `find` that both support.
+show "staged version dirs" "$(find "$state_dir/installation/versions" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+show "installation/current.json" "$(test -e "$state_dir/installation/current.json" && echo present || echo absent)"
+
+# busybox `pgrep` has no `-u`, and the point of this droplet is that its userland is not the familiar
+# one, so read /proc directly rather than depend on procps being packaged under a particular name.
+# The glob is expanded once, before any helper in the loop exists, so the loop cannot match itself.
+pids=""
+for entry in /proc/[0-9]*; do
+  [ -r "$entry/cmdline" ] || continue
+  if tr '\0' ' ' <"$entry/cmdline" 2>/dev/null | grep -q 'cli\.js serve'; then
+    pids="$pids ${entry#/proc/}"
+  fi
+done
+pids="${pids# }"
+show "gateway processes" "${pids:-none}"
+
+# Assert on curl's exit status, not its stdout: `-w '%{http_code}'` still prints `000` when the
+# connection is refused, so the stdout of a failed probe is "000" *and* whatever the `||` branch adds.
+# The exit status is the unambiguous statement that nothing answered, and both numbers are printed.
+probe_status=0
+probe_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions" 2>/dev/null)" || probe_status=$?
+show "loopback probe curl exit / code" "$probe_status / ${probe_code:-<none>}"
+if command -v ss >/dev/null 2>&1; then
+  show "listeners on gateway port" "$(ss -ltnH "sport = :${GATEWAY_PORT}" | awk '{print $4}' | tr '\n' ' ' | grep . || echo none)"
+else
+  show "listeners on gateway port" "ss unavailable; the loopback probe above is the measurement"
+fi
+
+# How the rest of the CLI behaves after the refusal. All three are measurements: an operator who hits
+# this will run exactly these commands next, and what they print is part of whether the refusal is
+# intelligible or merely non-zero.
+status_status=0
+status_out="$("$bun" "$cli" status 2>&1)" || status_status=$?
+show "status exit status" "$status_status"
+show "status output" "$(printf '%s' "$status_out" | tr '\n' ' ' | cut -c1-160)"
+
+doctor_status=0
+doctor_out="$("$bun" "$cli" doctor 2>&1)" || doctor_status=$?
+show "doctor exit status" "$doctor_status"
+show "doctor output" "$(printf '%s' "$doctor_out" | tr '\n' ' ' | cut -c1-240)"
+
+uninstall_status=0
+uninstall_out="$("$bun" "$cli" uninstall 2>&1)" || uninstall_status=$?
+show "uninstall exit status" "$uninstall_status"
+show "uninstall output" "$(printf '%s' "$uninstall_out" | tr '\n' ' ' | cut -c1-240)"
+show "unit after uninstall" "$(test -e "$unit" && echo present || echo absent)"
+
+fail=0
+check() {
+  if [ "$2" = "$3" ]; then printf '   %-44s %-24s %s\n' "$1" "$2" PASS
+  else printf '   %-44s %-24s %s\n' "$1" "expected $3, got $2" FAIL; fail=1; fi
+}
+printf '\n   %-44s %-24s %s\n' INVARIANT OBSERVED RESULT
+check "install refused" "$([ "$install_status" -ne 0 ] && echo refused || echo accepted)" refused
+check "no gateway process survives" "${pids:-none}" none
+check "nothing answers on the gateway port" "$([ "$probe_status" -ne 0 ] && echo refused || echo "http $probe_code")" refused
+
+[ "$fail" -eq 0 ] || { echo "the refusal was not clean; read the FAIL rows above" >&2; exit 1; }
+REMOTE
+  note "A non-zero install with nothing left running is this lane PASSING. The Linux service backend"
+  note "is systemd-only and must refuse rather than half-install; the rows above say whether it does."
+  note "Nothing here implements or implies OpenRC support."
+}
+
 cmd_qualify() {
   local lane lanes="$*"
-  [ -n "$lanes" ] || lanes="host artifact lifecycle migration identity persistence uninstall"
-  # Reject a typo before anything slow or billable is touched.
+  # The default set follows the init system, because on a non-systemd host every lane after `artifact`
+  # presumes an install that is expected to be refused. A bare `qualify` there would spend twenty
+  # minutes of droplet time failing six lanes for the same already-known reason.
+  if [ -z "$lanes" ]; then
+    if [ "$QUAL_INIT" = "openrc" ]; then
+      lanes="host artifact init"
+    else
+      lanes="host artifact lifecycle migration identity persistence uninstall"
+    fi
+  fi
+  # Reject a typo, and an impossible lane, before anything slow or billable is touched.
   for lane in $lanes; do
     case "$lane" in
-      host | artifact | lifecycle | migration | identity | persistence | uninstall) ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall" ;;
+      host | artifact | init) ;;
+      lifecycle | migration | identity | persistence | uninstall)
+        [ "$QUAL_INIT" != "openrc" ] ||
+          die "lane '$lane' needs an installed service, and on a non-systemd host the install is expected to be refused. Run 'host artifact init' instead, or unset OMP_QUAL_INIT to qualify a systemd droplet."
+        ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall init" ;;
     esac
   done
 
@@ -1128,7 +1476,8 @@ cmd_qualify() {
       identity) lane_identity ;;
       persistence) lane_persistence ;;
       uninstall) lane_uninstall ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall" ;;
+      init) lane_init ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration identity persistence uninstall init" ;;
     esac
   done
 
