@@ -38,37 +38,43 @@ jobs:
           const script = eval(match[1].trim());
           console.log(`script length: ${script.length}`);
 
-          const child = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
-            stdin: "pipe", stdout: "pipe", stderr: "pipe",
-          });
+          const scriptPath = `${process.env.RUNNER_TEMP}\\omp-acl-helper.ps1`;
+          await Bun.write(scriptPath, script);
 
-          const request = JSON.stringify({ i: 1, op: "inspect", p: process.cwd(), dir: 1 });
-          console.log(`request: ${request}`);
-          child.stdin.write(request + "\n");
-          await child.stdin.flush();
+          // Three candidate spawns. `-Command <string>` is what the daemon does today and is the
+          // one already measured as never answering. `-File` is the documented way to run a script
+          // that reads its own stdin, and `-Command -` tells powershell to take commands from stdin.
+          const variants = [
+            ["baseline -Command", ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]],
+            ["-File", ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", scriptPath]],
+            ["-File without -NonInteractive", ["powershell.exe", "-NoProfile", "-File", scriptPath]],
+          ];
 
-          const reader = child.stdout.getReader();
-          const started = Date.now();
-          const raced = await Promise.race([
-            reader.read(),
-            new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 10_000)),
-          ]);
-          const elapsed = Date.now() - started;
+          for (const [label, argv] of variants) {
+            const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+            const request = JSON.stringify({ i: 1, op: "inspect", p: process.cwd(), dir: 1 });
+            child.stdin.write(request + "\n");
+            await child.stdin.flush();
 
-          if (raced === "TIMEOUT") {
-            console.log(`RESULT: no reply within ${elapsed}ms - the interactive stdin protocol does not work here`);
-          } else if (raced.done) {
-            console.log(`RESULT: stdout closed after ${elapsed}ms without a reply - the helper exited`);
-          } else {
-            console.log(`RESULT: replied in ${elapsed}ms: ${new TextDecoder().decode(raced.value).trim()}`);
+            const reader = child.stdout.getReader();
+            const started = Date.now();
+            const raced = await Promise.race([
+              reader.read(),
+              new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 10_000)),
+            ]);
+            const elapsed = Date.now() - started;
+
+            if (raced === "TIMEOUT") console.log(`RESULT ${label}: no reply within ${elapsed}ms`);
+            else if (raced.done) console.log(`RESULT ${label}: stdout closed after ${elapsed}ms without a reply`);
+            else console.log(`RESULT ${label}: replied in ${elapsed}ms: ${new TextDecoder().decode(raced.value).trim()}`);
+
+            child.kill();
+            const err = await Promise.race([
+              new Response(child.stderr).text().catch(() => ""),
+              new Promise(resolve => setTimeout(() => resolve(""), 2_000)),
+            ]);
+            console.log(`stderr ${label}: ${err.trim().slice(0, 600) || "(empty)"}`);
           }
-
-          child.kill();
-          const err = await Promise.race([
-            new Response(child.stderr).text().catch(() => ""),
-            new Promise(resolve => setTimeout(() => resolve(""), 2_000)),
-          ]);
-          console.log(`stderr: ${err.trim().slice(0, 1200) || "(empty)"}`);
           '@
 
       # If the round trip works, the hang is elsewhere; if it does not, this is the whole story.
