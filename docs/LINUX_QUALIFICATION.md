@@ -53,18 +53,34 @@ ambiguous by default: it can mean lingering started the user manager at boot, or
 login used to check created a session that pulled in `default.target`.
 
 Lane `persistence` removes the ambiguity by rebooting twice and measuring from **root only**, so the
-qualified user has zero login sessions at the instant of measurement:
+qualified user has no *login* session at the instant of measurement:
 
 - **Pass A, negative control.** `loginctl disable-linger ompqual`, reboot, then measure as root. The
-  daemon must be absent, `user@<uid>.service` must be `inactive`, and the loopback probe must fail.
-  A follow-up SSH login as `ompqual` then shows the unit starting, with a process age far smaller
-  than system uptime — which is what "a login session started it" looks like.
+  daemon must be absent and the user must own **no session of any class**; `user@<uid>.service` is
+  `inactive` and the loopback probe fails. A follow-up SSH login as `ompqual` then shows the unit
+  starting, with a process age far smaller than system uptime — which is what "a login session
+  started it" looks like.
 - **Pass B, the persistence claim.** `loginctl enable-linger ompqual`, reboot, measure as root again.
-  The daemon must be running while `loginctl list-sessions` shows **zero** sessions for that user,
-  and its process age must track system uptime rather than the age of our connection.
+  The daemon must be running, the user must own **no session of class `user`**, and it must own **at
+  least one session of class `manager`**. Its process age must track system uptime rather than the
+  age of our connection.
 
-Both passes print the session count and the `process Ns old, system up Ms` pair. Pass B is evidence
-only in combination with pass A; on its own it cannot distinguish the two causes.
+**The measurement is session class, never session count.** When lingering works the count can never
+be zero: the lingering user manager is itself a session, of class `manager`, type `unspecified`,
+`Remote=no`. Its presence is exactly what lingering succeeding looks like, and #69's original
+evidence recorded class `manager` for the same reason. Only a session of class `user` means somebody
+is logged in. An earlier revision of this lane printed the count and a narrative line claiming the
+count was zero; against candidate `v0.1.0-prealpha.17` the count printed `1` while the narrative
+asserted `0`, which read as the lane contradicting itself. The count was the wrong measurement, not
+the product's behaviour.
+
+Both passes print every session the user owns as `id(class=…,type=…,remote=…)`, the class-`user` and
+class-`manager` counts, and the `process Ns old, system up Ms` pair, and then assert the properties
+above and fail the lane if they do not hold. Sessions are enumerated by session id — the one column
+`loginctl list-sessions` has had in every systemd version — and classified with `loginctl
+show-session`, because that table's column layout has changed across releases and a positional field
+is not a fact. Pass B is evidence only in combination with pass A; on its own it cannot distinguish
+the two causes.
 
 Reboots are detected by boot id, not by a sleep: the script records
 `/proc/sys/kernel/random/boot_id`, issues the reboot, and returns only when SSH answers with a
@@ -220,18 +236,20 @@ sequence again:
 ./scripts/provision-linux-qual.sh qualify host
 ./scripts/provision-linux-qual.sh qualify artifact lifecycle
 ./scripts/provision-linux-qual.sh qualify migration
+./scripts/provision-linux-qual.sh qualify rollback
 ./scripts/provision-linux-qual.sh qualify identity
 ./scripts/provision-linux-qual.sh qualify persistence
 ./scripts/provision-linux-qual.sh qualify uninstall
 ```
 
-Default order is `host artifact lifecycle migration identity persistence uninstall`. The lanes are
-ordered so the identity matrix is captured before the reboots: a reboot failure then costs no
-identity evidence. `migration`, `identity`, and `persistence` all assume `lifecycle` has already
-installed the service; run them after it, or after a previous full run, not standalone on a fresh
-droplet. With `OMP_QUAL_INIT=openrc` the default becomes `host artifact init` and the five lanes that
-need an installed service are refused by name before a droplet is touched; see
-[section 10](#10-the-non-systemd-path-alpine-and-openrc).
+Default order is `host artifact lifecycle migration rollback identity persistence uninstall`. The
+lanes are ordered so the identity matrix is captured before the reboots: a reboot failure then costs
+no identity evidence. `migration`, `identity`, and `persistence` all assume `lifecycle` has already
+installed the service, and `rollback` additionally assumes `migration` has run — see
+[section 11](#11-the-two-rollback-mechanisms). Run them after those lanes, or after a previous full
+run, not standalone on a fresh droplet. With `OMP_QUAL_INIT=openrc` the default becomes
+`host artifact init` and the six lanes that need an installed service are refused by name before a
+droplet is touched; see [section 10](#10-the-non-systemd-path-alpine-and-openrc).
 
 Lane `migration` proves explicit forward upgrade and rollback on a real systemd user manager, which
 the macOS harness in [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) cannot do: it has no user unit, no
@@ -245,8 +263,25 @@ active version instead of going stale, the unit is still `enabled`, the main pid
 across the upgrade so the daemon is genuinely replaced, and the listener stays loopback-only. It
 skips with a message rather than failing when the two tags are equal.
 
-Do not set `OMP_QUAL_PREVIOUS_TAG` to `v0.1.0-prealpha.14` or earlier: those units predate the
-`RuntimeDirectory=` fix and fail after a reboot, which would confound a rollback result with #69.
+Every step `migration` takes is an `install`, so what it proves is **rollback-by-reinstall**. It
+never runs the `omp-gateway rollback` command. Lane `rollback` does, and the two are different code
+paths; do not read either as covering the other. See
+[section 11](#11-the-two-rollback-mechanisms).
+
+**Predecessor tags and the `RuntimeDirectory=` fix.** A predecessor at `v0.1.0-prealpha.14` or
+earlier renders a *pre-#69* unit: it names the runtime directory in `ReadWritePaths=` instead of
+letting systemd own it with `RuntimeDirectory=`, and such a unit fails after a reboot. That is only a
+hazard if a pre-fix unit is still installed when something reboots the box, so the ordering matters:
+lane `rollback` deliberately ends by putting the candidate back, which rewrites the unit into the
+post-fix shape and asserts it, so `persistence` never reboots onto a pre-fix unit. Running
+`migration` and then `persistence` **without** `rollback` in between does reboot onto one, and the
+failure you would get is #69 rather than anything about upgrade or rollback.
+
+At the time of writing the only published releases are `v0.1.0-prealpha.13` and
+`v0.1.0-prealpha.17`; `.14`, `.15`, and `.16` exist as neither releases nor tags, so the script's
+`OMP_QUAL_PREVIOUS_TAG` default of `v0.1.0-prealpha.15` names nothing reproducible. Set it
+explicitly. `.13` is the only predecessor a third party can currently fetch, and it is a pre-#69
+artifact, which is why the paragraph above is an ordering rule rather than a prohibition.
 
 Lane `uninstall` leaves the droplet clean — no service, no Serve mapping — so the next `qualify` starts
 from the same state as the first.
@@ -268,7 +303,7 @@ from the same state as the first.
 | `OMP_QUAL_GH_VERSION` | `2.97.0` | `gh` release fetched onto the droplet. |
 | `OMP_QUAL_COSIGN_VERSION` | `3.1.3` | `cosign` release fetched onto the droplet. |
 | `OMP_QUAL_TAG` | `tag:omp-session-gateway` | Tag the auth key is expected to carry; used in messages only. |
-| `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-prealpha.15` | Predecessor tag for the `migration` lane. Must be `.15` or later; earlier units predate the `RuntimeDirectory=` fix. |
+| `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-prealpha.15` | Predecessor tag for the `migration` lane, and the first of the two archives lane `rollback` reads. **The default names nothing reproducible** — no `.15` release or tag exists — so set it explicitly; see [section 4](#4-running-the-lane). |
 | `OMP_QUAL_INIT` | `systemd` | `systemd` is the historical path and changes nothing. `openrc` provisions a non-systemd box — no Tailscale, an Alpine-shaped cloud-config, the `init` lane instead of the install lanes — to measure the installer's refusal. Any other value is rejected in preflight before anything is created. |
 | `GH_TOKEN` | unset | If set, the droplet verifies attestations online instead of offline. |
 
@@ -302,7 +337,8 @@ what is measured and where; it does not assert that any row should change.
 | Ledger row | Command | Observable |
 |---|---|---|
 | Linux host lifecycle | `qualify host lifecycle uninstall` | `systemd-detect-virt` on a booting machine; `status` returning `{installed:true,active:true,ready:true,authMode:"tailscale-serve"}` from the archive CLI; `config.json` `600` in a `700` directory; `publisher-token` `600`; `registry.sock` under `$XDG_RUNTIME_DIR`; main PID before/after `rotate-publisher-token`; `uninstall --no-stop` refused while active; unit file, process, and listener all gone after `uninstall`. |
-| Linux host lifecycle (reboot/login half) | `qualify persistence` | Pass A: lingering off, zero sessions, `user@<uid>.service` `inactive`, no daemon PID, loopback probe fails. Pass B: lingering on, zero sessions, `user@<uid>.service` `active`, daemon PID present, process age ≈ system uptime, loopback probe `403`. |
+| Linux host lifecycle (reboot/login half) | `qualify persistence` | Pass A: lingering off, no session of any class for the user, `user@<uid>.service` `inactive`, no daemon PID, loopback probe fails. Pass B: lingering on, no session of class `user` and at least one of class `manager`, `user@<uid>.service` `active`, daemon PID present, process age ≈ system uptime, loopback probe `403`. Every session the user owns is printed with its class, type, and remote flag. |
+| Configuration migration and rollback (command path) | `qualify rollback` | `omp-gateway rollback` refusing to guess when the activation history names no predecessor, with its message compared against the one `installation.ts` documents; `rollback --to <version-directory>` and the bare form each moving `current.json`, rewriting the unit's `ExecStart` to an absolute versioned path, reloading the unit, restarting the daemon, rebinding the loopback listener, and leaving `config.json` and the publisher token byte-identical; `history.json` gaining one activation equal to the new pointer and written after it; and an induced definition-newer-than-pointer divergence reported by `status` and repaired back to the older proven version. See [section 11](#11-the-two-rollback-mechanisms). |
 | Tailscale Serve identity and application allowlist | `qualify identity` | `403` for the tagged self-probe with zero `Tailscale-User-*` headers reaching the backend, and `tailscale whois` reporting no user profile; `403` for the workstation's real identity while the allowlist holds a synthetic address; `200` once its login is allowlisted; the forged-header pair denied-then-ignored. |
 | Loopback-only exposure | `qualify identity` | `ss` showing only `127.0.0.1:4317`; connection refused to the droplet's tailnet IP on `4317`; connection refused to the droplet's **public** IP on `4317` from the workstation; `tailscale funnel status` showing no funnel. |
 | Platform install/doctor/uninstall | `qualify artifact lifecycle uninstall` | `sha256sum --check` result and measured archive digest; `cosign verify-blob` against all three `.sigstore.json` bundles at the exact certificate identity; `gh attestation verify` for all three artifacts at `--source-ref refs/tags/<tag>`; then install/doctor/uninstall executed from that verified archive's CLI. |
@@ -317,14 +353,19 @@ commit (relevant to the ledger's requirement that platform rows be re-run at the
 **The sibling lane.** `Configuration migration and rollback` is also measured on macOS by
 [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) and `scripts/qualify-rollback.sh`. That harness has no
 user unit, no `enable` state, and no service manager owning the runtime directory, which is why lane
-`migration` above exists: the Linux half of the same claim. The two are independent, so this
+`migration` above exists: the Linux half of the same claim. It also predates the `omp-gateway
+rollback` command and installs with `--no-start` throughout, so it never activates anything and never
+runs the command — which is why lane `rollback` exists as well. The three are independent, so this
 `qualify` can run before or after that one.
 
 ## 6. Teardown and cost
 
-One `s-1vcpu-2gb` droplet at **$0.01786 per hour**, about **$0.43 per day**. A full `qualify` run is
-roughly twenty minutes including two reboots, so the qualification itself costs well under a cent.
-The only way this lane becomes expensive is by being forgotten, which is why:
+One `s-1vcpu-2gb` droplet at **$0.01786 per hour**, about **$0.43 per day**. A full `qualify` run was
+roughly twenty minutes including two reboots before lane `rollback` existed; that lane adds up to
+seven service restarts and one reinstall, each bounded by its own 30-second listener wait, so budget
+a few minutes more. Either way the qualification itself costs well under a cent, and the whole
+sequence still fits inside one billed hour. The only way this lane becomes expensive is by being
+forgotten, which is why:
 
 - `provision` prints the hourly rate;
 - `status` prints hours elapsed and dollars accrued;
@@ -407,7 +448,17 @@ before `droplet delete`, which is the one failure mode teardown must never have.
 - **`doctor` does not reach 16/16 on the tagged node,** by construction. See the table in
   [section 2](#gap-3--denied-tailscale-identity). A full-pass `doctor` on Linux would require a
   user-owned node, which would in turn make the denial case unavailable.
-- **Upgrade and rollback are out of scope here.**
+- **Neither rollback lane proves the crash window is small.** Lane `rollback` induces the one
+  reachable divergence between the service definition and `current.json` and measures how the next
+  command treats it. It says nothing about how likely that window is, and it does not reach
+  `rollback`'s own repair path — the branch that rebuilds the definition from `current.json` when an
+  activation fails — because reaching it means breaking a staged runtime, and a deliberately
+  corrupted runtime is not evidence about this candidate. See
+  [section 11](#11-the-two-rollback-mechanisms).
+- **The conservative divergence repair was not performed by the rollback command.** With two
+  installed versions no invocation can do it, so the reinstall that `status`'s `DIVERGED` message
+  also prescribes is what the lane measures. No third version is manufactured to make the command
+  reach it.
 - **Persistence is proven for systemd user lingering on this distribution only.** It says nothing
   about the macOS LaunchAgent or the Windows scheduled task, both of which have their own untested
   reboot/login story.
@@ -561,11 +612,12 @@ Two lanes are weaker on a runner than on a workstation, by construction:
 - **The public-IP probe is better from CI, not worse.** A GitHub runner is a genuine public-Internet
   host, so "connection refused to the droplet's public IP on `4317`" is measured from one.
 
-`migration` needs `OMP_QUAL_PREVIOUS_TAG` to name a published release that is `v0.1.0-prealpha.15` or
-later, for the reason in [section 4](#4-running-the-lane). Both tags are inputs with explicit
-defaults rather than a lookup of the newest release: a scheduled run must qualify a decided candidate,
-and silently following the newest tag would change what the evidence is about without anybody choosing
-that. The preflight checks that both tags exist and carry all six expected assets before provisioning.
+`migration` needs `OMP_QUAL_PREVIOUS_TAG` to name a published release, and `rollback` needs
+`migration` to have run in front of it; see [section 4](#4-running-the-lane) for the ordering rule a
+pre-#69 predecessor unit imposes. Both tags are inputs with explicit defaults rather than a lookup of
+the newest release: a scheduled run must qualify a decided candidate, and silently following the
+newest tag would change what the evidence is about without anybody choosing that. The preflight
+checks that both tags exist and carry all six expected assets before provisioning.
 
 ### 9.6 Reading a failure
 
@@ -695,8 +747,8 @@ Nothing when it is unset. When it is set to `openrc`:
 | Tailscale | installed, joined, tagged, `--operator` granted | none. Serve only serves lanes that need a running gateway, and installing `tailscaled` would mean writing an OpenRC service — precisely the thing this lane must not quietly do |
 | `loginctl enable-linger` | applied | not applicable |
 | Provision's last check | tailnet DNS name, tags, node id | distribution, kernel, pid 1, `/run/systemd/system`, `systemctl`, `rc-service`, `bash`; **fails if systemd is present**, because a systemd box cannot answer the question it was paid for |
-| Default lanes | `host artifact lifecycle migration identity persistence uninstall` | `host artifact init` |
-| `lifecycle`, `migration`, `identity`, `persistence`, `uninstall` | run | refused by name in preflight, before the droplet is contacted |
+| Default lanes | `host artifact lifecycle migration rollback identity persistence uninstall` | `host artifact init` |
+| `lifecycle`, `migration`, `rollback`, `identity`, `persistence`, `uninstall` | run | refused by name in preflight, before the droplet is contacted |
 
 Lane `init` needs `artifact` to have run first — it executes the extracted archive's CLI, not a
 development checkout — and says so rather than failing obscurely if it has not. Run on a systemd host
@@ -723,14 +775,155 @@ What a clean refusal would let the ledger say, once run, is narrower and more us
 A **failing** run is the more valuable outcome: it would mean an unsupported host is left holding a
 token, a staged runtime, or a listener, and that is a defect to file rather than a scope note to write.
 
-## 11. Related documents
+## 11. The two rollback mechanisms
+
+**This lane has not been executed yet.** It was validated statically — `bash -n`, `shellcheck` with
+zero findings, every remote heredoc extracted and parsed on its own, and its pure-shell helpers
+unit-tested against known inputs — and no part of it has run against a droplet. Nothing below is a
+measurement; it is what the lane will measure. The first real run is the lead's.
+
+### 11.1 Why there are two
+
+There is no single rollback implementation. There are two, and they share almost nothing:
+
+| | Rollback by reinstall | The `rollback` command |
+|---|---|---|
+| How | `omp-gateway install` from the predecessor's archive again | `omp-gateway rollback [--to <version-directory>]` |
+| Chooses its target by | whatever archive the operator points at | reading `installation/history.json`, or `--to` |
+| Refuses when | the prior runtime cannot be verified | the history names no predecessor, `--to` is malformed, names the active version, or names a version that is not installed |
+| Stages a payload | yes, a fresh one | no, it activates a runtime already on disk |
+| Repairs a diverged definition | by rewriting it for the payload it just staged | by rebuilding it from `current.json` when its own activation fails |
+| Linux lane | `migration` | `rollback` |
+| macOS harness | `scripts/qualify-rollback.sh` | not covered: the command postdates it |
+
+Lane `migration` drives the left column only — all three of its steps are installs — and it passes
+11/11 against `v0.1.0-prealpha.17` on a Debian 13 droplet. It never invokes the command, so nothing
+in the right column was covered on any platform before lane `rollback` existed. Do not read either
+lane as evidence for the other, and do not read the macOS harness as evidence for the command.
+
+### 11.2 The two-artifact prerequisite
+
+Both artifacts are the ones lane `migration` already downloaded, verified, and extracted:
+`~/runtime-prev` from `OMP_QUAL_PREVIOUS_TAG` and `~/runtime-root` from `OMP_QUAL_RELEASE_TAG`. Lane
+`rollback` downloads nothing and stages nothing; it reads those two roots and the install `migration`
+left behind. It therefore needs `artifact lifecycle migration` in front of it, has no environment
+knob of its own, and fails closed by name — not obscurely — when any of that is missing.
+
+Two properties of the artifacts decide what the lane can observe, and both are consequences of
+[#78](https://github.com/alphastorm/omp-session-gateway/pull/78) rather than of tag ordering:
+
+- **The candidate must carry the command.** The lane greps the candidate's own `cli.js` for the
+  rollback target resolver and refuses when it is absent, because a candidate that predates #78 gives
+  it nothing to exercise. `v0.1.0-prealpha.17` is the first release that carries it.
+- **The predecessor decides whether a bare `rollback` can resolve anything at first.**
+  `history.json` is written only by the CLI performing an activation, so a predecessor older than #78
+  records nothing. Installing `.13` then `.17` then `.13` — what `migration` does — leaves a history
+  naming only `.17`'s staged directory, and a bare `rollback` from `.13` then correctly refuses:
+  *"refusing to guess a rollback target: no activation of the active version … is recorded"*. The
+  lane asserts that refusal rather than stepping around it, then seeds the history with two explicit
+  `rollback --to` invocations, which the candidate's CLI does record, and only then exercises the bare
+  form. It works the same way if both artifacts carry #78; the refusal step simply becomes an asserted
+  success instead.
+
+Which staged directory belongs to which archive is decided by digest, never by `current.json` and
+never by the history: the installer copies a `.js` CLI into the staged runtime verbatim in both
+artifacts, so a staged version directory whose `apps/gateway/src/cli.js` matches an archive's byte for
+byte was staged from that archive. Every "it went back to the predecessor" claim is anchored to that,
+so none of them can be satisfied by a pointer that merely changed.
+
+### 11.3 Invoking it
+
+```sh
+export OMP_QUAL_RELEASE_TAG=v0.1.0-prealpha.17   # the candidate; must carry PR #78
+export OMP_QUAL_PREVIOUS_TAG=v0.1.0-prealpha.13  # the only other published release
+
+./scripts/provision-linux-qual.sh qualify artifact lifecycle migration rollback
+```
+
+On a droplet that has already run `artifact lifecycle migration` in an earlier invocation,
+`./scripts/provision-linux-qual.sh qualify rollback` is enough. The lane is also in the default order,
+between `migration` and `identity`.
+
+### 11.4 What it proves
+
+Every row below is asserted, prints the value it observed, and fails the lane when it does not hold.
+
+1. **The refusal.** A bare `rollback` with no recorded predecessor exits non-zero, names no target,
+   and changes nothing — not the pointer, not the service definition, not the daemon, not the
+   history. Its message is compared against the one `apps/gateway/src/installation.ts` documents, so
+   a drift between the command and its own docstring shows up as a failing row rather than being
+   absorbed.
+2. **`--to <version-directory>`,** three times, reporting selection `requested`.
+3. **The bare form,** twice, reporting selection `recorded-predecessor` and landing on the
+   predecessor the lane computes independently from `history.json` — which also demonstrates the
+   documented oscillation between two versions.
+4. **Around every one of those:** `current.json` names the target; the unit *file* and the *loaded*
+   unit both name it, so the definition was rewritten and `daemon-reload` really happened; the
+   `ExecStart` path is absolute and under that version directory; the daemon's main PID changes; the
+   loopback listener is bound again and is loopback-only; `config.json` and the publisher token are
+   byte-identical to their pre-lane digests and the token keeps mode `600`; `history.json` gains one
+   activation equal to the new pointer — or none, when the history already ended with that version,
+   which is the documented idempotence — and its nanosecond mtime is at or after `current.json`'s, so
+   the append followed the pointer commit; and `status` reports
+   `installed/active/ready` with `diverged: false`.
+5. **The induced divergence.** `install` and `rollback` both write the service definition first and
+   advance `current.json` only after the new runtime proves loopback readiness, so exactly one
+   divergence direction is reachable: a crash between those two writes leaves the definition naming a
+   *newer* version than the pointer. The lane reproduces that state by hand, including the restart a
+   real crash would already have completed, and then asserts that `status` reports `diverged: true`
+   with `activeVersion` at the pointer and `serviceVersion` at the definition, exits non-zero, and
+   prints `DIVERGED`; that `rollback --to` the pointer's own version is refused; and that the repair
+   returns the service to the older proven version, adopting the newer one neither in the pointer nor
+   in the definition, and recording no new activation.
+6. **The exit state.** The lane finishes by putting the candidate back with a third `--to`, and
+   asserts the unit it leaves behind carries `RuntimeDirectory=`. Later lanes measure the candidate,
+   and `persistence` reboots; a predecessor unit predating the #69 fix would fail that reboot for
+   reasons that are #69 and not rollback.
+
+### 11.5 What it does not prove
+
+- **The command did not perform the conservative divergence repair.** With two installed versions no
+  invocation can: `--to` the pointer's own version is refused, and every other target adopts a
+  version the pointer never proved. The repair the lane measures is the reinstall that `status`'s
+  `DIVERGED` message also prescribes, and the lane says so in its own output. No third version is
+  manufactured to make the command reach it, because that would be testing a state the product
+  cannot be in.
+- **`rollback`'s own repair branch is not reached.** The `catch` that rebuilds the definition from
+  `current.json` runs only when a rollback's activation fails, which means breaking a staged runtime.
+  A deliberately corrupted runtime is not evidence about this candidate.
+- **The opposite divergence direction is not induced,** because no command produces it: neither
+  `install` nor `rollback` writes `current.json` before the service definition.
+- **The crash window is not measured,** only the state a crash inside it leaves and how the next
+  command treats that state.
+- **History ordering is shown by mtime,** which orders two writes and says nothing about atomicity.
+  Those two writes are documented as *not* atomic.
+- **Nothing here is isolated from a production daemon,** and it does not need to be: the droplet has
+  one user, one service, and no live daemon to protect. The macOS harness's host-daemon and
+  host-plist invariants have no analogue and are not simulated.
+- **Five of lane 4's rows are not re-asserted here** — predecessor install names a version, the
+  active version changes on the forward upgrade, the predecessor directory survives it, the unit
+  stays `enabled`, and a reinstall preserves config and token. They belong to the reinstall path,
+  lane `migration` already establishes them, and two overlapping sources of truth for one claim are
+  worse than one. The lane prints them where they are cheap to read.
+
+### 11.6 One thing to check before recording numbers
+
+The `lanes` dispatch input in
+[`droplet-qualification.yml`](../.github/workflows/droplet-qualification.yml) validates lane names
+against a fixed list that does not yet include `rollback`, so an explicit CI subset naming it fails
+preflight. An empty `lanes` input runs the script's full default order and therefore picks the lane up
+already. That file is the lead's.
+
+## 12. Related documents
 
 - [`RELEASE_STATUS.md`](RELEASE_STATUS.md) — the ledger; the only place a row's status changes.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — §4.E authorization and §4.F persistence scenarios this lane feeds.
 - [`SECURITY.md`](SECURITY.md) — §4 network exposure, §8 tailnet authorization, §13 acceptance gates.
 - [`RELEASE.md`](RELEASE.md) — the canonical artifact verification commands this lane runs remotely.
 - [`OPERATIONS.md`](OPERATIONS.md) — install, Serve, paths, and `doctor` semantics.
-- [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) — the sibling lane for forward upgrade and rollback.
+- [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) — the macOS harness for forward upgrade and
+  rollback-by-reinstall. It predates the `omp-gateway rollback` command and never runs it; see
+  [section 11](#11-the-two-rollback-mechanisms) for why that leaves a second lane to run.
 - [`COMPATIBILITY.md`](COMPATIBILITY.md) — where a "non-systemd Linux is out of scope" statement would
   belong once [section 10](#10-the-non-systemd-path-alpine-and-openrc) has been run. Owned by the lead.
 - [`.github/workflows/droplet-qualification.yml`](../.github/workflows/droplet-qualification.yml) —
