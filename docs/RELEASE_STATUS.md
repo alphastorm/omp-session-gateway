@@ -1,7 +1,7 @@
 # Release status
 
 **Updated:** 2026-08-21<br>
-**Repository version:** `0.1.0`, alpha candidate **`provenance-test-v0.1.0.11`** (published, independently verified)<br>
+**Repository version:** `0.1.0`, released as **`v0.1.0-alpha`** (published, independently verified)<br>
 **Classification:** qualified alpha<br>
 **Alpha decision:** **GO**, for the combinations named immediately below and for nothing else<br>
 
@@ -13,6 +13,19 @@
 | macOS 26.6.1 arm64 (`Mac14,3`, build `25G76`) | 2026-08-21, `doctor` **17/17**, reboot persistence, distinct-node probe refused | `provenance-test-v0.1.0.11` |
 
 **Advertised client:** Chrome `151.0.7922.139` on Android 17 (Pixel 10 Pro, build `CP2A.260805.005`, SDK 37).
+
+**`v0.1.0-alpha` is published, and its runtime is the qualified runtime.** Both host lanes ran
+against `provenance-test-v0.1.0.11`, built from commit `48485a7f`; the alpha is built from
+`6e9bf586`, which adds only this document and the release workflow's tag contract. That difference
+was checked rather than asserted: extracting both archives and comparing every file leaves exactly
+two differing, and both are provenance metadata — `release-info.json`'s `sourceCommit` and
+`sourceCreated`, and the same commit and timestamp inside `SBOM.spdx.json`. All **46** other files,
+the entire executable surface, are byte-identical, and `bunLockSha256` and `upstreamCommit` are
+unchanged. The alpha's own artifacts were then verified independently from a clean directory:
+`shasum -c` OK, three GitHub attestations verified, three Cosign bundles `Verified OK` against
+`.../release.yml@refs/tags/v0.1.0-alpha`, and a clean exact-tag rebuild byte-identical for the
+archive (`cc6ea478df050432…`), SPDX inventory (`5ffcfccd4626f405…`) and checksum manifest
+(`7a953b70cac146b8…`).
 
 **Both advertised hosts are now qualified against the candidate that contains the #98 identity-trust
 change**, so the GO above describes current code rather than the artifact it was first decided on.

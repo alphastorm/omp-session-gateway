@@ -4,7 +4,17 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [v0.1.0-alpha] — 2026-08-21
+
+First advertised release. Qualified for Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts,
+with Chrome `151.0.7922.139` on Android 17 as the client, and for nothing else. Both hosts were
+qualified from a signed candidate whose executable surface is byte-identical to this release: all 46
+files match, and the only differences are `sourceCommit`/`sourceCreated` in `release-info.json` and
+the same commit and timestamp inside `SBOM.spdx.json`.
+
+Requires Tailscale's **TUN-mode** client; the daemon refuses identity headers otherwise. Never enable
+Tailscale Funnel. Android network-change recovery is a known limitation, Windows is implemented but
+not advertised, and self-hosted or proxied relay modes remain unsupported.
 
 ### Added
 
