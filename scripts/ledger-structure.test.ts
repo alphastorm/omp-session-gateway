@@ -78,3 +78,43 @@ describe("release document structure", () => {
     });
   }
 });
+
+/**
+ * Row well-formedness, which the section guards above deliberately do not cover.
+ *
+ * A programmatic append that targeted a cell by splitting on `" | "` once wrote its text *past* the
+ * row's closing pipe, turning a four-column row into five cells with no terminator. Two rows were
+ * corrupted that way and reached `main`, because every section heading still existed and the table
+ * still rendered plausibly. `scripts/check-evidence.ts` caught it only because the damaged row then
+ * became invisible to its parser, which is a lucky second-order symptom rather than a check.
+ */
+describe("release table rows are well formed", () => {
+  for (const path of ["docs/RELEASE_STATUS.md", "docs/COMPATIBILITY.md"]) {
+    test(`${path} has no unterminated or over-wide table rows`, () => {
+      const malformed: string[] = [];
+      // Width is taken from each table's own delimiter row rather than a fixed number, because these
+      // documents legitimately contain tables of different widths.
+      let expectedCells: number | undefined;
+      for (const [index, raw] of readFileSync(path, "utf8").split("\n").entries()) {
+        const line = raw.trimEnd();
+        if (!line.startsWith("|")) {
+          expectedCells = undefined;
+          continue;
+        }
+        if (!line.endsWith("|")) {
+          malformed.push(`${path}:${index + 1} unterminated: ${line.slice(0, 48)}`);
+          continue;
+        }
+        const cells = line.split("|").slice(1, -1);
+        if (cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()))) {
+          expectedCells = cells.length;
+          continue;
+        }
+        if (expectedCells !== undefined && cells.length !== expectedCells) {
+          malformed.push(`${path}:${index + 1} ${cells.length} cells, table is ${expectedCells}: ${line.slice(0, 48)}`);
+        }
+      }
+      expect(malformed).toEqual([]);
+    });
+  }
+});
