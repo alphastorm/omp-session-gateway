@@ -47,9 +47,12 @@ test("pin contract: the shipped patch targets the locked upstream commit", async
  * machine running the test has Tailscale in TUN mode, and the unsafe topology — the only case worth
  * pinning — cannot be produced on a developer workstation at all.
  *
- * `tailscale` itself is faked on `PATH` so `tailscaleConnected` is a controlled input rather than a
- * property of the host. Everything network-facing (the daemon probe, the relay probe) is expected to
- * fail in an isolated root; these assertions deliberately touch only the trust checks.
+ * Nothing here asserts `tailscaleConnected`. An earlier version faked `tailscale` on `PATH` to make
+ * it an input; that passed on macOS and failed on Linux, because `Bun.spawn` did not resolve the
+ * fake there. It was scaffolding rather than the contract: `loopbackTrustSound` is assigned from the
+ * injected probe regardless of whether the CLI answered, so the wiring is testable without depending
+ * on process spawning at all. Everything network-facing — the daemon probe, the relay probe — is
+ * expected to fail in an isolated root, and these assertions deliberately touch only the trust check.
  */
 describe("doctor reports the loopback trust topology", () => {
   const saved = { ...process.env };
@@ -61,7 +64,7 @@ describe("doctor reports the loopback trust topology", () => {
 
   async function isolatedRoot(): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "gateway-doctor-"));
-    for (const part of ["config/omp-session-gateway", "state/omp-session-gateway", "run/omp-session-gateway", "bin"]) {
+    for (const part of ["config/omp-session-gateway", "state/omp-session-gateway", "run/omp-session-gateway"]) {
       await mkdir(join(root, part), { recursive: true, mode: 0o700 });
     }
     const configPath = join(root, "config/omp-session-gateway/config.json");
@@ -78,24 +81,9 @@ describe("doctor reports the loopback trust topology", () => {
     await writeFile(tokenPath, "D".repeat(43));
     await chmod(tokenPath, 0o600);
 
-    // A fake `tailscale` so `BackendState` is an input to the test rather than a fact about the host.
-    const fake = join(root, "bin/tailscale");
-    await writeFile(
-      fake,
-      [
-        "#!/bin/sh",
-        'if [ "$1" = "status" ]; then echo \'{"BackendState":"Running","Self":{"TailscaleIPs":["100.101.102.103"]}}\'; exit 0; fi',
-        'if [ "$1" = "serve" ]; then echo \'{}\'; exit 0; fi',
-        'if [ "$1" = "funnel" ]; then echo \'{}\'; exit 0; fi',
-        "exit 1",
-      ].join("\n"),
-    );
-    await chmod(fake, 0o755);
-
     process.env.XDG_CONFIG_HOME = join(root, "config");
     process.env.XDG_STATE_HOME = join(root, "state");
     process.env.XDG_RUNTIME_DIR = join(root, "run");
-    process.env.PATH = `${join(root, "bin")}:${process.env.PATH ?? ""}`;
     return root;
   }
 
@@ -104,7 +92,6 @@ describe("doctor reports the loopback trust topology", () => {
 
     const report = await runDoctorChecks({ tunDevicePresent: () => false });
 
-    expect(report.checks.tailscaleConnected).toBe(true);
     expect(report.checks.loopbackTrustSound).toBe(false);
     // Deliberately no assertion on `listenerLoopbackOnly` here. It is computed as
     // `checks.daemon && hostname is loopback`, and no daemon runs in this isolated root, so it is
@@ -118,7 +105,6 @@ describe("doctor reports the loopback trust topology", () => {
 
     const report = await runDoctorChecks({ tunDevicePresent: () => true });
 
-    expect(report.checks.tailscaleConnected).toBe(true);
     expect(report.checks.loopbackTrustSound).toBe(true);
   }, 30_000);
 
