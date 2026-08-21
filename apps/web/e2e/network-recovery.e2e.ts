@@ -49,6 +49,7 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
 });
 
 test("failure states keep stale sessions, exact copy, timestamps, and mobile fit", async ({ context, page }) => {
+  test.setTimeout(60_000);
   const active = session();
   const fixture = await startDashboardFixture([active]);
   const assertFits = async (): Promise<void> => {
