@@ -147,70 +147,84 @@ jobs:
           EOF
           elif [[ "$GITHUB_REF_NAME" == *-alpha* ]]; then
             cat > "$notes" <<EOF
-          ## Alpha, qualified for two hosts and one client
+          ## Alpha point release, qualified for two hosts and one client
 
-          First advertised release. Everything outside the combination below is unqualified and must not be treated as a working deployment path.
+          This point release supersedes \`v0.1.0-alpha\` with lifecycle, capability-revocation, notification, and cross-install service hardening. Everything outside the combinations below remains unqualified.
+
+          ### Fixed
+
+          - Registry/SSE admission is atomic and reentrant observer failures cannot interrupt capability revocation.
+          - A stale Web Push delivery cannot delete a concurrently renewed subscription.
+          - A disposed collaboration client restored from Android's back/forward cache returns to the live directory without reusing its capability.
+          - Install, stop, uninstall, and publisher-token rotation fail closed for foreign or unverifiable service ownership.
+          - Launch rate windows are isolated by authenticated identity rather than caller-selected session IDs.
 
           ### Qualified
 
           | host | evidence |
           |---|---|
-          | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 | six lanes, exit 0; \`doctor\` 13/17 with four expected-false on a tagged node; reboot persistence with and without lingering |
-          | macOS 26.6.1 arm64 (Mac14,3) | \`doctor\` **17/17**; reboot persistence with the token digest unchanged; active reinstall and token rotation |
+          | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 | signed-candidate install, upgrade/rollback, readiness, identity isolation, reboot persistence, and uninstall lanes |
+          | macOS 26.6.1 arm64 (Mac14,3) | signed-candidate install, active reinstall, token rotation, identity isolation, reboot persistence, and uninstall |
 
-          Client: Chrome 151.0.7922.139 on Android 17 (Pixel 10 Pro). Both hosts were qualified from a signed candidate built from this code, and on both the gateway port was refused from a **separate** tailnet node while Serve returned a metadata-only \`200\`.
+          Client: Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro). The advertised hosts and client were qualified against signed candidate \`v0.1.0-prealpha.18\`; this release records its own exact source commit and provenance below.
 
           ### Required deployment precondition
 
-          Run Tailscale's **TUN-mode** client. With \`tailscaled --tun=userspace-networking\` there is no tunnel device, so its netstack forwards inbound tailnet connections to localhost and any tailnet peer reaches the loopback listener as a loopback peer. The daemon detects that and returns \`403\` to every request rather than believing an identity header, \`doctor\` reports \`loopbackTrustSound: false\`, and the log carries one \`http.identity_trust_unsound\`. Never enable Tailscale Funnel.
+          Run Tailscale's **TUN-mode** client. Userspace-networking mode does not establish the listener-identity trust boundary and is refused. Never enable Tailscale Funnel.
 
           ### Known limitations
 
-          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are **not** proven.
-          - Windows is implemented and partly qualified but **not advertised**.
+          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are not proven.
+          - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
+          - Windows is implemented and tested but **not advertised**.
           - Self-hosted or proxied relay modes remain unsupported.
 
-          ### Install
+          ### Install or upgrade
 
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` from the extracted directory with the deployment's real values. Repeat \`--allow\` for additional identities; active reinstall with the same values preserves the publisher token.
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
+
+          ### Rollback
+
+          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha\` archive with the deployment's existing origin and allowlist.
 
           - Source commit: \`$GITHUB_SHA\`
           - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8) with the included patch
-          - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 2
+          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
           else
             cat > "$notes" <<EOF
-          ## Pre-alpha; physical Couch Flow qualification pending
+          ## Pre-alpha hardening candidate; qualification pending
 
-          This release completes the approved mobile Couch Flow handoff. It is not an alpha or production-qualified release.
+          This is the signed candidate for \`v0.1.0-alpha.1\`. It is not an advertised alpha or a production-qualified release.
 
-          ### User-visible changes
+          ### Changes under qualification
 
-          - The directory now switches wholly between a FIFO **Needs you** queue and an **All clear** working-session view, without a prominent manual Refresh control.
-          - The collaboration shell reports connection state, advances through authoritative asks, and restores exact directory order and scroll on Back.
-          - Each device can choose Private, Session, or Preview notification detail; alert taps revalidate the exact current request before opening Control.
-          - Phone, tailnet, desktop, and relay outages retain the last authenticated list with distinct timestamped recovery guidance.
+          - Atomic, monotonic registry/SSE admission with complete revocation despite observer faults.
+          - Compare-and-remove Web Push cleanup that preserves concurrent subscription renewal.
+          - Capability-safe collaboration-client restoration after Android back/forward-cache traversal.
+          - Fail-closed cross-install service ownership for install, stop, uninstall, and token rotation.
+          - Authenticated-identity launch rate windows and focused request-body/identity boundary tests.
 
           ### Security
 
-          The gateway derives opaque request identities in volatile registry memory without changing OMP's capability-bearing publisher contract. Request routes are synchronously scrubbed and revalidated before the unchanged generation-bound launch. Collaboration capabilities remain absent from push state and payloads, notification data, URLs, history, browser storage, caches, logs, and diagnostics. Optional notification text is server-built only at the detail level selected for that browser endpoint.
+          Collaboration capabilities remain absent from list/SSE responses, push state and payloads, URLs, browser storage, service-worker caches, logs, diagnostics, screenshots, and release fixtures. Service ownership is checked from both the manager's rendered program and the shared definition file before destructive effects.
 
           ### Install or upgrade
 
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` from the extracted directory, replacing both values with the existing canonical origin and allowed identity. Repeat \`--allow\` for additional identities. Active reinstall with the same values preserves the publisher token. The installed PWA activates the changed client automatically when idle; active collaboration adopts it after ordinary Back or Leave.
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
 
-          ### Compatibility and known issues
+          ### Compatibility and open qualification
 
           - Source commit: \`$GITHUB_SHA\`
           - Exact release baseline: OMP v17.3.8 at \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` with the included patch.
-          - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 2.
-          - The unchanged OMP publisher exposes boolean attention only, so Preview currently falls back to Session detail until a bounded preview source is qualified.
-          - Automated unit, protocol, gateway, service-worker, leak, and Android-sized browser checks pass. The new request-specific lock-screen, force-stop, stale-request, roaming, and forbidden-sink matrix remains to be repeated on the physical Android candidate.
+          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2.
+          - Preview notification detail falls back to Session detail until the publisher protocol gains a bounded preview source.
+          - Advertised Debian, macOS, and physical Pixel lanes must pass against these exact signed bytes before alpha promotion.
 
           ### Rollback
 
-          Reinstall the signed \`v0.1.0-prealpha.9\` archive with \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\`, using the deployment's real values. Existing publisher credentials remain valid.
+          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha\` archive with the deployment's existing origin and allowlist.
 
           Verification instructions: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md).
           EOF
