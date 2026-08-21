@@ -4,7 +4,7 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [v0.1.0-alpha.1] — 2026-08-21
 
 ### Fixed
 

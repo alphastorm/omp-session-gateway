@@ -2,7 +2,7 @@
 
 ## Project status
 
-OMP Session Gateway is implemented pre-alpha software and is not production-qualified. Do not expose it to untrusted networks or use it for sensitive OMP sessions until the platform, Tailscale, Android, and lifecycle release gates pass.
+OMP Session Gateway is a qualified alpha, not a stable or production-qualified service. Use only the exact host/client/deployment combinations advertised in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md); do not expose the loopback backend directly, enable Tailscale Funnel, or treat an unqualified platform as supported.
 
 ## Reporting a vulnerability
 
@@ -37,4 +37,4 @@ The detailed threat model, trust boundaries, and release gates are in [`docs/SEC
 
 ## Supported versions
 
-No version is currently supported for production use. After the first stable release, this file should contain an explicit supported-version table and end-of-support policy.
+`v0.1.0-alpha` is the current published qualified alpha; `v0.1.0-alpha.1` has passed exact-candidate qualification and is pending promotion. Neither is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).
