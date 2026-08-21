@@ -116,9 +116,17 @@ const SKIPPED_TREES: Record<string, true> = {
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const selfPath = relative(repoRoot, fileURLToPath(import.meta.url)).replaceAll("\\", "/");
+/**
+ * Creating the `node_modules` directory symlink the copied tree needs requires elevation on Windows,
+ * so this harness does not run there. Stated rather than silently skipped: Windows is not an
+ * advertised host, and the Linux and macOS lanes both run these mutations on every pull request, so
+ * no guard here goes unexercised. If Windows is ever advertised, this needs a junction instead.
+ */
+const RUNNABLE = process.platform !== "win32";
 let tree = "";
 
 beforeAll(async () => {
+  if (!RUNNABLE) return;
   tree = await mkdtemp(join(tmpdir(), "gateway-mutation-"));
   // Copied rather than mutated in place: a harness that edits the working tree can leave a weakened
   // guard behind if it dies between mutation and restore. `node_modules` is symlinked rather than
@@ -137,6 +145,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (!RUNNABLE) return;
   await rm(tree, { recursive: true, force: true });
 });
 
@@ -150,7 +159,7 @@ async function runTarget(target: string): Promise<{ readonly code: number; reado
   return { code, output: `${stdout}\n${stderr}` };
 }
 
-test("every mutated suite passes before it is mutated", async () => {
+test.skipIf(!RUNNABLE)("every mutated suite passes before it is mutated", async () => {
   // Without this, a mutation could "fail" for an unrelated reason — a broken copy, a missing
   // workspace link — and the harness would report protection it never demonstrated.
   const targets = [...new Set(MUTATIONS.map(mutation => mutation.target))];
@@ -163,7 +172,7 @@ test("every mutated suite passes before it is mutated", async () => {
 }, 120_000);
 
 for (const mutation of MUTATIONS) {
-  test(`removing a guard is caught: ${mutation.name}`, async () => {
+  test.skipIf(!RUNNABLE)(`removing a guard is caught: ${mutation.name}`, async () => {
     const path = join(tree, mutation.file);
     const original = await readFile(path, "utf8");
 

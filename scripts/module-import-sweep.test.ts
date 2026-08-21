@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Imports every server-side source module once.
@@ -36,7 +37,7 @@ function sourceModules(): readonly string[] {
   const glob = new Bun.Glob("**/*.ts");
   const found: string[] = [];
   for (const root of ROOTS) {
-    for (const file of glob.scanSync({ cwd: `${repoRoot}${root}`, onlyFiles: true })) {
+    for (const file of glob.scanSync({ cwd: join(repoRoot, root), onlyFiles: true })) {
       if (file.endsWith(".d.ts")) continue;
       found.push(`${root}/${file.replaceAll("\\", "/")}`);
     }
@@ -54,7 +55,8 @@ test("every server-side module is import-safe", async () => {
       // Dynamic by necessity: the specifier is discovered by glob at run time, which is the whole
       // point. A static import list would be the thing that goes stale and stops covering new
       // modules, and enumerating it by hand is exactly the omission this test exists to prevent.
-      const loaded = await import(`${repoRoot}${module}`);
+      // A file URL rather than a bare path: on Windows `C:\...` is not a valid module specifier.
+      const loaded = await import(pathToFileURL(join(repoRoot, module)).href);
       // A module that resolves to nothing usable is as broken as one that throws.
       expect(typeof loaded).toBe("object");
     } catch (error) {
