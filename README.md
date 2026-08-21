@@ -14,11 +14,7 @@ An Android-first PWA that auto-discovers running
 [Oh My Pi](https://github.com/can1357/oh-my-pi) sessions, alerts you when one needs input,
 and opens the exact encrypted OMP collaboration surface — without QR codes or copied links.
 
-<img
-  src="docs/media/omp-session-gateway-demo.gif"
-  alt="Four live OMP sessions listed automatically in the private Sessions directory; a fifth appears on its own; when sessions start waiting for input the directory switches to Needs you and promotes the oldest request; Open request opens OMP's encrypted collaboration client on that exact request, which stays connected."
-  width="900"
->
+<img src="docs/media/omp-session-gateway-demo.gif" alt="Four live OMP sessions listed automatically in the private Sessions directory; a fifth appears on its own; when sessions start waiting for input the directory switches to Needs you and promotes the oldest request; Open request opens OMP's encrypted collaboration client on that exact request, which stays connected." width="900">
 
 **[Build and run](#build-and-run)** · **[How it works](#how-it-works)** ·
 **[Security model](docs/SECURITY.md)** · **[Compatibility](docs/COMPATIBILITY.md)** ·
