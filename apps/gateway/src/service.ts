@@ -151,7 +151,13 @@ const systemServiceHost: ServiceHost = {
  * `/tmp/x/state/omp-session-gateway-2`.
  */
 export function serviceProgramBelongsTo(programText: string | undefined, stateDir: string): boolean {
-  return programText !== undefined && programText.includes(stateDir + sep);
+  if (programText === undefined) return false;
+  return ["/", "\\"].some(separator => {
+    const prefix = `${stateDir}${separator}`;
+    const jsonEncoded = JSON.stringify(prefix).slice(1, -1);
+    const xmlEncoded = xmlEscape(prefix);
+    return programText.includes(prefix) || programText.includes(jsonEncoded) || programText.includes(xmlEncoded);
+  });
 }
 
 type ServiceProgramLookup =

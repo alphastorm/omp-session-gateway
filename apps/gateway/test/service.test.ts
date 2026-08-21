@@ -242,8 +242,8 @@ describe("service packaging", () => {
  * which took the active branch and booted out the production daemon.
  */
 describe("loaded service ownership", () => {
-  // Build fixtures with the host separator: the predicate compares against `stateDir + sep`, so a
-  // hard-coded POSIX fixture would vacuously fail on Windows and pass for the wrong reason on macOS.
+  // Use the host separator for ordinary manager output. A separate fixture below proves serialized
+  // definitions remain recognizable when their path syntax differs from the runner's.
   const stateDir = join(sep, "Users", "example", ".local", "state", "omp-session-gateway");
   const installedCli = join(stateDir, "installation", "versions", "0.1.0-77e3a6914cea", "apps", "gateway", "src", "cli.js");
   const otherRoot = join(sep, "tmp", "smoke.abc123", "state", "omp-session-gateway");
@@ -278,6 +278,14 @@ describe("loaded service ownership", () => {
     const execStart = `{ path=/usr/bin/bun ; argv[]=/usr/bin/bun ${installedCli} serve ; ignore_errors=no }`;
     expect(serviceProgramBelongsTo(execStart, stateDir)).toBe(true);
     expect(serviceProgramBelongsTo(execStart, otherRoot)).toBe(false);
+  });
+
+  test("recognizes a JSON-escaped Windows path in a systemd definition on every runner", () => {
+    const windowsState = String.raw`C:\Users\example\AppData\Local\omp-session-gateway`;
+    const windowsCli = String.raw`${windowsState}\installation\versions\0.1.0-test\apps\gateway\src\cli.js`;
+    const definition = `ExecStart=${JSON.stringify(windowsCli)}`;
+    expect(serviceProgramBelongsTo(definition, windowsState)).toBe(true);
+    expect(serviceProgramBelongsTo(definition, `${windowsState}-2`)).toBe(false);
   });
 
   test("disclaims a root whose name is a prefix of an unrelated directory's name", () => {
