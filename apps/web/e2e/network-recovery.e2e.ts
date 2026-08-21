@@ -106,6 +106,9 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await page.unroute("**/api/v1/sessions");
     await expect(page.locator("#status-banner")).toBeHidden({ timeout: 6_000 });
 
+    // Keep replacement EventSource connections down as well as the stream that is open now. Without
+    // this, the gateway banner can recover between the data-kind and copy assertions.
+    await page.route("**/api/v1/events", route => route.abort("connectionrefused"));
     fixture.disconnectEvents();
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "gateway", {
       timeout: 900,
