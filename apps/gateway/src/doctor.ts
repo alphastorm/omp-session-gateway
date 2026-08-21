@@ -296,7 +296,17 @@ async function relayReachable(): Promise<boolean> {
   }
 }
 
-export async function runDoctorChecks(): Promise<DoctorReport> {
+export async function runDoctorChecks(
+  options: {
+    /**
+     * Whether Tailscale's tunnel device is present. Injectable for the same reason
+     * `createHttpHandler` takes it: the real probe reads this host's interface table, so a test that
+     * used it would assert whatever the machine running it happens to be, and the unsafe topology —
+     * the one case worth pinning — could not be expressed on a developer workstation at all.
+     */
+    readonly tunDevicePresent?: () => boolean;
+  } = {},
+): Promise<DoctorReport> {
   const checks: Record<string, boolean> = {
     config: false,
     permissions: false,
@@ -390,7 +400,12 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
   // Reported from the interface table rather than from the configuration: a config that declares
   // `auth.trustIdentityWithoutTailnetDevice` asserts trust, it does not establish it, so a host that
   // sets the flag while running userspace mode must still fail here.
-  checks.loopbackTrustSound = tailscaleTunDevicePresent();
+  const tunDevicePresent = options.tunDevicePresent ?? (() => tailscaleTunDevicePresent());
+  checks.loopbackTrustSound = tunDevicePresent();
+  if (checks.tailscaleConnected && !checks.loopbackTrustSound) {
+    // A loopback bind address cannot be claimed while a netstack forwarder can reach it.
+    checks.listenerLoopbackOnly = false;
+  }
   if (checks.tailscaleConnected && !tailnetAddressIsLocallyBound(tailscaleIp)) {
     checks.listenerLoopbackOnly = false;
   }

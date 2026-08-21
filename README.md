@@ -8,6 +8,7 @@
 
 [![CI][ci-badge]][ci]
 [![Windows lifecycle][windows-badge]][windows]
+[![Coverage][coverage-badge]][coverage]
 [![Latest pre-alpha][release-badge]][releases]
 [![License][license-badge]][license]
 
@@ -25,12 +26,14 @@
 [ci-badge]: https://img.shields.io/github/actions/workflow/status/alphastorm/omp-session-gateway/ci.yml?branch=main&label=CI&labelColor=0B0E11
 [windows]: https://github.com/alphastorm/omp-session-gateway/actions/workflows/platform-qualification.yml
 [windows-badge]: https://img.shields.io/github/actions/workflow/status/alphastorm/omp-session-gateway/platform-qualification.yml?event=pull_request&label=windows%20lifecycle&labelColor=0B0E11
+[coverage]: https://codecov.io/gh/alphastorm/omp-session-gateway
+[coverage-badge]: https://img.shields.io/codecov/c/github/alphastorm/omp-session-gateway?label=coverage&color=1C232B&labelColor=0B0E11
 [releases]: https://github.com/alphastorm/omp-session-gateway/releases
 [release-badge]: https://img.shields.io/github/v/release/alphastorm/omp-session-gateway?include_prereleases&filter=v*-prealpha.*&label=pre-alpha&color=C99B45&labelColor=0B0E11
 [license]: LICENSE
 [license-badge]: https://img.shields.io/github/license/alphastorm/omp-session-gateway?color=1C232B&labelColor=0B0E11
 [status]: docs/RELEASE_STATUS.md
-[status-badge]: https://img.shields.io/badge/status-pre--alpha%2C%20unqualified-C99B45?labelColor=0B0E11
+[status-badge]: https://img.shields.io/badge/status-alpha%2C%20two%20hosts%20qualified-C99B45?labelColor=0B0E11
 [omp-lock]: UPSTREAM.lock.json
 [omp-badge]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Falphastorm%2Fomp-session-gateway%2Fmain%2FUPSTREAM.lock.json&query=%24.tag&label=OMP%20baseline&color=1C232B&labelColor=0B0E11
 [bun]: https://bun.sh
@@ -40,7 +43,17 @@
 
 </div>
 
-> **Project status: implemented pre-alpha, not production-qualified.** The daemon, authenticated IPC registry, PWA, pinned collaboration client, management CLI, service definitions, release builder, tests, and OMP patch are present. Real Android, Tailscale, relay, and cross-OS acceptance gates remain unqualified. See the [release gate ledger](docs/RELEASE_STATUS.md) and [compatibility matrix](docs/COMPATIBILITY.md).
+> **Project status: alpha, qualified for two host platforms and one client.** The alpha decision is
+> **GO** for Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts, with Chrome `151.0.7922.139`
+> on Android 17 as the client, against candidate `v0.1.0-prealpha.17`. Anything outside that
+> combination is unqualified and must not be treated as a working deployment path: Windows is
+> implemented but **not advertised**, and self-hosted or proxied relay modes remain unsupported.
+> Tailscale must run its **TUN-mode** client — the gateway refuses identity headers otherwise, because
+> userspace-networking `tailscaled` makes the loopback listener reachable from the whole tailnet
+> ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). Android recovery after an
+> abrupt radio transition is a known limitation
+> ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)). See the
+> [release gate ledger](docs/RELEASE_STATUS.md) and [compatibility matrix](docs/COMPATIBILITY.md).
 
 OMP Session Gateway is a local-first companion for [Oh My Pi](https://github.com/can1357/oh-my-pi) (OMP). After one-time setup, it automatically discovers collaboration endpoints for every live interactive OMP process on a computer and presents them through a private, mobile-first Progressive Web App (PWA).
 
