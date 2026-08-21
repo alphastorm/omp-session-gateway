@@ -262,7 +262,10 @@ export function createHttpHandler(options: {
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
-  const limiter = new LaunchRateLimiter();
+  const identityCapacity = config.auth.mode === "dev-localhost" ? 1 : config.auth.allowedLogins.length;
+  // Each admitted identity can own exactly two keys (`launch` and `push`), so configured identities
+  // can never deny one another merely by filling the bounded map.
+  const limiter = new LaunchRateLimiter(20, 60_000, Math.max(2, identityCapacity * 2));
   const now = options.now ?? Date.now;
   const tailnetPresent = options.tailnetPresent ?? createTailnetPresenceProbe();
   // `tailscale-serve` mode trusts an identity header from any loopback peer, which is only sound

@@ -255,6 +255,14 @@ async function assertNoForeignServiceLabel(config: ServicePathConfig, host: Serv
   if (lookup.status === "found" && !serviceProgramBelongsTo(lookup.rendered, config.paths.stateDir)) foreign();
 }
 
+/** Fail-closed preflight for callers that mutate service-adjacent state before invoking a verb. */
+export async function assertUserServiceOwnership(
+  config: ServicePathConfig,
+  host: ServiceHost = systemServiceHost,
+): Promise<void> {
+  await assertNoForeignServiceLabel(config, host);
+}
+
 
 async function bootstrapLaunchAgent(domain: string, path: string, host: ServiceHost): Promise<void> {
   let lastError: unknown;
@@ -339,6 +347,9 @@ export async function installUserService(
   await assertNoForeignServiceLabel(config, host);
   await assertServiceInstallPreflight(activate, host);
   const definition = serviceDefinition(config, host.platform, installedCli, readinessInstance, host.homeDirectory);
+  if (!serviceProgramBelongsTo(definition.content, config.paths.stateDir)) {
+    throw new Error("gateway service program must be staged under the configured state directory");
+  }
   await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
   const serialized =
     host.platform === "win32"
@@ -367,11 +378,15 @@ export async function installUserService(
       await assertNoForeignServiceLabel(config, host);
       await host.run(["launchctl", "bootout", target]);
     }
+    await assertNoForeignServiceLabel(config, host);
     await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path, host);
   } else {
     const status = await userServiceStatus(config, host);
     await assertNoForeignServiceLabel(config, host);
-    if (status.active) await stopWindowsTask(host);
+    if (status.active) {
+      await stopWindowsTask(host);
+      await assertNoForeignServiceLabel(config, host);
+    }
     await host.run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
     if (activate) await host.run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
   }
@@ -379,6 +394,7 @@ export async function installUserService(
 }
 
 export async function stopUserService(config: ServicePathConfig, host: ServiceHost = systemServiceHost): Promise<void> {
+  await assertNoForeignServiceLabel(config, host);
   const status = await userServiceStatus(config, host);
   // `active` is ownership-scoped, so a foreign holder of the label leaves nothing here to stop.
   if (!status.active) return;
@@ -428,9 +444,13 @@ export async function uninstallUserService(
       await host.run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
     }
   } else if (status.installed) {
-    if (deactivate && status.active) await stopWindowsTask(host);
+    if (deactivate && status.active) {
+      await stopWindowsTask(host);
+      await assertNoForeignServiceLabel(config, host);
+    }
     await host.run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
   }
+  await assertNoForeignServiceLabel(config, host);
   await rm(definition.path, { force: true });
   if (host.platform === "linux") await host.run(["systemctl", "--user", "daemon-reload"]);
 }

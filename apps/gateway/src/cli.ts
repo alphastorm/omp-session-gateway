@@ -31,6 +31,7 @@ import { PushService } from "./push.ts";
 import { SessionRegistry } from "./registry.ts";
 import {
   assertServiceInstallPreflight,
+  assertUserServiceOwnership,
   installUserService,
   serviceDefinition,
   uninstallUserService,
@@ -137,7 +138,11 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
   const staticAssets = await StaticAssetStore.load(webRoot);
   const logger = new SafeLogger();
-  const registry = new SessionRegistry({ ttlSeconds: config.registry.ttlSeconds, maxSessions: config.registry.maxSessions });
+  const registry = new SessionRegistry({
+    ttlSeconds: config.registry.ttlSeconds,
+    maxSessions: config.registry.maxSessions,
+    onListenerError: () => logger.event("warn", "registry.listener_failed"),
+  });
   const pushService = await PushService.open({ config, registry, logger });
   const ipc = await startRegistryIpcServer({ config, token, registry, logger });
   let stopping = false;
@@ -441,6 +446,7 @@ async function runDoctor(arguments_: ParsedArguments): Promise<void> {
 
 async function runRotateToken(): Promise<void> {
   const config = await loadGatewayConfig();
+  await assertUserServiceOwnership(config);
   const service = await userServiceStatus(config);
   if (service.active && !service.installed) {
     throw new Error("refusing token rotation while an unmanaged gateway service is active");

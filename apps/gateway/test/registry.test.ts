@@ -238,8 +238,13 @@ describe("SessionRegistry", () => {
     ]);
   });
 
-  test("delivers queued revisions to every healthy listener before surfacing an observer failure", () => {
-    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+  test("reports observer failure after delivering queued revisions to every healthy listener", () => {
+    const errors: unknown[] = [];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      onListenerError: error => errors.push(error),
+    });
     const first: number[] = [];
     const third: number[] = [];
     registry.subscribe(event => first.push(event.revision));
@@ -250,10 +255,34 @@ describe("SessionRegistry", () => {
     });
     registry.subscribe(event => third.push(event.revision));
 
-    expect(() => registry.upsert("owner-a", published(1))).toThrow("observer failed");
+    registry.upsert("owner-a", published(1));
 
     expect(first).toEqual([1, 2]);
     expect(third).toEqual([1, 2]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(Error);
+    expect((errors[0] as Error).message).toBe("observer failed");
     expect(registry.snapshot().sessions[0]?.generation).toBe(2);
+  });
+
+  test("revokes every owned capability when a removal observer fails", () => {
+    const errors: unknown[] = [];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      onListenerError: error => errors.push(error),
+    });
+    registry.subscribe(event => {
+      if (event.type === "session_remove") throw new Error("remove observer failed");
+    });
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0001" }));
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0002" }));
+
+    expect(registry.removeOwner("owner-a")).toBe(2);
+
+    expect(registry.size).toBe(0);
+    expect(registry.lookupCapability("registry-instance-0001", 1, "control").status).toBe("missing");
+    expect(registry.lookupCapability("registry-instance-0002", 1, "control").status).toBe("missing");
+    expect(errors).toHaveLength(2);
   });
 });

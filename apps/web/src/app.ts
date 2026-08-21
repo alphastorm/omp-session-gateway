@@ -1186,9 +1186,10 @@ function enterCollabClient(
       container,
       capability,
       () => {
+        // The client has already unmounted itself. Restore the cached directory synchronously so a
+        // failed location.replace() cannot strand an inert shell without lifecycle listeners.
         disposeClient = (): void => undefined;
-        clearConnectionTimers(shellState);
-        removeLifecycleListeners();
+        returnToDirectory();
       },
       {
         focusPendingRequest: requestId !== undefined,

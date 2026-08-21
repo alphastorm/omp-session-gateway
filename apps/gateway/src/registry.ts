@@ -20,6 +20,7 @@ export interface RegistryOptions {
   readonly maxSessions: number;
   readonly clock?: RegistryClock;
   readonly requestIdFactory?: () => string;
+  readonly onListenerError?: (error: unknown) => void;
 }
 
 interface InternalMetadataRecord {
@@ -55,6 +56,7 @@ export class SessionRegistry {
   readonly #maxSessions: number;
   readonly #clock: RegistryClock;
   readonly #requestIdFactory: () => string;
+  readonly #onListenerError: (error: unknown) => void;
   #pendingHead = 0;
   #dispatching = false;
   #revision = 0;
@@ -66,6 +68,7 @@ export class SessionRegistry {
     this.#maxSessions = options.maxSessions;
     this.#clock = options.clock ?? systemClock;
     this.#requestIdFactory = options.requestIdFactory ?? randomUUID;
+    this.#onListenerError = options.onListenerError ?? (() => undefined);
   }
 
   get revision(): number {
@@ -253,8 +256,6 @@ export class SessionRegistry {
     this.#pending.push(event);
     if (this.#dispatching) return;
     this.#dispatching = true;
-    let failed = false;
-    let firstError: unknown;
     try {
       while (this.#pendingHead < this.#pending.length) {
         const next = this.#pending[this.#pendingHead] as SessionEvent;
@@ -263,8 +264,13 @@ export class SessionRegistry {
           try {
             listener(next);
           } catch (error) {
-            if (!failed) firstError = error;
-            failed = true;
+            // Observers do not own registry state. Report the fault without letting one callback
+            // interrupt capability revocation or starve the remaining observers.
+            try {
+              this.#onListenerError(error);
+            } catch {
+              // Error reporting is an observer too and must not become a mutation dependency.
+            }
           }
         }
       }
@@ -273,8 +279,5 @@ export class SessionRegistry {
       this.#pendingHead = 0;
       this.#dispatching = false;
     }
-    // One faulty observer cannot make later observers miss committed revisions, but the caller still
-    // receives the first failure after the ordered queue is drained rather than having it hidden.
-    if (failed) throw firstError;
   }
 }

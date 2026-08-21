@@ -870,6 +870,9 @@ describe("service ownership across install roots", () => {
       "linux",
       stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
     );
+    await expect(stopUserService(target, host)).rejects.toThrow(
+      "cannot verify systemd user unit name ownership",
+    );
 
     await expect(
       installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, host),
@@ -882,6 +885,20 @@ describe("service ownership across install roots", () => {
       "cannot verify systemd user unit name ownership",
     );
     expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(mutations(manager.commands)).toEqual([]);
+  });
+
+  test("refuses to install a definition that does not identify this state root", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("linux");
+    const definitionPath = serviceDefinition(target, "linux").path;
+
+    await expect(installUserService(target, false, undefined, undefined, manager.host)).rejects.toThrow(
+      "gateway service program must be staged under the configured state directory",
+    );
+
+    expect(existsSync(definitionPath)).toBe(false);
     expect(mutations(manager.commands)).toEqual([]);
   });
 
@@ -1080,13 +1097,40 @@ describe("service ownership across install roots", () => {
     expect(manager.state.running).toBe(false);
   });
 
+  test("preserves a definition another root writes after the manager mutation", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const foreignDefinition = serviceDefinition(target, "linux", foreignProgram(root));
+    const definition = serviceDefinition(target, "linux", program);
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+    const manager = fakeManager("linux", { program, running: true });
+    const host: ServiceHost = {
+      ...manager.host,
+      run: async command => {
+        await manager.host.run(command);
+        if (command.includes("disable")) await writeFile(definition.path, foreignDefinition.content);
+      },
+    };
+
+    await expect(uninstallUserService(target, true, host)).rejects.toThrow(
+      "another gateway service already holds this systemd user unit name from a different install root",
+    );
+
+    expect(await readFile(definition.path, "utf8")).toBe(foreignDefinition.content);
+    expect(mutations(manager.commands)).toEqual(["systemctl --user disable --now omp-session-gateway.service"]);
+  });
+
   test("leaves a running foreign task alone when asked to stop", async () => {
     const root = await isolatedRoot();
     const target = rootedConfig(root);
     const foreign = foreignProgram(root);
     const manager = fakeManager("win32", { program: foreign, running: true });
 
-    await stopUserService(target, manager.host);
+    await expect(stopUserService(target, manager.host)).rejects.toThrow(
+      "another gateway service already holds this scheduled task name from a different install root",
+    );
 
     expect(mutations(manager.commands)).toEqual([]);
     expect(manager.state.running).toBe(true);
@@ -1107,7 +1151,7 @@ describe("service ownership across install roots", () => {
         const rendered = await manager.host.output(command);
         if (command[0] === "schtasks.exe" && command.includes("/XML")) {
           ownershipReads += 1;
-          if (ownershipReads === 1) manager.state.program = foreign;
+          if (ownershipReads === 2) manager.state.program = foreign;
         }
         return rendered;
       },
@@ -1117,7 +1161,7 @@ describe("service ownership across install roots", () => {
       "another gateway service already holds this scheduled task name from a different install root",
     );
 
-    expect(ownershipReads).toBe(2);
+    expect(ownershipReads).toBe(3);
     expect(mutations(manager.commands)).toEqual([]);
     expect(manager.state.program).toBe(foreign);
     expect(manager.state.running).toBe(true);
