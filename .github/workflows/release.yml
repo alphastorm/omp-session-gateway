@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*-prealpha.*"
+      - "v*-alpha"
+      - "v*-alpha.*"
       - "provenance-test-v*.*"
 
 permissions: {}
@@ -38,9 +40,13 @@ jobs:
           set -euo pipefail
           version="$(bun -e 'process.stdout.write((await Bun.file("package.json").json()).version)')"
           escaped_version="${version//./\\.}"
-          allowed="^(v${escaped_version}-prealpha\.[1-9][0-9]*|provenance-test-v${escaped_version}\.[1-9][0-9]*)$"
+          # Three tag shapes, deliberately narrow. `-prealpha.<n>` and `provenance-test-v…` are
+          # unadvertised engineering artifacts; `-alpha` is the first advertised shape and is accepted
+          # only because both host lanes and the client now have evidence against a candidate built
+          # from this code. Anything else is refused rather than guessed at.
+          allowed="^(v${escaped_version}-prealpha\.[1-9][0-9]*|v${escaped_version}-alpha(\.[1-9][0-9]*)?|provenance-test-v${escaped_version}\.[1-9][0-9]*)$"
           if [[ ! "$GITHUB_REF_NAME" =~ $allowed ]]; then
-            echo "Tag must be v${version}-prealpha.<n> or provenance-test-v${version}.<n> (n >= 1)." >&2
+            echo "Tag must be v${version}-prealpha.<n>, v${version}-alpha[.<n>], or provenance-test-v${version}.<n> (n >= 1)." >&2
             exit 1
           fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
@@ -137,6 +143,40 @@ jobs:
           - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8)
           - Runtime: Bun 1.3.14 or newer
           - Registry protocol: 1
+          - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
+          EOF
+          elif [[ "$GITHUB_REF_NAME" == *-alpha* ]]; then
+            cat > "$notes" <<EOF
+          ## Alpha, qualified for two hosts and one client
+
+          First advertised release. Everything outside the combination below is unqualified and must not be treated as a working deployment path.
+
+          ### Qualified
+
+          | host | evidence |
+          |---|---|
+          | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 | six lanes, exit 0; \`doctor\` 13/17 with four expected-false on a tagged node; reboot persistence with and without lingering |
+          | macOS 26.6.1 arm64 (Mac14,3) | \`doctor\` **17/17**; reboot persistence with the token digest unchanged; active reinstall and token rotation |
+
+          Client: Chrome 151.0.7922.139 on Android 17 (Pixel 10 Pro). Both hosts were qualified from a signed candidate built from this code, and on both the gateway port was refused from a **separate** tailnet node while Serve returned a metadata-only \`200\`.
+
+          ### Required deployment precondition
+
+          Run Tailscale's **TUN-mode** client. With \`tailscaled --tun=userspace-networking\` there is no tunnel device, so its netstack forwards inbound tailnet connections to localhost and any tailnet peer reaches the loopback listener as a loopback peer. The daemon detects that and returns \`403\` to every request rather than believing an identity header, \`doctor\` reports \`loopbackTrustSound: false\`, and the log carries one \`http.identity_trust_unsound\`. Never enable Tailscale Funnel.
+
+          ### Known limitations
+
+          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are **not** proven.
+          - Windows is implemented and partly qualified but **not advertised**.
+          - Self-hosted or proxied relay modes remain unsupported.
+
+          ### Install
+
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` from the extracted directory with the deployment's real values. Repeat \`--allow\` for additional identities; active reinstall with the same values preserves the publisher token.
+
+          - Source commit: \`$GITHUB_SHA\`
+          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8) with the included patch
+          - Runtime: Bun 1.3.14 or newer; registry protocol 1; Push API 2
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
           else
