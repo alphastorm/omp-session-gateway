@@ -4,6 +4,50 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Added
+
+- Add deterministic, provenance-bound README media capture and verification, canonical mobile
+  screenshots/GIF/MP4/product-flow assets, a product-first public README, a source-verified
+  alternatives matrix, and draft launch copy. All public media uses seeded synthetic data.
+- Record the protected default-relay replacement soak: the complete 28,800-second authored window,
+  22 room transitions, final phase `live`, exit code 0, and no process restart.
+- Add a fail-closed `beta` release channel. The release workflow accepts `v<version>-beta[.<n>]` and
+  derives `OMP_RELEASE_CHANNEL=beta` only from that validated tag shape; `release-info.json` records
+  a beta qualification that names the combinations recorded at the source commit and the exact
+  patched OMP baseline while explicitly disclaiming stable or production readiness; and the
+  conservative beta draft notes keep the Windows-unadvertised, Android network-change, and
+  unsupported self-hosted/proxied relay caveats alongside the required exact OMP patch.
+  `release-candidate` and stable tags stay rejected, pre-alpha and alpha archives stay
+  byte-compatible, and the SBOM stays channel-independent.
+
+### Changed
+
+- Move the unreleased default-branch OMP target to exact `v17.4.1` /
+  `9350b7990d26ebf69a604edc82d8558ef04adf30`, update `@oh-my-pi/pi-wire` to `17.4.1`, and
+  regenerate the six-commit collaboration patch from the maintained downstream series plus the
+  carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
+  new target repeats the applicable release lanes.
+- Keep the exact tested v17.4.1 OMP patch as the alpha and beta installation prerequisite. Paired
+  OMP signing/install/update/rollback stays deliberately deferred and is a disclosed limitation
+  rather than a beta gate; the exact patch is an accepted beta prerequisite, and stock OMP is never
+  sufficient on its own.
+
+### Fixed
+
+- Preserve OMP's immediate `Closing session…` status and arm its bounded slow-close timer before
+  collaboration teardown; the v17.4.1 upstream regression test exposed the ordering defect during
+  the patch rebase.
+- Bind `release-info.json` qualification to the workflow-validated release channel, so alpha tags
+  no longer ship the pre-alpha claim and unknown future channels fail before producing artifacts.
+- Give Windows managed-service startup a measured 60-second hard readiness deadline while
+  retaining 15 seconds elsewhere, so cold per-path ACL verification no longer rolls back a
+  progressing service before it can bind. A persistent Server 2025 source lane now passes install,
+  reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback, patched OMP
+  publication, and uninstall; Windows remains unadvertised until signed gateway/OMP artifacts
+  repeat it.
+
 ## [v0.1.0-alpha.1] — 2026-08-21
 
 ### Fixed

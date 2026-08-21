@@ -19,7 +19,9 @@
     "check:identifier-leaks": "bun scripts/check-identifier-leaks.ts",
     "release:build": "bun scripts/build-release.ts",
     "qualify:relay-soak": "bun scripts/relay-soak.ts",
-    "test:browser": "bun run build && bun scripts/test-browser.ts"
+    "test:browser": "bun run build && bun scripts/test-browser.ts",
+    "media:capture": "bun run build && bun scripts/media/capture-readme-media.ts",
+    "media:check": "bun scripts/media/check-readme-media.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

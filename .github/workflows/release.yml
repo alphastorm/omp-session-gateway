@@ -6,6 +6,8 @@ on:
       - "v*-prealpha.*"
       - "v*-alpha"
       - "v*-alpha.*"
+      - "v*-beta"
+      - "v*-beta.*"
       - "provenance-test-v*.*"
 
 permissions: {}
@@ -35,23 +37,37 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Validate protected pre-alpha tag
+      - name: Validate protected release tag and derive its channel
         run: |
           set -euo pipefail
           version="$(bun -e 'process.stdout.write((await Bun.file("package.json").json()).version)')"
           escaped_version="${version//./\\.}"
-          # Three tag shapes, deliberately narrow. `-prealpha.<n>` and `provenance-test-v…` are
-          # unadvertised engineering artifacts; `-alpha` is the first advertised shape and is accepted
-          # only because both host lanes and the client now have evidence against a candidate built
-          # from this code. Anything else is refused rather than guessed at.
-          allowed="^(v${escaped_version}-prealpha\.[1-9][0-9]*|v${escaped_version}-alpha(\.[1-9][0-9]*)?|provenance-test-v${escaped_version}\.[1-9][0-9]*)$"
+          # Four tag shapes, deliberately narrow. `-prealpha.<n>` and `provenance-test-v…` are
+          # unadvertised engineering artifacts; `-alpha` is the first advertised shape and `-beta` the
+          # second, and each is accepted only because both host lanes and the client have evidence
+          # against a candidate built from this code. Anything else — `-rc`, a bare `v<version>`, or a
+          # shape naming a different version — is refused rather than guessed at.
+          allowed="^(v${escaped_version}-prealpha\.[1-9][0-9]*|v${escaped_version}-alpha(\.[1-9][0-9]*)?|v${escaped_version}-beta(\.[1-9][0-9]*)?|provenance-test-v${escaped_version}\.[1-9][0-9]*)$"
           if [[ ! "$GITHUB_REF_NAME" =~ $allowed ]]; then
-            echo "Tag must be v${version}-prealpha.<n>, v${version}-alpha[.<n>], or provenance-test-v${version}.<n> (n >= 1)." >&2
+            echo "Tag must be v${version}-prealpha.<n>, v${version}-alpha[.<n>], v${version}-beta[.<n>], or provenance-test-v${version}.<n> (n >= 1)." >&2
             exit 1
           fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
             echo "Tagged commit must be reachable from origin/main." >&2
             exit 1
+          fi
+          # The validated tag shape is the only thing that may promote an archive's recorded
+          # qualification. `-alpha[.<n>]` and `-beta[.<n>]` are the advertised shapes; `-prealpha.<n>`
+          # and `provenance-test-v…` are unadvertised engineering artifacts and stay pre-alpha. Both
+          # comparisons are anchored on the whole validated tag rather than a loose `*-beta*` glob.
+          # The builder accepts only these three tokens and fails closed on anything else, so a
+          # future tag shape has to be mapped here deliberately instead of inheriting a claim.
+          if [[ "$GITHUB_REF_NAME" == "v${version}-beta" || "$GITHUB_REF_NAME" == "v${version}-beta."* ]]; then
+            release_channel=beta
+          elif [[ "$GITHUB_REF_NAME" == "v${version}-alpha" || "$GITHUB_REF_NAME" == "v${version}-alpha."* ]]; then
+            release_channel=alpha
+          else
+            release_channel=pre-alpha
           fi
           archive="dist/release/omp-session-gateway-${version}-bun.tar"
           checksums="dist/release/SHA256SUMS"
@@ -61,6 +77,7 @@ jobs:
             echo "ARCHIVE_PATH=$archive"
             echo "SBOM_PATH=$sbom"
             echo "CHECKSUM_PATH=$checksums"
+            echo "OMP_RELEASE_CHANNEL=$release_channel"
           } >> "$GITHUB_ENV"
 
 
@@ -133,6 +150,8 @@ jobs:
             exit 1
           fi
           notes="$RUNNER_TEMP/release-notes.md"
+          upstream_commit="$(jq -r '.commit' UPSTREAM.lock.json)"
+          upstream_tag="$(jq -r '.tag' UPSTREAM.lock.json)"
           if [[ "$GITHUB_REF_NAME" == provenance-test-* ]]; then
             cat > "$notes" <<EOF
           ## Provenance workflow test; not an alpha release
@@ -140,9 +159,52 @@ jobs:
           This release exercises the pre-alpha build and keyless provenance path. It is not an alpha or production-qualified release.
 
           - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8)
+          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag)
           - Runtime: Bun 1.3.14 or newer
           - Registry protocol: 1
+          - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
+          EOF
+          elif [[ "$GITHUB_REF_NAME" == *-beta* ]]; then
+            cat > "$notes" <<EOF
+          ## Beta release, qualified for two hosts and one client
+
+          Beta here names a closed release channel, not a stability promise: this release is **not stable or production-qualified**. It is supported only for the combinations recorded at this exact source commit, and only against the exact patched OMP baseline named below. Everything outside that boundary is unqualified, and repository commits remain preferred there.
+
+          ### Advertised combinations
+
+          Unchanged from the published alpha, and advertised only because the ledger at this source commit records the evidence behind each lane.
+
+          | role | combination |
+          |---|---|
+          | host | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 |
+          | host | macOS 26.6.1 arm64 (Mac14,3) |
+          | client | Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro) |
+
+          Nothing outside that table is advertised, and passing a platform permits advertising only that exact platform and version. Per-lane evidence and the qualifying candidate are recorded in [docs/RELEASE_STATUS.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE_STATUS.md) and [docs/COMPATIBILITY.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/COMPATIBILITY.md) at this source commit; this release records its own exact source commit and provenance below.
+
+          ### Required deployment preconditions
+
+          - Run OMP $upstream_tag at \`$upstream_commit\` **with the patch included in this archive**. Stock OMP is not sufficient at any version: the patch carries the collaboration controller, autostart, and registry publication seam the gateway depends on, and an unpatched or differently pinned OMP is unsupported. Paired OMP packaging is not provided; build and activate the versioned \`omp-gateway-patched\` executable using [the exact prerequisite route](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos).
+          - Run Tailscale's **TUN-mode** client. Userspace-networking mode does not establish the listener-identity trust boundary and is refused. Never enable Tailscale Funnel.
+
+          ### Known limitations
+
+          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are not proven.
+          - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
+          - Windows is implemented and tested but **not advertised**.
+          - Self-hosted or proxied relay modes remain unsupported; Tailscale Serve over tailnet HTTPS is the only supported remote path.
+
+          ### Install or upgrade
+
+          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
+
+          ### Rollback
+
+          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha.1\` archive with the deployment's existing origin and allowlist.
+
+          - Source commit: \`$GITHUB_SHA\`
+          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
+          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
           elif [[ "$GITHUB_REF_NAME" == *-alpha* ]]; then
@@ -188,7 +250,7 @@ jobs:
           Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha\` archive with the deployment's existing origin and allowlist.
 
           - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8) with the included patch
+          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
           - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
@@ -217,7 +279,7 @@ jobs:
           ### Compatibility and open qualification
 
           - Source commit: \`$GITHUB_SHA\`
-          - Exact release baseline: OMP v17.3.8 at \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` with the included patch.
+          - Exact release baseline: OMP $upstream_tag at \`$upstream_commit\` with the included patch.
           - Runtime: Bun 1.3.14; registry protocol 1; Push API 2.
           - Preview notification detail falls back to Session detail until the publisher protocol gains a bounded preview source.
           - Advertised Debian, macOS, and physical Pixel lanes must pass against these exact signed bytes before alpha promotion.

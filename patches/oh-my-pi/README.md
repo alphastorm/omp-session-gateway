@@ -1,27 +1,31 @@
 # OMP patch handoff
 
 `0001-collab-controller-autostart-registry.patch` is based on OMP commit
-`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` (tag: v17.3.8).
+`9350b7990d26ebf69a604edc82d8558ef04adf30` (tag: v17.4.1).
 The artifact is one mbox containing six reviewable commits:
 
-- `0158f3c7f` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
-- `a8c555dbb` — bounded, replayable host UI requests retained before a writable guest joins;
-- `11f371c0e` — generation-scoped `inputRequired` publication;
-- `5e2227914` — safe response-UI mirroring, race cleanup, and startup ordering;
-- `c7912a6e1` — optional encrypted health probes and idempotent response acknowledgement; and
-- `bfc555227` — publication recovery after transient registry faults.
+- `adbe1d48b` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
+- `d837e8b71` — bounded, replayable host UI requests retained before a writable guest joins;
+- `d961e5c3c` — generation-scoped `inputRequired` publication;
+- `770003247` — safe response-UI mirroring, race cleanup, and startup ordering;
+- `1564b4a36` — optional encrypted health probes and idempotent response acknowledgement; and
+- `fd8237acb` — publication recovery after transient registry faults.
 
-The first four commits are the maintained downstream `gateway-collaboration` series in its
-authoritative order (`0006 → 0002 → 0003 → 0004`, indices 0–3, so they sit directly on pristine
-`858f7dd9`). They were taken verbatim from the reviewed handoff artifact
-`gateway-collaboration-v17.3.8.mbox`, sha256
-`f63f74c90d72776ca1ebcb4b1a75b18130b3c65d1c6e0133c9bbb3a8e5b4af49`, 173,604 bytes.
+Commits one through four and six come from the maintained downstream `gateway-collaboration`
+series in its authoritative order (`0006 → 0002 → 0003 → 0004 → 0007`) on the exact v17.4.1
+base. Commit one preserves upstream's immediate `Closing session…` status and starts its bounded
+slow-close timer before collaboration teardown. Commit six adapts upstream's QR-command fixture to
+assert publication recovery when an already-hosting session runs `/collab`. Commit five is carried
+only here: no `gateway-health` seam
+exists in upstream v17.4.1, but the pinned collab client requires it. `#relayProbeSupported`
+becomes true only when the host sends a seed `gateway-health-pong`; without this commit the
+browser's relay probes never start and relay liveness silently degrades to passive traffic only.
+Re-apply it on every refresh.
 
-The fifth commit is carried only here. The maintained series no longer contains it, and no
-`gateway-health` seam exists in upstream `v17.3.8`, but the pinned collab client in this repository
-requires it: `#relayProbeSupported` becomes true only when the host sends a seed
-`gateway-health-pong`, so without this commit the browser's relay probes never start and relay
-liveness silently degrades to passive traffic only. Re-apply it on every refresh.
+The resulting mbox is 232,346 bytes with sha256
+`abcc8866f76fc82485a42c0ce51ca19aec3b928afcddf0af1c25c35dd10ad4e2`.
+Plain `git am` on pristine v17.4.1 reproduces tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`.
 
 The sixth commit returns to the maintained series as `0007`. It fixes
 [#61](https://github.com/alphastorm/omp-session-gateway/issues/61): `CollabRegistryPublisher`
@@ -70,18 +74,74 @@ bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/collab/read-only.test.ts \
   packages/coding-agent/test/hook-editor.test.ts \
   packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts \
+  packages/coding-agent/test/interactive-mode-still-closing.test.ts \
   packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
   packages/coding-agent/test/session-manager-branch-order.test.ts
 bun test packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 ```
 
-The v17.3.8 attention-path verification suite covers same-generation metadata refresh and
+The v17.4.1 attention-path verification suite covers same-generation metadata refresh and
 protocol-label bounds, generation-scoped nested and concurrent attention leases, pre-writer
 retention, the 64-request admission cap, View exclusion, multi-writer exactly-once settlement,
 symmetric response-race cleanup, mutual authentication, reconnect/token reread,
-explicit-token-path isolation, collaboration-before-hooks ordering, optional read-only health
-probes, and duplicate response acknowledgement. Run every listed test, the coding-agent typecheck,
-and `bun run ci:check:full` against the exact pin before release qualification.
+explicit-token-path isolation, collaboration-before-hooks ordering, immediate and bounded shutdown
+status, optional read-only health probes, and duplicate response acknowledgement. Run all 122
+focused tests, the complete coding-agent test buckets, `bun run ci:check:full`, and the applicable
+platform lanes against the exact pin before release qualification.
+
+## Supported beta prerequisite route (Linux and macOS)
+
+Stock OMP v17.4.1 is not sufficient. Until the controller/publication seam lands upstream, every
+OMP process expected to appear automatically must run a binary built from the exact source and
+mbox above. The supported beta route is versioned and deliberately does not overwrite the user's
+ordinary `omp` command:
+
+```sh
+export GATEWAY_ROOT=/absolute/path/to/omp-session-gateway
+export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v17.4.1"
+
+git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
+git -C "$OMP_ROOT" checkout --detach 9350b7990d26ebf69a604edc82d8558ef04adf30
+test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = 9350b7990d26ebf69a604edc82d8558ef04adf30
+git -C "$OMP_ROOT" am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
+
+(
+  cd "$OMP_ROOT"
+  test "$(bun --version)" = 1.3.14
+  bun setup
+  bun run ci:check:full
+  bun --cwd=packages/coding-agent run build
+  test "$(packages/coding-agent/dist/omp --version)" = omp/17.4.1
+)
+
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v17.4.1-a5cfc80f"
+mkdir -p "$version_dir" "$HOME/.local/bin"
+install -m 0755 "$OMP_ROOT/packages/coding-agent/dist/omp" "$version_dir/omp"
+ln -sfn "$version_dir/omp" "$HOME/.local/bin/omp-gateway-patched"
+test "$(readlink "$HOME/.local/bin/omp-gateway-patched")" = "$version_dir/omp"
+"$HOME/.local/bin/omp-gateway-patched" config set collab.autoStart control
+"$HOME/.local/bin/omp-gateway-patched" config set collab.registryEndpoint auto
+if command -v sha256sum >/dev/null; then
+  sha256sum "$version_dir/omp"
+else
+  shasum -a 256 "$version_dir/omp"
+fi
+"$HOME/.local/bin/omp-gateway-patched" config get collab.autoStart --json
+"$HOME/.local/bin/omp-gateway-patched" config get collab.registryEndpoint --json
+```
+
+Launch sessions that should publish with `omp-gateway-patched`, not stock `omp`. Keep the source
+checkout: its exact commit/tree plus a SHA-256 of the installed binary are the local provenance
+record. `omp-gateway doctor` verifies the bundled integration artifacts but cannot inspect a
+separate OMP executable, so the `readlink`, version, and source-tree assertions above are required.
+
+For rollback, stop every process launched from `omp-gateway-patched` before changing the symlink;
+running processes retain their original executable and capabilities. Repoint the symlink to a
+previously retained, qualified patched version and re-run the readlink/version/config assertions.
+If returning to stock OMP instead, first set `collab.autoStart` to `off`, remove only the
+`omp-gateway-patched` symlink, and accept that zero-touch gateway enrollment is disabled. Never
+silently point `omp-gateway-patched` at an unpatched or loosely versioned binary.
 
 On Windows every publisher-token fixture is secured, and the publisher's own token ACL is
 validated, by spawning `powershell.exe`. Hosted runner images have made that spawn cost seconds
@@ -102,11 +162,12 @@ Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab se
 | --- | --- |
 | Bounded pending host UI retention (`0002` lineage) | Submitted as [PR #9031](https://github.com/can1357/oh-my-pi/pull/9031) from `alphastorm:contrib/collab-retain-pending-ui`. Isolated from the controller/registry stack: three files, no wire-protocol change. |
 | Controller, auto-start, and registry publisher | Not submitted. It is a new subsystem spanning several packages, which upstream `CONTRIBUTING.md` requires be discussed in Discord *before* implementation; it also overlaps [#6354](https://github.com/can1357/oh-my-pi/pull/6354) and [#6171](https://github.com/can1357/oh-my-pi/issues/6171). |
-| Optional encrypted `gateway-health` probes (commit five) | Not submitted; no upstream seam exists at `v17.3.8`. Flagged in the discussion because it fails inert rather than loudly. |
+| Optional encrypted `gateway-health` probes (commit five) | Not submitted; no upstream seam exists at `v17.4.1`. Flagged in the discussion because it fails inert rather than loudly. |
 | Gateway daemon, PWA, Tailscale identity, capability broker | Out of scope for upstream by design. |
 
 Do not open an upstream issue for work that is about to be submitted: upstream `CONTRIBUTING.md` treats actionable issues as work its bot may pick up in parallel. Link an existing issue from the pull request instead. Every pull request body must also contain at least one sentence written by the human contributor.
 
-Rebase by revalidating the paths in `UPSTREAM.lock.json`, applying
-with `git apply --3way`, resolving only narrow collaboration conflicts, then rerunning all listed and
-coding-agent tests. Keep generated assets, gateway code, and an optional future extension API out of this patch.
+Rebase by first refreshing the maintained downstream `gateway-collaboration` series to the new
+exact OMP pin, then restoring the carried health commit and rerunning every listed coding-agent
+fixture plus the complete upstream suite. Keep generated assets, gateway code, and an optional
+future extension API out of this patch.

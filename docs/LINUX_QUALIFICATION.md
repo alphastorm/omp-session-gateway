@@ -155,11 +155,11 @@ online; otherwise the script uses the already-authenticated workstation `gh` to
 `cosign` and `gh` are fetched onto the droplet from their upstream releases and their sha256 digests
 are printed, so the run records which tool binaries produced the result.
 
-The lane then extracts the archive, prints the bundled `UPSTREAM.lock.json` pin and
-`release-info.json` source commit — which is how a Linux run contributes to the ledger's requirement
-that platform rows be re-run at the current `v17.3.8` pin — and installs Bun 1.3.14 to match
-`UPSTREAM.lock.json`. Everything afterwards runs the archive's `apps/gateway/src/cli.js`, never a
-development checkout.
+The lane then extracts the archive and prints its bundled `UPSTREAM.lock.json` pin and
+`release-info.json` source commit. That is how a Linux run proves it exercised the exact current
+development pin rather than a stale baseline. It installs the Bun version recorded by the lock and
+runs the archive's `apps/gateway/src/cli.js` for every subsequent step, never a development
+checkout.
 
 ## 3. Prerequisites
 
@@ -346,9 +346,9 @@ what is measured and where; it does not assert that any row should change.
 | Linux host lifecycle (init-system scope) | `OMP_QUAL_INIT=openrc qualify host artifact init` | On a host where `/run/systemd/system` is absent and `systemctl` is not on `PATH`: the `install` exit status, its verbatim message, whether a systemd unit / `config.json` / `publisher-token` / staged version directory survives the failure, whether `status`, `doctor`, and `uninstall` then behave intelligibly, and the three asserted safety properties — install refused, no gateway process, nothing answering on `4317`. See [section 10](#10-the-non-systemd-path-alpine-and-openrc). |
 
 Supporting measurements that are not themselves a row: the bundled `UPSTREAM.lock.json` tag and
-commit (relevant to the ledger's requirement that platform rows be re-run at the `v17.3.8` pin), the
-`doctor` true/false split with the false checks named, and a literal search of
-`doctor --bundle` output for the publisher token and the home path.
+commit, the `doctor` true/false split with the false checks named, and a literal search of
+`doctor --bundle` output for the publisher token and the home path. Compare the printed pin to the
+candidate source; never infer currency from a hard-coded version in this guide.
 
 **The sibling lane.** `Configuration migration and rollback` is also measured on macOS by
 [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) and `scripts/qualify-rollback.sh`. That harness has no

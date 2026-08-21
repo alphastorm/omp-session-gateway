@@ -3,7 +3,7 @@ import { createHash, createHmac } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { main } from "../src/cli.ts";
+import { main, pollUntilReady, readinessBudgetMs } from "../src/cli.ts";
 import { defaultGatewayPaths, type GatewayConfig } from "../src/config.ts";
 import { serviceDefinition } from "../src/service.ts";
 
@@ -889,4 +889,98 @@ describe("doctor JSON contract", () => {
       expect(run.after).toEqual(run.before);
     }
   }, 60_000);
+});
+
+/**
+ * The install-time readiness budget. Issue #90 was not a broken check: `install` created the Windows
+ * Scheduled Task, the daemon ran for ~18 s and was still making progress, and a fixed 15 s deadline
+ * rolled it back. The budget is therefore a platform policy with measured inputs, and both halves
+ * need defending — Windows has to be long enough for a cold start, every other platform must not
+ * have quietly gained 45 s of patience, and neither may become unbounded.
+ *
+ * `readinessBudgetMs` takes the platform as an argument and `pollUntilReady` takes its clock, so
+ * both properties are asserted directly rather than by reassigning `process.platform` or by waiting
+ * a real minute.
+ */
+describe("managed-service readiness budget", () => {
+  /** Mean cold `Get-Acl` spawn on the 2-vCPU Server 2025 host in `docs/WINDOWS_QUALIFICATION.md`. */
+  const WINDOWS_ACL_SPAWN_MS = 1_854;
+
+  /** Spawns `runServe` reaches before `startHttpServer` binds; itemised at `READINESS_BUDGET_MS`. */
+  const WINDOWS_STARTUP_SPAWNS = 10;
+
+  /** The cadence `pollUntilReady` polls at, which is what fixes where the deadline falls. */
+  const POLL_INTERVAL_MS = 100;
+
+  /**
+   * A probe that starts proving readiness once `readyAtMs` of virtual time has passed, paired with
+   * the clock that measures it. Time moves only when the loop sleeps, so elapsed time and attempt
+   * count are both exact and a 60 s budget costs no wall-clock time. `Infinity` is a dead service.
+   */
+  function probeReadyAt(readyAtMs: number) {
+    let elapsed = 0;
+    const attempts: number[] = [];
+    return {
+      attempts,
+      clock: {
+        now: () => elapsed,
+        sleep: async (ms: number) => {
+          elapsed += ms;
+        },
+      },
+      probe: async () => {
+        attempts.push(elapsed);
+        return elapsed >= readyAtMs;
+      },
+    };
+  }
+
+  test("keeps 15 s everywhere except Windows, which gets 60 s", () => {
+    expect(readinessBudgetMs("linux")).toBe(15_000);
+    expect(readinessBudgetMs("darwin")).toBe(15_000);
+    expect(readinessBudgetMs("freebsd")).toBe(15_000);
+    expect(readinessBudgetMs("win32")).toBe(60_000);
+  });
+
+  test("polls to the last instant inside the budget and never past it", async () => {
+    const budget = readinessBudgetMs("win32");
+    const inside = probeReadyAt(budget - POLL_INTERVAL_MS);
+    expect(await pollUntilReady(budget, inside.probe, inside.clock)).toBe(true);
+    expect(inside.attempts.at(-1)).toBe(budget - POLL_INTERVAL_MS);
+
+    // One millisecond later is unreachable: the final poll lands on the instant above, so readiness
+    // appearing after it is never observed and the deadline holds.
+    const outside = probeReadyAt(budget - POLL_INTERVAL_MS + 1);
+    expect(await pollUntilReady(budget, outside.probe, outside.clock)).toBe(false);
+  });
+
+  test("gives up at the finite deadline when the service never answers", async () => {
+    for (const platform of ["win32", "linux"] as const) {
+      const budget = readinessBudgetMs(platform);
+      const dead = probeReadyAt(Number.POSITIVE_INFINITY);
+      expect(await pollUntilReady(budget, dead.probe, dead.clock)).toBe(false);
+      // One probe per interval across the budget and none at or beyond it: the longer Windows wait
+      // is a longer wait, not a retry loop that could outlive a service that will never bind.
+      expect(dead.attempts).toHaveLength(budget / POLL_INTERVAL_MS);
+      expect(dead.attempts.at(-1)).toBe(budget - POLL_INTERVAL_MS);
+    }
+  });
+
+  test("admits the slow Windows start that #90 rolled back, and only on Windows", async () => {
+    // The observed host: ~18 s of ACL spawns while alive and progressing, before it could bind.
+    const coldStartMs = WINDOWS_STARTUP_SPAWNS * WINDOWS_ACL_SPAWN_MS;
+    const onWindows = probeReadyAt(coldStartMs);
+    expect(await pollUntilReady(readinessBudgetMs("win32"), onWindows.probe, onWindows.clock)).toBe(true);
+
+    // The same start under the budget the other platforms kept: still refused, which is what makes
+    // this a Windows-scoped change rather than a global loosening.
+    const elsewhere = probeReadyAt(coldStartMs);
+    expect(await pollUntilReady(readinessBudgetMs("linux"), elsewhere.probe, elsewhere.clock)).toBe(false);
+  });
+
+  test("returns on the first attempt without spending any of the budget", async () => {
+    const immediate = probeReadyAt(0);
+    expect(await pollUntilReady(readinessBudgetMs("win32"), immediate.probe, immediate.clock)).toBe(true);
+    expect(immediate.attempts).toEqual([0]);
+  });
 });

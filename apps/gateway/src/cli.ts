@@ -6,6 +6,7 @@ import {
   type AuthMode,
   captureGatewayConfigFile,
   defaultGatewayPaths,
+  type GatewayConfig,
   loadGatewayConfig,
   loadOrCreatePublisherToken,
   loadPublisherToken,
@@ -53,6 +54,42 @@ const MISSING_OPTION_VALUE = "\0";
  * stops every publisher from connecting while HTTP keeps serving.
  */
 const ENDPOINT_WATCHDOG_INTERVAL_MS = 15_000;
+
+/** Gap between readiness attempts while a freshly (re)installed service is still starting. */
+const READINESS_POLL_INTERVAL_MS = 100;
+
+/** Pause between the two service-status reads that distinguish "running" from "still running". */
+const SERVICE_STABILITY_PAUSE_MS = 200;
+
+/**
+ * How long a newly installed service gets to answer an authenticated loopback readiness probe.
+ * Linux and macOS keep the original 15 s: nothing on their startup path spawns a subprocess, so a
+ * daemon that has not answered in 15 s is not slow, it is broken.
+ *
+ * Windows needs far more, and the figure is measured rather than padded. Every private path the
+ * daemon touches is verified by spawning `powershell.exe` (`config.ts`, `applyWindowsAcl` and
+ * `assertWindowsAclPrivate`), and `runServe` reaches ten of those spawns before `startHttpServer`
+ * binds the listener: one for `config.json`, five for `loadOrCreatePublisherToken` (two per created
+ * directory plus the token file), and four more when `PushService.open` re-verifies the same
+ * directories. On the 2-vCPU Server 2025 host in `docs/WINDOWS_QUALIFICATION.md` a single cold
+ * spawn averaged 1854 ms, which puts cold startup at ~18.5 s — matching the ~18 s that host's
+ * daemon stayed alive without ever binding, and explaining why a 15 s budget rolled back a service
+ * that was progressing normally (issue #90). Hosted CI has recorded the same spawn at 685 ms,
+ * 13.7 s and >30 s, so the budget absorbs variance, not just the mean.
+ *
+ * 60 s is ~3.2x that measured cold startup and remains a hard ceiling: the probe itself is
+ * unchanged, so a service that never binds still fails closed and still rolls back, just later.
+ */
+const READINESS_BUDGET_MS = 15_000;
+const WINDOWS_READINESS_BUDGET_MS = 60_000;
+
+/**
+ * Exported so the budget can be asserted per platform without reassigning `process.platform`,
+ * mirroring how `service.ts` threads `platform` through its own definition builders.
+ */
+export function readinessBudgetMs(platform: typeof process.platform = process.platform): number {
+  return platform === "win32" ? WINDOWS_READINESS_BUDGET_MS : READINESS_BUDGET_MS;
+}
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const command = argv[0] ?? "help";
@@ -196,26 +233,45 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   }
 }
 
+/**
+ * Polls `probe` until it proves readiness or `budgetMs` elapses, whichever comes first. Separated
+ * from `waitForGateway` purely as a test seam: the deadline is the part of install that rolled back
+ * a healthy Windows service, and it is only worth trusting if it can be exercised against a virtual
+ * clock instead of a real 60 s wall-clock wait. The probe is untouched by the split, so this adds no
+ * retry that could make a dead service look alive — it only decides how long to keep asking.
+ */
+export async function pollUntilReady(
+  budgetMs: number,
+  probe: () => Promise<boolean>,
+  clock: { readonly now: () => number; readonly sleep: (ms: number) => Promise<void> } = {
+    now: Date.now,
+    sleep: Bun.sleep,
+  },
+): Promise<boolean> {
+  const deadline = clock.now() + budgetMs;
+  while (clock.now() < deadline) {
+    if (await probe()) return true;
+    await clock.sleep(READINESS_POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
 async function waitForGateway(
-  config: Awaited<ReturnType<typeof loadGatewayConfig>>,
+  config: GatewayConfig,
   readinessToken: string,
   readinessInstance?: string,
   requireManagedService = false,
 ): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (await gatewayReady(config, readinessToken, readinessInstance)) {
-      if (!requireManagedService) return;
-      const service = await userServiceStatus(config);
-      if (service.installed && service.active) {
-        await Bun.sleep(200);
-        const stableService = await userServiceStatus(config);
-        if (stableService.installed && stableService.active && (await gatewayReady(config, readinessToken))) return;
-      }
-    }
-    await Bun.sleep(100);
-  }
-  throw new Error("service installed but the loopback readiness proof did not become valid");
+  const ready = await pollUntilReady(readinessBudgetMs(), async () => {
+    if (!(await gatewayReady(config, readinessToken, readinessInstance))) return false;
+    if (!requireManagedService) return true;
+    const service = await userServiceStatus(config);
+    if (!service.installed || !service.active) return false;
+    await Bun.sleep(SERVICE_STABILITY_PAUSE_MS);
+    const stableService = await userServiceStatus(config);
+    return stableService.installed && stableService.active && (await gatewayReady(config, readinessToken));
+  });
+  if (!ready) throw new Error("service installed but the loopback readiness proof did not become valid");
 }
 
 async function runInstall(arguments_: ParsedArguments): Promise<void> {
