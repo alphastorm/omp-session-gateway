@@ -1,11 +1,60 @@
 # Release status
 
 **Updated:** 2026-08-21<br>
-**Repository version:** `0.1.0`, released as **`v0.1.0-alpha.1`** (published and independently
-verified)<br>
-**Classification:** qualified alpha<br>
-**Alpha.1 decision:** **GO, completed**, for the combinations named immediately below and for
-nothing else<br>
+**Repository version:** `0.1.0`, released as **`v0.1.0-beta.1`**<br>
+**Qualification predecessor:** **`v0.1.0-prealpha.20`**, independently verified<br>
+**Classification:** qualified beta; not stable or production-qualified<br>
+**Beta decision:** **GO, completed**, for the combinations named below and nothing else. Final-tag
+checksums, attestations, Cosign bundles, and candidate-byte comparison are reverified immediately
+after publication and appended to this ledger.
+
+### Beta advertised combinations
+
+| role | exact candidate combination | evidence |
+| --- | --- | --- |
+| host | Debian 13 (trixie) x86-64, systemd 257, kernel `6.12.94+deb13-amd64` | [run `32530180990`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32530180990): signed artifact, install/readiness, migration/rollback, `107/107` invariants, tagged-source identity denial, lingering-off/on reboot persistence, uninstall, and complete droplet/tailnet/key teardown |
+| host | macOS 26.6.1 arm64 (`Mac14,3`) | checksums, GitHub attestations and Cosign verified; install, loopback-only listener, `doctor` 17/17, rotation, distinct-node identity/exposure, control-plane reboot/LaunchAgent return with token continuity, exact patched-OMP build/publication, and clean uninstall/Serve/source cleanup |
+| client | Chrome `151.0.7922.171` on Android 17, Pixel 10 Pro | exact candidate discovery and launch authorization; View connected read-only, Control enabled the composer and accepted send, stale View/Control `409`, lock/resume in 5,190 ms, self-verifying 7/7 capability sweep clean before and after force-stop recovery |
+
+**Candidate provenance.** `v0.1.0-prealpha.20` records source
+`cffd6bf697c2d3e4c5a5d235c6e58168f5db2eba`, exact OMP
+`9350b7990d26ebf69a604edc82d8558ef04adf30`, patch tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`, and archive/SBOM/checksum-manifest
+SHA-256 values `ba789f7a7f6799a53dab205e26cf6f3ebbaa39c2e26655315c1a809075b09ed2`,
+`ab2ee850e8a3daeda6c6d77a9dcc77ab9c48c3c0cd225196943de05a27f9988f`, and
+`f30fbc8b3a4c276eccd202fcff3765c8ad4d9575f3439c442bf2f443e3f42671`.
+`SHA256SUMS`, all three GitHub attestations, all three Cosign bundles, and the signed tag verified;
+a clean exact-tag rebuild reproduced all three files byte-for-byte.
+
+**Required OMP route.** Stock OMP is insufficient. The exact v17.4.1 mbox was applied from a
+pristine checkout, reproduced the pinned tree, passed source checks, and built
+`omp-gateway-patched` on the qualified Mac using OMP's exact official native addon. The installed
+binary reported `omp/17.4.1`, SHA-256
+`310ffd097c87752cbdf78d483e258c09a8450e123eed4e9df05fe9858a7de6b7`, auto-published
+View/Control at generation 1, and revoked to an empty revision 2 on stop. Upstreaming and paired
+packaging are not beta gates; using the versioned patched executable is.
+
+**Relay evidence.** The candidate completed a fresh 300-second default-relay smoke with two room
+transitions, `finalPhase: "live"`, and exit 0. The protected 28,800-second run remains the
+long-window evidence because collab-web and wire protocol bytes are unchanged.
+
+**Accepted limitations, not hidden passes.** The Pixel again reproduced issue #65: after Airplane
+mode the device regained tailnet reachability at 29,109 ms while Chrome failed to recover through
+the 521-second window, and the subsequent Doze leg also remained wedged. Force-stopping/restarting
+Chrome restored a clean capability sweep. Network-change/reconnect therefore remains explicitly
+unproven. Windows, Portal Tunnel, self-hosted/proxied relays, userspace-networking Tailscale, and
+every unnamed platform/browser remain unadvertised.
+
+Named local evidence:
+`~/.local/share/omp-session-gateway/test/v0.1.0-prealpha.20/qualification/beta-candidate.json`.
+Every candidate resource was cleaned: the Debian droplet/tailnet node/SSH key were deleted; the
+macOS gateway, Serve mapping, patched OMP process/binary/source, and listener were removed; the
+Pixel radio/battery/Doze state was restored.
+
+## Published alpha baseline
+
+**Alpha.1 decision:** **GO, completed**, for the historical combinations and evidence immediately
+below. This section remains the immutable record for `v0.1.0-alpha.1`; it is not the beta claim.
 
 **Advertised host platforms**
 
@@ -41,9 +90,9 @@ The final `release-info.json` still carries the build script's conservative stat
 underclaims the independently verified release but does not alter executable bytes or the support
 matrix above. Rather than rewrite this immutable release, `scripts/build-release.ts` now derives
 that field from the release channel `release.yml` exports for the validated tag shape:
-`-alpha[.<n>]` records qualified alpha, `-prealpha.<n>` and `provenance-test-v…` stay pre-alpha, a
-build with no `OMP_RELEASE_CHANNEL` defaults to pre-alpha, and any other value fails the build. A
-byte-exact rebuild of a future alpha tag therefore has to set `OMP_RELEASE_CHANNEL=alpha`.
+`-alpha[.<n>]` records qualified alpha, `-beta[.<n>]` qualified beta, and `-prealpha.<n>` plus
+`provenance-test-v…` stay pre-alpha. A build with no channel defaults to pre-alpha; every unknown
+value fails. Byte-exact advertised-tag rebuilds must set the matching `alpha` or `beta` channel.
 
 **Candidate `.18` is retained as failed qualification evidence, not promoted.** It exposed a real
 operator-path defect: after several successful explicit version switches, systemd's start-rate
@@ -128,14 +177,14 @@ This ledger is the source of truth for the current release decision. Compatibili
 | **BLOCKED** | A known prerequisite prevents completion or publication. |
 | **N/A** | Deliberately excluded from this release and not advertised. |
 
-An alpha requires every applicable release-blocking row below to be **PASS**. Automated tests,
-mocks, a desktop mobile viewport, or generated service definitions do not substitute for native
-OS, real Tailscale, real relay, or Android qualification.
+An advertised alpha or beta requires every applicable release-blocking row below to be **PASS**.
+Automated tests, mocks, a desktop mobile viewport, or generated service definitions do not
+substitute for native OS, real Tailscale, real relay, or Android qualification.
 
 ## Recorded implementation evidence
 
-These checks establish the implemented pre-alpha baseline; they do not resolve the acceptance
-gaps in the next section.
+The table retains historical evidence across pre-alpha and alpha qualification. The current beta
+decision and its exact successor evidence are the bounded record at the top of this document.
 
 | Scope | Status | Recorded evidence |
 |---|---|---|

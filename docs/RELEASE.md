@@ -3,7 +3,8 @@
 ## Pre-alpha, alpha, and beta artifacts
 
 The repository can produce working Bun-runtime pre-alpha archives, advertised alpha releases, and
-advertised beta releases. `v0.1.0-alpha.1` is the current published qualified alpha. It must not be
+advertised beta releases. `v0.1.0-beta.1` is the current qualified beta, promoted from exact signed
+candidate `v0.1.0-prealpha.20`; `v0.1.0-alpha.1` is its rollback predecessor. Neither may be
 described as stable or production-qualified, and repository commits remain preferred outside the
 exact platform and Android combinations recorded in the release ledger.
 

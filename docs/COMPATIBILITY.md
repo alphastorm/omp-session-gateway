@@ -2,33 +2,37 @@
 
 ## Current claim
 
-**Current public release:** qualified alpha `v0.1.0-alpha.1`.<br>
-**Rollback predecessor:** qualified alpha `v0.1.0-alpha`.<br>
-**Qualification candidate:** signed `v0.1.0-prealpha.19`.<br>
+**Current release:** qualified beta `v0.1.0-beta.1`; not stable or production-qualified.<br>
+**Rollback predecessor:** qualified alpha `v0.1.0-alpha.1`.<br>
+**Qualification predecessor:** signed candidate `v0.1.0-prealpha.20`.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
 `151.0.7922.171` on Android 17 (Pixel 10 Pro). Nothing else is advertised.
 
 Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
 and Tailscale must run its **TUN-mode** client; userspace-networking `tailscaled` does not establish
 the required loopback/identity boundary and is refused
-([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The gateway requires exact OMP
-`v17.3.8` at `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` plus the repository's six-commit patch.
-
-The default branch has moved the next candidate to exact OMP `v17.4.1` at
-`9350b7990d26ebf69a604edc82d8558ef04adf30`. That source integration is **not** part of either
-published alpha and carries no support claim until the applicable signed-artifact, host, relay, and
-physical-client lanes are requalified.
+([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The published alpha requires
+exact OMP `v17.3.8` at `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` plus its recorded patch.
+The qualified beta candidate requires exact OMP `v17.4.1` at
+`9350b7990d26ebf69a604edc82d8558ef04adf30`, patch tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`, and the versioned
+`omp-gateway-patched` activation route. Stock OMP is unsupported; upstreaming and paired packaging
+are not beta gates.
 
 The successor's support claim comes from exact signed-candidate evidence, not row counts:
 
-- Debian [run `32502584598`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32502584598)
-  passed the complete artifact/lifecycle/migration/rollback/identity/persistence/uninstall order,
-  including `107/107` rollback invariants and both lingering states.
-- macOS passed signed-artifact install, `doctor` 17/17, rotation, distinct-node exposure checks, a
-  Scaleway control-plane reboot with unchanged token and automatic LaunchAgent return, and uninstall.
-- the physical Pixel passed the seven-sink capability sweep, a genuine BFCache history restoration,
-  read-only View, explicit Control, remote prompt/interrupt, and safe return to Sessions.
-- hosted Windows source/lifecycle checks passed, but Windows remains unadvertised.
+- Debian [run `32530180990`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32530180990)
+  passed the complete candidate artifact/lifecycle/migration/rollback/persistence/uninstall order,
+  including `107/107` rollback invariants, both lingering states, and complete resource teardown.
+- macOS 26.6.1 arm64 independently verified the candidate, passed `doctor` 17/17, rotation,
+  distinct-node identity/exposure, control-plane reboot with unchanged token and automatic
+  LaunchAgent return, exact patched-OMP build/publication, and uninstall/cleanup.
+- the physical Pixel passed exact candidate discovery, View read-only, Control composer/send,
+  stale-generation denial, lock/resume, and the self-verifying seven-sink capability sweep. Issue
+  #65 reproduced and recovered after Chrome force-stop, so the limitation remains explicit.
+- a 300-second default-relay smoke finished live with two transitions; the protected 28,800-second
+  evidence transfers because collab-web/wire bytes are unchanged.
+- Windows source/lifecycle checks passed, but Windows remains unadvertised and is outside beta.
 
 Known limits remain part of the claim. Chrome-for-Android can wedge its process-wide network stack
 after an abrupt radio transition while the device itself remains healthy, so network-change and
@@ -43,6 +47,7 @@ A signed artifact proves origin, not fitness. Candidate history for this point r
 |---|---|---|---|
 | `v0.1.0-prealpha.18` | `0.1.0-3a9bb1cccc6e` | **Failed qualification; retained as evidence.** Repeated explicit rollback reached systemd's start-rate limit and repair could not restart. | Six signed/attested assets verified; macOS/Pixel/relay sublanes passed; Debian full lane failed at W2. |
 | `v0.1.0-prealpha.19` | `0.1.0-28d89a99565d` | **Qualified replacement.** Clears the systemd start-rate counter only before an explicit operator-requested install/rollback start. | Archive SHA-256 `f6e01c4b96b5630fccbb3c79f0a0dae1677e316990d869db6e300ce96605a762`; checksums, three GitHub attestations, and three Cosign bundles verified; exact Debian/macOS/Pixel evidence above. |
+| `v0.1.0-prealpha.20` | `0.1.0-848c968923f1` | **Qualified beta candidate; pending exact final-tag promotion.** Uses the accepted exact v17.4.1 patch route; upstreaming and paired packaging are not gates. | Archive SHA-256 `ba789f7a7f6799a53dab205e26cf6f3ebbaa39c2e26655315c1a809075b09ed2`; checksums, signed tag, all attestations/Cosign bundles, byte-identical rebuild, Debian/macOS/Pixel lanes, and bounded relay smoke passed. |
 
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and release decisions.
 This document defines the supported boundary. Where they disagree, the ledger is authoritative.
@@ -70,11 +75,11 @@ Published releases and unreleased development targets use separate immutable ups
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
-| default branch, unreleased | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Source-integrated next candidate; qualification pending |
+| `0.1.0`, published as `v0.1.0-beta.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit beta qualification through the versioned patched-binary route |
 
-`v17.3.8` is the package baseline qualified for the published alpha. No earlier or later OMP
-release, commit, fork, or loose semver range is supported by that release. The v17.4.1 row is an
-explicit development target, not a retroactive expansion of the alpha support boundary.
+`v17.3.8` remains the immutable alpha baseline. `v17.4.1` is independently qualified for the beta
+candidate only through the exact patch/tree and versioned executable route above. No other OMP
+release, commit, fork, or loose semver range is supported.
 
 **Development pin refreshed 2026-08-21, from `v17.3.8` to `v17.4.1`.** The maintained
 `gateway-collaboration` series already targeted the new exact base. The carried health-probe commit
@@ -95,14 +100,14 @@ Android, browser, or signed-artifact qualification. Any platform row whose evide
 2026-08-19 is therefore **NOT RUN** for this pin until re-executed, and an unchanged row is never
 coverage of `v17.3.8`.
 
-Re-execution is current at the successor candidate. On 2026-08-21,
-`v0.1.0-prealpha.19` passed the complete Debian signed-artifact lifecycle and all `107/107`
-rollback invariants, the complete macOS install/rotation/identity/control-plane-reboot/uninstall
-sequence, and the physical Pixel capability-leak/BFCache/View/Control/interrupt sequence. The
-candidate records the same OMP pin and collab-client bytes named above. The bounded real relay smoke
-was followed by a protected 28,800-second default-relay run on 2026-08-21: 22 room transitions,
-`finalPhase: "live"`, exit code 0, and no restart. The remaining explicit limit is Android
-network-change/reconnect, blocked by [#65](https://github.com/alphastorm/omp-session-gateway/issues/65).
+Re-execution is current at the beta candidate. On 2026-08-21, `v0.1.0-prealpha.20` passed the
+complete Debian signed-artifact lifecycle and all `107/107` rollback invariants; the complete macOS
+install/rotation/identity/control-plane-reboot/uninstall sequence; exact v17.4.1 patched-OMP
+build/publication/revocation; and physical Pixel capability-isolation/View/Control/lock-resume
+checks. The alpha BFCache and interrupt results transfer only because the relevant client and wire
+bytes are unchanged. A fresh 300-second relay smoke finished live; the protected 28,800-second
+long-window result transfers on the same byte identity. Android network-change/reconnect remains
+unproven under [#65](https://github.com/alphastorm/omp-session-gateway/issues/65).
 
 The immutable source paths, versions, observation date, and upstream findings live in
 [`UPSTREAM.lock.json`](../UPSTREAM.lock.json). The gateway integration currently requires:
@@ -132,12 +137,12 @@ cross-version tests exist.
 
 ## Host and client matrix
 
-The following describes code, evidence, and each row's support boundary. Linux, macOS, and the
-Android client retain their `v0.1.0-alpha` support claim and have passed successor
-`v0.1.0-alpha.1` qualification for the exact versions named below. Windows now passes persistent
-source acceptance through reboot→interactive-login and the complete gateway/OMP path, but remains
-unadvertised until exact signed gateway and patched-OMP Windows artifacts repeat it. This
-Windows-only support gap does not block the narrower beta matrix. Desktop Chromium is smoke only.
+The following describes code, evidence, and each row's support boundary. Debian 13 x86-64, macOS
+26.6.1 arm64, and Chrome 151 on the Android 17 Pixel have exact beta-candidate qualification.
+Earlier rows remain as historical evidence, not substitutes for that candidate result. Windows now
+passes persistent source acceptance through reboot→interactive-login and the complete gateway/OMP
+path, but remains unadvertised until exact signed gateway and patched-OMP Windows artifacts repeat
+it. This Windows-only gap does not block the narrower beta matrix. Desktop Chromium is smoke only.
 
 | Platform | Implemented path | Recorded evidence | Qualification | Support claim |
 |---|---|---|---|---|

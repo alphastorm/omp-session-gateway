@@ -436,6 +436,11 @@ rebased, but v17.3.8 platform evidence does not transfer. Until a signed candida
 applicable host, relay, and physical-client lanes, v17.4.1 is an unreleased development target and
 must not be advertised as supported. The published alpha matrix remains immutable.
 
+**Qualification update (2026-08-21):** Signed candidate `v0.1.0-prealpha.20` repeated the
+applicable Debian, macOS, physical-Pixel, patched-OMP, and relay lanes at this exact pin. The
+condition above is therefore satisfied for the bounded beta matrix only; alpha support remains
+immutable at v17.3.8 and no loose OMP compatibility range is inferred.
+
 ---
 
 ## ADR-024 — Use the exact OMP patch as the beta prerequisite and defer paired packaging

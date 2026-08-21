@@ -4,7 +4,7 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [v0.1.0-beta.1] — 2026-08-21
 
 ### Added
 
@@ -21,18 +21,23 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   unsupported self-hosted/proxied relay caveats alongside the required exact OMP patch.
   `release-candidate` and stable tags stay rejected, pre-alpha and alpha archives stay
   byte-compatible, and the SBOM stays channel-independent.
+- Qualify the exact signed beta candidate on Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome
+  151 / Android 17 on a physical Pixel 10 Pro; verify checksums, attestations, Cosign bundles,
+  byte-identical rebuild, gateway and versioned patched-OMP lifecycles, capability isolation, and a
+  fresh default-relay smoke. Android radio-transition recovery, Windows, and self-hosted/proxied
+  relays remain explicitly unadvertised.
 
 ### Changed
 
-- Move the unreleased default-branch OMP target to exact `v17.4.1` /
+- Move the beta OMP baseline to exact `v17.4.1` /
   `9350b7990d26ebf69a604edc82d8558ef04adf30`, update `@oh-my-pi/pi-wire` to `17.4.1`, and
   regenerate the six-commit collaboration patch from the maintained downstream series plus the
-  carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
-  new target repeats the applicable release lanes.
-- Keep the exact tested v17.4.1 OMP patch as the alpha and beta installation prerequisite. Paired
-  OMP signing/install/update/rollback stays deliberately deferred and is a disclosed limitation
-  rather than a beta gate; the exact patch is an accepted beta prerequisite, and stock OMP is never
-  sufficient on its own.
+  carried health-probe commit. The qualified route reproduced its patch tree, passed source checks,
+  built a versioned binary, auto-published View/Control, and revoked on stop.
+- Keep the exact tested v17.4.1 OMP patch as the beta installation prerequisite. Paired OMP
+  signing/install/update/rollback stays deliberately deferred and is a disclosed limitation rather
+  than a beta gate; stock OMP is never sufficient on its own. Published alphas remain immutable at
+  their recorded v17.3.8 patch.
 
 ### Fixed
 
