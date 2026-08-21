@@ -41,6 +41,9 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   the patch rebase.
 - Bind `release-info.json` qualification to the workflow-validated release channel, so alpha tags
   no longer ship the pre-alpha claim and unknown future channels fail before producing artifacts.
+- Make pre-release candidate notes channel-neutral and bind them to the current OMP patch,
+  advertised beta lanes, limitations, and `v0.1.0-alpha.1` rollback predecessor instead of the
+  already-published alpha-point plan.
 - Give Windows managed-service startup a measured 60-second hard readiness deadline while
   retaining 15 seconds elsewhere, so cold per-path ACL verification no longer rolls back a
   progressing service before it can bind. A persistent Server 2025 source lane now passes install,
