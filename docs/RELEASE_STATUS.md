@@ -14,6 +14,17 @@
 
 **Advertised client:** Chrome `151.0.7922.139` on Android 17 (Pixel 10 Pro, build `CP2A.260805.005`, SDK 37).
 
+**No `v0.1.0-alpha` tag exists, and one must not be cut from `main` yet.** The GO above is a decision
+about candidate `v0.1.0-prealpha.17`, not about `main`. `main` now carries the #98 auth-path change,
+which is precisely what the identity lane measures, so no native lane has qualified these bytes.
+Linux can be re-qualified on demand because that lane is scripted. macOS currently cannot: the leased
+qualification host runs `tailscaled --tun=userspace-networking` and has no GUI client to obtain a TUN
+device, so on 2026-08-21 the fixed build's `doctor` exited `1` there with `loopbackTrustSound: false`
+— correctly, because the topology really is unsound. Re-qualifying macOS therefore needs a rebootable
+**TUN-mode** macOS host. Until then the honest options are to keep publishing candidates, or to
+advertise a single host; tagging an alpha from `main` would advertise unqualified bytes and is the one
+thing this ledger exists to prevent.
+
 **Required deployment preconditions.** These are conditions of the claim, not advice. Tailscale Serve
 over tailnet HTTPS is the only supported remote path; Funnel must stay disabled; and Tailscale must
 run its **TUN-mode** client. Userspace-networking `tailscaled` forwards inbound tailnet connections to
