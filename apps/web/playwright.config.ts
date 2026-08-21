@@ -6,11 +6,32 @@ import { fileURLToPath } from "node:url";
 const androidUserAgent =
   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36";
 
+// The browser lane is benchmarked at 1, 2 and 4 workers through a `workflow_dispatch` input, so the
+// width is supplied out of band rather than derived from the machine. An unset variable is the serial
+// benchmark baseline; a workflow `env:` mapping over an absent input arrives as the empty string, and
+// means the same thing. Anything else is a wiring mistake and fails loudly here, because silently
+// falling back would attribute a run to a width it never used.
+function playwrightWorkers(): number {
+  const requested = process.env.PLAYWRIGHT_WORKERS;
+  switch (requested) {
+    case undefined:
+    case "":
+    case "1":
+      return 1;
+    case "2":
+      return 2;
+    case "4":
+      return 4;
+    default:
+      throw new Error(`PLAYWRIGHT_WORKERS must be "1", "2" or "4" when set, not ${JSON.stringify(requested)}`);
+  }
+}
+
 export default defineConfig({
   testDir: fileURLToPath(new URL("./e2e", import.meta.url)),
   testMatch: "*.e2e.ts",
   fullyParallel: false,
-  workers: 1,
+  workers: playwrightWorkers(),
   reporter: [["line"]],
   use: {
     browserName: "chromium",
