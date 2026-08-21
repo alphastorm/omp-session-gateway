@@ -105,10 +105,9 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await expect(page.locator("#status-banner .status-detail")).toContainText(
       "Tailnet looks fine, but the desktop isn't answering — asleep, or the gateway stopped. Last seen",
     );
-    const retryHeight = await page.locator("#status-banner .status-action").evaluate(
-      element => element.getBoundingClientRect().height,
-    );
-    expect(retryHeight).toBeGreaterThanOrEqual(44);
+    await expect.poll(
+      () => page.locator("#status-banner .status-action").evaluate(element => element.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
     await assertFits();
 
     const eventRequestsBeforeDesktopRecovery = eventRequestCount();
