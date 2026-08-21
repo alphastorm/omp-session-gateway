@@ -6,7 +6,7 @@ export interface RequestPeer {
 
 export type AuthorizationResult =
   | { readonly allowed: true; readonly identityKey: string }
-  | { readonly allowed: false };
+  | { readonly allowed: false; readonly reason: "unauthorized" | "identity_untrustworthy" };
 
 export function isLoopbackAddress(address: string): boolean {
   const lower = address.toLowerCase();
@@ -22,26 +22,41 @@ export function normalizeTailscaleLogin(value: string): string | undefined {
   return normalized;
 }
 
+/**
+ * @param serveOwnsIdentityHeaders whether Tailscale Serve is still the only way a request can reach
+ * this loopback listener. False means tailscaled has no TUN device, so its netstack forwards inbound
+ * tailnet connections to localhost and any tailnet peer can present a forged identity as a loopback
+ * peer (#98). Callers pass a measured value; there is no default, because a caller that forgot this
+ * argument would be reintroducing the bypass.
+ */
 export function authorizeHttpRequest(
   request: Request,
   peer: RequestPeer | undefined,
   config: GatewayConfig,
+  serveOwnsIdentityHeaders: boolean,
 ): AuthorizationResult {
-  if (peer === undefined || !isLoopbackAddress(peer.address)) return { allowed: false };
+  if (peer === undefined || !isLoopbackAddress(peer.address)) return { allowed: false, reason: "unauthorized" };
   if (config.auth.mode === "dev-localhost") {
     try {
       const origin = new URL(request.url).origin;
       return origin === config.http.publicOrigin && origin === loopbackHttpOrigin(config.http.hostname, config.http.port)
         ? { allowed: true, identityKey: "dev-localhost" }
-        : { allowed: false };
+        : { allowed: false, reason: "unauthorized" };
     } catch {
-      return { allowed: false };
+      return { allowed: false, reason: "unauthorized" };
     }
   }
+  // Identity here is asserted only by Serve, which overwrites whatever the caller sent. That
+  // guarantee is a property of the topology rather than of the request, so it is checked before the
+  // header is read at all. Refusing costs nothing when the signal is absent: without a tailnet
+  // interface, Serve cannot be routing tailnet requests to this process in the first place.
+  if (!serveOwnsIdentityHeaders) return { allowed: false, reason: "identity_untrustworthy" };
   const header = request.headers.get("Tailscale-User-Login");
-  if (header === null) return { allowed: false };
+  if (header === null) return { allowed: false, reason: "unauthorized" };
   const login = normalizeTailscaleLogin(header);
-  if (login === undefined || !config.auth.allowedLogins.includes(login)) return { allowed: false };
+  if (login === undefined || !config.auth.allowedLogins.includes(login)) {
+    return { allowed: false, reason: "unauthorized" };
+  }
   return { allowed: true, identityKey: login };
 }
 

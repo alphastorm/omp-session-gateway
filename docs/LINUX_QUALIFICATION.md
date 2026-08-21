@@ -121,7 +121,7 @@ workstation, which is a genuinely separate user-owned tailnet node — that is r
 evidence, but it is the operator's own identity, not a third party's. If the ledger needs a denial by
 a *different real person's* login, this lane does not provide it and no single-account tailnet can.
 
-A second consequence: `doctor` cannot reach 16/16 on a tagged node, because `doctor` probes its own
+A second consequence: `doctor` cannot pass every check on a tagged node, because `doctor` probes its
 public origin and that probe has no user identity. Expect these checks to be `false` and read them as
 the denial result rather than as a gateway fault:
 
@@ -445,7 +445,7 @@ before `droplet delete`, which is the one failure mode teardown must never have.
 - **No second user identity.** The tagged node proves "identity absent"; the workstation proves
   "identity present and not on the allowlist" using the operator's own login. A denial by a different
   real person's identity is not produced, and cannot be from a single-account tailnet.
-- **`doctor` does not reach 16/16 on the tagged node,** by construction. See the table in
+- **`doctor` does not pass every check on the tagged node,** by construction. See the table in
   [section 2](#gap-3--denied-tailscale-identity). A full-pass `doctor` on Linux would require a
   user-owned node, which would in turn make the denial case unavailable.
 - **Neither rollback lane proves the crash window is small.** Lane `rollback` induces the one

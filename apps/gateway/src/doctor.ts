@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
-import { networkInterfaces } from "node:os";
 import { isIP } from "node:net";
+import { tailnetAddressIsLocallyBound, tailscaleTunDevicePresent } from "./tailnet.ts";
 import { fileURLToPath } from "node:url";
 import { parseSessionListResponse, type SessionListResponse } from "@omp-session-gateway/protocol";
 import {
@@ -143,31 +143,6 @@ export function tailscaleSelfIp(value: unknown): string | undefined {
     addresses.find(address => typeof address === "string" && isIP(address) === 4) ??
     addresses.find(address => typeof address === "string" && isIP(address) === 6)
   );
-}
-
-/**
- * True when the node's own tailnet address is configured on a local interface, i.e. tailscaled owns a
- * real TUN device.
- *
- * This exists because `listenerLoopbackOnly` cannot be answered from the bind address alone.
- * `tailscaled --tun=userspace-networking` has no TUN: its netstack accepts inbound tailnet
- * connections and dials `localhost`, so a caller on another machine reaches a listener bound strictly
- * to `127.0.0.1` and arrives as a loopback peer. `auth.ts` then trusts the `Tailscale-User-Login` the
- * caller supplied, because in the intended deployment only Serve can set it. That is a remote
- * authentication bypass, demonstrated on 2026-08-21 and tracked as #98.
- *
- * Probing our own tailnet address would not detect it: in userspace mode the host has no route to
- * that address either, so the probe fails on a safe host and an exposed one alike. The presence of
- * the address on an interface is the signal that distinguishes them.
- */
-export function tailnetAddressIsLocallyBound(tailscaleIp: string | undefined): boolean {
-  if (tailscaleIp === undefined) return false;
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.address === tailscaleIp) return true;
-    }
-  }
-  return false;
 }
 
 export async function gatewayReady(
@@ -327,6 +302,7 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
     permissions: false,
     daemon: false,
     listenerLoopbackOnly: false,
+    loopbackTrustSound: false,
     serviceInstalled: false,
     serviceActive: false,
     tailscaleConnected: false,
@@ -379,6 +355,8 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
     checks.tailscaleConnected = true;
     checks.serveMapping = true;
     checks.identityAllowed = true;
+    // No identity header is believed in this mode, so there is no loopback trust to be unsound.
+    checks.loopbackTrustSound = true;
     const [sessions, root, manifest, worker] = await Promise.all([
       publicSessions(config),
       publicAsset(config, "/"),
@@ -404,10 +382,15 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
     publicAsset(config, "/service-worker.js", tailscaleIp),
   ]);
   checks.tailscaleConnected = property(status, "BackendState") === "Running";
-  // A loopback bind address is necessary but not sufficient. Userspace-mode tailscaled forwards
-  // inbound tailnet connections to localhost, so the listener is remotely reachable and arrives as a
-  // loopback peer that auth.ts trusts. Withhold the claim unless a TUN device actually owns our
-  // tailnet address. See #98.
+  // The bind address is necessary but not sufficient. Userspace-mode tailscaled forwards inbound
+  // tailnet connections to localhost, so the listener is remotely reachable and the caller arrives as
+  // a loopback peer whose identity header would be believed. Report that as its own finding, and
+  // withhold the loopback claim, whenever no TUN device owns our tailnet address. See #98.
+  //
+  // Reported from the interface table rather than from the configuration: a config that declares
+  // `auth.trustIdentityWithoutTailnetDevice` asserts trust, it does not establish it, so a host that
+  // sets the flag while running userspace mode must still fail here.
+  checks.loopbackTrustSound = tailscaleTunDevicePresent();
   if (checks.tailscaleConnected && !tailnetAddressIsLocallyBound(tailscaleIp)) {
     checks.listenerLoopbackOnly = false;
   }

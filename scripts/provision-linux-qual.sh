@@ -30,7 +30,7 @@
 # `Tailscale-User-Login` only for user-owned source devices, so a request from a tagged node arrives
 # with no user identity at all and the gateway must fail closed. That is the denial half the ledger
 # needs and it cannot be produced from the operator's own devices. The price of a tagged node is that
-# it can never present a user identity, so `doctor` cannot reach 16/16 on it and the allowed half has
+# it can never present a user identity, so `doctor` cannot pass every check on it and the allowed half has
 # to come from the operator's workstation, which is a genuinely distinct user-owned node. Both are
 # measured here. See docs/LINUX_QUALIFICATION.md for exactly what each pass does and does not prove.
 #
@@ -1051,7 +1051,11 @@ show "funnel status" "$(tailscale funnel status 2>&1 | head -1)"
 show "tagged self -> Serve /api/v1/sessions" "$(probe "https://${DNS_NAME}/api/v1/sessions")"
 show "tagged self -> Serve /" "$(probe "https://${DNS_NAME}/")"
 show "tailscale-user headers reaching us" "$(curl -sS --max-time 15 -D - -o /dev/null "https://${DNS_NAME}/api/v1/sessions" 2>/dev/null | grep -ci 'tailscale-user' || true)"
-show "backend via tailnet ip (bypass)" "$(probe "http://${TS_IP}:${GATEWAY_PORT}/api/v1/sessions")"
+# Deliberately kept, and deliberately not trusted. In userspace-networking mode the host has no
+# route to its own tailnet address either, so this probe fails on an exposed host exactly as it does
+# on a safe one. Only the workstation probe in lane 4b can tell them apart. See #98.
+show "backend via tailnet ip, from self" "$(probe "http://${TS_IP}:${GATEWAY_PORT}/api/v1/sessions")"
+show "tailnet address on an interface" "$(ip -o addr show 2>/dev/null | awk '$4 ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./ || $4 ~ /^fd7a:115c:a1e0:/ { found = 1 } END { print (found ? "yes (TUN mode)" : "NO (userspace mode: identity trust is unsound)") }')"
 show "loopback, no identity supplied" "$(probe "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions")"
 show "listener addresses" "$(ss -ltnH "sport = :${GATEWAY_PORT}" | awk '{print $4}' | tr '\n' ' ')"
 REMOTE
@@ -1061,6 +1065,16 @@ REMOTE
   step "Lane 4b: identity from this workstation, a distinct user-owned node"
   measure "droplet public ip:port" "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
     "http://${public_ip}:${GATEWAY_PORT}/api/v1/sessions" 2>/dev/null || echo connection-failed)"
+  # The probe that would have caught #98, and the only one that can. A bind-address check cannot see
+  # the failure, and neither can the droplet probing itself: userspace-mode tailscaled forwards
+  # inbound tailnet connections to localhost, so the backend port is reachable from any tailnet peer
+  # while every local observation still looks correct. Expect connection-refused on a TUN-mode host;
+  # any HTTP status here means the backend is exposed to the tailnet.
+  measure "droplet tailnet ip:port, no header" "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
+    "http://${tailscale_ip}:${GATEWAY_PORT}/api/v1/sessions" 2>/dev/null || echo connection-refused)"
+  measure "droplet tailnet ip:port, forged hdr" "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
+    -H "Tailscale-User-Login: ${SYNTHETIC_DENIED_LOGIN}" \
+    "http://${tailscale_ip}:${GATEWAY_PORT}/api/v1/sessions" 2>/dev/null || echo connection-refused)"
   measure "workstation tailnet login" "${workstation_login:-<unavailable>}"
   if [ -z "$workstation_login" ]; then
     note "No user-owned tailnet login is available here, so the allowed half is NOT exercised."

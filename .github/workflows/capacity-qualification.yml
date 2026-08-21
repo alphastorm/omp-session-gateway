@@ -202,6 +202,13 @@ jobs:
 
           # Written into the evidence directory first and then installed, so the artifact records
           # the exact bytes the daemon loaded instead of a hand-written description of them.
+          # `trustIdentityWithoutTailnetDevice` below is what lets this job exercise the production
+          # identity path on a runner with no Tailscale. The daemon otherwise refuses to believe
+          # `Tailscale-User-Login` unless some interface owns a tailnet address, because a
+          # userspace-mode tailscaled forwards inbound tailnet connections to the loopback listener
+          # and any peer could then forge that header (#98). Nothing can forward tailnet traffic
+          # here, so the header this job sets itself is the only one that can arrive. It must never
+          # be set on a host that has Tailscale installed.
           cat >"$evidence/gateway-config.json" <<JSON
           {
             "http": {
@@ -211,7 +218,8 @@ jobs:
             },
             "auth": {
               "mode": "tailscale-serve",
-              "allowedLogins": ["$CAPACITY_LOGIN"]
+              "allowedLogins": ["$CAPACITY_LOGIN"],
+              "trustIdentityWithoutTailnetDevice": true
             },
             "registry": {
               "heartbeatSeconds": 10,
