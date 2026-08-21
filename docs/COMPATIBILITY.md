@@ -2,54 +2,45 @@
 
 ## Current claim
 
-**Advertised as supported for the alpha:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts,
-with Chrome `151.0.7922.139` on Android 17 as the client, on the published release
-**`v0.1.0-alpha`**. Nothing else is advertised. Tailscale Serve over tailnet HTTPS is the only
-supported remote path, Funnel must remain disabled, and Tailscale must run its **TUN-mode** client:
-userspace-networking `tailscaled` makes the loopback listener remotely reachable and permits
-identity forgery ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)).
-The repository version is `0.1.0`, released as `v0.1.0-alpha` and classified as a **qualified
-alpha** rather than a production-qualified release, and the alpha decision in
-[`RELEASE_STATUS.md`](RELEASE_STATUS.md) is **GO** for the combinations named above. Of that
-ledger's rows, 38 are **PASS** within their own narrow scope, 11 are **PARTIAL**, and one is
-**N/A**. A PASS row still says nothing about a broader scope: the support claim comes from the two
-host platforms whose complete matrices passed, not from the row count. The remaining PARTIAL rows
-are why every other combination below stays unadvertised.
+**Current public release:** qualified alpha `v0.1.0-alpha`.<br>
+**Qualified successor:** `v0.1.0-alpha.1`, pending final tag/workflow promotion from signed candidate
+`v0.1.0-prealpha.19`.<br>
+**Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
+`151.0.7922.171` on Android 17 (Pixel 10 Pro). Nothing else is advertised.
 
-**`v0.1.0-alpha` is published and independently verified, and its runtime is the qualified
-runtime.** Both host lanes ran against candidate `provenance-test-v0.1.0.11`; comparing every
-extracted file leaves exactly two differing, and both are provenance metadata, so all 46 other
-files — the entire executable surface — are byte-identical. The alpha's own artifacts were then
-verified from a clean directory: `shasum -c` OK, three GitHub attestations verified, three Cosign
-bundles `Verified OK` against `.../release.yml@refs/tags/v0.1.0-alpha`, and a clean exact-tag
-rebuild byte-identical for the archive, SPDX inventory, and checksum manifest. That byte-identity
-argument covers the two advertised **hosts** and does not extend to the advertised **client**: the
-ledger measures the client against pre-alpha candidate `v0.1.0-prealpha.17` on the physical Pixel
-10 Pro, and closed its gate by explicit founder decision to advertise without the two
-environment-blocked cases, with network-change and reconnect stated as a known limitation
-([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
+and Tailscale must run its **TUN-mode** client; userspace-networking `tailscaled` does not establish
+the required loopback/identity boundary and is refused
+([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The gateway requires exact OMP
+`v17.3.8` at `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` plus the repository's six-commit patch.
 
-Signed candidates changed what an artifact *is* without changing what it is *claimed* to be.
-`v0.1.0-prealpha.14`, `.15`, and `.16` were published and independently verifiable, and several rows
-below cite measurements taken against them rather than against a development checkout — an important
-distinction, because a development install can differ from the bytes a release workflow produced.
-Those three tags have since been deleted, so the identifiers no longer resolve to a downloadable
-artifact; the ledger records that as a traceability gap rather than a correctness one, because a
-measurement does not stop being true when the artifact that produced it is gone. A verified
-signature proves origin, not fitness: it establishes that the bytes are the ones the workflow built
-at that tag and says nothing about whether that build passes any behavioural gate. A locally built
-archive is weaker still — unsigned local preflight, an engineering artifact rather than a
-distribution.
+The successor's support claim comes from exact signed-candidate evidence, not row counts:
 
-| Candidate | Bundled build recorded in the ledger | What it carries | Independent verification recorded |
+- Debian [run `32502584598`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32502584598)
+  passed the complete artifact/lifecycle/migration/rollback/identity/persistence/uninstall order,
+  including `107/107` rollback invariants and both lingering states.
+- macOS passed signed-artifact install, `doctor` 17/17, rotation, distinct-node exposure checks, a
+  Scaleway control-plane reboot with unchanged token and automatic LaunchAgent return, and uninstall.
+- the physical Pixel passed the seven-sink capability sweep, a genuine BFCache history restoration,
+  read-only View, explicit Control, remote prompt/interrupt, and safe return to Sessions.
+- hosted Windows source/lifecycle checks passed, but Windows remains unadvertised.
+
+Known limits remain part of the claim. Chrome-for-Android can wedge its process-wide network stack
+after an abrupt radio transition while the device itself remains healthy, so network-change and
+reconnect are not proven ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+Preview notification detail currently falls back to Session detail. Self-hosted/proxied relays,
+Funnel, userspace-networking Tailscale, shared mutually untrusted local accounts, and every
+unnamed platform/browser/version remain unsupported.
+
+A signed artifact proves origin, not fitness. Candidate history for this point release is explicit:
+
+| Candidate | Build | Disposition | Verification |
 |---|---|---|---|
-| `v0.1.0-prealpha.14` | `0.1.0-8773d783ca96` | The baseline of the current candidate series. Its Linux unit named the runtime directory in `ReadWritePaths=`, which systemd refuses to start when the path does not yet exist, so it does not survive a reboot ([#69](https://github.com/alphastorm/omp-session-gateway/issues/69)). | `shasum -c` OK, `gh attestation verify` exit 0, and `cosign verify-blob` "Verified OK" for the archive, SBOM, and `SHA256SUMS` against certificate identity `https://github.com/alphastorm/omp-session-gateway/.github/workflows/release.yml@refs/tags/v0.1.0-prealpha.14` |
-| `v0.1.0-prealpha.15` | `0.1.0-4eddf19f2b71` | The systemd `RuntimeDirectory=` fix with `RuntimeDirectoryMode=0700` for [#69](https://github.com/alphastorm/omp-session-gateway/issues/69). The build identifier was observed on the droplet by the Linux `migration` lane, which recorded it as the active version restored by the rollback step. | Verified on the droplet by the Linux lane, which runs `sha256sum --check`, `cosign verify-blob` at the exact certificate identity, and `gh attestation verify` before extracting anything |
-| `v0.1.0-prealpha.16` | `0.1.0-2813d6b23306` | The directory-recovery fixes from [#72](https://github.com/alphastorm/omp-session-gateway/pull/72): the `offline` state gained its own exit instead of depending on an `online` event that may never fire — `navigator.onLine` reported `true` throughout a total airplane-mode outage on this device, and a connection that is not demonstrably live is torn down and rebuilt when a frozen renderer resumes. Carrying that fix is not evidence that [#65](https://github.com/alphastorm/omp-session-gateway/issues/65) is resolved; that issue is open. | `shasum -c`, `gh attestation verify`, and `cosign verify-blob` |
+| `v0.1.0-prealpha.18` | `0.1.0-3a9bb1cccc6e` | **Failed qualification; retained as evidence.** Repeated explicit rollback reached systemd's start-rate limit and repair could not restart. | Six signed/attested assets verified; macOS/Pixel/relay sublanes passed; Debian full lane failed at W2. |
+| `v0.1.0-prealpha.19` | `0.1.0-28d89a99565d` | **Qualified replacement.** Clears the systemd start-rate counter only before an explicit operator-requested install/rollback start. | Archive SHA-256 `f6e01c4b96b5630fccbb3c79f0a0dae1677e316990d869db6e300ce96605a762`; checksums, three GitHub attestations, and three Cosign bundles verified; exact Debian/macOS/Pixel evidence above. |
 
-[`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and for the release
-decision. This document defines what the project is compatible with and how a compatibility claim
-becomes supportable. Where the two disagree, the ledger is right and this file is wrong.
+[`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and release decisions.
+This document defines the supported boundary. Where they disagree, the ledger is authoritative.
 
 ## Status vocabulary
 
@@ -73,7 +64,7 @@ The alpha targets one immutable upstream source revision:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
-| `0.1.0`, released as `v0.1.0-alpha` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
+| `0.1.0`, published as `v0.1.0-alpha` and qualified for `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 
 `v17.3.8` is the release tag and package baseline recorded on **2026-08-19**. It is
 not a claim that every checkout or package combination labeled `v17.3.8` is compatible.
@@ -88,19 +79,14 @@ Android, browser, or signed-artifact qualification. Any platform row whose evide
 2026-08-19 is therefore **NOT RUN** for this pin until re-executed, and an unchanged row is never
 coverage of `v17.3.8`.
 
-Re-execution has since finished. Measurements taken at this pin on 2026-08-20 include the Linux
-droplet lanes against signed `.14`, `.15`, and `.16`; two in-place macOS upgrades ending at build
-`0.1.0-2813d6b23306` with `doctor` at 16/16; the Tailscale Serve identity matrix against `.16`; the
-macOS rollback lane across `.13` and `.14`; and the Android acceptance and capability-leak sweeps on
-the current device. Blocker 5 in the ledger was then closed on 2026-08-21 with no row stale or
-indeterminate: both advertised hosts are qualified against candidate `provenance-test-v0.1.0.11`,
-the three Android rows were re-run against `v0.1.0-prealpha.17` on Chrome `151.0.7922.139`, and
-release signing, SBOM, and provenance were re-run at the candidate. Two remainders are recorded
-rather than closed: the relay component was accepted by explicit one-time exception after reaching
-27,600 of 28,800 soak seconds and terminating on an external, understood cause, which leaves a
-completed full-window run at this pin outstanding; and Android network-change and reconnect are
-blocked by [#65](https://github.com/alphastorm/omp-session-gateway/issues/65) rather than by a
-missing run.
+Re-execution is current at the successor candidate. On 2026-08-21,
+`v0.1.0-prealpha.19` passed the complete Debian signed-artifact lifecycle and all `107/107`
+rollback invariants, the complete macOS install/rotation/identity/control-plane-reboot/uninstall
+sequence, and the physical Pixel capability-leak/BFCache/View/Control/interrupt sequence. The
+candidate records the same OMP pin and collab-client bytes named above. Two limits remain explicit
+rather than smoothed over: long-duration relay evidence is reused because those bytes did not
+change, with a fresh bounded real relay smoke added; and Android network-change/reconnect remains
+blocked by [#65](https://github.com/alphastorm/omp-session-gateway/issues/65).
 
 The immutable source paths, versions, observation date, and upstream findings live in
 [`UPSTREAM.lock.json`](../UPSTREAM.lock.json). The gateway integration currently requires:
@@ -130,11 +116,11 @@ cross-version tests exist.
 
 ## Host and client matrix
 
-The following describes code and evidence, and the support claim each row carries. The Linux host,
-the macOS host, and the Android client are supported in `v0.1.0-alpha` for exactly the versions
-named below; the Windows host has no support claim, and desktop Chromium is smoke only. The
-qualification column is the honest remainder for each row, not a formality; read it before reading
-the evidence.
+The following describes code, evidence, and each row's support boundary. Linux, macOS, and the
+Android client retain their `v0.1.0-alpha` support claim and have passed successor
+`v0.1.0-alpha.1` qualification for the exact versions named below. Windows is implemented and
+hosted-lifecycle tested but remains unadvertised pending a persistent reboot→interactive-login
+qualification. Desktop Chromium is smoke only.
 
 | Platform | Implemented path | Recorded evidence | Qualification | Support claim |
 |---|---|---|---|---|
