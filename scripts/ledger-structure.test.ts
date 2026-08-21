@@ -20,7 +20,7 @@ const REQUIRED_SECTIONS: Readonly<Record<string, readonly string[]>> = {
     "## Status rules",
     "## Recorded implementation evidence",
     "## Alpha gate ledger",
-    "## Current release blockers",
+    "## Alpha qualification blockers (historical)",
     "## Known limitations",
     "## Updating this ledger",
   ],
