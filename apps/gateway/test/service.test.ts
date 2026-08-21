@@ -955,7 +955,9 @@ describe("service ownership across install roots", () => {
     const definition = await installUserService(target, true, program, boundInstance, manager.host);
 
     expect(await readFile(definition.path, "utf8")).toBe(definition.content);
-    expect(statSync(definition.path).mode & 0o777).toBe(0o600);
+    // A fake Linux manager does not give the Windows filesystem POSIX mode semantics; the native
+    // Linux job owns this permission assertion.
+    if (process.platform !== "win32") expect(statSync(definition.path).mode & 0o777).toBe(0o600);
     expect(mutations(manager.commands)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable omp-session-gateway.service",
