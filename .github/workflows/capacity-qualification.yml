@@ -1,0 +1,759 @@
+# Scheduled fifty-publisher capacity measurement on a hosted Linux runner.
+#
+# This is the one qualification lane in this repository that needs nothing but a runner. The
+# procedure is entirely self-contained: an isolated config/state/runtime root under `RUNNER_TEMP`, a
+# port that is not the founder's 4317, the in-repository `synthetic-publisher.ts` rather than real
+# OMP processes, no Tailscale, no device, no cloud resource, and no repository secret. There is
+# nothing to schedule around and nothing to pay for, which makes `Fifty-publisher capacity` the
+# cheapest row in `docs/RELEASE_STATUS.md` to keep permanently current. It had been going stale for
+# one reason only: somebody had to remember to run it by hand.
+#
+# What a green run measures, on one hosted x86-64 Linux runner:
+#   - N synthetic publishers complete the real mutual-HMAC registry handshake over the private Unix
+#     socket and register N sessions;
+#   - the session count never drops below N for the whole window, so heartbeat refresh is holding
+#     records inside the 35-second TTL rather than the sweeper reaping them;
+#   - the daemon's CPU time and resident set size across that window, sampled on a fixed cadence;
+#   - every `GET /api/v1/sessions` response in the window is free of capability-bearing fields.
+#
+# What a green run does NOT prove. This is not host qualification and must not be read as one:
+#   - it is one ephemeral GitHub-hosted `ubuntu-24.04` runner, not a qualified host. Nothing is
+#     installed as a service, nothing reboots, nothing persists, and the machine is destroyed with
+#     the job. `scripts/provision-linux-qual.sh` and `droplet-qualification.yml` own that dimension.
+#   - the publishers are synthetic. `synthetic-publisher.ts` drives the real registry protocol, but
+#     it is not a patched OMP process: no agent, no collab controller, no real capability, and its
+#     view/control values are fixtures. A capacity result says nothing about whether real OMP
+#     sessions are discovered.
+#   - it says nothing about the HTTP surface as a user reaches it. There is no Tailscale, no Serve,
+#     no TLS, and no browser. This job reads loopback HTTP and supplies the `Tailscale-User-Login`
+#     header itself, which is precisely the header Serve overwrites, so identity allowlisting,
+#     denial, Funnel, and the installed PWA are all untested here. Only `GET /api/v1/sessions` is
+#     sampled; the SSE metadata surface is not.
+#   - it says nothing about any device. No Android, no `adb`, no push, no notification.
+#
+# Ledger bearing: evidence for a human to read, and nothing more. A green run does not promote
+# `Fifty-publisher capacity` or any other row; this workflow never writes to any ledger file, and
+# it is deliberately absent from every required-checks list. The lead reads the summary block and
+# the samples artifact and decides what, if anything, the ledger should say.
+
+name: Capacity qualification
+
+on:
+  # Manual first, and both knobs are inputs so a debugging run can be made short. Everything else
+  # about the measurement is fixed here rather than exposed: the port, the sample cadence, the
+  # heartbeat and TTL, and the allowlist entry all have to match the recorded procedure for the
+  # numbers to be comparable across runs.
+  workflow_dispatch:
+    inputs:
+      publishers:
+        description: Synthetic publishers to register (1 to 50)
+        required: false
+        default: "50"
+      window_seconds:
+        description: >-
+          Measurement window in seconds (30 to 900). Anything under about 120 is a debugging run
+          rather than evidence: it does not outlive the 35-second registry TTL by enough margin for
+          the session-count floor to mean much.
+        required: false
+        default: "600"
+  schedule:
+    # Weekly, off the hour because GitHub's shared cron queue is congested at :00, and on a
+    # different day from `droplet-qualification.yml` so the two long lanes never interleave. Weekly
+    # rather than daily because this number only moves when the registry or HTTP code moves, and
+    # `ci.yml` already runs on every push; a daily artifact nobody reads is not freshness.
+    - cron: "41 5 * * 3"
+  # Deliberately no `pull_request` and no `push`. A ten-minute wall-clock measurement on every push
+  # would be a poor gate — it measures a runner as much as it measures the daemon — and this lane
+  # exists to keep a ledger row current, not to block a merge.
+
+permissions: {}
+
+# There is no global resource to collide over: each run builds its own isolated root on its own
+# ephemeral runner, so two concurrent runs cannot disturb each other. The group exists so that a
+# manual dispatch during a scheduled run does not produce two measurements of the same commit that
+# a human then has to choose between. `cancel-in-progress` stays false because cancelling a run can
+# end it before its teardown step.
+concurrency:
+  group: capacity-qualification
+  cancel-in-progress: false
+
+jobs:
+  fifty-publisher-capacity:
+    runs-on: ubuntu-24.04
+    # The default window is 600s and `window_seconds` is capped at 900s below, so the measurement
+    # itself is bounded at fifteen minutes. Install, build, readiness, registration, and teardown
+    # were about two minutes when this lane was driven by hand. Twenty-five leaves headroom for a
+    # slow `bun install` at the 900s cap while still bounding a hung step far short of the 6h
+    # default. The cap and this bound have to be moved together.
+    timeout-minutes: 25
+    permissions:
+      # Checkout only. No secret is read and none is needed; artifact upload uses the Actions
+      # runtime token rather than `GITHUB_TOKEN`.
+      contents: read
+    defaults:
+      run:
+        # Explicit because the steps below use bash arrays, `<<<`, and `local`.
+        shell: bash
+    env:
+      # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the two copies
+      # in step: the input default is what a human sees in the dispatch form, this is what cron
+      # uses.
+      CAPACITY_PUBLISHERS: ${{ inputs.publishers || '50' }}
+      CAPACITY_WINDOW_SECONDS: ${{ inputs.window_seconds || '600' }}
+      # Not 4317. The founder's real daemon runs there on a signed candidate, and while a hosted
+      # runner cannot reach it, this lane is also driven by hand on the workstation, where it can.
+      # 4319 is the port the recorded manual run used, so a CI result and that record are directly
+      # comparable. The step below asserts the value is not 4317 rather than trusting this line.
+      CAPACITY_PORT: "4319"
+      # Placeholder identity and origin. `tailscale-serve` mode requires an exact HTTPS origin and a
+      # non-empty allowlist; `.example.ts.net` is a documentation name, not a tailnet.
+      CAPACITY_LOGIN: capacity@example.com
+      CAPACITY_ORIGIN: https://gateway.example.ts.net
+      # 15s. With the default 600s window this yields 41 samples, which is the cadence and the
+      # sample count the recorded manual run reports.
+      CAPACITY_SAMPLE_SECONDS: "15"
+      # `synthetic-publisher.ts` builds its fixture view and control values as
+      # `SYNTHETIC__VIEW__<suffix>__VALUE`. The uppercase, double-underscored form is what makes it
+      # searchable: the lowercase `synthetic-instance-...` and `synthetic-session-...` identifiers
+      # legitimately do appear in metadata, so a case-insensitive search for "synthetic" would be
+      # useless. This marker appears only inside a capability value.
+      CAPACITY_MARKER: SYNTHETIC__
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+
+      # `serve` loads the PWA from `apps/web/dist` at startup and refuses to start without an
+      # `index.html` there (apps/gateway/src/static.ts), so the daemon cannot come up on a fresh
+      # checkout until the web build has run. This is a prerequisite of starting the daemon, not a
+      # thing being measured.
+      - run: bun run build
+
+      - name: Build the isolated gateway root
+        id: root
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          root="$RUNNER_TEMP/capacity-root"
+          evidence="$RUNNER_TEMP/capacity-evidence"
+
+          # Exported before anything is created, so teardown can always find the root even if an
+          # assertion later in this step fails. Note what is deliberately *not* exported: neither
+          # `TMPDIR` nor any `XDG_*` variable ever reaches `$GITHUB_ENV` or the job shell. That is
+          # load-bearing rather than tidy. A previous manual capacity run exported `TMPDIR` into a
+          # shared shell, pointed it at an isolated root, deleted the root when the measurement
+          # finished, and left 32 unrelated tests failing inside `mkdtemp` on a `TMPDIR` that no
+          # longer existed. `CAPACITY_ROOT` is an inert path string that no tool interprets, so
+          # exporting it cannot reproduce that; `TMPDIR` is interpreted by everything.
+          {
+            printf 'CAPACITY_ROOT=%s\n' "$root"
+            printf 'CAPACITY_EVIDENCE=%s\n' "$evidence"
+          } >>"$GITHUB_ENV"
+
+          # Both knobs are validated here, where the message can name the bound, rather than being
+          # left to fail somewhere less obvious. 1..50 is not arbitrary: `synthetic-publisher.ts`
+          # itself refuses a count outside that range, so a larger request would die after the
+          # daemon was already up. The 900s ceiling is the other half of `timeout-minutes` above.
+          case "$CAPACITY_PUBLISHERS" in
+            '' | *[!0-9]*) fail "publishers is not a number" "Got '$CAPACITY_PUBLISHERS'. Dispatch with a whole number from 1 to 50." ;;
+          esac
+          if [ "$CAPACITY_PUBLISHERS" -lt 1 ] || [ "$CAPACITY_PUBLISHERS" -gt 50 ]; then
+            fail "publishers is out of range" \
+              "Got '$CAPACITY_PUBLISHERS'. apps/gateway/src/synthetic-publisher.ts accepts 1 to 50, so nothing outside that range can be measured."
+          fi
+          case "$CAPACITY_WINDOW_SECONDS" in
+            '' | *[!0-9]*) fail "window_seconds is not a number" "Got '$CAPACITY_WINDOW_SECONDS'. Dispatch with a whole number of seconds from 30 to 900." ;;
+          esac
+          if [ "$CAPACITY_WINDOW_SECONDS" -lt 30 ] || [ "$CAPACITY_WINDOW_SECONDS" -gt 900 ]; then
+            fail "window_seconds is out of range" \
+              "Got '$CAPACITY_WINDOW_SECONDS'. The floor keeps a run long enough to take at least three samples; the ceiling is what timeout-minutes on this job is sized for."
+          fi
+
+          # A guard against a future edit of the `CAPACITY_PORT` line above, not against this run.
+          # If this lane is ever driven on the founder's workstation, binding 4317 would collide
+          # with the real daemon carrying real sessions.
+          if [ "$CAPACITY_PORT" = 4317 ]; then
+            fail "Refusing to bind 4317" \
+              "4317 is the founder's live daemon. This lane must always use its own port; change CAPACITY_PORT back."
+          fi
+          if ss -Hltn "sport = :$CAPACITY_PORT" | grep -q .; then
+            fail "Port $CAPACITY_PORT is already in use" \
+              "Something on this runner already listens on $CAPACITY_PORT, so a measurement here would be of that process, not of the gateway."
+          fi
+
+          # Two directories with two different lifetimes, kept apart on purpose. The isolated root
+          # holds live state and secrets — the publisher token and the generated VAPID private key —
+          # and is deleted in teardown. The evidence directory holds only what may be published, is
+          # never deleted, and is what the artifact step uploads. Nothing is ever copied out of the
+          # root into the evidence directory.
+          umask 077
+          # No `-p`: `$RUNNER_TEMP` is created fresh for every job, so both of these must be new.
+          # If either already exists this step should fail rather than adopt whatever is in it.
+          mkdir -m 700 "$root" "$evidence"
+          mkdir -m 700 "$root/config" "$root/state" "$root/run"
+          mkdir -m 700 "$root/config/omp-session-gateway" "$root/state/omp-session-gateway" "$root/run/omp-session-gateway"
+
+          # Written into the evidence directory first and then installed, so the artifact records
+          # the exact bytes the daemon loaded instead of a hand-written description of them.
+          cat >"$evidence/gateway-config.json" <<JSON
+          {
+            "http": {
+              "hostname": "127.0.0.1",
+              "port": $CAPACITY_PORT,
+              "publicOrigin": "$CAPACITY_ORIGIN"
+            },
+            "auth": {
+              "mode": "tailscale-serve",
+              "allowedLogins": ["$CAPACITY_LOGIN"]
+            },
+            "registry": {
+              "heartbeatSeconds": 10,
+              "ttlSeconds": 35,
+              "maxPublishers": 100,
+              "maxSessions": 100
+            }
+          }
+          JSON
+          jq -e . "$evidence/gateway-config.json" >/dev/null ||
+            fail "Generated config is not valid JSON" "The heredoc above produced a file the daemon would reject with a parse error rather than a useful message."
+          install -m 600 "$evidence/gateway-config.json" "$root/config/omp-session-gateway/config.json"
+
+          # 32 random bytes as unpadded base64url is 43 characters, which is exactly what
+          # `readExistingPublisherToken` accepts. Generated here rather than left to the daemon so
+          # this step, and not a later failure, owns the file's mode. The value is never printed:
+          # its length is the measurement, and the token itself authenticates every publisher.
+          token="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+          case "$token" in
+            *[!A-Za-z0-9_-]*) fail "Generated token is not base64url" "openssl produced characters outside the accepted alphabet." ;;
+          esac
+          if [ "${#token}" -ne 43 ]; then
+            fail "Generated token is the wrong length" \
+              "Got ${#token} characters; the daemon accepts exactly 43. The value was not written."
+          fi
+          printf '%s\n' "$token" >"$root/config/omp-session-gateway/publisher-token"
+          chmod 600 "$root/config/omp-session-gateway/publisher-token"
+
+          printf 'isolated root:        %s\n' "$root"
+          printf 'root mode:            %s\n' "$(stat -c %a "$root")"
+          printf 'config file mode:     %s\n' "$(stat -c %a "$root/config/omp-session-gateway/config.json")"
+          printf 'token file mode:      %s\n' "$(stat -c %a "$root/config/omp-session-gateway/publisher-token")"
+          printf 'token length:         %s base64url characters (value never printed)\n' "${#token}"
+          printf 'publishers requested: %s\n' "$CAPACITY_PUBLISHERS"
+          printf 'window requested:     %ss\n' "$CAPACITY_WINDOW_SECONDS"
+          printf 'listener port:        %s\n' "$CAPACITY_PORT"
+
+      - name: Start the isolated daemon and wait for genuine readiness
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          log="$CAPACITY_EVIDENCE/daemon.log"
+          socket="$CAPACITY_ROOT/run/omp-session-gateway/registry.sock"
+
+          # Every gateway variable is applied as an `env` prefix on this one child. None is
+          # exported into the job shell and none is written to `$GITHUB_ENV`, for the reason
+          # recorded in the previous step: a leaked `TMPDIR` pointing at a root that was later
+          # deleted broke 32 unrelated tests in `mkdtemp`. Scoping the variables to the child makes
+          # that failure unreachable — a later step cannot inherit a path this job is about to
+          # delete.
+          #
+          # `XDG_RUNTIME_DIR` is pinned even though the shared procedure names only the other three.
+          # On macOS `privateRuntimeDir()` (apps/gateway/src/config.ts) derives the socket directory
+          # from `TMPDIR`, so three variables contain it there. On Linux the same function prefers
+          # `XDG_RUNTIME_DIR` and only falls back to `XDG_STATE_HOME`, so leaving it to whatever the
+          # runner image happens to export would put the registry socket outside the isolated root
+          # on some images and inside it on others. Pinning it makes the path below the socket path
+          # on every host.
+          #
+          # stdin from /dev/null and both output streams into a file, because a background child
+          # that keeps the step's own pipe open can hang the step until the job times out.
+          env \
+            "XDG_CONFIG_HOME=$CAPACITY_ROOT/config" \
+            "XDG_STATE_HOME=$CAPACITY_ROOT/state" \
+            "XDG_RUNTIME_DIR=$CAPACITY_ROOT/run" \
+            "TMPDIR=$CAPACITY_ROOT/run" \
+            bun apps/gateway/src/cli.ts serve >"$log" 2>&1 </dev/null &
+          daemon_pid=$!
+          printf '%s\n' "$daemon_pid" >"$CAPACITY_EVIDENCE/daemon.pid"
+
+          # Readiness is observed, never slept for. Three independent conditions have to hold, and
+          # each of them is a thing a fixed sleep would have guessed at:
+          #   - `/api/v1/health` answers `ready` rather than `degraded`, which reflects the registry
+          #     endpoint's health and not merely process liveness (apps/gateway/src/http.ts);
+          #   - the private registry socket exists inside the isolated root, which proves the daemon
+          #     bound the endpoint this job built rather than one it inherited;
+          #   - `/api/v1/sessions` answers 200 for the allowlisted identity, which proves the
+          #     surface the measurement reads is live before the window opens.
+          started="$(date +%s)"
+          deadline=$(( started + 90 ))
+          while :; do
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              cat "$log"
+              fail "Daemon exited before becoming ready" \
+                "The gateway process is gone. Its full output is above; nothing was measured."
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              cat "$log"
+              fail "Daemon did not become ready within 90s" \
+                "Health, the registry socket, or the session listing never all became good. The daemon output is above."
+            fi
+            status="$(curl -fsS --max-time 5 "http://127.0.0.1:$CAPACITY_PORT/api/v1/health" 2>/dev/null | jq -r '.status' 2>/dev/null || printf 'unavailable')"
+            if [ "$status" = ready ] && [ -S "$socket" ] &&
+              curl -fsS --max-time 5 -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
+                "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions" 2>/dev/null |
+                jq -e 'has("revision")' >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.5
+          done
+
+          printf 'daemon pid:      %s\n' "$daemon_pid"
+          printf 'health status:   %s\n' "$status"
+          printf 'registry socket: %s\n' "$socket"
+          printf 'socket mode:     %s\n' "$(stat -c %a "$socket")"
+          printf 'readiness wait:  %ss\n' "$(( $(date +%s) - started ))"
+
+      - name: Register the synthetic publishers
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          log="$CAPACITY_EVIDENCE/publisher.log"
+          daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
+
+          # The count is `argv[2]`. Same child-scoped `env` prefix as the daemon, and for the same
+          # reason: the publisher resolves the token path and the socket path through exactly these
+          # variables, so both processes have to agree on them without either one leaking into the
+          # job shell. It stays alive holding its connections and heartbeating until it is signalled,
+          # which is why it runs in the background and is stopped in teardown.
+          env \
+            "XDG_CONFIG_HOME=$CAPACITY_ROOT/config" \
+            "XDG_STATE_HOME=$CAPACITY_ROOT/state" \
+            "XDG_RUNTIME_DIR=$CAPACITY_ROOT/run" \
+            "TMPDIR=$CAPACITY_ROOT/run" \
+            bun apps/gateway/src/synthetic-publisher.ts "$CAPACITY_PUBLISHERS" >"$log" 2>&1 </dev/null &
+          publisher_pid=$!
+          printf '%s\n' "$publisher_pid" >"$CAPACITY_EVIDENCE/publisher.pid"
+
+          # Each publisher publishes exactly one session, so the session count reaching N is the
+          # observable form of "all N registered": it is the far side of N complete mutual-HMAC
+          # handshakes. Bounded, and failing names how many of the N arrived.
+          sessions=0
+          deadline=$(( $(date +%s) + 120 ))
+          while :; do
+            if ! kill -0 "$publisher_pid" 2>/dev/null; then
+              cat "$log"
+              fail "Publisher exited during registration" \
+                "The synthetic publisher process is gone after registering $sessions of $CAPACITY_PUBLISHERS sessions. Its output is above."
+            fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              cat "$CAPACITY_EVIDENCE/daemon.log"
+              fail "Daemon exited during registration" \
+                "The gateway died while publishers were registering, after $sessions of $CAPACITY_PUBLISHERS. Its output is above."
+            fi
+            sessions="$(curl -fsS --max-time 10 --retry 2 --retry-all-errors \
+              -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
+              "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions" | jq '.sessions | length')"
+            if [ "$sessions" -ge "$CAPACITY_PUBLISHERS" ]; then break; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              cat "$log"
+              fail "Only $sessions of $CAPACITY_PUBLISHERS publishers registered" \
+                "Registration did not complete within 120s. The publisher output is above; the window was never opened."
+            fi
+            sleep 1
+          done
+
+          printf 'publisher pid:       %s\n' "$publisher_pid"
+          printf 'registered sessions: %s of %s requested\n' "$sessions" "$CAPACITY_PUBLISHERS"
+
+      - name: Sample RSS, CPU, and the live session count through the window
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          samples="$CAPACITY_EVIDENCE/samples.csv"
+          daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
+          publisher_pid="$(cat "$CAPACITY_EVIDENCE/publisher.pid")"
+          page_kib=$(( $(getconf PAGESIZE) / 1024 ))
+          clock_ticks="$(getconf CLK_TCK)"
+
+          # Elapsed seconds rather than wall-clock timestamps, so two runs of the same window
+          # produce diffable files instead of two files that differ on every line. `cpu_ticks` is
+          # the raw counter; the tick rate and page size that interpret it are recorded in
+          # summary.txt alongside.
+          printf 'sample,elapsed_s,sessions,rss_kib,cpu_ticks,capability_free\n' >"$samples"
+
+          start="$(date +%s)"
+          next="$start"
+          sample=0
+          while :; do
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              cat "$CAPACITY_EVIDENCE/daemon.log"
+              fail "Daemon exited mid-window" \
+                "The gateway died after $sample sample(s). Its output is above; the samples taken so far are still uploaded."
+            fi
+
+            # One read of /proc gives all three daemon counters with no extra process. The comm
+            # field is parenthesised and may itself contain spaces and parentheses, so the split
+            # starts after the *last* ')': from there field 12 is utime, 13 is stime, and 22 is
+            # resident pages.
+            read -r utime stime rss_pages <<<"$(awk '{
+              tail = substr($0, match($0, /\)[^)]*$/) + 2)
+              split(tail, f, " ")
+              print f[12], f[13], f[22]
+            }' "/proc/$daemon_pid/stat")"
+
+            body="$(curl -fsS --max-time 10 --retry 2 --retry-all-errors \
+              -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
+              "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions")"
+            sessions="$(printf '%s' "$body" | jq '.sessions | length')"
+
+            # Two independent capability checks on the same response, because they fail for
+            # different reasons. The first looks for a capability-bearing *key* at any depth, which
+            # catches a new or re-exposed field. The second looks for the fixture capability
+            # *value*, which catches the same field under a name nobody thought to list. Neither
+            # subsumes the other, and both were exercised against a real `SessionRegistry` snapshot
+            # before this lane was committed. Only the offending key names are ever printed; a
+            # capability value is never echoed, not even to prove it leaked.
+            #
+            # `index` rather than jq's `IN`: `IN` lives in jq's jq-coded standard library and is
+            # absent from some jq-compatible binaries, where the whole expression then aborts as an
+            # undefined filter. `index` on an array is core, so this program behaves the same
+            # everywhere and can be re-verified without a specific jq build.
+            leaked_keys="$(printf '%s' "$body" | jq -r '
+              ["viewLink", "controlLink", "capability", "token", "secret"] as $forbidden
+              | [paths | .[] | select(type == "string")]
+              | unique
+              | map(select(. as $key | $forbidden | index($key)))
+              | join(",")
+            ')"
+            if [ -n "$leaked_keys" ]; then
+              fail "Metadata response carries a capability-bearing field" \
+                "GET /api/v1/sessions exposed: $leaked_keys. SessionMetadata is defined to be browser-safe, so this is a contract violation, not a capacity result."
+            fi
+            case "$body" in
+              *"$CAPACITY_MARKER"*)
+                fail "Metadata response carries a fixture capability value" \
+                  "The synthetic capability marker appeared in GET /api/v1/sessions under a field name this check does not list. The value is deliberately not printed." ;;
+            esac
+
+            sample=$(( sample + 1 ))
+            printf '%s,%s,%s,%s,%s,1\n' \
+              "$sample" "$(( $(date +%s) - start ))" "$sessions" \
+              "$(( rss_pages * page_kib ))" "$(( utime + stime ))" >>"$samples"
+
+            next=$(( next + CAPACITY_SAMPLE_SECONDS ))
+            if [ $(( next - start )) -gt "$CAPACITY_WINDOW_SECONDS" ]; then break; fi
+            remaining=$(( next - $(date +%s) ))
+            if [ "$remaining" -gt 0 ]; then sleep "$remaining"; fi
+          done
+
+          if ! kill -0 "$publisher_pid" 2>/dev/null; then
+            printf '::warning title=Publisher exited during the window::The session-count floor asserted in the next step is the real detector for this; it is noted here because it changes what the RSS and CPU numbers describe.\n'
+          fi
+          printf 'samples written:  %s\n' "$sample"
+          printf 'clock ticks/s:    %s\n' "$clock_ticks"
+          printf 'page size:        %s KiB\n' "$page_kib"
+
+      - name: Assert the measured invariants and print the summary
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          samples_file="$CAPACITY_EVIDENCE/samples.csv"
+          summary="$CAPACITY_EVIDENCE/summary.txt"
+          daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
+          clock_ticks="$(getconf CLK_TCK)"
+          page_kib=$(( $(getconf PAGESIZE) / 1024 ))
+
+          # CPU is reported as the delta across the window as well as the total since the daemon
+          # started, because they answer different questions: the delta is what holding N sessions
+          # costs, the total also includes startup and registration.
+          read -r count sessions_min sessions_max rss_peak rss_mean cpu_window cpu_percent cpu_total window_measured unchecked <<<"$(
+            awk -F, -v ticks="$clock_ticks" 'NR > 1 {
+              n += 1
+              if (n == 1) { first_ticks = $5 + 0; first_elapsed = $2 + 0 }
+              last_ticks = $5 + 0
+              last_elapsed = $2 + 0
+              if (smin == "" || $3 + 0 < smin) smin = $3 + 0
+              if (smax == "" || $3 + 0 > smax) smax = $3 + 0
+              if (rpeak == "" || $4 + 0 > rpeak) rpeak = $4 + 0
+              rsum += $4 + 0
+              if ($6 + 0 != 1) bad += 1
+            }
+            END {
+              window = last_elapsed - first_elapsed
+              cpu = (last_ticks - first_ticks) / ticks
+              printf "%d %d %d %d %.0f %.2f %.3f %.2f %d %d\n",
+                n, smin + 0, smax + 0, rpeak + 0, (n > 0 ? rsum / n : 0),
+                cpu, (window > 0 ? 100 * cpu / window : 0), last_ticks / ticks,
+                window, bad + 0
+            }' "$samples_file"
+          )"
+
+          # A run that took no samples must not read as a pass. This is the gate that stops an
+          # empty or truncated samples file from producing a clean summary full of zeroes.
+          if [ "$count" -lt 2 ]; then
+            fail "Only $count sample(s) were recorded" \
+              "A window needs at least two samples before any of the numbers below mean anything. Nothing was measured."
+          fi
+
+          # All N registered, and the count never fell below N at any sample. The floor is the
+          # assertion that matters: it is the one that fails if heartbeat refresh stops keeping
+          # records inside the 35-second TTL, or if a publisher connection dies mid-window.
+          if [ "$sessions_min" -lt "$CAPACITY_PUBLISHERS" ]; then
+            fail "Session count fell to $sessions_min" \
+              "The floor across $count samples was $sessions_min, below the $CAPACITY_PUBLISHERS publishers registered. samples.csv in the artifact names the sample."
+          fi
+
+          # Every sample recorded a capability-free metadata response. The sampling step aborts on
+          # the first violation, so a completed run's column is all ones by construction; this
+          # re-derives it from the file so a truncated or hand-edited samples file cannot pass.
+          if [ "$unchecked" -ne 0 ]; then
+            fail "$unchecked sample(s) did not record a capability-free metadata response" \
+              "samples.csv carries rows whose capability_free column is not 1, so the file does not support the claim the summary would make."
+          fi
+
+          # No capability marker anywhere in what is about to be published. `-l` prints file names
+          # only, never a matching value. The daemon log is structurally incapable of carrying one
+          # — SafeLogger accepts only numeric and boolean fields (apps/gateway/src/logger.ts) — but
+          # an uncaught stack trace is not a log event, so the files are scanned rather than
+          # trusted.
+          if grep -rlF "$CAPACITY_MARKER" "$CAPACITY_EVIDENCE"; then
+            fail "A capability marker reached the evidence files" \
+              "The files named above carry the synthetic capability marker and must not be uploaded. Values are deliberately not printed."
+          fi
+
+          # The daemon is still alive at the end. A daemon that served the whole window and then
+          # died before this line would otherwise pass every other assertion.
+          if ! kill -0 "$daemon_pid" 2>/dev/null; then
+            cat "$CAPACITY_EVIDENCE/daemon.log"
+            fail "Daemon is not alive at the end of the window" \
+              "The gateway process is gone. Every sample above was taken while it lived, so the numbers describe a daemon that did not survive its own measurement."
+          fi
+
+          # Reported, not asserted. The ledger row mentions "logged no warnings/errors", so the
+          # count is here for whoever records it, but this job's gates are the four invariants
+          # above and a benign warning must not turn the lane red.
+          warnings="$(grep -c -E '"level":"(warn|error)"' "$CAPACITY_EVIDENCE/daemon.log" || true)"
+
+          {
+            printf 'Fifty-publisher capacity: measured on one hosted ubuntu-24.04 runner.\n'
+            printf 'Nothing here promotes a ledger row.\n'
+            printf '\n'
+            printf '  publishers requested:   %s\n' "$CAPACITY_PUBLISHERS"
+            printf '  session count min/max:  %s / %s\n' "$sessions_min" "$sessions_max"
+            printf '  window requested:       %ss\n' "$CAPACITY_WINDOW_SECONDS"
+            printf '  window measured:        %ss\n' "$window_measured"
+            printf '  samples:                %s, every %ss\n' "$count" "$CAPACITY_SAMPLE_SECONDS"
+            printf '  CPU across window:      %s s (%s%% of one core)\n' "$cpu_window" "$cpu_percent"
+            printf '  CPU since daemon start: %s s\n' "$cpu_total"
+            printf '  peak RSS:               %s KiB\n' "$rss_peak"
+            printf '  mean RSS:               %s KiB\n' "$rss_mean"
+            printf '  capability-bearing fields in metadata: 0 across %s samples\n' "$count"
+            printf '  daemon warn/error log lines: %s (reported, not asserted)\n' "$warnings"
+            printf '  daemon alive at end:    yes\n'
+            printf '\n'
+            printf '  listener port:          %s\n' "$CAPACITY_PORT"
+            printf '  clock ticks per second: %s\n' "$clock_ticks"
+            printf '  page size:              %s KiB\n' "$page_kib"
+            printf '  bun version:            %s\n' "$(bun --version)"
+            printf '  commit:                 %s\n' "$GITHUB_SHA"
+          } >"$summary"
+          cat "$summary"
+          {
+            printf '```text\n'
+            cat "$summary"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          # The same numbers again, as a machine-readable record, so the ledger row stops being
+          # hand-transcribed out of the scrollback above. `scripts/evidence-schema.ts` defines the
+          # shape; each assertion pairs the sentence intended for the ledger with the value actually
+          # measured, and a `{count=N}` token is the one claim `scripts/check-evidence.ts` can
+          # compare mechanically. That pairing exists because a lane once printed a measured `1` and
+          # asserted "the session count is zero" one line below it, and nothing could compare the
+          # two.
+          #
+          # Built with `jq -n --arg` rather than printf, so a value containing a quote or a
+          # backslash produces valid JSON instead of a file the checker rejects as unparseable.
+          #
+          # Three deliberate choices, so none of them reads as a bug later:
+          #   - `candidate` is the commit, not a release tag. This lane measures a source checkout,
+          #     never a signed artifact, so naming a tag here would be the exact false claim the
+          #     schema exists to catch. Until a ledger row cites this commit, `check-evidence.ts`
+          #     will report that no row mentions it — that is the tool working, not failing.
+          #   - the record is written only after every gate above has passed, so it always records
+          #     four passing assertions. A red run has no evidence to record; its failure is the
+          #     message.
+          #   - nothing here validates the record against `evidence-schema.ts`. This job must not
+          #     take a gate on a file it does not own, and the record is inert until a human passes
+          #     it to the checker deliberately.
+          jq -n \
+            --argjson schemaVersion 1 \
+            --arg row 'Fifty-publisher capacity' \
+            --arg candidate "$GITHUB_SHA" \
+            --arg platform "$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" \
+            --arg osVersion "$(. /etc/os-release && printf '%s kernel %s' "$PRETTY_NAME" "$(uname -r)")" \
+            --arg recordedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg publishers "$CAPACITY_PUBLISHERS" \
+            --arg sessionsMin "$sessions_min" \
+            --arg samples "$count" \
+            --arg window "$window_measured" \
+            --arg cpuWindow "$cpu_window" \
+            --arg cpuPercent "$cpu_percent" \
+            --arg rssPeak "$rss_peak" \
+            --arg rssMean "$rss_mean" \
+            '{
+              schemaVersion: $schemaVersion,
+              row: $row,
+              candidate: $candidate,
+              platform: $platform,
+              osVersion: $osVersion,
+              recordedAt: $recordedAt,
+              assertions: [
+                {
+                  name: "publishers-registered",
+                  narrative: "All {count=\($publishers)} synthetic publishers completed the mutual-HMAC registry handshake and each registered one session.",
+                  measured: $sessionsMin,
+                  outcome: "pass"
+                },
+                {
+                  name: "session-count-floor",
+                  narrative: "The registry retained {count=\($publishers)} fresh records at every one of \($samples) samples across a \($window)-second window, so heartbeat refresh held them inside the 35-second TTL.",
+                  measured: $sessionsMin,
+                  outcome: "pass"
+                },
+                {
+                  name: "capability-free-metadata",
+                  narrative: "No metadata response carried a capability-bearing field or a fixture capability value: {count=0} of the \($samples) sampled GET /api/v1/sessions responses exposed one.",
+                  measured: "0",
+                  outcome: "pass"
+                },
+                {
+                  name: "daemon-survived-window",
+                  narrative: "The daemon was still serving at the end of the measured window.",
+                  measured: "alive",
+                  outcome: "pass"
+                },
+                {
+                  name: "cpu-seconds-in-window",
+                  narrative: "The daemon consumed \($cpuWindow) CPU seconds while holding those sessions, \($cpuPercent) percent of one core.",
+                  measured: $cpuWindow,
+                  outcome: "pass"
+                },
+                {
+                  name: "peak-rss-kib",
+                  narrative: "Peak resident set size across the window was \($rssPeak) KiB.",
+                  measured: $rssPeak,
+                  outcome: "pass"
+                },
+                {
+                  name: "mean-rss-kib",
+                  narrative: "Mean resident set size across the window was \($rssMean) KiB.",
+                  measured: $rssMean,
+                  outcome: "pass"
+                }
+              ]
+            }' >"$CAPACITY_EVIDENCE/evidence-record.json"
+          printf 'evidence record written: %s assertions\n' \
+            "$(jq '.assertions | length' "$CAPACITY_EVIDENCE/evidence-record.json")"
+
+      # Uploaded so a future regression is diffed rather than argued about: the raw per-sample rows,
+      # the summary that interprets them, the machine-readable evidence record, the exact config the
+      # daemon loaded, and both process logs. The record is the one a human hands to
+      # `scripts/check-evidence.ts` instead of retyping numbers into a ledger row.
+      # Everything here is from the evidence directory; nothing from inside the isolated root, which
+      # holds the publisher token and the generated VAPID private key, is ever uploaded.
+      - name: Upload the raw samples
+        # `always()`, so the samples from a run that failed an assertion mid-window are still
+        # published — that is the run whose numbers somebody most wants to read. Gated on the setup
+        # step rather than on nothing, because the evidence directory exists if and only if that
+        # step succeeded: without the guard, a job that died in `bun install` would fail here too,
+        # for "no files found", and bury its real cause under a second error.
+        if: always() && steps.root.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capacity-samples-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/capacity-evidence
+          # With the guard above, the evidence directory is known to exist and to hold at least the
+          # config, so "no files found" here would mean something removed it. That is a broken lane
+          # rather than an empty result.
+          if-no-files-found: error
+          # The maximum the default settings allow. The point of these files is comparison against
+          # a run that has not happened yet, so they should outlive the next few candidates.
+          retention-days: 90
+
+      - name: Tear down the isolated gateway root
+        # `always()`, so a failed assertion, a cancelled run, and an expired job timeout all still
+        # remove the root. Unlike the droplet lane nothing here bills — the runner is destroyed
+        # either way — so the reason this step fails the job is different: a root that survives its
+        # own teardown means the isolation this file claims is not actually happening, and a false
+        # claim about isolation is exactly what this repository must not carry.
+        if: always()
+        run: |
+          set -euo pipefail
+          fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
+
+          root="${CAPACITY_ROOT:-}"
+          evidence="${CAPACITY_EVIDENCE:-}"
+          if [ -z "$root" ]; then
+            printf 'setup never exported a root; nothing was created and nothing to tear down\n'
+            exit 0
+          fi
+
+          stop_process() {
+            local name="$1" pid_file="$2" pid
+            if [ ! -f "$pid_file" ]; then
+              printf '%s: never started\n' "$name"
+              return 0
+            fi
+            pid="$(cat "$pid_file")"
+            if ! kill -0 "$pid" 2>/dev/null; then
+              printf '%s: already gone\n' "$name"
+              return 0
+            fi
+            kill -TERM "$pid" 2>/dev/null || true
+            local waited=0
+            while [ "$waited" -lt 50 ]; do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                printf '%s: stopped on SIGTERM\n' "$name"
+                return 0
+              fi
+              sleep 0.2
+              waited=$(( waited + 1 ))
+            done
+            kill -KILL "$pid" 2>/dev/null || true
+            printf '%s: did not stop within 10s and was killed\n' "$name"
+          }
+
+          # Publisher first and by SIGTERM, because on that signal it sends a `remove` frame for
+          # every session it published before closing its sockets. That is the clean-shutdown path,
+          # and the count below is what it leaves behind.
+          stop_process publisher "${evidence:-$root}/publisher.pid"
+          # One second for the daemon to drain the frames the publisher wrote just before exiting.
+          # Reported, not asserted: on a SIGKILLed publisher the sessions stay until the 35-second
+          # TTL sweeps them, and that is a true observation rather than a failure of this job.
+          sleep 1
+          remaining="$(curl -fsS --max-time 5 -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
+            "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions" 2>/dev/null |
+            jq '.sessions | length' 2>/dev/null || printf 'not observed')"
+          printf 'sessions remaining after clean publisher shutdown: %s\n' "$remaining"
+          stop_process daemon "${evidence:-$root}/daemon.pid"
+
+          # Deleting the root is safe precisely because no step ever exported `TMPDIR` or an `XDG_*`
+          # variable pointing into it: there is no later step, and no other tool on this runner,
+          # holding a path that is about to stop existing.
+          rm -rf "$root"
+          if [ -e "$root" ]; then
+            fail "Isolated root survived teardown" \
+              "$root still exists. Every claim this workflow makes about isolation depends on this directory being gone."
+          fi
+          printf 'isolated root removed: %s\n' "$root"
