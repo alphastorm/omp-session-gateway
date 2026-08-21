@@ -1,8 +1,8 @@
 # Implementation handoff
 
-**Updated:** 2026-07-21
+**Updated:** 2026-08-21
 **Repository:** `omp-session-gateway`
-**Status:** implemented pre-alpha; production acceptance remains blocked
+**Status:** implemented and qualified alpha; `v0.1.0-alpha` published and independently verified
 
 ## Implemented
 
@@ -67,9 +67,11 @@ and pre-authentication frame buffers are scrubbed when their lifetimes end.
 - Corrected provenance-test release [`provenance-test-v0.1.0.10`](https://github.com/alphastorm/omp-session-gateway/releases/tag/provenance-test-v0.1.0.10) at protected-main merge commit `1c33c90252643d7d0f572fe57a0e560f00b72afb` ([GitHub Actions run `29792234310`](https://github.com/alphastorm/omp-session-gateway/actions/runs/29792234310)) published the sleep-recovery archive, SPDX inventory, checksum manifest, and three Sigstore bundles. All six immutable-release assets, downloaded checksums, all three GitHub attestations, and all three Cosign bundles verified independently; a clean exact-tag rebuild was byte-identical for the archive (`b446d405d97c2bec181b9d0f4be03c83ede7407d24d603a9d117be428b95576e`), SBOM (`4cb0b1b2c81fdcaf56044cd38259a9ad979bff88efd75ca9a7a2fe3f30d6e8f1`), and checksum-manifest (`08d28faa291f7b374dc8d6d88656c5e7e84cda93f65707acdc6a530415b39326`) digests. The archive records its exact source commit and lock digest and contains the reviewed license and OMP patch inventories.
 - Signed-candidate packaging/runtime smoke: the downloaded and independently verified `provenance-test-v0.1.0.10` archive installed with `--no-start` into an isolated macOS root, launched through the real Serve mapping, and authenticated three reconnect-capable patched OMP publisher fixtures. A gateway restart restored all three cards in approximately 227 ms; a real patched OMP process auto-published and revoked on shutdown; and gateway/publisher suspension beyond TTL expired then restored the card within eight seconds in all three resume orders. This does not replace complete LaunchAgent, distinct-device identity, actual sleep/wake and relay/browser recovery, real collaboration, or physical Android qualification.
 
-## Remaining release blockers
+## Known limitations and open items
 
-- qualify the signed candidate artifact on at least one native host with real Serve authorization/isolation, reboot/login persistence, install/doctor/uninstall, diagnostics, upgrade, rollback, token rotation, and complete capability-leak acceptance;
-- complete the remaining physical Android interrupt, host-observed View mutation rejection, switch/branch/saved-session resume, process-crash, distinct-device denial, and deep URL/history/storage/cache leak checks.
+- Android network-change and reconnect are not proven, and recovery after an abrupt radio transition may require force-stopping Chrome: Chrome-for-Android wedges its own network stack browser-wide with the device demonstrably healthy, so this is recorded as an environment defect with its evidence rather than as a missing run ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65));
+- Windows is implemented and partly qualified but is not advertised ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90));
+- self-hosted or proxied relay modes remain unsupported; and
+- the macOS host row still requires actual sleep/wake and relay/browser recovery, real OMP collaboration on that host, and candidate-artifact capability-leak acceptance to close. Sleep/wake may need a physically accessible Mac, since a remote host that genuinely sleeps can lose its network interface.
 
-No operating system or Android release is advertised in `docs/COMPATIBILITY.md` until those gates pass.
+The advertised host and client combinations are exactly those named in `docs/RELEASE_STATUS.md` and `docs/COMPATIBILITY.md`; nothing outside them is advertised.

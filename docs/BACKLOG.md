@@ -28,8 +28,23 @@
       answer; the fixture does not need a .NET type load to set two ACEs, and every Windows OMP
       publisher start pays the production probe at runtime. Validate on a day when the runners are
       healthy.
+      Deferred: Windows is not advertised, and the change touches a token-privacy check whose only
+      validation is remote CI.
 - [ ] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
-      the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only.
+      the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only. The ledger
+      records this blocker as closed on 2026-08-21 with no stale or indeterminate row, so what
+      remains below is desirable rather than release-blocking.
+  - [x] Native hosts: Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 are both qualified against
+        candidate `provenance-test-v0.1.0.11`.
+  - [x] Signed artifacts: release signing, SBOM, and provenance were re-run at the candidate, and
+        `v0.1.0-alpha` was verified independently from a clean directory with a byte-identical
+        exact-tag rebuild.
+  - [ ] Relay: satisfied by explicit one-time exception at 27,600 of 28,800 seconds, which
+        terminated for an external, understood cause unrelated to the relay. A completed
+        full-window run at the current pin is still outstanding.
+  - [ ] Android network-change and reconnect: blocked by
+        [#65](https://github.com/alphastorm/omp-session-gateway/issues/65), a Chrome-for-Android
+        defect, rather than by a missing run.
 
 ## v1.1 candidates
 
