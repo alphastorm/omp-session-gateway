@@ -13,6 +13,18 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   `151.0.7922.139` on Android 17 as the client. All six release blockers are closed. Nothing outside
   that combination is advertised, and the scope rule is unchanged: passing a platform permits
   advertising only that exact platform and version.
+- Coverage reporting through Codecov, with the runtime's limits recorded in `codecov.yml` rather than
+  left for a badge reader to misread: Bun emits **no** branch records at all and no per-function
+  attribution, and it omits modules no test imports. `scripts/module-import-sweep.test.ts` imports
+  every server-side module so an untested file becomes a visible row instead of an absent one, and it
+  doubles as a smoke test for import-time side effects — which is how it found that
+  `synthetic-publisher.ts` published sessions into a live gateway merely by being imported.
+- `apps/gateway/test/security-mutations.test.ts` weakens seven named security guards in a copy of the
+  tree and requires a specific named test to fail, so the suite demonstrates that its assertions
+  discriminate rather than only that lines executed. A `find` pattern that stops matching is a
+  failure rather than a skip, because a silently inapplicable mutation is worse than none.
+- `runDoctorChecks` takes an injectable topology probe, closing a wiring gap an earlier commit
+  recorded as unprotected in its own message.
 - `doctor` now withholds `listenerLoopbackOnly` when tailscaled owns no TUN device. A loopback bind
   address is necessary but not sufficient, because userspace-networking `tailscaled` forwards inbound
   tailnet connections to localhost and the caller then arrives as a loopback peer that `auth.ts`
@@ -51,6 +63,13 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   This was previously implied by a general rule about tunnels and reverse proxies; it is now stated
   explicitly because it is the forwarder an operator is most likely to run, and because it was
   demonstrated as a working remote authentication bypass against a real host.
+
+- Bumped `actions/attest-build-provenance` from v2.4.0 to v4.2.2, two majors on the action that
+  produces release provenance. Validated by a tag run rather than a pull-request check, because
+  `release.yml` executes only on tag pushes and a green check on the pull request would have proved
+  nothing about the attestation path. `provenance-test-v0.1.0.11` published six assets whose
+  checksums, three GitHub attestations and three Cosign bundles all verified independently from a
+  clean directory, with a byte-identical rebuild from the exact tag.
 
 ### Known limitations
 
