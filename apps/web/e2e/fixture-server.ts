@@ -258,6 +258,10 @@ export async function startDashboardFixture(
           if (error === undefined) resolveClose();
           else rejectClose(error);
         });
+        // A browser may retain an idle keep-alive socket after the EventSource ends. `close()`
+        // stops new requests but waits for that socket indefinitely, so force only this fixture's
+        // remaining HTTP connections after closing admission.
+        server.closeAllConnections();
       });
     },
     upgradeServiceWorker(): void {
