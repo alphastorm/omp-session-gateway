@@ -177,14 +177,25 @@ function eventStream(
   const stream = new ReadableStream<Uint8Array>(
     {
       start(controller) {
+        const close = (): void => {
+          release();
+          try {
+            controller.close();
+          } catch {
+            // The peer may have errored the stream before Bun delivered cancel().
+          }
+        };
         const send = (event: SessionEvent): void => {
           if (closed) return;
           if ((controller.desiredSize ?? 1) < -32) {
-            release();
-            controller.close();
+            close();
             return;
           }
-          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+          try {
+            controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+          } catch {
+            release();
+          }
         };
         const dispose = registry.subscribeWithSnapshot(send);
         // A stream abandoned during admission has no subscription handle to revoke yet, so revoke the
@@ -197,12 +208,15 @@ function eventStream(
         keepalive = setInterval(() => {
           if (closed) return;
           if (!stillAuthorized()) {
-            release();
-            controller.close();
+            close();
             return;
           }
           if ((controller.desiredSize ?? 1) >= -32) {
-            controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+            try {
+              controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+            } catch {
+              release();
+            }
           }
         }, keepaliveMs);
       },
@@ -412,7 +426,7 @@ export function createHttpHandler(options: {
       } catch {
         return problem(400, "bad_request", "Invalid request");
       }
-      if (!limiter.allow(`${authorization.identityKey}\0${instanceId}`, now())) {
+      if (!limiter.allow(`${authorization.identityKey}\0launch`, now())) {
         return problem(429, "rate_limited", "Too many requests");
       }
       const lookup = registry.lookupCapability(

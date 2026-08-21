@@ -656,7 +656,12 @@ function mutations(commands: readonly (readonly string[])[]): readonly string[] 
  */
 function fakeManager(
   platform: ServiceHost["platform"],
-  initial: { readonly program?: string; readonly running?: boolean; readonly adopts?: string } = {},
+  initial: {
+    readonly program?: string;
+    readonly running?: boolean;
+    readonly adopts?: string;
+    readonly homeDirectory?: string;
+  } = {},
 ): FakeManager {
   const state = { program: initial.program, running: initial.running ?? false };
   const commands: string[][] = [];
@@ -702,6 +707,7 @@ function fakeManager(
       state.program = undefined;
       return { ok: true };
     }
+    if (is("launchctl", "print", `gui/${uid}`)) return { ok: true };
     if (is("launchctl", "print", target)) {
       return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
     }
@@ -717,6 +723,7 @@ function fakeManager(
     }
     // `Get-ScheduledTask -ErrorAction Stop` fails outright when no task carries the name.
     if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
+    if (is("schtasks.exe", "/Query")) return { ok: true };
     if (is("schtasks.exe", "/Query", "/TN", task, "/XML")) {
       return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
     }
@@ -749,6 +756,7 @@ function fakeManager(
     commands,
     host: {
       platform,
+      ...(initial.homeDirectory === undefined ? {} : { homeDirectory: initial.homeDirectory }),
       output: async command => {
         const result = record(command);
         return result.ok ? (result.stdout ?? "") : undefined;
@@ -823,6 +831,59 @@ describe("service ownership across install roots", () => {
   function foreignProgram(root: string): string {
     return stagedProgram(join(root, "other", "omp-session-gateway"), "0.1.0-f0f0f0f0f0f0");
   }
+
+  test("refuses an unloaded foreign LaunchAgent definition before install or uninstall", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const homeDirectory = join(root, "home");
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("darwin", { homeDirectory });
+    const definition = serviceDefinition(target, "darwin", foreign, undefined, homeDirectory);
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+
+    await expect(
+      installUserService(target, false, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, manager.host),
+    ).rejects.toThrow("another gateway service already holds this launchd label from a different install root");
+    await expect(uninstallUserService(target, true, manager.host)).rejects.toThrow(
+      "another gateway service already holds this launchd label from a different install root",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(manager.state.program).toBeUndefined();
+  });
+
+  test("fails closed before file mutation when the systemd ownership query is unavailable", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("linux");
+    const host: ServiceHost = {
+      ...manager.host,
+      output: async command => {
+        await manager.host.output(command);
+        return undefined;
+      },
+    };
+    const definition = serviceDefinition(
+      target,
+      "linux",
+      stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+    );
+
+    await expect(
+      installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, host),
+    ).rejects.toThrow("cannot verify systemd user unit name ownership");
+    expect(existsSync(dirname(definition.path))).toBe(false);
+
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+    await expect(uninstallUserService(target, true, host)).rejects.toThrow(
+      "cannot verify systemd user unit name ownership",
+    );
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(mutations(manager.commands)).toEqual([]);
+  });
 
   test("refuses a loaded but idle foreign systemd unit before writing or reloading anything", async () => {
     const root = await isolatedRoot();

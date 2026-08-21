@@ -253,17 +253,28 @@ export class SessionRegistry {
     this.#pending.push(event);
     if (this.#dispatching) return;
     this.#dispatching = true;
+    let failed = false;
+    let firstError: unknown;
     try {
       while (this.#pendingHead < this.#pending.length) {
         const next = this.#pending[this.#pendingHead] as SessionEvent;
         this.#pendingHead += 1;
-        for (const listener of this.#listeners) listener(next);
+        for (const listener of this.#listeners) {
+          try {
+            listener(next);
+          } catch (error) {
+            if (!failed) firstError = error;
+            failed = true;
+          }
+        }
       }
     } finally {
-      // Compacted, not truncated: a throwing listener must not silently drop the revisions behind it.
       this.#pending.splice(0, this.#pendingHead);
       this.#pendingHead = 0;
       this.#dispatching = false;
     }
+    // One faulty observer cannot make later observers miss committed revisions, but the caller still
+    // receives the first failure after the ordered queue is drained rather than having it hidden.
+    if (failed) throw firstError;
   }
 }

@@ -78,12 +78,17 @@ function launchRequest(
   mode: "view" | "control" = "view",
   instanceId = "http-instance-000001",
   requestId?: string,
+  identity = "allowed@example.com",
 ): Request {
-  return request(`/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`, {
-    method: "POST",
-    headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, generation, ...(requestId === undefined ? {} : { requestId }) }),
-  });
+  return request(
+    `/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`,
+    {
+      method: "POST",
+      headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, generation, ...(requestId === undefined ? {} : { requestId }) }),
+    },
+    identity,
+  );
 }
 
 async function readSseEvent(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
@@ -506,6 +511,30 @@ describe("HTTP boundary", () => {
     const reset = await handler(launchRequest(), peer);
     expect(reset.status).toBe(200);
     expect(await reset.json()).toMatchObject({ mode: "view", generation: 3, capability: expect.any(String) });
+  });
+
+  test("shares the launch window within one identity without coupling another allowed identity", async () => {
+    const base = config();
+    const gatewayConfig: GatewayConfig = {
+      ...base,
+      auth: { ...base.auth, allowedLogins: ["allowed@example.com", "other@example.com"] },
+    };
+    const handler = createHttpHandler({
+      config: gatewayConfig,
+      registry: populatedRegistry(),
+      staticAssets: assets,
+      now: () => 1_000,
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await handler(launchRequest(), peer)).status).toBe(200);
+    }
+    expect(
+      (await handler(launchRequest(3, "view", "http-instance-999999"), peer)).status,
+    ).toBe(429);
+    expect(
+      (await handler(launchRequest(3, "view", "http-instance-000001", undefined, "other@example.com"), peer)).status,
+    ).toBe(200);
   });
 
   test("rejects a launch body declared over the endpoint maximum", async () => {

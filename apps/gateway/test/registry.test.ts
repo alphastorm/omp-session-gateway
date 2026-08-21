@@ -237,4 +237,23 @@ describe("SessionRegistry", () => {
       ["session_remove", 3],
     ]);
   });
+
+  test("delivers queued revisions to every healthy listener before surfacing an observer failure", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const first: number[] = [];
+    const third: number[] = [];
+    registry.subscribe(event => first.push(event.revision));
+    registry.subscribe(event => {
+      if (event.type !== "session_upsert" || event.revision !== 1) return;
+      registry.upsert("owner-a", published(2));
+      throw new Error("observer failed");
+    });
+    registry.subscribe(event => third.push(event.revision));
+
+    expect(() => registry.upsert("owner-a", published(1))).toThrow("observer failed");
+
+    expect(first).toEqual([1, 2]);
+    expect(third).toEqual([1, 2]);
+    expect(registry.snapshot().sessions[0]?.generation).toBe(2);
+  });
 });

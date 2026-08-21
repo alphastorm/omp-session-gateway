@@ -8,22 +8,26 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ### Fixed
 
-- Admit SSE consumers through an atomic registry snapshot/subscription handshake and serialize
-  reentrant registry mutations, so every consumer observes one snapshot followed by strictly
-  increasing revisions without an admission gap.
+- Admit SSE consumers through an atomic registry snapshot/subscription handshake, serialize
+  reentrant registry mutations, and isolate observer failures, so healthy consumers receive one
+  snapshot followed by every later revision in strictly increasing order.
 - Preserve a renewed Web Push subscription when an older in-flight delivery for the same endpoint
   fails permanently; stale cleanup now removes only the exact failed transport target.
 - Return a collaboration page restored from the browser back/forward cache to the live session
   directory after its capability-bearing client has been disposed, rather than leaving an inert
   client shell or attempting to reuse the capability.
-- Refuse install and uninstall before touching files or service-manager state when the global
-  systemd, launchd, or Task Scheduler identity belongs to another gateway installation root.
+- Refuse install, stop, and uninstall before touching files or service-manager state when either a
+  loaded manager identity or an unloaded definition belongs to another gateway installation root;
+  an unavailable ownership probe now fails closed.
+- Scope launch rate windows to the authenticated identity and operation instead of caller-selected
+  instance IDs, preventing one allowed identity from exhausting bucket capacity for another.
 
 ### Testing
 
-- Cover launch rate-window boundaries, declared and streamed request-body ceilings, identity-scoped
-  push deletion, reentrant registry ordering, push-renewal races, cross-install service ownership,
-  and capability-safe back/forward-cache restoration.
+- Cover identity-isolated launch rate windows, declared and streamed request-body ceilings,
+  identity-scoped push deletion, reentrant registry ordering and observer failure, push-renewal
+  races, file-only and manager-loaded service ownership, and capability-safe back/forward-cache
+  restoration.
 
 ### Documentation
 

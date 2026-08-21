@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,7 @@ export function serviceDefinition(
   platform = process.platform,
   installedCli?: string,
   readinessInstance?: string,
+  homeDirectory = homedir(),
 ): ServiceDefinition {
   if (readinessInstance !== undefined && !/^[A-Za-z0-9_-]{43}$/u.test(readinessInstance)) {
     throw new Error("invalid service readiness instance");
@@ -67,7 +68,7 @@ export function serviceDefinition(
     const argumentsXml = argv.map(value => `      <string>${xmlEscape(value)}</string>`).join("\n");
     return {
       identifier: "omp-session-gateway",
-      path: join(homedir(), "Library", "LaunchAgents", "omp-session-gateway.plist"),
+      path: join(homeDirectory, "Library", "LaunchAgents", "omp-session-gateway.plist"),
       content: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key><string>omp-session-gateway</string>\n    <key>ProgramArguments</key>\n    <array>\n${argumentsXml}\n    </array>\n    <key>RunAtLoad</key><true/>\n    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n    <key>ProcessType</key><string>Background</string>\n    <key>StandardOutPath</key><string>/dev/null</string>\n    <key>StandardErrorPath</key><string>/dev/null</string>\n  </dict>\n</plist>\n`,
     };
   }
@@ -124,6 +125,8 @@ async function commandOutput(command: readonly string[]): Promise<string | undef
  */
 export interface ServiceHost {
   readonly platform: typeof process.platform;
+  /** Injectable only so macOS file-only ownership can be exercised outside the real home. */
+  readonly homeDirectory?: string;
   /** Stdout of a command that exited zero; undefined when it failed or could not be spawned. */
   readonly output: (command: readonly string[]) => Promise<string | undefined>;
   readonly succeeds: (command: readonly string[]) => Promise<boolean>;
@@ -133,6 +136,7 @@ export interface ServiceHost {
 
 const systemServiceHost: ServiceHost = {
   platform: process.platform,
+  homeDirectory: homedir(),
   output: commandOutput,
   succeeds: commandSucceeds,
   run,
@@ -150,20 +154,22 @@ export function serviceProgramBelongsTo(programText: string | undefined, stateDi
   return programText !== undefined && programText.includes(stateDir + sep);
 }
 
+type ServiceProgramLookup =
+  | { readonly status: "found"; readonly rendered: string }
+  | { readonly status: "absent" }
+  | { readonly status: "unavailable" };
+
 /**
  * What the service manager would execute for the gateway's label, running or not.
  *
  * Registration, not activity: systemd answers for a unit it has loaded but never started, Task
  * Scheduler for a task sitting idle, launchd for any loaded job. Installing and uninstalling are
  * destructive to all of those, so ownership is read from the manager's own metadata rather than from
- * an activity probe. Undefined means nothing holds the label, which is also what a machine with no
- * user service manager reports; the mutating command surfaces that on its own.
+ * an activity probe. A failed Linux query is distinct from an absent unit because systemctl reports
+ * an unknown unit successfully with an empty ExecStart; failing open on an unavailable user manager
+ * would permit a definition write before the later mutation reports the real error.
  */
-async function loadedServiceProgram(host: ServiceHost): Promise<string | undefined> {
-  // `systemctl show` prints an empty value for a unit it does not know, so a loaded-but-inactive
-  // foreign unit — the one `is-active` hides — still reports its ExecStart here. `launchctl print`
-  // and `schtasks /Query /XML` render a registered service in any state and exit non-zero when
-  // nothing holds the label.
+async function loadedServiceProgram(host: ServiceHost): Promise<ServiceProgramLookup> {
   const query =
     host.platform === "linux"
       ? ["systemctl", "--user", "show", "-p", "ExecStart", "--value", "omp-session-gateway.service"]
@@ -171,8 +177,15 @@ async function loadedServiceProgram(host: ServiceHost): Promise<string | undefin
         ? ["launchctl", "print", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]
         : ["schtasks.exe", "/Query", "/TN", "OMP Session Gateway", "/XML"];
   const rendered = await host.output(query);
-  // A rendering with nothing in it names no program, so nothing holds the label.
-  return rendered?.trim() === "" ? undefined : rendered;
+  if (rendered === undefined) {
+    if (host.platform === "linux") return { status: "unavailable" };
+    const managerAvailable =
+      host.platform === "darwin"
+        ? await host.succeeds(["launchctl", "print", `gui/${process.getuid?.() ?? 0}`])
+        : await host.succeeds(["schtasks.exe", "/Query"]);
+    return managerAvailable ? { status: "absent" } : { status: "unavailable" };
+  }
+  return rendered.trim() === "" ? { status: "absent" } : { status: "found", rendered };
 }
 
 /**
@@ -193,29 +206,53 @@ async function loadedServiceIsOurs(config: ServicePathConfig, host: ServiceHost)
   if (host.platform === "linux") {
     if (!(await host.succeeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]))) return false;
   } else if (host.platform !== "darwin" && !(await windowsTaskActive(host))) return false;
-  return serviceProgramBelongsTo(await loadedServiceProgram(host), config.paths.stateDir);
+  const lookup = await loadedServiceProgram(host);
+  return lookup.status === "found" && serviceProgramBelongsTo(lookup.rendered, config.paths.stateDir);
+}
+
+function serviceRegistryName(host: ServiceHost): string {
+  return host.platform === "linux"
+    ? "systemd user unit name"
+    : host.platform === "darwin"
+      ? "launchd label"
+      : "scheduled task name";
+}
+
+async function existingServiceDefinition(config: ServicePathConfig, host: ServiceHost): Promise<string | undefined> {
+  const path = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory).path;
+  try {
+    const bytes = await readFile(path);
+    if (host.platform !== "win32") return bytes.toString("utf8");
+    const offset = bytes[0] === 0xff && bytes[1] === 0xfe ? 2 : 0;
+    return bytes.subarray(offset).toString("utf16le");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 /**
- * Refuses when the label is held by an install root other than this one.
+ * Refuses when either the manager identity or its shared definition path belongs to another root.
  *
- * Called before every step that destroys what the label resolves to — the definition write, the
- * manager mutation that adopts it, the boot-out that precedes it — because a sandbox reaches the
- * real machine's service through the label alone and each of those steps is enough to break it.
+ * The file check covers an install staged with `--no-start`, which has no manager registration yet.
+ * The manager check covers loaded definitions whose source file moved or disappeared.
  */
 async function assertNoForeignServiceLabel(config: ServicePathConfig, host: ServiceHost): Promise<void> {
-  const program = await loadedServiceProgram(host);
-  if (program === undefined || serviceProgramBelongsTo(program, config.paths.stateDir)) return;
-  const registry =
-    host.platform === "linux"
-      ? "systemd user unit name"
-      : host.platform === "darwin"
-        ? "launchd label"
-        : "scheduled task name";
-  throw new Error(
-    `another gateway service already holds this ${registry} from a different install root; ` +
-      "uninstall it from that root first",
-  );
+  const registry = serviceRegistryName(host);
+  const foreign = (): never => {
+    throw new Error(
+      `another gateway service already holds this ${registry} from a different install root; ` +
+        "uninstall it from that root first",
+    );
+  };
+  const definition = await existingServiceDefinition(config, host);
+  if (definition !== undefined && !serviceProgramBelongsTo(definition, config.paths.stateDir)) foreign();
+
+  const lookup = await loadedServiceProgram(host);
+  if (lookup.status === "unavailable") {
+    throw new Error(`cannot verify ${registry} ownership; refusing to modify gateway service state`);
+  }
+  if (lookup.status === "found" && !serviceProgramBelongsTo(lookup.rendered, config.paths.stateDir)) foreign();
 }
 
 
@@ -274,7 +311,7 @@ export async function userServiceStatus(
   config: ServicePathConfig,
   host: ServiceHost = systemServiceHost,
 ): Promise<UserServiceStatus> {
-  const definition = serviceDefinition(config, host.platform);
+  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
   const definitionExists = await fileExists(definition.path);
   // `active` means "a service this install owns is running", never "some service holds our label".
   // Everything downstream acts on it: rotation restarts, stop boots out, uninstall refuses.
@@ -301,7 +338,7 @@ export async function installUserService(
   // Linux and Windows the manager mutations that follow act on a label a sandbox cannot scope.
   await assertNoForeignServiceLabel(config, host);
   await assertServiceInstallPreflight(activate, host);
-  const definition = serviceDefinition(config, host.platform, installedCli, readinessInstance);
+  const definition = serviceDefinition(config, host.platform, installedCli, readinessInstance, host.homeDirectory);
   await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
   const serialized =
     host.platform === "win32"
@@ -369,7 +406,7 @@ export async function uninstallUserService(
   // two roots sharing a HOME compute identically. Refuse first, so an uninstall run from one root
   // cannot stop, delete or unfile another root's service.
   await assertNoForeignServiceLabel(config, host);
-  const definition = serviceDefinition(config, host.platform);
+  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
   const status = await userServiceStatus(config, host);
   if (!deactivate && status.active) {
     throw new Error("cannot uninstall an active gateway with --no-stop");
