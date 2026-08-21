@@ -103,7 +103,8 @@ export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v17.4.1"
 git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
 git -C "$OMP_ROOT" checkout --detach 9350b7990d26ebf69a604edc82d8558ef04adf30
 test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = 9350b7990d26ebf69a604edc82d8558ef04adf30
-git -C "$OMP_ROOT" am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+git -C "$OMP_ROOT" -c user.name=omp-session-gateway -c user.email=qual@example.invalid \
+  am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
 test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
 
 (

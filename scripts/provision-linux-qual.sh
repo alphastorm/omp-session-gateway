@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 #
-# Linux qualification lane: one throwaway DigitalOcean droplet, four ledger gaps.
+# Linux qualification lane: one throwaway DigitalOcean droplet, release and OMP evidence.
 #
-# Why this exists. The only Linux evidence in docs/RELEASE_STATUS.md came from a Debian 13 aarch64
-# container. A container shares the host kernel, never boots, has no public address of its own, and
-# its `systemd --user` manager exists only because something outside kept it alive. That is enough to
-# prove an install/uninstall sequence and file permissions, and nothing else. Four things a container
-# structurally cannot show are the entire point of this script:
+# Why this exists. The original Linux evidence in docs/RELEASE_STATUS.md came from a Debian 13
+# aarch64 container. A container shares the host kernel, never boots, has no public address of its
+# own, and its `systemd --user` manager exists only because something outside kept it alive. That is
+# enough to prove an install/uninstall sequence and file permissions, and nothing else. Five things
+# a container structurally cannot show are the point of this script:
 #
 #   1. a real machine lifecycle: its own kernel, its own boot, its own public IP;
-#   2. reboot and login persistence, which has never been tested on any platform;
-#   3. a *denied* Tailscale identity, unprovable from same-account user devices because Serve stamps
-#      every one of them with a login that is on the allowlist;
-#   4. install/doctor/uninstall from the signed candidate archive with checksum, GitHub attestation,
-#      and Cosign bundle verification, rather than from a development checkout.
+#   2. reboot and login persistence;
+#   3. a denied Tailscale identity;
+#   4. signed-candidate install/doctor/uninstall with checksum and provenance verification; and
+#   5. the mandatory exact patched-OMP build, activation, publication, launch, and revocation path.
 #
 # Two design decisions are worth knowing before editing this file.
 #
@@ -63,10 +62,11 @@
 #   scripts/provision-linux-qual.sh status
 #   scripts/provision-linux-qual.sh destroy
 #
-# Lanes, systemd: host artifact lifecycle migration rollback identity persistence uninstall
-#                 (default: all). `migration` reinstalls to move between versions; `rollback` drives
-#                 the `omp-gateway rollback` command, which is a different code path, and reads the
-#                 two archive roots `migration` leaves on the droplet.
+# Lanes, systemd: host artifact lifecycle omp migration rollback identity persistence uninstall
+#                 (default: all). `omp` builds and exercises the exact versioned publisher route;
+#                 `migration` reinstalls to move between gateway versions; `rollback` drives the
+#                 `omp-gateway rollback` command, which is a different code path, and reads the two
+#                 archive roots `migration` leaves on the droplet.
 # Lanes, OpenRC:  host artifact init (default: all three; the rest presume a working install).
 #
 set -euo pipefail
@@ -83,6 +83,9 @@ readonly BUN_VERSION="${OMP_QUAL_BUN_VERSION:-1.3.14}"
 readonly GH_CLI_VERSION="${OMP_QUAL_GH_VERSION:-2.97.0}"
 readonly COSIGN_VERSION="${OMP_QUAL_COSIGN_VERSION:-3.1.3}"
 readonly GATEWAY_PORT="${OMP_QUAL_PORT:-4317}"
+readonly OMP_SOURCE_COMMIT="9350b7990d26ebf69a604edc82d8558ef04adf30"
+readonly OMP_PATCHED_TREE="a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7"
+readonly OMP_VERSION="17.4.1"
 
 # Which init system the droplet is expected to run. `systemd` is the historical and only supported
 # shape; `openrc` provisions a non-systemd box so the installer's refusal can be observed. Validated
@@ -400,6 +403,7 @@ packages:
   - ca-certificates
   - curl
   - jq
+  - git
   - unzip
   - iproute2
   - procps
@@ -1013,6 +1017,186 @@ fi
 REMOTE
 }
 
+# Exact patched-OMP qualification on the same Debian host as the signed gateway. This lane is
+# intentionally after `artifact lifecycle`: it consumes the verified archive's patch and live
+# authenticated registry, then removes every OMP-specific process and file before later lanes run.
+# Collaboration output is discarded rather than logged because a live OMP UI may render a bearer
+# link. Launch bodies flow directly to jq and are never written to disk.
+lane_omp() (
+  set -euo pipefail
+  local dns_name omp_input omp_ssh_pid=""
+  dns_name="$(require_dns_name)"
+  step "Lane 4: exact patched OMP build, publication, launch, and revocation"
+
+  remote_user \
+    BUN_VERSION="$BUN_VERSION" OMP_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
+    OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
+set -euo pipefail
+show() { printf '   %-38s %s\n' "$1:" "$2"; }
+root="$(cat ~/runtime-root)"
+omp_root="$HOME/omp-gateway-source"
+native_fixture="$HOME/omp-native-fixture"
+tree_short="${OMP_PATCHED_TREE:0:8}"
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
+
+rm -rf "$omp_root" "$native_fixture" "$version_dir"
+rm -f "$HOME/.local/bin/omp-gateway-patched"
+git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$omp_root"
+git -C "$omp_root" checkout --detach "$OMP_SOURCE_COMMIT"
+test "$(git -C "$omp_root" rev-parse HEAD)" = "$OMP_SOURCE_COMMIT"
+git -C "$omp_root" -c user.name=omp-session-gateway -c user.email=qual@example.invalid \
+  am "$root/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+test "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$OMP_PATCHED_TREE"
+show "source commit / patched tree" "${OMP_SOURCE_COMMIT:0:12} / ${OMP_PATCHED_TREE:0:12}"
+
+cd "$omp_root"
+test "$(~/.bun/bin/bun --version)" = "$BUN_VERSION"
+~/.bun/bin/bun install --frozen-lockfile
+mkdir -p "$native_fixture"
+printf '%s\n' "{\"private\":true,\"dependencies\":{\"@oh-my-pi/pi-natives\":\"${OMP_VERSION}\"}}" \
+  >"$native_fixture/package.json"
+(cd "$native_fixture" && ~/.bun/bin/bun install)
+native_file=pi_natives.linux-x64-baseline.node
+cp "$native_fixture/node_modules/@oh-my-pi/pi-natives-linux-x64/$native_file" \
+  "packages/natives/native/$native_file"
+
+# Bound independently from the 50-minute workflow deadline so a stalled upstream suite leaves
+# enough time for the always-run droplet teardown.
+timeout 1500 ~/.bun/bin/bun run ci:check:full
+~/.bun/bin/bun --cwd=packages/coding-agent run build
+test "$(packages/coding-agent/dist/omp --version)" = "omp/${OMP_VERSION}"
+
+mkdir -p "$version_dir" "$HOME/.local/bin"
+install -m 0755 packages/coding-agent/dist/omp "$version_dir/omp"
+ln -sfn "$version_dir/omp" "$HOME/.local/bin/omp-gateway-patched"
+test "$(readlink "$HOME/.local/bin/omp-gateway-patched")" = "$version_dir/omp"
+"$HOME/.local/bin/omp-gateway-patched" config set collab.autoStart control >/dev/null
+"$HOME/.local/bin/omp-gateway-patched" config set collab.registryEndpoint auto >/dev/null
+"$HOME/.local/bin/omp-gateway-patched" config get collab.autoStart --json |
+  jq -e '.value == "control"' >/dev/null
+"$HOME/.local/bin/omp-gateway-patched" config get collab.registryEndpoint --json |
+  jq -e '.value == "auto"' >/dev/null
+show "binary version" "$("$HOME/.local/bin/omp-gateway-patched" --version)"
+show "binary sha256" "$(sha256sum "$version_dir/omp" | awk '{print $1}')"
+show "versioned symlink" "$(readlink "$HOME/.local/bin/omp-gateway-patched")"
+show "collab config" "autoStart=control registryEndpoint=auto"
+mkdir -p "$HOME/omp-linux-qualification"
+rm -rf "$native_fixture"
+REMOTE
+
+  cleanup_omp_lane() (
+    set +e
+    if [ -n "$omp_ssh_pid" ] && kill -0 "$omp_ssh_pid" >/dev/null 2>&1; then
+      kill -TERM "$omp_ssh_pid" >/dev/null 2>&1 || true
+      wait "$omp_ssh_pid" >/dev/null 2>&1 || true
+    fi
+    exec 9>&- 2>/dev/null || true
+    remote_user OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE' >/dev/null 2>&1
+set +e
+tree_short="${OMP_PATCHED_TREE:0:8}"
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
+for exe in /proc/[0-9]*/exe; do
+  [ "$(readlink "$exe" 2>/dev/null)" = "$version_dir/omp" ] || continue
+  pid="${exe#/proc/}"
+  kill -TERM "${pid%/exe}" 2>/dev/null || true
+done
+sleep 1
+rm -rf "$HOME/omp-gateway-source" "$HOME/omp-native-fixture" \
+  "$HOME/omp-linux-qualification" "$version_dir" "$HOME/.omp"
+rm -f "$HOME/.local/bin/omp-gateway-patched"
+REMOTE
+  )
+  trap cleanup_omp_lane EXIT
+
+  # Keep an input descriptor open without sending bytes. SSH supplies the real PTY OMP requires;
+  # its entire output goes to /dev/null so a collaboration capability cannot enter logs or files.
+  omp_input="$LOCAL_TEMP/omp-linux-input"
+  mkfifo "$omp_input"
+  exec 9<>"$omp_input"
+  ssh "${SSH_OPTS[@]}" -tt "${QUAL_USER}@${DROPLET_IP}" \
+    'cd "$HOME/omp-linux-qualification" && exec "$HOME/.local/bin/omp-gateway-patched" --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low' \
+    <&9 >/dev/null 2>&1 &
+  omp_ssh_pid=$!
+
+  # shellcheck disable=SC2329
+  omp_session_present() {
+    kill -0 "$omp_ssh_pid" >/dev/null 2>&1 || return 1
+    remote_user ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
+curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
+  "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions" |
+  jq -e '
+    [.sessions[] | select(.cwdLabel == "omp-linux-qualification")] as $matched
+    | ($matched | length) == 1
+      and $matched[0].canView
+      and $matched[0].canControl
+      and ($matched[0].generation == 1)
+  ' >/dev/null
+REMOTE
+  }
+  wait_for "patched OMP publication" 90 1 omp_session_present
+
+  remote_user DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
+    GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
+set -euo pipefail
+show() { printf '   %-38s %s\n' "$1:" "$2"; }
+sessions="$(curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
+  "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions")"
+record="$(printf '%s' "$sessions" |
+  jq -c '[.sessions[] | select(.cwdLabel == "omp-linux-qualification")] | if length == 1 then .[0] else error("expected exactly one patched OMP session") end')"
+instance_id="$(printf '%s' "$record" | jq -r '.instanceId')"
+generation="$(printf '%s' "$record" | jq -r '.generation')"
+test "$(printf '%s' "$record" | jq -r '.canView and .canControl')" = true
+show "published metadata" "one generation-${generation} session with View and Control"
+
+for mode in view control; do
+  headers="$(mktemp)"
+  payload="$(jq -nc --argjson generation "$generation" --arg mode "$mode" \
+    '{generation: $generation, mode: $mode}')"
+  curl -fsS -D "$headers" \
+    -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
+    -H "Origin: https://${DNS_NAME}" \
+    -H "Sec-Fetch-Site: same-origin" \
+    -H "Content-Type: application/json" \
+    --data-binary "$payload" \
+    "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions/${instance_id}/launch" |
+    jq -e --arg mode "$mode" \
+      'keys == ["capability","generation","mode"] and .mode == $mode and (.capability | type) == "string" and (.capability | length) > 0' \
+      >/dev/null
+  grep -qi '^cache-control:.*no-store' "$headers"
+  rm -f "$headers"
+  show "$mode launch" "200-shaped response, no-store, capability retained in pipe memory only"
+done
+REMOTE
+
+  # Closing the SSH PTY terminates the interactive process. The registry must revoke before any
+  # OMP files are removed, proving process lifecycle rather than TTL cleanup.
+  kill -TERM "$omp_ssh_pid"
+  wait "$omp_ssh_pid" >/dev/null 2>&1 || true
+  omp_ssh_pid=""
+  exec 9>&-
+
+  # shellcheck disable=SC2329
+  omp_session_absent() {
+    remote_user ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
+curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
+  "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions" |
+  jq -e '[.sessions[] | select(.cwdLabel == "omp-linux-qualification")] | length == 0' >/dev/null
+REMOTE
+  }
+  wait_for "patched OMP revocation" 45 1 omp_session_absent
+
+  cleanup_omp_lane
+  trap - EXIT
+  remote_user OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
+tree_short="${OMP_PATCHED_TREE:0:8}"
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
+test ! -e "$HOME/.local/bin/omp-gateway-patched"
+test ! -e "$version_dir"
+test ! -e "$HOME/omp-gateway-source"
+printf '   %-38s %s\n' "OMP qualification cleanup:" "source, binary, symlink, config, and process removed"
+REMOTE
+)
+
 lane_identity() {
   # An untagged node presents a real user identity, so it cannot demonstrate denial. Skip rather
   # than fail: the other lanes are still valid on this droplet, and the denial half was measured
@@ -1270,7 +1454,7 @@ REMOTE
 lane_migration() {
   local previous_tag successor_tag version archive sbom local_dir dns_name
   successor_tag="${OMP_QUAL_RELEASE_TAG:-}"
-  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.1.0-prealpha.15}"
+  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.1.0-alpha.1}"
   [ -n "$successor_tag" ] || die "set OMP_QUAL_RELEASE_TAG to the successor candidate tag"
 
   step "Lane 4: explicit upgrade and rollback"
@@ -2134,18 +2318,18 @@ cmd_qualify() {
     if [ "$QUAL_INIT" = "openrc" ]; then
       lanes="host artifact init"
     else
-      lanes="host artifact lifecycle migration rollback identity persistence uninstall"
+      lanes="host artifact lifecycle omp migration rollback identity persistence uninstall"
     fi
   fi
   # Reject a typo, and an impossible lane, before anything slow or billable is touched.
   for lane in $lanes; do
     case "$lane" in
       host | artifact | init) ;;
-      lifecycle | migration | rollback | identity | persistence | uninstall)
+      lifecycle | omp | migration | rollback | identity | persistence | uninstall)
         [ "$QUAL_INIT" != "openrc" ] ||
           die "lane '$lane' needs an installed service, and on a non-systemd host the install is expected to be refused. Run 'host artifact init' instead, or unset OMP_QUAL_INIT to qualify a systemd droplet."
         ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration rollback identity persistence uninstall init" ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle omp migration rollback identity persistence uninstall init" ;;
     esac
   done
 
@@ -2162,13 +2346,14 @@ cmd_qualify() {
       host) lane_host ;;
       artifact) lane_artifact ;;
       lifecycle) lane_lifecycle ;;
+      omp) lane_omp ;;
       migration) lane_migration ;;
       rollback) lane_rollback ;;
       identity) lane_identity ;;
       persistence) lane_persistence ;;
       uninstall) lane_uninstall ;;
       init) lane_init ;;
-      *) die "unknown lane '$lane'; choose from host artifact lifecycle migration rollback identity persistence uninstall init" ;;
+      *) die "unknown lane '$lane'; choose from host artifact lifecycle omp migration rollback identity persistence uninstall init" ;;
     esac
   done
 

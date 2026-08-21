@@ -1,25 +1,25 @@
 # Upgrade and rollback lane
 
 One throwaway root on the operator's own macOS workstation, driven by
-[`scripts/qualify-rollback.sh`](../scripts/qualify-rollback.sh), that installs signed
-`v0.1.0-prealpha.13`, upgrades to signed `v0.1.0-prealpha.14`, and rolls back to `.13` again while
-the production daemon keeps running on the same machine.
+[`scripts/qualify-rollback.sh`](../scripts/qualify-rollback.sh). The selected signed predecessor is
+installed, upgraded to the selected signed candidate, and restored while the production daemon
+continues running on the same machine. Defaults are `v0.1.0-alpha.1` → `v0.1.0-prealpha.20`.
 
 This document is the operating manual for that lane. It does not promote any ledger row. Every
 command below prints numbers; the lead decides what those numbers mean.
 
 ## 1. Why rollback needs its own lane
 
-The forward upgrade is already measured: the ledger records the live macOS service moving from
-`0.1.0-61114587f124` to `0.1.0-8773d783ca96` in place on 2026-08-20 with `config.json` and the
-publisher token preserved. Rollback is the half that was never executed, and it is named in the
-"Required to close" column of four **PARTIAL** rows.
+The first-class `omp-gateway rollback` path has live systemd and focused unit coverage. This macOS
+lane answers a different recovery question: can an operator with the predecessor archive restore
+the installer's complete on-disk state without relying on the newer command? That remains relevant
+when the candidate itself is the reason for rollback.
 
 `rollback` is now a first-class CLI command in this codebase (`omp-gateway rollback [--to <version>]`).
 That command resolves an installed predecessor by default, or a requested version directory, and
-rejects malformed targets, unmanaged active services, missing rollback history, and uninstalled rollback
-destinations. This lane still validates by installing the predecessor archive again so the measured
-on-disk transition is anchored to how the historical pre-alpha artifacts are exercised.
+rejects malformed targets, unmanaged active services, missing rollback history, and uninstalled
+rollback destinations. This lane instead installs the predecessor archive again so the measured
+on-disk transition is anchored to recovery from an independently retained signed predecessor.
 
 The installer keeps every runtime
 side by side:
@@ -29,7 +29,7 @@ side by side:
 <stateDir>/installation/current.json      {"versionDirectory":"0.1.0-8773d783ca96"}
 ```
 
-so this historical path still requires three explicit checks:
+so this reinstall path still requires three explicit checks:
 
 1. does the predecessor's version directory actually survive the upgrade, which is the only reason
    rollback is possible at all;
@@ -115,8 +115,10 @@ The scoping is measured, never hidden:
 Prerequisites: macOS, `bun`, `gh` (authenticated), `cosign`. Not root.
 
 ```sh
-./scripts/qualify-rollback.sh run      # full lane including both downloads, ~5 s
-./scripts/qualify-rollback.sh clean    # remove leftover scratch roots from earlier runs
+OMP_ROLLBACK_OLD_TAG=v0.1.0-alpha.1 \
+OMP_ROLLBACK_NEW_TAG=v0.1.0-prealpha.20 \
+  ./scripts/qualify-rollback.sh run      # full lane including both downloads
+./scripts/qualify-rollback.sh clean      # remove leftover scratch roots from earlier runs
 ```
 
 `run` is self-contained: it creates `/tmp/omp-rollback-qual/run-<stamp>-<pid>`, downloads and
@@ -127,7 +129,8 @@ nothing exists.
 The verification the script performs per tag, if you want to reproduce it by hand:
 
 ```sh
-gh release download v0.1.0-prealpha.13 -R alphastorm/omp-session-gateway -D . --clobber \
+TAG=v0.1.0-alpha.1
+gh release download "$TAG" -R alphastorm/omp-session-gateway -D . --clobber \
   -p omp-session-gateway-0.1.0-bun.tar \
   -p omp-session-gateway-0.1.0-bun.tar.sigstore.json \
   -p SHA256SUMS -p SHA256SUMS.sigstore.json
@@ -136,7 +139,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 
 for asset in omp-session-gateway-0.1.0-bun.tar SHA256SUMS; do
   cosign verify-blob --bundle "$asset.sigstore.json" \
-    --certificate-identity 'https://github.com/alphastorm/omp-session-gateway/.github/workflows/release.yml@refs/tags/v0.1.0-prealpha.13' \
+    --certificate-identity "https://github.com/alphastorm/omp-session-gateway/.github/workflows/release.yml@refs/tags/$TAG" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     "$asset"
 done
@@ -146,10 +149,26 @@ Note for anyone extending this with GitHub attestations: `gh attestation downloa
 `--output-file` flag. It writes `sha256:<digest>.jsonl` into the working directory, so run it inside
 the scratch directory or it litters the repository.
 
-## 4. What the run measured
+## Current beta predecessor result
 
-macOS 26.6.1 arm64, Bun 1.3.14, 2026-08-20. Production daemon PID 51469 on
-`0.1.0-8773d783ca96` was running on the same machine throughout.
+On 2026-08-21, macOS 26.6.1 arm64 with Bun 1.3.14 installed signed
+`v0.1.0-alpha.1`, upgraded to signed `v0.1.0-prealpha.20`, and restored alpha.1.
+Both archives passed checksum and Cosign verification. All **20/20** invariants passed:
+`current.json` and the LaunchAgent followed each active version, both runtimes remained available,
+configuration and publisher-token content/mode stayed unchanged without printing a token
+fingerprint, uninstall preserved the documented data, and the unrelated live LaunchAgent plist and
+daemon remained unchanged. The scratch root was removed.
+
+This is gateway rollback-by-reinstall with `--no-start`. It does not claim a coordinated OMP
+downgrade: before restarting sessions, the operator must separately repoint
+`omp-gateway-patched` to the exact alpha v17.3.8 build and repeat its source/tree/version/config
+assertions. Paired OMP update/rollback remains deliberately unimplemented.
+
+## 4. Historical pre-alpha record
+
+The 2026-08-20 macOS 26.6.1 arm64/Bun 1.3.14 run used `.13` and `.14` to expose
+the historical launchd ownership defect. An unrelated live production daemon remained running
+throughout; its PID, program path, and token/config fingerprints are intentionally omitted here.
 
 | Artifact | Archive sha256 | Bundled `cli.js` | Stages version directory |
 |---|---|---|---|
