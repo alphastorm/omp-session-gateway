@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { parseSessionListResponse, type SessionListResponse } from "@omp-session-gateway/protocol";
@@ -143,6 +144,32 @@ export function tailscaleSelfIp(value: unknown): string | undefined {
     addresses.find(address => typeof address === "string" && isIP(address) === 6)
   );
 }
+
+/**
+ * True when the node's own tailnet address is configured on a local interface, i.e. tailscaled owns a
+ * real TUN device.
+ *
+ * This exists because `listenerLoopbackOnly` cannot be answered from the bind address alone.
+ * `tailscaled --tun=userspace-networking` has no TUN: its netstack accepts inbound tailnet
+ * connections and dials `localhost`, so a caller on another machine reaches a listener bound strictly
+ * to `127.0.0.1` and arrives as a loopback peer. `auth.ts` then trusts the `Tailscale-User-Login` the
+ * caller supplied, because in the intended deployment only Serve can set it. That is a remote
+ * authentication bypass, demonstrated on 2026-08-21 and tracked as #98.
+ *
+ * Probing our own tailnet address would not detect it: in userspace mode the host has no route to
+ * that address either, so the probe fails on a safe host and an exposed one alike. The presence of
+ * the address on an interface is the signal that distinguishes them.
+ */
+export function tailnetAddressIsLocallyBound(tailscaleIp: string | undefined): boolean {
+  if (tailscaleIp === undefined) return false;
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.address === tailscaleIp) return true;
+    }
+  }
+  return false;
+}
+
 export async function gatewayReady(
   config: GatewayConfig,
   readinessToken: string,
@@ -377,6 +404,13 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
     publicAsset(config, "/service-worker.js", tailscaleIp),
   ]);
   checks.tailscaleConnected = property(status, "BackendState") === "Running";
+  // A loopback bind address is necessary but not sufficient. Userspace-mode tailscaled forwards
+  // inbound tailnet connections to localhost, so the listener is remotely reachable and arrives as a
+  // loopback peer that auth.ts trusts. Withhold the claim unless a TUN device actually owns our
+  // tailnet address. See #98.
+  if (checks.tailscaleConnected && !tailnetAddressIsLocallyBound(tailscaleIp)) {
+    checks.listenerLoopbackOnly = false;
+  }
   checks.serveMapping = serveConfigurationMatches(serve, config);
   checks.identityAllowed = sessions !== undefined;
   checks.publisherHealth =
