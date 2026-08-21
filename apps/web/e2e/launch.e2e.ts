@@ -41,6 +41,8 @@ function workingSession(index: number): SessionMetadata {
 
 async function installSilentWebSocket(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    const socketCounter = globalThis as typeof globalThis & { __ompRelaySocketCount?: number };
+    socketCounter.__ompRelaySocketCount = 0;
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
       value: class {
@@ -48,12 +50,18 @@ async function installSilentWebSocket(page: Page): Promise<void> {
         static readonly OPEN = 1;
         static readonly CLOSING = 2;
         static readonly CLOSED = 3;
+        readonly url: string;
         readyState = 0;
         binaryType = "blob";
         onopen: ((event: Event) => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          socketCounter.__ompRelaySocketCount = (socketCounter.__ompRelaySocketCount ?? 0) + 1;
+        }
 
         close(): void {
           this.readyState = 3;
@@ -63,6 +71,12 @@ async function installSilentWebSocket(page: Page): Promise<void> {
       },
     });
   });
+}
+
+function relaySocketCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (globalThis as typeof globalThis & { __ompRelaySocketCount?: number }).__ompRelaySocketCount ?? 0,
+  );
 }
 
 test("installed-PWA View and Control mount in the current window without losing the handoff", async ({ context, page }) => {
@@ -766,6 +780,78 @@ test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout"
     await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
     await page.clock.fastForward(8_100);
     await expect(page.locator(".triage-bar")).toBeHidden();
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("a bfcache restore of a client disposed on pagehide returns to the live directory", async ({ page }) => {
+  const active = session();
+  const fixture = await startDashboardFixture([
+    active,
+    ...Array.from({ length: 12 }, (_, index) => workingSession(index)),
+  ]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await expect(page.locator(".queue-hero")).toHaveCount(1);
+    await expect(page.locator(".working-row")).toHaveCount(12);
+    await page.evaluate(() => window.scrollTo(0, 360));
+    const directoryScroll = await page.evaluate(() => window.scrollY);
+    expect(directoryScroll).toBeGreaterThan(0);
+
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    expect(fixture.launchRequests).toHaveLength(1);
+
+    // Count the bearer's transports and freeze the page in the same task, so no relay attempt can
+    // slip between the reading and the teardown. Never return the capability-bearing URLs to the
+    // test runner, where a failed assertion could print them into CI output.
+    const bootstrapSocketCount = await page.evaluate(() => {
+      const count =
+        (globalThis as typeof globalThis & { __ompRelaySocketCount?: number }).__ompRelaySocketCount ?? 0;
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+      return count;
+    });
+    expect(bootstrapSocketCount).toBeGreaterThanOrEqual(1);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(0);
+    await expect(page.locator(".gateway-shell")).toHaveCount(1);
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect(page.locator(".gateway-shell")).toHaveCount(0);
+    await expect(page.locator("#session-list")).toBeVisible();
+    await expect(page.locator(".queue-hero")).toHaveCount(1);
+    expect(await page.evaluate(() => window.scrollY)).toBe(directoryScroll);
+
+    fixture.upsert(answeredSession(active));
+    await expect(page.locator(".all-clear-title")).toHaveText("All clear");
+    await expect(page.locator(".working-row")).toHaveCount(13);
+    expect(fixture.launchRequests).toHaveLength(1);
+    expect(await relaySocketCount(page)).toBe(bootstrapSocketCount);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator('.working-row[data-instance-id="working-session-0000"]').click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    expect(fixture.launchRequests[1]).toEqual({
+      instanceId: "working-session-0000",
+      generation: 1,
+      mode: "view",
+    });
+    expect(await relaySocketCount(page)).toBeGreaterThan(bootstrapSocketCount);
+
+    await page.goBack();
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect(page.locator(".all-clear-title")).toHaveText("All clear");
+    await expect(page.locator(".working-row")).toHaveCount(13);
   } finally {
     await fixture.stop();
   }

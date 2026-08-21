@@ -1,15 +1,17 @@
 # Release process
 
-## Pre-alpha
+## Pre-alpha and alpha artifacts
 
-The repository can produce a working Bun-runtime pre-alpha archive, but it must not be described as an alpha or production release until the gates below pass. Repository commits remain preferred while platform and Android qualification is incomplete.
+The repository can produce a working Bun-runtime pre-alpha archive and the advertised alpha release
+(`v0.1.0-alpha` in this stream). It must not be described as a production release until the gates
+below pass. Repository commits remain preferred while platform and Android qualification is incomplete.
+
+## Alpha release gates
 
 The current release decision, evidence, and open gates are maintained in
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md). Exact OMP, protocol, platform, browser, and deployment
 claims are maintained separately in [`COMPATIBILITY.md`](COMPATIBILITY.md). A generated archive
 does not change either status.
-
-## Alpha release gates
 
 Before publishing an alpha binary:
 
@@ -48,13 +50,13 @@ required before claiming bounded memory growth.
 
 The release workflow accepts only tags matching the current `package.json` version:
 
-- `v<version>-prealpha.<n>` for a pre-alpha build;
-- `provenance-test-v<version>.<n>` for a provenance exercise; and
+- `v<version>-prealpha.<n>` for an internal pre-alpha artifact;
+- `v<version>-alpha[.<n>]` for the advertised alpha shape; and
+- `provenance-test-v<version>.<n>` for a provenance exercise.
 - `<n>` must be a positive decimal integer.
 
-Alpha, beta, release-candidate, and stable tags are intentionally rejected while the
-platform, Android, and security gates remain open. The tagged commit must be reachable
-from `main`.
+`beta`, `release-candidate`, and stable tags are intentionally rejected while the platform, Android, and
+security gates remain open. The tagged commit must be reachable from `main`.
 
 `.github/workflows/release.yml` runs `bun run check`, builds the deterministic archive,
 checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance systems:
@@ -161,8 +163,8 @@ done
 ```
 
 Successful checksum, build-attestation, Cosign, and immutable-release checks establish
-integrity and origin. They do not qualify the pre-alpha for supported use; the alpha gates
-above still apply.
+integrity and origin. They do not by themselves satisfy any additional deployment or
+support claim; the alpha gates above still apply.
 
 ## Versioning
 

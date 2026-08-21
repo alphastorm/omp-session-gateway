@@ -4,6 +4,32 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Fixed
+
+- Admit SSE consumers through an atomic registry snapshot/subscription handshake and serialize
+  reentrant registry mutations, so every consumer observes one snapshot followed by strictly
+  increasing revisions without an admission gap.
+- Preserve a renewed Web Push subscription when an older in-flight delivery for the same endpoint
+  fails permanently; stale cleanup now removes only the exact failed transport target.
+- Return a collaboration page restored from the browser back/forward cache to the live session
+  directory after its capability-bearing client has been disposed, rather than leaving an inert
+  client shell or attempting to reuse the capability.
+- Refuse install and uninstall before touching files or service-manager state when the global
+  systemd, launchd, or Task Scheduler identity belongs to another gateway installation root.
+
+### Testing
+
+- Cover launch rate-window boundaries, declared and streamed request-body ceilings, identity-scoped
+  push deletion, reentrant registry ordering, push-renewal races, cross-install service ownership,
+  and capability-safe back/forward-cache restoration.
+
+### Documentation
+
+- Align the release and rollback guides with the published `v0.1.0-alpha` tag contract and the
+  implemented `omp-gateway rollback [--to <version>]` command.
+
 ## [v0.1.0-alpha] — 2026-08-21
 
 First advertised release. Qualified for Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts,

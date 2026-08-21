@@ -171,4 +171,70 @@ describe("SessionRegistry", () => {
     registry.upsert("owner-a", published());
     expect(() => registry.upsert("owner-a", published(1, { sessionId: "different" }))).toThrow("identity conflict");
   });
+
+  test("admits a subscriber atomically when snapshot delivery mutates the registry", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.upsert("owner-a", published(1));
+    const observed: SessionEvent[] = [];
+    let reentered = false;
+    const unsubscribe = registry.subscribeWithSnapshot(event => {
+      observed.push(event);
+      if (event.type !== "snapshot" || reentered) return;
+      reentered = true;
+      // Lands after the snapshot was read but before admission completes: exactly the window a
+      // snapshot-then-subscribe handshake drops a revision into.
+      registry.upsert("owner-a", published(2));
+    });
+    registry.upsert("owner-a", published(3));
+    unsubscribe();
+    registry.upsert("owner-a", published(4));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["snapshot", 1],
+      ["session_upsert", 2],
+      ["session_upsert", 3],
+    ]);
+    expect(observed[0]).toMatchObject({ sessions: [{ generation: 1 }] });
+    expect(registry.snapshot().sessions[0]?.generation).toBe(4);
+  });
+
+  test("drops admission-buffered revisions the snapshot already represents", () => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    registry.upsert("owner-a", published(1));
+    clock.advance(35_000);
+
+    const observed: SessionEvent[] = [];
+    // Admission sweeps the expired record while the listener is already registered, yet that removal
+    // is folded into the snapshot revision; replaying it would repeat revision 2.
+    registry.subscribeWithSnapshot(event => observed.push(event));
+    registry.upsert("owner-a", published(1));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["snapshot", 2],
+      ["session_upsert", 3],
+    ]);
+    expect(observed[0]).toMatchObject({ sessions: [] });
+  });
+
+  test("keeps revisions increasing for every listener when one mutates during dispatch", () => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0002" }));
+    clock.advance(35_000);
+
+    // Mirrors the push service: a listener that reads the directory sweeps it, producing a newer
+    // revision from inside the dispatch of an older one.
+    registry.subscribe(() => {
+      registry.snapshot();
+    });
+    const observed: SessionEvent[] = [];
+    registry.subscribe(event => observed.push(event));
+    registry.upsert("owner-a", published(1));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["session_upsert", 2],
+      ["session_remove", 3],
+    ]);
+  });
 });

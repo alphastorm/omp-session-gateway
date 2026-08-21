@@ -438,6 +438,44 @@ describe("HTTP boundary", () => {
     await reader.cancel();
   });
 
+  test("admits an SSE stream with one snapshot and no repeated or reordered revision", async () => {
+    let monotonic = 1_000;
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      clock: { monotonicNowMs: () => monotonic, wallNowIso: () => "2026-07-19T00:00:00.000Z" },
+    });
+    registry.upsert("owner", publishedSession("http-instance-000001"));
+    monotonic += 35_000;
+    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 60_000 });
+    const sse = await handler(request("/api/v1/events"), peer);
+    const reader = sse.body?.getReader();
+    if (reader === undefined) throw new Error("missing SSE body");
+    const framed = (text: string): [string, unknown] => {
+      const data: unknown = JSON.parse(text.slice(text.indexOf("data: ") + "data: ".length));
+      if (typeof data !== "object" || data === null || !("revision" in data)) {
+        throw new Error("SSE frame carries no revision");
+      }
+      return [text.slice("event: ".length, text.indexOf("\n")), data.revision];
+    };
+
+    // Admission sweeps the expired record, so that removal is already inside the snapshot revision and
+    // must not also be framed; the two later upserts must each arrive once, in revision order.
+    const snapshot = await readSseEvent(reader);
+    registry.upsert("owner", publishedSession("http-instance-000002"));
+    registry.upsert("owner", publishedSession("http-instance-000003"));
+    const frames = [snapshot, await readSseEvent(reader), await readSseEvent(reader)];
+
+    expect(frames.map(text => framed(text))).toEqual([
+      ["snapshot", 2],
+      ["session_upsert", 3],
+      ["session_upsert", 4],
+    ]);
+    expect(snapshot).toContain('"sessions":[]');
+    expect(frames.join("")).not.toContain(viewCapability);
+    await reader.cancel();
+  });
+
   test("releases exactly one requested capability with no-store", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const response = await handler(launchRequest(), peer);
@@ -446,6 +484,78 @@ describe("HTTP boundary", () => {
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(payload.capability).toBe(viewCapability);
     expect(JSON.stringify(payload)).not.toContain(controlCapability);
+  });
+
+  test("enforces the launch rate-limit boundary and resets it at the window edge", async () => {
+    let now = 1_000;
+    const handler = createHttpHandler({
+      config: config(),
+      registry: populatedRegistry(),
+      staticAssets: assets,
+      now: () => now,
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await handler(launchRequest(), peer)).status).toBe(200);
+    }
+    const limited = await handler(launchRequest(), peer);
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({ code: "rate_limited", message: "Too many requests" });
+
+    now += 60_000;
+    const reset = await handler(launchRequest(), peer);
+    expect(reset.status).toBe(200);
+    expect(await reset.json()).toMatchObject({ mode: "view", generation: 3, capability: expect.any(String) });
+  });
+
+  test("rejects a launch body declared over the endpoint maximum", async () => {
+    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const response = await handler(
+      request("/api/v1/sessions/http-instance-000001/launch", {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/json",
+          "Content-Length": "4097",
+        },
+        body: JSON.stringify({ mode: "view", generation: 3 }),
+      }),
+      peer,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "bad_request", message: "Invalid request" });
+  });
+
+  test("rejects streamed launch bodies that cross the maximum with an acceptable or absent declaration", async () => {
+    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const json = JSON.stringify({ mode: "view", generation: 3 });
+    const firstChunk = new TextEncoder().encode(json + " ".repeat(4_096 - json.length));
+    const finalChunk = new TextEncoder().encode(" ");
+    const streamedRequest = (declaredLength?: string): Request =>
+      request("/api/v1/sessions/http-instance-000001/launch", {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/json",
+          ...(declaredLength === undefined ? {} : { "Content-Length": declaredLength }),
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(firstChunk);
+            controller.enqueue(finalChunk);
+            controller.close();
+          },
+        }),
+      });
+
+    for (const declaredLength of ["4096", undefined]) {
+      const response = await handler(streamedRequest(declaredLength), peer);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ code: "bad_request", message: "Invalid request" });
+    }
   });
 
   test("revalidates request-bound control launches at capability release", async () => {
@@ -609,6 +719,84 @@ describe("HTTP boundary", () => {
     const state = await Bun.file(join(root, "state", "push-state.json")).text();
     expect(state).toContain(body.subscription.endpoint);
     expect(state).not.toContain("PROMPT_CONTENT_CANARY");
+    await pushService.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("isolates push DELETE mutations by authenticated identity for same and other endpoints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gateway-http-push-isolation-"));
+    const base = config();
+    const gatewayConfig: GatewayConfig = {
+      ...base,
+      auth: { ...base.auth, allowedLogins: ["allowed@example.com", "other@example.com"] },
+      paths: {
+        configDir: join(root, "config"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+        socketPath: join(root, "run", "registry.sock"),
+        tokenPath: join(root, "config", "publisher-token"),
+        configPath: join(root, "config", "config.json"),
+      },
+    };
+    const registry = populatedRegistry();
+    const pushService = await PushService.open({
+      config: gatewayConfig,
+      registry,
+      transport: { async send(): Promise<void> {} },
+    });
+    const handler = createHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
+    const sharedEndpoint = "https://push.example.test/send/shared-device";
+    const otherEndpoint = "https://push.example.test/send/other-device";
+    const mutate = (method: "POST" | "DELETE", identity: string, value: unknown): Request =>
+      request(
+        "/api/v1/push/subscription",
+        {
+          method,
+          headers: {
+            Origin: origin,
+            "Sec-Fetch-Site": "same-origin",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(value),
+        },
+        identity,
+      );
+    const subscription = (endpoint: string) => ({
+      version: 2,
+      subscription: {
+        endpoint,
+        expirationTime: null,
+        keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
+      },
+    });
+
+    expect((await handler(mutate("POST", "allowed@example.com", subscription(sharedEndpoint)), peer)).status).toBe(200);
+    expect((await handler(mutate("POST", "other@example.com", subscription(sharedEndpoint)), peer)).status).toBe(200);
+    expect((await handler(mutate("POST", "other@example.com", subscription(otherEndpoint)), peer)).status).toBe(200);
+    const statePath = join(root, "state", "push-state.json");
+    const beforeDeniedDeletes = await Bun.file(statePath).text();
+    expect(beforeDeniedDeletes).toContain(sharedEndpoint);
+    expect(beforeDeniedDeletes).toContain(otherEndpoint);
+
+    for (const endpoint of [sharedEndpoint, otherEndpoint]) {
+      const deniedDelete = await handler(
+        mutate("DELETE", "allowed@example.com", { version: 2, endpoint }),
+        peer,
+      );
+      expect(deniedDelete.status).toBe(204);
+      expect(await deniedDelete.text()).toBe("");
+    }
+    expect(await Bun.file(statePath).text()).toBe(beforeDeniedDeletes);
+
+    const ownDelete = await handler(
+      mutate("DELETE", "other@example.com", { version: 2, endpoint: otherEndpoint }),
+      peer,
+    );
+    expect(ownDelete.status).toBe(204);
+    expect(await ownDelete.text()).toBe("");
+    const afterOwnDelete = await Bun.file(statePath).text();
+    expect(afterOwnDelete).toContain(sharedEndpoint);
+    expect(afterOwnDelete).not.toContain(otherEndpoint);
     await pushService.stop();
     await rm(root, { recursive: true, force: true });
   });

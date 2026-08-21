@@ -133,6 +133,13 @@ interface ActiveCollabShell {
 let dashboardSnapshot: DashboardSnapshot | undefined;
 let activeCollabShell: ActiveCollabShell | undefined;
 let disposeActiveCollab: (() => void) | undefined;
+/**
+ * `pagehide` disposes the collab client and drops its capability with it, but the shell DOM, the
+ * `/client/` URL, and the document itself all survive into the bfcache. A restore of that entry is
+ * an inert shell, so it has to be handed back to the directory instead of reconnected behind dead
+ * DOM — and never by restarting a client whose capability is gone.
+ */
+let collabShellDisposedOnPageHide = false;
 let currentNotificationDetail: PushDetailLevel = "session";
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
@@ -946,6 +953,7 @@ function renderConnectionState(shell: ActiveCollabShell): void {
 }
 
 function returnToDirectory(historyValue?: unknown): void {
+  collabShellDisposedOnPageHide = false;
   const snapshot = dashboardSnapshot;
   if (snapshot === undefined) {
     location.replace("/");
@@ -1141,6 +1149,8 @@ function enterCollabClient(
     hasBeenLive: false,
   };
   activeCollabShell = shellState;
+  // A live shell supersedes any disposed predecessor, so the bfcache restore path must not fire.
+  collabShellDisposedOnPageHide = false;
 
   const updateConnection = (state: CollabEmbedState): void => {
     shellState.latestEmbedState = state;
@@ -1160,8 +1170,10 @@ function enterCollabClient(
     disposeClient();
     disposeClient = (): void => undefined;
     if (activeCollabShell === shellState) activeCollabShell = undefined;
+    if (disposeActiveCollab === dispose) disposeActiveCollab = undefined;
   };
   const handlePageHide = (): void => {
+    collabShellDisposedOnPageHide = true;
     dispose();
   };
   const handlePopState = (event: PopStateEvent): void => {
@@ -1438,7 +1450,12 @@ for (const input of notificationDetailInputs) {
   });
 }
 window.addEventListener("pageshow", event => {
-  if (event.persisted) void refreshAndConnect();
+  if (!event.persisted) return;
+  if (collabShellDisposedOnPageHide) {
+    returnToDirectory();
+    return;
+  }
+  void refreshAndConnect();
 });
 window.addEventListener("online", () => void refreshAndConnect());
 window.addEventListener("offline", () => {

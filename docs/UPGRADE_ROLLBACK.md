@@ -15,7 +15,13 @@ The forward upgrade is already measured: the ledger records the live macOS servi
 publisher token preserved. Rollback is the half that was never executed, and it is named in the
 "Required to close" column of four **PARTIAL** rows.
 
-Rollback is not a command. There is no `omp-gateway rollback`. The installer keeps every runtime
+`rollback` is now a first-class CLI command in this codebase (`omp-gateway rollback [--to <version>]`).
+That command resolves an installed predecessor by default, or a requested version directory, and
+rejects malformed targets, unmanaged active services, missing rollback history, and uninstalled rollback
+destinations. This lane still validates by installing the predecessor archive again so the measured
+on-disk transition is anchored to how the historical pre-alpha artifacts are exercised.
+
+The installer keeps every runtime
 side by side:
 
 ```
@@ -23,8 +29,7 @@ side by side:
 <stateDir>/installation/current.json      {"versionDirectory":"0.1.0-8773d783ca96"}
 ```
 
-so rolling back means **installing the predecessor archive again**. That makes three questions
-worth answering with measurements rather than reasoning:
+so this historical path still requires three explicit checks:
 
 1. does the predecessor's version directory actually survive the upgrade, which is the only reason
    rollback is possible at all;
@@ -59,9 +64,9 @@ namespace, so an isolated install still *sees* the production daemon under its o
 2026-08-19 that cost a live daemon four minutes: an "isolated" archive smoke read `active: true` off
 the production service and booted it out.
 
-The fix in the working tree compares the loaded service's **program path** against `stateDir + sep`,
-so `active` means "a service this install root owns is running". `v0.1.0-prealpha.14` carries that
-fix. **`v0.1.0-prealpha.13` does not** — see [section 5](#5-findings). The lane therefore drives one
+`v0.1.0-prealpha.14` compares the loaded service's **program path** against `stateDir + sep`, so
+`active` means "a service this install root owns is running". **`v0.1.0-prealpha.13` does not** —
+see [section 5](#5-findings). The lane therefore drives one
 artifact that will try to bootout the production daemon and one that will not, and has to survive
 both.
 
