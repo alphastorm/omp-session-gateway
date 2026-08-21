@@ -14,6 +14,17 @@ export interface GatewayConfig {
   readonly auth: {
     readonly mode: AuthMode;
     readonly allowedLogins: readonly string[];
+    /**
+     * Declares that no tailnet can reach this host, so an identity header from a loopback peer must
+     * have come from Serve. Absent means the gateway measures the host instead and refuses to
+     * believe the header when no interface owns a tailnet address.
+     *
+     * This exists for loopback-only harnesses that exercise the production identity path on machines
+     * with no Tailscale installed. Setting it on a host running `tailscaled
+     * --tun=userspace-networking` asserts something false and restores the remote authentication
+     * bypass in #98, so `doctor` reports it as a finding.
+     */
+    readonly trustIdentityWithoutTailnetDevice?: boolean;
   };
   readonly registry: {
     readonly heartbeatSeconds: number;
@@ -250,7 +261,9 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
     if (!["hostname", "port", "publicOrigin"].includes(key)) throw new Error(`unknown http config key: ${key}`);
   }
   for (const key of Object.keys(auth)) {
-    if (!["mode", "allowedLogins"].includes(key)) throw new Error(`unknown auth config key: ${key}`);
+    if (!["mode", "allowedLogins", "trustIdentityWithoutTailnetDevice"].includes(key)) {
+      throw new Error(`unknown auth config key: ${key}`);
+    }
   }
   for (const key of Object.keys(registry)) {
     if (!["heartbeatSeconds", "ttlSeconds", "maxPublishers", "maxSessions"].includes(key)) {
@@ -282,6 +295,10 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
   if (mode === "tailscale-serve" && allowedLogins.length === 0) {
     throw new Error("tailscale-serve mode requires at least one allowed login");
   }
+  const declaredTrust = auth.trustIdentityWithoutTailnetDevice ?? false;
+  if (typeof declaredTrust !== "boolean") {
+    throw new Error("auth.trustIdentityWithoutTailnetDevice must be a boolean");
+  }
   const heartbeatSeconds = validateBoundedInteger(
     registry.heartbeatSeconds ?? defaults.registry.heartbeatSeconds,
     MIN_HEARTBEAT_SECONDS,
@@ -297,7 +314,9 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
   if (ttlSeconds <= heartbeatSeconds * 2) throw new Error("registry.ttlSeconds must exceed two heartbeat intervals");
   return {
     http: { hostname, port, publicOrigin: publicOrigin.origin },
-    auth: { mode, allowedLogins },
+    // Written only when asserted, so an ordinary config keeps the shape it had before this field
+    // existed and the safe reading is the absent one.
+    auth: { mode, allowedLogins, ...(declaredTrust ? { trustIdentityWithoutTailnetDevice: true } : {}) },
     registry: {
       heartbeatSeconds,
       ttlSeconds,

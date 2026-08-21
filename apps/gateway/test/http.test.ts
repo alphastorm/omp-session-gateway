@@ -25,7 +25,14 @@ function config(mode: GatewayConfig["auth"]["mode"] = "tailscale-serve"): Gatewa
       port: 4317,
       publicOrigin: mode === "dev-localhost" ? "http://127.0.0.1:4317" : origin,
     },
-    auth: { mode, allowedLogins: mode === "tailscale-serve" ? ["allowed@example.com"] : [] },
+    // Declared rather than measured so this suite does not depend on whether the machine running it
+    // has Tailscale in TUN mode. The measured path is covered by "loopback identity trust" below,
+    // which builds a config without this field.
+    auth: {
+      mode,
+      allowedLogins: mode === "tailscale-serve" ? ["allowed@example.com"] : [],
+      ...(mode === "tailscale-serve" ? { trustIdentityWithoutTailnetDevice: true } : {}),
+    },
     registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
     paths: {
       configDir: "/private/config",
@@ -172,6 +179,98 @@ describe("HTTP boundary", () => {
     expect((await handler(localRequest, { address: "10.0.0.8" })).status).toBe(403);
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
     expect((await handler(localRequest, peer)).status).toBe(200);
+  });
+
+  /**
+   * The bypass in #98, as a test. A tailnet peer reaching a userspace-mode host arrives on the
+   * loopback listener indistinguishable from a local client, so these cases drive the topology
+   * signal rather than the peer address: `tailnetPresent: () => false` is exactly what the exposed
+   * macOS qualification host looked like, where a forged header returned `200` with session data.
+   */
+  describe("loopback identity trust", () => {
+    function measured(): GatewayConfig {
+      const base = config();
+      return { ...base, auth: { mode: base.auth.mode, allowedLogins: base.auth.allowedLogins } };
+    }
+
+    test("refuses an allowlisted identity when no tailnet interface vouches for Serve", async () => {
+      const handler = createHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        tailnetPresent: () => false,
+      });
+
+      // Same request that returned 200 on the exposed host.
+      const denied = await handler(request("/api/v1/sessions"), peer);
+      expect(denied.status).toBe(403);
+      // The launch surface is the one that mints capabilities, so it must fail on the same signal.
+      expect((await handler(launchRequest(), peer)).status).toBe(403);
+    });
+
+    test("serves the same identity once a TUN device owns a tailnet address", async () => {
+      const handler = createHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        tailnetPresent: () => true,
+      });
+
+      expect((await handler(request("/api/v1/sessions"), peer)).status).toBe(200);
+      expect((await handler(launchRequest(), peer)).status).toBe(200);
+    });
+
+    test("a declared tailnet-less host trusts the header without measuring", async () => {
+      let measurements = 0;
+      const handler = createHttpHandler({
+        config: config(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        tailnetPresent: () => {
+          measurements += 1;
+          return false;
+        },
+      });
+
+      expect((await handler(request("/api/v1/sessions"), peer)).status).toBe(200);
+      expect(measurements).toBe(0);
+    });
+
+    test("dev mode neither consults nor is blocked by the topology", async () => {
+      let measurements = 0;
+      const handler = createHttpHandler({
+        config: config("dev-localhost"),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        tailnetPresent: () => {
+          measurements += 1;
+          return false;
+        },
+      });
+
+      expect((await handler(new Request("http://127.0.0.1:4317/api/v1/sessions"), peer)).status).toBe(200);
+      expect(measurements).toBe(0);
+    });
+
+    test("records the unsound topology once and marks the denial reason", async () => {
+      const lines: string[] = [];
+      const handler = createHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        logger: new SafeLogger({ write: line => lines.push(line) }),
+        tailnetPresent: () => false,
+      });
+
+      await handler(request("/api/v1/sessions"), peer);
+      await handler(request("/api/v1/sessions"), peer);
+      const events = lines.map(line => JSON.parse(line) as { event: string; identity_untrustworthy?: boolean });
+      // One host-level fact, not one line per request.
+      expect(events.filter(entry => entry.event === "http.identity_trust_unsound")).toHaveLength(1);
+      expect(events.filter(entry => entry.event === "http.authorization_denied")).toHaveLength(1);
+      expect(events.find(entry => entry.event === "http.authorization_denied")?.identity_untrustworthy).toBe(true);
+      expect(lines.join("\n")).not.toContain("allowed@example.com");
+    });
   });
 
   test("does not expose an HTTP shutdown control endpoint", async () => {

@@ -92,9 +92,37 @@ the normal TUN-mode client are refused outright on both its tailnet and LAN addr
 
 Userspace mode is not exotic: it is the usual way to run Tailscale in a container, on many VPS
 images, and on headless servers, which are exactly the hosts an operator is most likely to automate.
-Run the TUN-mode client on any host serving this gateway. Note that a bind-address check cannot
-detect this, because the bind address really is loopback; the only reliable probe comes from a second
-tailnet node. Tracked as [#98](https://github.com/alphastorm/omp-session-gateway/issues/98).
+Run the TUN-mode client on any host serving this gateway. Tracked as
+[#98](https://github.com/alphastorm/omp-session-gateway/issues/98).
+
+**The gateway now refuses rather than warns.** Because Tailscale gives the backend no secret,
+signature, or channel binding that Serve alone could present, there is nothing to verify per
+request; the only thing checkable is whether the topology still makes Serve the sole path in. In
+`tailscale-serve` mode the daemon therefore reads the host's interface table and, unless some
+interface owns an address in Tailscale's own allocations (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`),
+returns `403` to every request instead of believing `Tailscale-User-Login`. It logs
+`http.identity_trust_unsound` once when it observes that state, and `doctor` reports
+`loopbackTrustSound: false`. Refusing costs nothing when the signal is absent: without a tailnet
+address, Serve cannot be routing tailnet requests to that process anyway.
+
+The signal has to be read in that direction. Probing our own tailnet address cannot tell the two
+topologies apart, because in userspace mode the host has no route to that address either, so the
+probe fails identically on a safe host and an exposed one. Detecting *whether tailscaled is running*
+is no better: its socket path is platform-specific and can be overridden on the command line, so a
+detection miss would silently re-open the bypass. Absence of a tailnet interface is therefore treated
+as unsafe rather than inconclusive.
+
+One escape exists for automated harnesses, `auth.trustIdentityWithoutTailnetDevice`. It declares that
+no tailnet can reach the host at all, which is true of a CI runner with no Tailscale installed and is
+how the capacity job exercises the production identity path. It asserts a fact rather than
+establishing one: setting it on a host running userspace-mode `tailscaled` restores the full bypass.
+`doctor` reports `loopbackTrustSound` from the interface table and not from the configuration, so a
+host that sets the flag while running userspace mode still fails that check. Never set it on a host
+that has Tailscale installed.
+
+A second tailnet node remains the only *end-to-end* proof, because the refusal above is a local
+inference about the topology rather than an observation of what a remote peer can reach; the
+qualification lanes probe the gateway port from a distinct node for that reason.
 
 Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
 

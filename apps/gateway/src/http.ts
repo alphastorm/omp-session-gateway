@@ -11,6 +11,7 @@ import {
   parsePushUnsubscribeRequest,
 } from "@omp-session-gateway/protocol";
 import { authorizeHttpRequest, isLoopbackAddress, requestHasValidMutationContext, type RequestPeer } from "./auth.ts";
+import { createTailnetPresenceProbe } from "./tailnet.ts";
 import type { GatewayConfig } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
@@ -205,10 +206,25 @@ export function createHttpHandler(options: {
    * readiness must reflect the IPC endpoint rather than process liveness alone.
    */
   readonly endpointHealthy?: () => boolean;
+  /**
+   * Whether Tailscale Serve is still the only path to this loopback listener, i.e. tailscaled owns a
+   * TUN device. Injectable so tests can drive both topologies; the default measures the host.
+   */
+  readonly tailnetPresent?: () => boolean;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
   const limiter = new LaunchRateLimiter();
+  const tailnetPresent = options.tailnetPresent ?? createTailnetPresenceProbe();
+  // `tailscale-serve` mode trusts an identity header from any loopback peer, which is only sound
+  // while Serve is the sole way in. Configuration may declare that no tailnet reaches this host at
+  // all, which is how a loopback-only harness exercises the production identity path with no
+  // Tailscale installed; on a host running userspace-mode tailscaled that declaration is false and
+  // re-opens #98, so `doctor` reports it rather than letting it pass silently.
+  const identityTrustDeclared = config.auth.trustIdentityWithoutTailnetDevice === true;
+  // Seeded sound so a healthy daemon says nothing at startup and only a change is reported. This
+  // governs logging only; authorization always uses the measured value.
+  let identityTrustLogged = true;
   return async (request, peer): Promise<Response> => {
     let url: URL;
     try {
@@ -247,9 +263,25 @@ export function createHttpHandler(options: {
       );
     }
 
-    const authorization = authorizeHttpRequest(request, peer, config);
+    // Only `tailscale-serve` mode believes an identity header, so only it pays for the measurement.
+    let serveOwnsIdentityHeaders = true;
+    if (config.auth.mode === "tailscale-serve") {
+      serveOwnsIdentityHeaders = identityTrustDeclared || tailnetPresent();
+      if (serveOwnsIdentityHeaders !== identityTrustLogged) {
+        identityTrustLogged = serveOwnsIdentityHeaders;
+        // Logged on transition, not per request: this is one property of the host, and a per-request
+        // line would be unbounded noise for a single operator-visible fact.
+        logger.event(
+          serveOwnsIdentityHeaders ? "info" : "error",
+          serveOwnsIdentityHeaders ? "http.identity_trust_restored" : "http.identity_trust_unsound",
+        );
+      }
+    }
+    const authorization = authorizeHttpRequest(request, peer, config, serveOwnsIdentityHeaders);
     if (!authorization.allowed) {
-      logger.event("warn", "http.authorization_denied");
+      logger.event("warn", "http.authorization_denied", {
+        identity_untrustworthy: authorization.reason === "identity_untrustworthy",
+      });
       return problem(403, "forbidden", "Forbidden");
     }
     if (url.pathname === "/api/v1/sessions" && request.method === "GET") {
