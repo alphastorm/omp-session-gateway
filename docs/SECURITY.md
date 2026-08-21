@@ -78,6 +78,24 @@ authenticator plus unconditional stripping of `Tailscale-User-*`, not merely a t
 [#74](https://github.com/alphastorm/omp-session-gateway/issues/74) for a worked example of a
 proposal that fails on exactly this point.
 
+**Tailscale's own userspace-networking mode is such a forwarder, and this is the trap most likely to
+catch a real operator.** `tailscaled --tun=userspace-networking` has no TUN device, so its netstack
+accepts inbound tailnet connections and dials `localhost` to service them. The gateway then sees a
+genuine loopback peer for traffic that originated on another machine, and trusts the caller's
+`Tailscale-User-Login` verbatim. Serve is not in that path and cannot overwrite anything.
+
+This was demonstrated on 2026-08-21 against a qualification host running `v0.1.0-prealpha.17` with
+its listener correctly bound to `127.0.0.1:4317` only. From a *different* tailnet node,
+`http://<node-tailnet-ip>:4317/api/v1/sessions` returned `403` with no header and **`200` with a
+forged `Tailscale-User-Login` naming an allowlisted account**. The same probes against a host running
+the normal TUN-mode client are refused outright on both its tailnet and LAN addresses.
+
+Userspace mode is not exotic: it is the usual way to run Tailscale in a container, on many VPS
+images, and on headless servers, which are exactly the hosts an operator is most likely to automate.
+Run the TUN-mode client on any host serving this gateway. Note that a bind-address check cannot
+detect this, because the bind address really is loopback; the only reliable probe comes from a second
+tailnet node. Tracked as [#98](https://github.com/alphastorm/omp-session-gateway/issues/98).
+
 Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
