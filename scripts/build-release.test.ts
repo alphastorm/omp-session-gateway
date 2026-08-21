@@ -207,20 +207,44 @@ test(
 );
 
 test("the recorded qualification comes from a closed channel set that fails shut", () => {
-  expect(Object.keys(RELEASE_QUALIFICATIONS)).toEqual(["pre-alpha", "alpha"]);
+  expect(Object.keys(RELEASE_QUALIFICATIONS)).toEqual(["pre-alpha", "alpha", "beta"]);
   expect(releaseQualification({})).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
   expect(releaseQualification({ OMP_RELEASE_CHANNEL: "pre-alpha" })).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
   expect(releaseQualification({ OMP_RELEASE_CHANNEL: "alpha" })).toBe(RELEASE_QUALIFICATIONS.alpha);
+  expect(releaseQualification({ OMP_RELEASE_CHANNEL: "beta" })).toBe(RELEASE_QUALIFICATIONS.beta);
   expect(RELEASE_QUALIFICATIONS["pre-alpha"]).toStartWith("pre-alpha;");
   expect(RELEASE_QUALIFICATIONS.alpha).toStartWith("qualified alpha;");
   expect(RELEASE_QUALIFICATIONS.alpha).toContain("not beta, stable, or production-qualified");
+  // Beta is a release channel, never a stability claim, so its recorded sentence has to keep
+  // naming the boundary that moves per tag — the combinations recorded at this source commit and
+  // the exact patched OMP baseline — and has to keep disclaiming stable/production readiness.
+  expect(RELEASE_QUALIFICATIONS.beta).toStartWith("qualified beta;");
+  expect(RELEASE_QUALIFICATIONS.beta).toContain("docs/COMPATIBILITY.md at this source commit");
+  expect(RELEASE_QUALIFICATIONS.beta).toContain("UPSTREAM.lock.json");
+  expect(RELEASE_QUALIFICATIONS.beta).toContain("not stable or production-qualified");
 
   // An empty, spelled-differently, or not-yet-earned channel is a broken caller, and `toString`,
   // `__proto__`, and `constructor` all resolve to `Object.prototype` members under a plain lookup.
-  // Every one of them must refuse the build rather than record a claim nobody chose.
-  for (const injected of ["", " ", "beta", "stable", "Alpha", "pre-alpha ", "toString", "__proto__", "constructor"]) {
+  // Every one of them must refuse the build rather than record a claim nobody chose. `beta.1` is
+  // the tag suffix rather than the channel, and must not be mistaken for one either.
+  const refused = [
+    "",
+    " ",
+    "stable",
+    "release-candidate",
+    "rc",
+    "Alpha",
+    "Beta",
+    "pre-alpha ",
+    " beta",
+    "beta.1",
+    "toString",
+    "__proto__",
+    "constructor",
+  ];
+  for (const injected of refused) {
     expect(() => releaseQualification({ OMP_RELEASE_CHANNEL: injected })).toThrow(
-      /^OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha: /,
+      /^OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha, beta: /,
     );
   }
 });
@@ -233,32 +257,47 @@ test(
     try {
       const candidate = await runReleaseBuilder(join(temporaryRoot, "candidate"));
       const alpha = await runReleaseBuilder(join(temporaryRoot, "alpha"), { OMP_RELEASE_CHANNEL: "alpha" });
+      const beta = await runReleaseBuilder(join(temporaryRoot, "beta"), { OMP_RELEASE_CHANNEL: "beta" });
       const candidateEntries = tarEntries(await readFile(candidate.archivePath));
       const alphaEntries = tarEntries(await readFile(alpha.archivePath));
+      const betaEntries = tarEntries(await readFile(beta.archivePath));
       const qualificationOf = (entries: Map<string, Buffer>): unknown => {
         const info: unknown = JSON.parse(entries.get(infoPath)?.toString("utf8") ?? "{}");
         if (info === null || typeof info !== "object" || !("qualification" in info)) return undefined;
         return info.qualification;
       };
+      const differingPaths = (entries: Map<string, Buffer>): string[] =>
+        [...entries]
+          .filter(([path, content]) => !content.equals(candidateEntries.get(path) ?? Buffer.alloc(0)))
+          .map(([path]) => path);
 
       expect(qualificationOf(candidateEntries)).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
       expect(qualificationOf(alphaEntries)).toBe(RELEASE_QUALIFICATIONS.alpha);
+      expect(qualificationOf(betaEntries)).toBe(RELEASE_QUALIFICATIONS.beta);
       // Promotion may move that one sentence and nothing else: same paths, same bytes everywhere
-      // else, and an SBOM that is not a function of the channel at all.
+      // else, and an SBOM that is not a function of the channel at all. Beta is held to exactly
+      // the same rule as alpha, and the two archives must still differ from each other.
       expect([...alphaEntries.keys()]).toEqual([...candidateEntries.keys()]);
-      expect(
-        [...alphaEntries]
-          .filter(([path, content]) => !content.equals(candidateEntries.get(path) ?? Buffer.alloc(0)))
-          .map(([path]) => path),
-      ).toEqual([infoPath]);
-      expect((await readFile(alpha.sbomPath)).equals(await readFile(candidate.sbomPath))).toBe(true);
+      expect([...betaEntries.keys()]).toEqual([...candidateEntries.keys()]);
+      expect(differingPaths(alphaEntries)).toEqual([infoPath]);
+      expect(differingPaths(betaEntries)).toEqual([infoPath]);
+      expect(betaEntries.get(infoPath)?.equals(alphaEntries.get(infoPath) ?? Buffer.alloc(0))).toBe(false);
+      const [candidateSbom, alphaSbom, betaSbom] = await Promise.all([
+        readFile(candidate.sbomPath),
+        readFile(alpha.sbomPath),
+        readFile(beta.sbomPath),
+      ]);
+      expect(alphaSbom.equals(candidateSbom)).toBe(true);
+      expect(betaSbom.equals(candidateSbom)).toBe(true);
 
+      // `stable` is the next channel name a caller will reach for, and the one the tag gate still
+      // refuses; with no entry here it must fail before any artifact exists.
       await expect(
-        runReleaseBuilder(join(temporaryRoot, "refused"), { OMP_RELEASE_CHANNEL: "beta" }),
-      ).rejects.toThrow(/OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha: "beta"/);
+        runReleaseBuilder(join(temporaryRoot, "refused"), { OMP_RELEASE_CHANNEL: "stable" }),
+      ).rejects.toThrow(/OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha, beta: "stable"/);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
   },
-  30_000,
+  45_000,
 );

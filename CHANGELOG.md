@@ -13,6 +13,14 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   alternatives matrix, and draft launch copy. All public media uses seeded synthetic data.
 - Record the protected default-relay replacement soak: the complete 28,800-second authored window,
   22 room transitions, final phase `live`, exit code 0, and no process restart.
+- Add a fail-closed `beta` release channel. The release workflow accepts `v<version>-beta[.<n>]` and
+  derives `OMP_RELEASE_CHANNEL=beta` only from that validated tag shape; `release-info.json` records
+  a beta qualification that names the combinations recorded at the source commit and the exact
+  patched OMP baseline while explicitly disclaiming stable or production readiness; and the
+  conservative beta draft notes keep the Windows-unadvertised, Android network-change, and
+  unsupported self-hosted/proxied relay caveats alongside the required exact OMP patch.
+  `release-candidate` and stable tags stay rejected, pre-alpha and alpha archives stay
+  byte-compatible, and the SBOM stays channel-independent.
 
 ### Changed
 
@@ -21,9 +29,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   regenerate the six-commit collaboration patch from the maintained downstream series plus the
   carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
   new target repeats the applicable release lanes.
-- Keep the exact tested v17.4.1 OMP patch as the alpha installation prerequisite. Paired OMP
-  signing/install/update/rollback is deliberately deferred, but remains a hard beta gate unless
-  upstream first lands the required controller/publication seam.
+- Keep the exact tested v17.4.1 OMP patch as the alpha and beta installation prerequisite. Paired
+  OMP signing/install/update/rollback stays deliberately deferred and is a disclosed limitation
+  rather than a beta gate; the exact patch is an accepted beta prerequisite, and stock OMP is never
+  sufficient on its own.
 
 ### Fixed
 

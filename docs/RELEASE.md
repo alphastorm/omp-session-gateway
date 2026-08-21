@@ -1,13 +1,23 @@
 # Release process
 
-## Pre-alpha and alpha artifacts
+## Pre-alpha, alpha, and beta artifacts
 
-The repository can produce working Bun-runtime pre-alpha archives and advertised alpha releases.
-`v0.1.0-alpha.1` is the current published qualified alpha. It must not be described as stable or
-production-qualified, and repository commits remain preferred outside the exact platform and
-Android combinations recorded in the release ledger.
+The repository can produce working Bun-runtime pre-alpha archives, advertised alpha releases, and
+advertised beta releases. `v0.1.0-alpha.1` is the current published qualified alpha. It must not be
+described as stable or production-qualified, and repository commits remain preferred outside the
+exact platform and Android combinations recorded in the release ledger.
 
-## Alpha release gates
+`beta` is a closed release channel, not a stability grade. A beta tag advertises the boundary the
+ledger already records at its source commit; the tag promotes nothing by itself, and the same
+prohibition carries over unchanged: never describe a beta build as stable or production-qualified.
+A beta install is supported only against the exact patched OMP baseline pinned in
+`UPSTREAM.lock.json` — stock OMP is not sufficient at any version, and paired OMP packaging is not
+provided.
+The supported beta procedure is the
+[versioned `omp-gateway-patched` route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos);
+upstreaming and paired packaging are not release gates.
+
+## Alpha and beta release gates
 
 The current release decision, evidence, and open gates are maintained in
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md). Exact OMP, protocol, platform, browser, and deployment
@@ -26,6 +36,15 @@ Before publishing an alpha binary:
 - all vendored collab-web assets have provenance and license notices;
 - configuration and upgrade behavior are documented;
 - known limitations are listed prominently.
+
+Before publishing a beta binary, every gate above still applies, and additionally:
+
+- the advertised host and client combinations in [`COMPATIBILITY.md`](COMPATIBILITY.md) are
+  unchanged, or re-qualified against the exact bytes being tagged;
+- the exact tested OMP commit and the repository patch are recorded and stated in the release notes
+  as a required installation precondition; and
+- Windows remains unadvertised, and the Android network-change limitation and the unsupported
+  self-hosted or proxied relay modes remain disclosed.
 
 ## Default-relay soak qualification
 
@@ -52,12 +71,18 @@ required before claiming bounded memory growth.
 The release workflow accepts only tags matching the current `package.json` version:
 
 - `v<version>-prealpha.<n>` for an internal pre-alpha artifact;
-- `v<version>-alpha[.<n>]` for the advertised alpha shape; and
+- `v<version>-alpha[.<n>]` for the advertised alpha shape;
+- `v<version>-beta[.<n>]` for the advertised beta shape; and
 - `provenance-test-v<version>.<n>` for a provenance exercise.
 - `<n>` must be a positive decimal integer.
 
-`beta`, `release-candidate`, and stable tags are intentionally rejected while the platform, Android, and
+`release-candidate` and stable tags are intentionally rejected while the platform, Android, and
 security gates remain open. The tagged commit must be reachable from `main`.
+
+The validated tag shape is also the only thing that selects the qualification recorded in the
+archive's `release-info.json`: `-beta[.<n>]` exports `OMP_RELEASE_CHANNEL=beta`, `-alpha[.<n>]`
+exports `alpha`, and `-prealpha.<n>` and `provenance-test-v…` stay `pre-alpha`. A tag can select a
+recorded claim but never write one, and any channel outside that closed set fails the build.
 
 `.github/workflows/release.yml` runs `bun run check`, builds the deterministic archive,
 checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance systems:
@@ -91,8 +116,10 @@ the release as final at publication; publish a new tag to correct it.
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
 emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
 inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
-For a byte-exact rebuild of an alpha tag, set `OMP_RELEASE_CHANNEL=alpha`; valid values are
-`pre-alpha` (default) and `alpha`, and any other value fails the build.
+For a byte-exact rebuild of an alpha or beta tag, set `OMP_RELEASE_CHANNEL` to that tag's channel;
+valid values are `pre-alpha` (default), `alpha`, and `beta`, and any other value fails the build.
+The channel moves `release-info.json` and nothing else: every other archive member, and the SBOM,
+stay byte-identical across channels.
 This runtime-neutral Bun archive is not a substitute for qualified platform installers.
 
 Do not upload source maps, logs, test recordings, or diagnostics that might contain
@@ -167,7 +194,7 @@ done
 
 Successful checksum, build-attestation, Cosign, and immutable-release checks establish
 integrity and origin. They do not by themselves satisfy any additional deployment or
-support claim; the alpha gates above still apply.
+support claim; the alpha and beta gates above still apply.
 
 ## Versioning
 

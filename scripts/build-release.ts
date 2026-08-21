@@ -384,13 +384,17 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
  * never write one. `pre-alpha` covers both the `-prealpha.<n>` candidates and the
  * `provenance-test-v…` exercises, which are unadvertised engineering artifacts. `alpha` names the
  * support boundary rather than restating it, because that boundary moves per tag and this file
- * does not. There is deliberately no beta or stable entry while those gates are open; adding one
+ * does not. `beta` is that same shape of claim one step further along; it additionally names the
+ * exact patched OMP baseline, because a beta install is supported only against those bytes. There
+ * is deliberately no `release-candidate` or `stable` entry while those gates are open; adding one
  * requires accepting its tag shape in `release.yml` first.
  */
 export const RELEASE_QUALIFICATIONS = {
   "pre-alpha": "pre-alpha; cross-OS and real Android acceptance not yet completed",
   alpha:
     "qualified alpha; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit; not beta, stable, or production-qualified",
+  beta:
+    "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;
@@ -400,8 +404,9 @@ export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;
  *
  * An unset channel is a local or untagged build and takes the conservative pre-alpha claim, which
  * also keeps a developer rebuild of a pre-alpha tag byte-identical to the published archive. A
- * rebuild of an alpha tag must therefore pass `OMP_RELEASE_CHANNEL=alpha` alongside `GITHUB_SHA`
- * and `SOURCE_DATE_EPOCH` to reproduce those bytes.
+ * rebuild of an alpha or beta tag must therefore pass the matching `OMP_RELEASE_CHANNEL=alpha` or
+ * `OMP_RELEASE_CHANNEL=beta` alongside `GITHUB_SHA` and `SOURCE_DATE_EPOCH` to reproduce those
+ * bytes.
  *
  * Every other value fails the build instead of shipping an unintended or missing claim: an empty
  * string from a broken workflow expression, an unknown channel, and inherited property names such
