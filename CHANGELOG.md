@@ -21,6 +21,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   an unavailable ownership probe now fails closed.
 - Scope launch rate windows to the authenticated identity and operation instead of caller-selected
   instance IDs, preventing one allowed identity from exhausting bucket capacity for another.
+- Clear systemd's start-rate counter before an explicit install or rollback restart, so several
+  successful version switches cannot deadlock the next operator-requested recovery.
 
 ### Testing
 
