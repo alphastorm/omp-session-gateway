@@ -1,8 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash, createHmac } from "node:crypto";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { main } from "../src/cli.ts";
+import { defaultGatewayPaths, type GatewayConfig } from "../src/config.ts";
+import { serviceDefinition } from "../src/service.ts";
+
+/**
+ * Every path the gateway writes to, redirected inside a throwaway root. Service managers key their
+ * registry on identity no filesystem override can scope, so this isolates every file the CLI writes
+ * and none of the OS state it reads back; see `loadedServiceIsOurs` in `service.ts`.
+ */
+function sandboxEnvironment(root: string): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    HOME: join(root, "home"),
+    XDG_CONFIG_HOME: join(root, "config"),
+    XDG_STATE_HOME: join(root, "state"),
+    XDG_RUNTIME_DIR: join(root, "run"),
+    TMPDIR: join(root, "tmp"),
+  };
+}
 
 test("rejects misspelled mutation options before side effects", async () => {
   await expect(main(["uninstall", "--no-stpo"])).rejects.toThrow("unknown option for uninstall");
@@ -40,14 +59,7 @@ test("exits promptly and closes staged resources when HTTP startup fails", async
     ],
     {
       cwd: new URL("../../..", import.meta.url).pathname,
-      env: {
-        ...process.env,
-        HOME: join(root, "home"),
-        XDG_CONFIG_HOME: join(root, "config"),
-        XDG_STATE_HOME: join(root, "state"),
-        XDG_RUNTIME_DIR: join(root, "run"),
-        TMPDIR: join(root, "tmp"),
-      },
+      env: sandboxEnvironment(root),
       stdin: "ignore",
       stdout: "ignore",
       stderr: "pipe",
@@ -117,14 +129,7 @@ async function runInSandbox(
     const command = await build(root);
     const subprocess = Bun.spawn([...command], {
       cwd: REPOSITORY_ROOT,
-      env: {
-        ...process.env,
-        HOME: join(root, "home"),
-        XDG_CONFIG_HOME: join(root, "config"),
-        XDG_STATE_HOME: join(root, "state"),
-        XDG_RUNTIME_DIR: join(root, "run"),
-        TMPDIR: join(root, "tmp"),
-      },
+      env: sandboxEnvironment(root),
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -216,7 +221,9 @@ describe("per-command option table", () => {
     // shape below carries all of a command's own options and is refused for a *later*, in-process
     // reason, which proves the option names themselves were accepted.
     // `doctor` has no such shape: `runDoctorChecks` spawns `tailscale` and reaches the network
-    // before its options are read, so its accepted-option side stays uncovered here.
+    // before its options are read, so its accepted-option side stays uncovered *here*. It is
+    // covered offline in `doctor JSON contract` below, where a config-less sandbox makes
+    // `runDoctorChecks` return before it probes anything.
     await expect(
       main([
         "serve",
@@ -249,9 +256,9 @@ describe("per-command option table", () => {
 
 describe("option arity and values", () => {
   test("refuses every value-taking option when its value is absent", async () => {
-    // `--output` is missing from this list deliberately: `runDoctor` only reads it inside the
-    // `--bundle` branch, after `runDoctorChecks` has already probed the daemon and the network, so
-    // the refusal is unreachable without a live host.
+    // `--output` is missing from this list because `runDoctor` only reads it inside the `--bundle`
+    // branch, after `runDoctorChecks` has run. That refusal is covered in `doctor JSON contract`
+    // below, where a config-less sandbox makes those checks return without touching the network.
     const missing: readonly (readonly [string[], string])[] = [
       [["serve", "--port"], "--port requires a value"],
       [["serve", "--origin"], "--origin requires a value"],
@@ -397,4 +404,489 @@ describe("destructive verbs", () => {
       "unexpected argument: 0.1.0-0123456789ab",
     );
   });
+});
+
+/**
+ * Gateway-owned paths inside a sandbox root, relative to it, matched as plain string prefixes: the
+ * darwin runtime directory carries a uid suffix (`tmp/omp-session-gateway-<uid>`). Deliberately narrow
+ * rather than a whole-tree comparison, because Bun populates `home/Library/Caches` in every sandbox
+ * whether or not the CLI writes anything. The diagnostics bundle is listed because its default
+ * destination is relative to the working directory, which these runs point at the sandbox root.
+ */
+const GATEWAY_OWNED_PREFIXES: readonly string[] = [
+  "config",
+  "state",
+  "run",
+  "tmp/omp-session-gateway",
+  "home/Library/LaunchAgents",
+  "omp-gateway-diagnostics.tar",
+];
+
+/**
+ * Content-addressed inventory of everything the gateway owns in a sandbox. Compared before and
+ * after a run, it turns "this verb refused" into "this verb refused and changed nothing" — the
+ * property that separates a guard from a guard that fires too late.
+ */
+async function gatewayState(root: string): Promise<readonly string[]> {
+  const entries = (await readdir(root, { recursive: true }))
+    .map(entry => entry.replaceAll("\\", "/"))
+    .filter(entry => GATEWAY_OWNED_PREFIXES.some(prefix => entry.startsWith(prefix)))
+    .sort();
+  const rows: string[] = [];
+  for (const entry of entries) {
+    const info = await lstat(join(root, entry));
+    if (!info.isFile()) {
+      rows.push(`${entry}${info.isDirectory() ? "/" : " (non-file)"}`);
+      continue;
+    }
+    const digest = createHash("sha256").update(await readFile(join(root, entry))).digest("hex").slice(0, 16);
+    rows.push(`${entry} ${(info.mode & 0o777).toString(8)} ${digest}`);
+  }
+  return rows;
+}
+
+interface SandboxSeed {
+  /** Written to `config.json`; omitted leaves the sandbox with no config file at all. */
+  readonly config?: Record<string, unknown>;
+  readonly token?: string;
+  /** Permissions for the token file. Anything group- or world-readable must be refused. */
+  readonly tokenMode?: number;
+  /** Version directories to create under the installation versions root. */
+  readonly versions?: readonly string[];
+  /** The version `current.json` names as active; omitted writes no pointer. */
+  readonly pointer?: string;
+  /** `history.json` activations, oldest first; omitted writes no history. */
+  readonly history?: readonly string[];
+  /** The version whose CLI the LaunchAgent plist executes; omitted installs no definition. */
+  readonly definitionVersion?: string;
+}
+
+async function writePrivateFile(path: string, content: string, mode: number): Promise<void> {
+  await writeFile(path, content);
+  await chmod(path, mode);
+}
+
+async function seedSandbox(root: string, seed: SandboxSeed): Promise<void> {
+  // Mirrors `defaultGatewayPaths()` under `sandboxEnvironment`. `runtimeDir` and `socketPath` are
+  // present for the `Pick<GatewayConfig, "paths">` shape and are read by nothing asserted here.
+  const configDir = join(root, "config", "omp-session-gateway");
+  const paths: GatewayConfig["paths"] = {
+    configDir,
+    stateDir: join(root, "state", "omp-session-gateway"),
+    runtimeDir: join(root, "tmp", "omp-session-gateway"),
+    socketPath: join(root, "tmp", "omp-session-gateway", "registry.sock"),
+    tokenPath: join(configDir, "publisher-token"),
+    configPath: join(configDir, "config.json"),
+  };
+  // Mirroring is the hazard. If `defaultGatewayPaths()` ever derives a different layout from this
+  // same environment, every seeded run would write one place and assert another, and the suite would
+  // stay green while measuring nothing. Deriving it for real and comparing is what makes the mirror
+  // falsifiable. It also catches the sharper failure: a derivation that stops honouring the
+  // environment escapes the sandbox entirely, which on 2026-08-21 let a sibling suite's mutation
+  // experiment overwrite a live operator config.
+  const ambient = defaultGatewayPaths();
+  const saved = { ...process.env };
+  let sandboxDerived: GatewayConfig["paths"];
+  try {
+    Object.assign(process.env, sandboxEnvironment(root));
+    sandboxDerived = defaultGatewayPaths();
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+  expect(sandboxDerived.configPath).toBe(paths.configPath);
+  expect(sandboxDerived.stateDir).toBe(paths.stateDir);
+  expect(sandboxDerived.tokenPath).toBe(paths.tokenPath);
+  // And the ambient derivation must land somewhere else entirely, or the sandbox is not one.
+  expect(ambient.configPath.startsWith(root)).toBe(false);
+  const installation = join(paths.stateDir, "installation");
+  const versions = join(installation, "versions");
+  await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
+  if (seed.config !== undefined) await writePrivateFile(paths.configPath, `${JSON.stringify(seed.config)}\n`, 0o600);
+  if (seed.token !== undefined) await writePrivateFile(paths.tokenPath, `${seed.token}\n`, seed.tokenMode ?? 0o600);
+  for (const version of seed.versions ?? []) await mkdir(join(versions, version), { recursive: true, mode: 0o700 });
+  if (seed.pointer !== undefined || seed.history !== undefined) {
+    await mkdir(installation, { recursive: true, mode: 0o700 });
+  }
+  if (seed.pointer !== undefined) {
+    const pointer = `${JSON.stringify({ versionDirectory: seed.pointer })}\n`;
+    await writePrivateFile(join(installation, "current.json"), pointer, 0o600);
+  }
+  if (seed.history !== undefined) {
+    const history = `${JSON.stringify({ activations: seed.history })}\n`;
+    await writePrivateFile(join(installation, "history.json"), history, 0o600);
+  }
+  if (seed.definitionVersion !== undefined) {
+    const definitionPath = join(root, "home", "Library", "LaunchAgents", "omp-session-gateway.plist");
+    await mkdir(dirname(definitionPath), { recursive: true });
+    // Rendered by the production renderer, so the version marker `activationState` reads cannot
+    // drift from the one `installUserService` would have written.
+    const installedCli = join(versions, seed.definitionVersion, "apps", "gateway", "src", "cli.ts");
+    await writeFile(definitionPath, serviceDefinition({ paths }, "darwin", installedCli).content);
+  }
+}
+
+interface SeededRun {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly durationMs: number;
+  /** Gateway-owned sandbox state as seeded, and as the run left it. */
+  readonly before: readonly string[];
+  readonly after: readonly string[];
+}
+
+/**
+ * Runs the CLI against a pre-seeded installation. The working directory is the sandbox root rather
+ * than the repository, so a relative write the CLI performs — the diagnostics bundle's default
+ * destination is one — lands where `gatewayState` can see it instead of in the checkout.
+ */
+async function runSeeded(seed: SandboxSeed, argv: readonly string[], deadlineMs = 15_000): Promise<SeededRun> {
+  const root = await mkdtemp(join(tmpdir(), "gateway-cli-state-"));
+  try {
+    await seedSandbox(root, seed);
+    const before = await gatewayState(root);
+    const started = Date.now();
+    const subprocess = Bun.spawn([process.execPath, GATEWAY_CLI, ...argv], {
+      cwd: root,
+      env: sandboxEnvironment(root),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    try {
+      // A real deadline, not a guessed settling delay: the subject is a spawned process, so there
+      // is no clock to fake, and the only thing this races is a hang. The passing path never waits,
+      // because `exited` wins as soon as the process is gone.
+      const exited = await Promise.race([
+        subprocess.exited.then(() => true),
+        Bun.sleep(deadlineMs).then(() => false),
+      ]);
+      if (!exited) subprocess.kill(9);
+      const [stdout, stderr] = await Promise.all([
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+      ]);
+      const exitCode = await subprocess.exited;
+      const durationMs = Date.now() - started;
+      if (!exited) throw new Error(`the gateway CLI never exited within ${deadlineMs}ms: ${stderr}`);
+      return { exitCode, stdout, stderr, durationMs, before, after: await gatewayState(root) };
+    } finally {
+      if (subprocess.exitCode === null) subprocess.kill(9);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const DARWIN = process.platform === "darwin";
+const POSIX = process.platform !== "win32";
+
+/** Version directory names, shaped the way `stageRuntimePayload` names them. */
+const ACTIVE_VERSION = "0.1.0-1111aaaa2222";
+const PRIOR_VERSION = "0.1.0-3333bbbb4444";
+const ABSENT_VERSION = "0.1.0-5555cccc6666";
+
+/** Synthetic, and shaped like a publisher token so the private-file guards accept it. */
+const SEEDED_TOKEN = "synthetic-publisher-token-DO-NOT-SHIP-00000";
+
+const TAILSCALE_SERVE_CONFIG: Record<string, unknown> = {
+  http: { publicOrigin: "https://gateway.example.ts.net" },
+  auth: { mode: "tailscale-serve", allowedLogins: ["user@example.com"] },
+};
+
+/**
+ * `dev-localhost` is the one mode whose public origin is not free-standing: `parseConfigObject`
+ * requires it to equal the loopback origin of the configured port, so the two move together.
+ */
+function devLocalhostConfig(port: number): Record<string, unknown> {
+  return {
+    http: { hostname: "127.0.0.1", port, publicOrigin: `http://127.0.0.1:${port}` },
+    auth: { mode: "dev-localhost", allowedLogins: [] },
+  };
+}
+
+/** The `instance-v1` proof a live daemon returns: HMAC over challenge, NUL, instance. */
+function readinessProof(token: string, challenge: string, instance = ""): string {
+  return createHmac("sha256", token).update(challenge).update("\0").update(instance).digest("base64url");
+}
+
+/**
+ * `runRollback` is the destructive verb, and everything it does past its guards drives the real
+ * service manager. The guards are the part an operator actually meets, and they have to name the
+ * *first* thing that is wrong without touching a byte on the way out.
+ *
+ * The seeded fixture reaches them without a service manager because darwin's `installed` is the
+ * presence of `$HOME/Library/LaunchAgents/omp-session-gateway.plist` and nothing more, while
+ * `active` compares the loaded job's program path against this sandbox's state directory and is
+ * therefore false even on a machine whose real gateway is running. Linux additionally needs
+ * `systemctl --user is-enabled` to agree and Windows needs `schtasks /Query`, so the
+ * installed-service half below is darwin-only rather than faked.
+ *
+ * Left uncovered: `refusing rollback while an unmanaged gateway service is active`. That needs
+ * `active` true, which means the OS holding a loaded job whose program lives under the sandbox
+ * root — a real service manager mutation on the machine running the suite.
+ */
+describe("rollback refusals against a seeded installation", () => {
+  test("refuses without an installed service even when the target would resolve", async () => {
+    // A fixture that would roll back cleanly if a service were installed: two versions, a pointer,
+    // and a recorded predecessor. The refusal must still be about the missing service, or the
+    // operator is sent to fix the wrong thing.
+    for (const argv of [["rollback"], ["rollback", `--to=${PRIOR_VERSION}`]]) {
+      const run = await runSeeded(
+        {
+          config: TAILSCALE_SERVE_CONFIG,
+          token: SEEDED_TOKEN,
+          versions: [PRIOR_VERSION, ACTIVE_VERSION],
+          pointer: ACTIVE_VERSION,
+          history: [PRIOR_VERSION, ACTIVE_VERSION],
+        },
+        argv,
+      );
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr).toContain("refusing rollback without an installed gateway service");
+      expect(run.after).toEqual(run.before);
+    }
+  }, 30_000);
+
+  const REFUSALS: readonly {
+    readonly name: string;
+    readonly seed: SandboxSeed;
+    readonly argv: readonly string[];
+    readonly message: string;
+    /** A refusal a wrong guard order would have reported instead of `message`. */
+    readonly outranked?: string;
+  }[] = [
+    {
+      name: "nothing was ever activated",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION] },
+      argv: ["rollback"],
+      message: "refusing rollback without an active installed runtime",
+    },
+    {
+      name: "a missing pointer outranks a malformed --to",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION] },
+      argv: ["rollback", "--to=../../etc"],
+      message: "refusing rollback without an active installed runtime",
+      outranked: "malformed version directory",
+    },
+    {
+      name: "a sole installed version outranks a malformed --to",
+      seed: { versions: [ACTIVE_VERSION], pointer: ACTIVE_VERSION },
+      argv: ["rollback", "--to=../../etc"],
+      message: `refusing rollback: ${ACTIVE_VERSION} is the only installed version`,
+      outranked: "malformed version directory",
+    },
+    {
+      name: "a --to that is not a version directory name",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION], pointer: ACTIVE_VERSION },
+      argv: ["rollback", "--to=0.1.0"],
+      message: "refusing rollback to a malformed version directory: 0.1.0",
+    },
+    {
+      name: "a well-formed --to that is not installed",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION], pointer: ACTIVE_VERSION },
+      argv: ["rollback", "--to=0.1.0-000000000000"],
+      message: "refusing rollback to a version that is not installed: 0.1.0-000000000000",
+    },
+    {
+      name: "a --to naming the version already active",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION], pointer: ACTIVE_VERSION },
+      argv: ["rollback", `--to=${ACTIVE_VERSION}`],
+      message: `refusing rollback to the active version: ${ACTIVE_VERSION}`,
+    },
+    {
+      name: "no activation is recorded for the version the pointer names",
+      seed: { versions: [PRIOR_VERSION, ACTIVE_VERSION], pointer: ACTIVE_VERSION },
+      argv: ["rollback"],
+      message: `no activation of the active version ${ACTIVE_VERSION} is recorded`,
+    },
+    {
+      name: "the recorded predecessor is no longer installed",
+      seed: {
+        versions: [PRIOR_VERSION, ACTIVE_VERSION],
+        pointer: ACTIVE_VERSION,
+        history: [ABSENT_VERSION, ACTIVE_VERSION],
+      },
+      argv: ["rollback"],
+      message: `recorded predecessor ${ABSENT_VERSION} is no longer installed`,
+    },
+  ];
+
+  for (const refusal of REFUSALS) {
+    test.skipIf(!DARWIN)(`refuses and mutates nothing when ${refusal.name}`, async () => {
+      const run = await runSeeded(
+        { ...refusal.seed, config: TAILSCALE_SERVE_CONFIG, token: SEEDED_TOKEN, definitionVersion: ACTIVE_VERSION },
+        refusal.argv,
+      );
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr).toContain(refusal.message);
+      if (refusal.outranked !== undefined) expect(run.stderr).not.toContain(refusal.outranked);
+      // Nothing may move before the target is known: not the pointer, not the service definition,
+      // and not the runtime directory `loadPublisherToken` would create one line later.
+      expect(run.after).toEqual(run.before);
+    }, 30_000);
+  }
+});
+
+/**
+ * `status` is consumed by the qualification lanes and by CI, so its stdout is a contract: one JSON
+ * object, the documented keys, and every word meant for a human on stderr.
+ *
+ * Not covered, and not fakeable: `waitForGateway`, the bounded readiness wait whose budget decides
+ * whether `install` reports success. It is module-private, and all five call sites sit behind either
+ * `installUserService` — which runs `launchctl bootstrap` — or `service.active`, which is true only
+ * when the OS holds a loaded job whose program lives under this root. Reaching it means loading a
+ * real LaunchAgent on the machine running the suite, so its 15s deadline, its retry cadence, and its
+ * managed-service stability re-check have no test seam. The per-probe bound inside `gatewayReady` is
+ * the part "a listener that answers nothing at all" below can reach.
+ */
+describe("status JSON contract", () => {
+  test.skipIf(!DARWIN)("reports a proven readiness flag, both versions, and divergence on stderr", async () => {
+    // A stand-in for the daemon's readiness endpoint, on an ephemeral port the seeded config then
+    // names, so nothing here depends on a fixed port or reaches the developer's own gateway.
+    const daemon = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: request =>
+        Response.json({
+          status: "ready",
+          proof: readinessProof(SEEDED_TOKEN, request.headers.get("X-OMP-Readiness-Challenge") ?? ""),
+        }),
+    });
+    try {
+      const run = await runSeeded(
+        {
+          config: devLocalhostConfig(daemon.port ?? 0),
+          token: SEEDED_TOKEN,
+          versions: [PRIOR_VERSION, ACTIVE_VERSION],
+          // The one reachable divergence: the definition names a newer version than the pointer.
+          pointer: PRIOR_VERSION,
+          history: [PRIOR_VERSION],
+          definitionVersion: ACTIVE_VERSION,
+        },
+        ["status"],
+      );
+      const lines = run.stdout.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? "")).toEqual({
+        service: "omp-session-gateway",
+        installed: true,
+        active: false,
+        ready: true,
+        authMode: "dev-localhost",
+        activeVersion: PRIOR_VERSION,
+        serviceVersion: ACTIVE_VERSION,
+        diverged: true,
+      });
+      // The guidance is advice for a human and must stay out of the document CI parses.
+      expect(run.stderr).toContain("DIVERGED");
+      expect(run.stdout).not.toContain("DIVERGED");
+      expect(run.exitCode).toBe(1);
+    } finally {
+      daemon.stop(true);
+    }
+  }, 30_000);
+
+  /**
+   * Only a valid proof may set `ready`. Each listener below is a shape a loopback port squatter or a
+   * half-dead daemon actually produces, and the contrast with the case above is what makes the flag
+   * mean anything: a `status` that hardcoded `ready: true` would pass one of these tests, not both.
+   */
+  const NOT_READY: Readonly<Record<string, () => Response>> = {
+    "a daemon that reports itself degraded": () =>
+      Response.json({ status: "degraded", proof: readinessProof(SEEDED_TOKEN, "") }),
+    "a ready claim signed with the wrong token": () =>
+      Response.json({ status: "ready", proof: readinessProof("W".repeat(43), "") }),
+    "a ready claim carrying no proof at all": () => Response.json({ status: "ready" }),
+    // What a daemon killed mid-response leaves on the wire: a plausible prefix and then nothing.
+    "a body that stops mid-document": () =>
+      new Response(
+        new ReadableStream({
+          start: controller => {
+            controller.enqueue(new TextEncoder().encode('{"status":"ready","proof":"'));
+            controller.close();
+          },
+        }),
+      ),
+    "a listener that answers nothing at all": () => new Response(new ReadableStream({ start: () => undefined })),
+  };
+
+  for (const [description, answer] of Object.entries(NOT_READY)) {
+    test.skipIf(!POSIX)(`withholds ready, and still terminates, for ${description}`, async () => {
+      const daemon = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: answer });
+      try {
+        const run = await runSeeded({ config: devLocalhostConfig(daemon.port ?? 0), token: SEEDED_TOKEN }, ["status"]);
+        // Also the absent-installation shape: no pointer and no definition read as nulls rather
+        // than as a divergence, which is what `uninstall` leaves behind.
+        expect(JSON.parse(run.stdout.trimEnd())).toEqual({
+          service: "omp-session-gateway",
+          installed: false,
+          active: false,
+          ready: false,
+          authMode: "dev-localhost",
+          activeVersion: null,
+          serviceVersion: null,
+          diverged: false,
+        });
+        expect(run.exitCode).toBe(1);
+        // `gatewayReady` bounds each probe at 1.5s. Without that bound the last listener above
+        // holds the connection open forever and `status` never returns for the lane that called it.
+        expect(run.durationMs).toBeLessThan(10_000);
+      } finally {
+        daemon.stop(true);
+      }
+    }, 30_000);
+  }
+
+  test.skipIf(!POSIX)("reports nothing at all when the publisher token is not private", async () => {
+    const run = await runSeeded({ config: TAILSCALE_SERVE_CONFIG, token: SEEDED_TOKEN, tokenMode: 0o644 }, ["status"]);
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("unsafe private file permissions");
+    // CI parses stdout. A half-written document would be worse than none.
+    expect(run.stdout).toBe("");
+  }, 30_000);
+});
+
+/**
+ * `doctor`'s exit code is what the qualification lanes branch on. A sandbox with no config file is
+ * the one shape that reaches the exit-code rule without a network: `runDoctorChecks` fails the
+ * `config` check and returns before it probes the daemon, the relay, or `tailscale`.
+ *
+ * Left uncovered: the zero side of the rule. Every remaining check needs a live daemon, a real
+ * service manager, and a connected tailnet at once, so "any check false implies non-zero" is
+ * observable here while "all checks true implies zero" is not.
+ */
+describe("doctor JSON contract", () => {
+  test("emits one parseable report and exits non-zero when a check is false", async () => {
+    const run = await runSeeded({}, ["doctor"]);
+    expect(run.exitCode).toBe(1);
+    const lines = run.stdout.trimEnd().split("\n");
+    expect(lines).toHaveLength(1);
+    const report = JSON.parse(lines[0] ?? "") as { service: string; checks: Record<string, unknown> };
+    expect(report.service).toBe("omp-session-gateway");
+    expect(Object.values(report.checks).length).toBeGreaterThan(0);
+    expect(Object.values(report.checks).every(value => typeof value === "boolean")).toBe(true);
+    expect(report.checks.config).toBe(false);
+    // A report is a read: no bundle unless one was asked for, and no state either way.
+    expect(run.after).toEqual(run.before);
+  }, 30_000);
+
+  test("refuses a malformed --bundle or --output without emitting a report", async () => {
+    const refusals: readonly (readonly [readonly string[], string])[] = [
+      [["doctor", "--bundle=yes"], "--bundle does not accept a value"],
+      [["doctor", "--bundle", "--bundle"], "--bundle may be supplied once"],
+      [["doctor", "--bundle", "--output"], "--output requires a value"],
+      [["doctor", "--bundle", "--output=first.tar", "--output=second.tar"], "--output may be supplied once"],
+    ];
+    for (const [argv, message] of refusals) {
+      const run = await runSeeded({}, argv);
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr).toContain(message);
+      // The refusal lands after the checks have run, so silence on stdout is the assertion that
+      // no half-report reached a lane that would have parsed it.
+      expect(run.stdout).toBe("");
+      expect(run.after).toEqual(run.before);
+    }
+  }, 60_000);
 });

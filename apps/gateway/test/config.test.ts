@@ -1,19 +1,26 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import {
   type ConfigOverrides,
   type GatewayConfig,
   assertPublisherTokenPrivate,
+  assertSocketPrivate,
   captureGatewayConfigFile,
+  defaultGatewayPaths,
+  ensureRuntimeDirectories,
   loadGatewayConfig,
   loadOrCreatePublisherToken,
   loadPublisherToken,
   publisherTokenMatches,
   publicOriginHttpsPort,
+  readPrivateTextFile,
+  removeRuntimeSocket,
   restoreGatewayConfigFile,
   rotatePublisherToken,
+  writeGatewayConfigFile,
+  writePrivateTextFile,
 } from "../src/config.ts";
 
 const roots: string[] = [];
@@ -599,5 +606,468 @@ describe("private file admission", () => {
     expect(Buffer.byteLength(padded)).toBe(64 * 1_024);
     const configPath = await configFixture(padded);
     expect((await loadGatewayConfig({ configPath })).http.port).toBe(4317);
+  }, 20_000);
+});
+
+describe("public origin admission", () => {
+  test("refuses an origin that is not a string or cannot be parsed", async () => {
+    await expect(loadDocument(devDocument({ http: { publicOrigin: 42 } }))).rejects.toThrow(
+      "http.publicOrigin must be a URL origin",
+    );
+    await expect(loadDocument(devDocument({ http: { publicOrigin: "127.0.0.1:4317" } }))).rejects.toThrow(TypeError);
+  });
+
+  test("refuses a scheme the gateway cannot serve", async () => {
+    for (const publicOrigin of ["ftp://gateway.example.ts.net", "wss://gateway.example.ts.net", "file:///etc"]) {
+      await expect(loadDocument(serveDocument({ http: { publicOrigin } }))).rejects.toThrow(
+        "http.publicOrigin must be an exact HTTP(S) origin",
+      );
+    }
+  }, 20_000);
+
+  test("refuses an origin that URL normalization would rewrite", async () => {
+    // The stored origin is compared byte-for-byte against a request `Origin`, so anything the parser
+    // would silently canonicalize has to be refused at load rather than accepted in a rewritten form
+    // the operator never wrote.
+    for (const publicOrigin of [
+      "https://operator:hunter2@gateway.example.ts.net",
+      "HTTPS://GATEWAY.EXAMPLE.TS.NET",
+      "https://gateway.example.ts.net?probe=1",
+      "https://gateway.example.ts.net#fragment",
+    ]) {
+      await expect(loadDocument(serveDocument({ http: { publicOrigin } }))).rejects.toThrow(
+        "http.publicOrigin must be an exact HTTP(S) origin",
+      );
+    }
+  }, 20_000);
+
+  test("refuses a listener port from the file that is not an integer in range", async () => {
+    for (const port of ["4317", 4317.5, true, 1e10, 0]) {
+      await expect(loadDocument(devDocument({ http: { port } }))).rejects.toThrow(
+        "http.port must be an integer from 1 to 65535",
+      );
+    }
+  }, 20_000);
+});
+
+describe("publisher token admission", () => {
+  async function tokenFixture(content: string): Promise<GatewayConfig> {
+    const config = configForRoot(await privateRoot());
+    await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
+    await writeFile(config.paths.tokenPath, content, { mode: 0o600 });
+    await secureWindowsFixture(config.paths.tokenPath);
+    return config;
+  }
+
+  test("accepts exactly 43 base64url characters, with or without a line ending", async () => {
+    const token = `-_azAZ09${"x".repeat(35)}`;
+    expect(token.length).toBe(43);
+    for (const content of [token, `${token}\n`, `${token}\r\n`]) {
+      const config = await tokenFixture(content);
+      expect(await loadPublisherToken(config)).toBe(token);
+      await assertPublisherTokenPrivate(config);
+    }
+  }, 20_000);
+
+  test("refuses a token of the wrong length or alphabet instead of minting a replacement", async () => {
+    const malformed = [
+      "A".repeat(42),
+      `${"A".repeat(42)}\n`,
+      `${"A".repeat(44)}\n`,
+      `${"A".repeat(42)}+\n`,
+      `${"A".repeat(42)}=\n`,
+      // A valid token padded out to a larger file: the read is bounded by the token's own size, so
+      // trailing content is a malformed token file rather than something to be trimmed away.
+      `${"A".repeat(43)}${" ".repeat(64)}`,
+    ];
+    // Windows runs a representative pair rather than all six. Each case costs three `powershell.exe`
+    // spawns — one to set the fixture's ACL and one per privacy inspection — and on `windows-2025`
+    // that spawn cost is both high and wildly variable, which is what exhausted this test's budget
+    // at 30 s. Widening the budget is the wrong answer, as `docs/BACKLOG.md` says of the deferred
+    // native-`icacls` item; the contract here is "malformed is refused rather than minted over", and
+    // a wrong length plus a wrong alphabet establishes it. The full set still runs on POSIX.
+    const cases = process.platform === "win32" ? [malformed[0] ?? "", malformed[3] ?? ""] : malformed;
+    for (const content of cases) {
+      const config = await tokenFixture(content);
+      await expect(loadPublisherToken(config)).rejects.toThrow("publisher token has invalid encoding or length");
+      // A corrupt token must fail loudly. Minting over it would revoke every publisher's capability
+      // while reporting success, and the operator would have no way to tell that from a clean start.
+      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+        "publisher token has invalid encoding or length",
+      );
+      expect(await readFile(config.paths.tokenPath, "utf8")).toBe(content);
+    }
+  }, 60_000);
+
+  test("rotation refuses a token path that is not a file and leaves its contents alone", async () => {
+    const config = configForRoot(await privateRoot());
+    await mkdir(config.paths.tokenPath, { recursive: true, mode: 0o700 });
+    await writeFile(join(config.paths.tokenPath, "occupant"), "not a token\n", { mode: 0o600 });
+    await expect(rotatePublisherToken(config)).rejects.toThrow("refusing to replace a non-file publisher token path");
+    expect(await readdir(config.paths.tokenPath)).toEqual(["occupant"]);
+  }, 20_000);
+});
+
+describe("private directory admission", () => {
+  test("refuses a symlinked configuration directory instead of writing the token through it", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const outside = join(root, "outside");
+    await mkdir(outside, { mode: 0o700 });
+    await symlink(outside, config.paths.configDir);
+    await expect(ensureRuntimeDirectories(config)).rejects.toThrow(
+      `unsafe private directory: ${config.paths.configDir}`,
+    );
+    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+      `unsafe private directory: ${config.paths.configDir}`,
+    );
+    // The refusal has to happen before anything is written: a token minted through the link would
+    // live outside the tree whose privacy every other assertion here measures.
+    expect(await readdir(outside)).toEqual([]);
+  }, 20_000);
+
+  test("refuses a runtime directory any other account could enter", async () => {
+    if (process.platform === "win32") return;
+    const config = configForRoot(await privateRoot());
+    await ensureRuntimeDirectories(config);
+    for (const mode of [0o755, 0o701, 0o770]) {
+      await chmod(config.paths.runtimeDir, mode);
+      await expect(ensureRuntimeDirectories(config)).rejects.toThrow(
+        `unsafe private directory: ${config.paths.runtimeDir}`,
+      );
+    }
+    await chmod(config.paths.runtimeDir, 0o700);
+    await ensureRuntimeDirectories(config);
+  }, 20_000);
+});
+
+describe("private text files", () => {
+  test("refuses a size limit that cannot bound a read", async () => {
+    const path = join(await privateRoot(), "push-state.json");
+    await writeFile(path, "x", { mode: 0o600 });
+    await secureWindowsFixture(path);
+    for (const limit of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(readPrivateTextFile(path, limit)).rejects.toThrow("invalid private file size limit");
+    }
+    expect(await readPrivateTextFile(path, 1)).toBe("x");
+  }, 20_000);
+
+  test("reads at the size limit, refuses past it, and reports an absent file as absent", async () => {
+    const root = await privateRoot();
+    const path = join(root, "push-state.json");
+    await writeFile(path, "0123456789", { mode: 0o600 });
+    await secureWindowsFixture(path);
+    expect(await readPrivateTextFile(path, 10)).toBe("0123456789");
+    await expect(readPrivateTextFile(path, 9)).rejects.toThrow(`private file exceeds size limit: ${path}`);
+    expect(await readPrivateTextFile(join(root, "absent.json"), 10)).toBeUndefined();
+  }, 20_000);
+
+  test("refuses a private read of a permissive file or through a symlink", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const path = join(root, "push-state.json");
+    await writeFile(path, "{}", { mode: 0o600 });
+    expect(await readPrivateTextFile(path, 64)).toBe("{}");
+    await chmod(path, 0o644);
+    await expect(readPrivateTextFile(path, 64)).rejects.toThrow(`unsafe private file permissions: ${path}`);
+    await chmod(path, 0o600);
+    const link = join(root, "link.json");
+    await symlink(path, link);
+    await expect(readPrivateTextFile(link, 64)).rejects.toThrow(`unsafe private file: ${link}`);
+  });
+
+  test("replaces content, tightens the mode, and leaves no temporary file behind", async () => {
+    const root = await privateRoot();
+    const path = join(root, "push-state.json");
+    await writeFile(path, "world-readable original\n", { mode: 0o644 });
+    await writePrivateTextFile(path, "replacement\n");
+    expect(await readFile(path, "utf8")).toBe("replacement\n");
+    if (process.platform !== "win32") expect((await lstat(path)).mode & 0o777).toBe(0o600);
+    // The write lands through a uniquely named temporary; a leftover sibling would be a second copy
+    // of the same private content with nobody responsible for removing it.
+    expect(await readdir(root)).toEqual(["push-state.json"]);
+  }, 20_000);
+
+  test("replaces a symlinked destination instead of writing through it", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const target = join(root, "outside.json");
+    const path = join(root, "push-state.json");
+    await writeFile(target, "untouched\n", { mode: 0o600 });
+    await symlink(target, path);
+    await writePrivateTextFile(path, "replacement\n");
+    expect(await readFile(target, "utf8")).toBe("untouched\n");
+    expect((await lstat(path)).isSymbolicLink()).toBeFalse();
+    expect(await readFile(path, "utf8")).toBe("replacement\n");
+  });
+});
+
+describe("config snapshot restore", () => {
+  test("captures an unsafe or oversized config as an error rather than as an absent snapshot", async () => {
+    // A snapshot that reads "no config existed" is a licence to delete on restore, so a config the
+    // capture could not safely read must stop the operation instead of becoming that snapshot.
+    const root = await privateRoot();
+    const oversized = join(root, "oversized.json");
+    await writeFile(oversized, " ".repeat(64 * 1_024 + 1), { mode: 0o600 });
+    await secureWindowsFixture(oversized);
+    await expect(captureGatewayConfigFile(oversized)).rejects.toThrow("config file exceeds size limit");
+    if (process.platform === "win32") return;
+    const permissive = join(root, "permissive.json");
+    await writeFile(permissive, "{}\n", { mode: 0o644 });
+    await expect(captureGatewayConfigFile(permissive)).rejects.toThrow(
+      `unsafe private file permissions: ${permissive}`,
+    );
+  }, 20_000);
+
+  test("restoring an absent snapshot over a symlink refuses instead of removing its target", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const path = join(root, "config.json");
+    const target = join(root, "outside.json");
+    await writeFile(target, "another account's file\n", { mode: 0o600 });
+    await symlink(target, path);
+    await expect(restoreGatewayConfigFile({ path, content: undefined })).rejects.toThrow(
+      "refusing to remove an unsafe config path",
+    );
+    expect(await readFile(target, "utf8")).toBe("another account's file\n");
+    expect((await lstat(path)).isSymbolicLink()).toBeTrue();
+  });
+
+  test("restoring an absent snapshot succeeds when the config is already gone", async () => {
+    // The revert path of a failed install runs this against a config that may never have existed;
+    // turning that into an ENOENT would report a failed rollback of a rollback.
+    const path = join(await privateRoot(), "config.json");
+    await restoreGatewayConfigFile({ path, content: undefined });
+    expect(await Bun.file(path).exists()).toBe(false);
+    await restoreGatewayConfigFile({ path, content: undefined });
+    expect(await Bun.file(path).exists()).toBe(false);
+  });
+
+  test("refuses to restore a config into a directory another account could enter", async () => {
+    if (process.platform === "win32") return;
+    const directory = join(await privateRoot(), "config");
+    await mkdir(directory, { mode: 0o755 });
+    const path = join(directory, "config.json");
+    await expect(restoreGatewayConfigFile({ path, content: "{}\n" })).rejects.toThrow(
+      `unsafe private directory: ${directory}`,
+    );
+    expect(await Bun.file(path).exists()).toBe(false);
+  });
+});
+
+describe("registry socket admission", () => {
+  test("accepts only a private socket at the derived runtime path", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    await ensureRuntimeDirectories(config);
+    const server = Bun.listen({ unix: config.paths.socketPath, socket: { data() {} } });
+    try {
+      await chmod(config.paths.socketPath, 0o600);
+      await assertSocketPrivate(config);
+      for (const mode of [0o660, 0o606, 0o666]) {
+        await chmod(config.paths.socketPath, mode);
+        await expect(assertSocketPrivate(config)).rejects.toThrow("registry socket permissions are unsafe");
+      }
+      await chmod(config.paths.socketPath, 0o600);
+      await assertSocketPrivate(config);
+      // The location is part of the guarantee, not decoration: a socket whose parent is not the
+      // runtime directory has not been covered by that directory's privacy assertion.
+      await expect(
+        assertSocketPrivate({ ...config, paths: { ...config.paths, runtimeDir: join(root, "elsewhere") } }),
+      ).rejects.toThrow("unexpected registry socket path");
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+
+  test("refuses a regular file standing in for the registry socket", async () => {
+    if (process.platform === "win32") return;
+    const config = configForRoot(await privateRoot());
+    await ensureRuntimeDirectories(config);
+    await writeFile(config.paths.socketPath, "not a socket", { mode: 0o600 });
+    await expect(assertSocketPrivate(config)).rejects.toThrow("registry socket permissions are unsafe");
+    await expect(removeRuntimeSocket(config)).rejects.toThrow("refusing to replace unsafe registry endpoint");
+    expect(await readFile(config.paths.socketPath, "utf8")).toBe("not a socket");
+  }, 20_000);
+
+  test("removes our own socket, tolerates an absent one, and refuses a symlinked one", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    await ensureRuntimeDirectories(config);
+    // The ordinary first start: nothing to remove is not an error.
+    await removeRuntimeSocket(config);
+
+    const external = join(root, "external.sock");
+    const foreign = Bun.listen({ unix: external, socket: { data() {} } });
+    try {
+      await symlink(external, config.paths.socketPath);
+      await expect(removeRuntimeSocket(config)).rejects.toThrow("refusing to replace unsafe registry endpoint");
+      expect((await lstat(external)).isSocket()).toBeTrue();
+      await rm(config.paths.socketPath);
+    } finally {
+      foreign.stop(true);
+    }
+
+    const own = Bun.listen({ unix: config.paths.socketPath, socket: { data() {} } });
+    try {
+      expect((await lstat(config.paths.socketPath)).isSocket()).toBeTrue();
+      await removeRuntimeSocket(config);
+      expect(await Bun.file(config.paths.socketPath).exists()).toBe(false);
+    } finally {
+      own.stop(true);
+    }
+  }, 20_000);
+});
+
+describe("private path derivation", () => {
+  const saved = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  });
+
+  test("derives every private path from the XDG overrides", async () => {
+    if (process.platform === "win32") return;
+    const root = await privateRoot();
+    process.env.XDG_CONFIG_HOME = join(root, "config");
+    process.env.XDG_STATE_HOME = join(root, "state");
+    const paths = defaultGatewayPaths();
+    expect(paths.configDir).toBe(join(root, "config", "omp-session-gateway"));
+    expect(paths.stateDir).toBe(join(root, "state", "omp-session-gateway"));
+    expect(paths.configPath).toBe(join(paths.configDir, "config.json"));
+    expect(paths.tokenPath).toBe(join(paths.configDir, "publisher-token"));
+    // `assertSocketPrivate` refuses a socket whose parent is not the runtime directory, so these two
+    // derivations have to agree or no gateway starts at all.
+    expect(dirname(paths.socketPath)).toBe(paths.runtimeDir);
+    expect(basename(paths.socketPath)).toBe("registry.sock");
+  });
+
+  test("falls back to the per-user home locations when no XDG override is set", () => {
+    if (process.platform === "win32") return;
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_STATE_HOME;
+    const paths = defaultGatewayPaths();
+    expect(paths.configDir).toBe(join(homedir(), ".config", "omp-session-gateway"));
+    expect(paths.stateDir).toBe(join(homedir(), ".local", "state", "omp-session-gateway"));
+  });
+
+  test("keeps the runtime directory scoped to this account on every platform", async () => {
+    const root = await privateRoot();
+    process.env.XDG_RUNTIME_DIR = join(root, "run");
+    if (process.platform === "darwin") {
+      process.env.TMPDIR = join(root, "tmp");
+      // macOS has no XDG runtime directory. Honouring the Linux variable here would put the socket
+      // where a foreign `XDG_RUNTIME_DIR` says rather than in this account's own temporary tree.
+      expect(defaultGatewayPaths().runtimeDir).toBe(join(root, "tmp", `omp-session-gateway-${process.getuid?.()}`));
+    } else if (process.platform === "linux") {
+      expect(defaultGatewayPaths().runtimeDir).toBe(join(root, "run", "omp-session-gateway"));
+    } else {
+      const paths = defaultGatewayPaths();
+      expect(paths.runtimeDir).toBe(paths.stateDir);
+    }
+  });
+});
+
+describe("production config authoring", () => {
+  const saved = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  });
+
+  /**
+   * The only group here that writes through the real path derivation rather than an injected path.
+   * The sandbox is therefore asserted rather than assumed: if `defaultGatewayPaths` ever stops
+   * reading the environment, these tests have to fail on this assertion instead of writing into the
+   * operator's own configuration directory.
+   */
+  async function isolatedHome(): Promise<GatewayConfig["paths"]> {
+    const root = await privateRoot();
+    process.env.XDG_CONFIG_HOME = join(root, "config");
+    process.env.XDG_STATE_HOME = join(root, "state");
+    process.env.LOCALAPPDATA = join(root, "local");
+    const paths = defaultGatewayPaths();
+    expect(paths.configPath.startsWith(root)).toBe(true);
+    expect(paths.stateDir.startsWith(root)).toBe(true);
+    return paths;
+  }
+
+  test("writes a private serve-mode config that reloads to the same gateway", async () => {
+    const paths = await isolatedHome();
+    const written = await writeGatewayConfigFile({
+      publicOrigin: "https://gateway.example.ts.net",
+      allowedLogins: [" User@Example.COM ", "user@example.com", "Other@example.com"],
+      port: 4319,
+    });
+    expect(written.http).toEqual({
+      hostname: "127.0.0.1",
+      port: 4319,
+      publicOrigin: "https://gateway.example.ts.net",
+    });
+    expect(written.auth.mode).toBe("tailscale-serve");
+    expect(written.auth.allowedLogins).toEqual(["user@example.com", "other@example.com"]);
+    expect(written.paths.configPath).toBe(paths.configPath);
+    if (process.platform !== "win32") {
+      expect((await lstat(paths.configPath)).mode & 0o777).toBe(0o600);
+      expect((await lstat(paths.configDir)).mode & 0o077).toBe(0);
+      expect((await lstat(paths.stateDir)).mode & 0o077).toBe(0);
+    }
+    // Only the three admitted sections may reach the file, because an unknown key written here would
+    // fail every subsequent load rather than being ignored.
+    expect(Object.keys(JSON.parse(await readFile(paths.configPath, "utf8")) as object)).toEqual([
+      "http",
+      "auth",
+      "registry",
+    ]);
+    expect(await loadGatewayConfig({ configPath: paths.configPath })).toEqual(written);
+  }, 20_000);
+
+  test("refuses an origin or an allowlist it must not persist, and writes nothing when it refuses", async () => {
+    const paths = await isolatedHome();
+    for (const publicOrigin of [
+      "http://gateway.example.ts.net",
+      "https://gateway.example.ts.net/gw",
+      "https://gateway.example.ts.net/",
+    ]) {
+      await expect(writeGatewayConfigFile({ publicOrigin, allowedLogins: ["user@example.com"] })).rejects.toThrow(
+        "production public origin must be an exact HTTPS origin",
+      );
+    }
+    await expect(
+      writeGatewayConfigFile({ publicOrigin: "https://gateway.example.ts.net", allowedLogins: [] }),
+    ).rejects.toThrow("at least one allowed Tailscale login is required");
+    await expect(
+      writeGatewayConfigFile({ publicOrigin: "https://gateway.example.ts.net", allowedLogins: ["*"] }),
+    ).rejects.toThrow("invalid Tailscale login allowlist entry");
+    // Every refusal above precedes the write, so a rejected `install` leaves no config the daemon
+    // would later refuse to load.
+    expect(await Bun.file(paths.configPath).exists()).toBe(false);
+  }, 20_000);
+
+  test("writes a development config whose HTTP origin serve mode would refuse", async () => {
+    const paths = await isolatedHome();
+    const written = await writeGatewayConfigFile({
+      publicOrigin: "http://127.0.0.1:4319",
+      allowedLogins: [],
+      port: 4319,
+      mode: "dev-localhost",
+    });
+    expect(written.auth.mode).toBe("dev-localhost");
+    expect(written.http.publicOrigin).toBe("http://127.0.0.1:4319");
+    expect(written.auth.allowedLogins).toEqual([]);
+    await expect(
+      writeGatewayConfigFile({
+        publicOrigin: "http://127.0.0.1:4319",
+        allowedLogins: ["user@example.com"],
+        port: 4319,
+      }),
+    ).rejects.toThrow("production public origin must be an exact HTTPS origin");
+    // The refused serve-mode write must not have replaced the config that is there.
+    expect((await loadGatewayConfig({ configPath: paths.configPath })).auth.mode).toBe("dev-localhost");
   }, 20_000);
 });
