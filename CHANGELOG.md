@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Add deterministic, provenance-bound README media capture and verification, canonical mobile
+  screenshots/GIF/MP4/product-flow assets, a product-first public README, a source-verified
+  alternatives matrix, and draft launch copy. All public media uses seeded synthetic data.
+
 ### Changed
 
 - Move the unreleased default-branch OMP target to exact `v17.4.1` /
@@ -21,6 +27,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   the patch rebase.
 - Bind `release-info.json` qualification to the workflow-validated release channel, so alpha tags
   no longer ship the pre-alpha claim and unknown future channels fail before producing artifacts.
+- Give Windows managed-service startup a measured 60-second hard readiness deadline while
+  retaining 15 seconds elsewhere, so cold per-path ACL verification no longer rolls back a
+  progressing service before it can bind. Persistent-VM acceptance remains required before Windows
+  is advertised.
 
 ## [v0.1.0-alpha.1] — 2026-08-21
 

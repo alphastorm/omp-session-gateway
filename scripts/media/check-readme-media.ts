@@ -91,22 +91,6 @@ function hasExactKeys(
   }
 }
 
-function printableRuns(bytes: Uint8Array): readonly { readonly offset: number; readonly text: string }[] {
-  const results: { offset: number; text: string }[] = [];
-  let start = -1;
-  for (let index = 0; index <= bytes.byteLength; index += 1) {
-    const value = index < bytes.byteLength ? bytes[index] ?? 0 : 0;
-    if (value >= 0x20 && value <= 0x7e) {
-      if (start < 0) start = index;
-      continue;
-    }
-    if (start >= 0 && index - start >= 6) {
-      results.push({ offset: start, text: Buffer.from(bytes.subarray(start, index)).toString("ascii") });
-    }
-    start = -1;
-  }
-  return results;
-}
 
 function scanPublicSafety(path: string, text: string, failures: string[], byteBase = 0): void {
   for (const finding of findCapabilityLeaks(text)) {
@@ -304,10 +288,11 @@ function validateReadmeReferences(readme: string, mediaNames: Readonly<Record<st
 
   const altByPath: Record<string, string> = {};
   for (const tag of readme.matchAll(/<img\b[^>]*>/giu)) {
-    const source = /\bsrc\s*=\s*["']([^"']+)["']/iu.exec(tag[0])?.[1]?.replace(/^\.\//u, "");
+    const sourceMatch = /\bsrc\s*=\s*(["'])(.*?)\1/iu.exec(tag[0]);
+    const source = sourceMatch?.[2]?.replace(/^\.\//u, "");
     if (source === undefined || !source.startsWith("docs/media/")) continue;
-    const alt = /\balt\s*=\s*["']([^"']*)["']/iu.exec(tag[0])?.[1] ?? "";
-    altByPath[source] = alt.trim();
+    const altMatch = /\balt\s*=\s*(["'])(.*?)\1/iu.exec(tag[0]);
+    altByPath[source] = (altMatch?.[2] ?? "").trim();
   }
   for (const match of readme.matchAll(/!\[([^\]]*)\]\((?:\.\/)?(docs\/media\/[^\s)]+)(?:\s+["'][^"']*["'])?\)/gu)) {
     altByPath[match[2] as string] = (match[1] ?? "").trim();
@@ -455,6 +440,9 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
     addFailure(failures, "docs/media/manifest.json", "manifest is unreadable or invalid JSON");
   }
 
+  // Never regex-scan compressed pixel/video payloads: arbitrary codec bytes produce random
+  // identifier- and URL-shaped strings. Public text and the manifest are scanned above; PNG text
+  // chunks, GIF comments, and MP4 tags are rejected or scanned structurally below.
   for (const name of BINARY_MEDIA_NAMES) {
     const path = join(MEDIA_DIRECTORY, name);
     try {
@@ -474,10 +462,6 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
         const record = manifest.assets[name];
         if (record.bytes !== fileStat.size) addFailure(failures, `docs/media/${name}`, "manifest byte size mismatch");
         if (record.sha256 !== hash) addFailure(failures, `docs/media/${name}`, "manifest SHA-256 mismatch");
-      }
-      const bytes = await readFile(path);
-      for (const printable of printableRuns(bytes)) {
-        scanPublicSafety(`docs/media/${name}`, printable.text, failures, printable.offset);
       }
     } catch {
       addFailure(failures, `docs/media/${name}`, "asset is missing or unreadable");
@@ -538,6 +522,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
     if (Math.abs(Number(stream?.duration ?? probe.format?.duration) - DEMO_DURATION_SECONDS) > 0.1) addFailure(failures, "docs/media/omp-session-gateway-demo.mp4", "MP4 duration differs");
     if (Math.abs(parseRate(stream?.avg_frame_rate ?? stream?.r_frame_rate) - DEMO_FPS) > 0.001) addFailure(failures, "docs/media/omp-session-gateway-demo.mp4", "MP4 frame rate differs");
     for (const tags of [stream?.tags, probe.format?.tags]) {
+      scanPublicSafety("docs/media/omp-session-gateway-demo.mp4 metadata", JSON.stringify(tags ?? {}), failures);
       for (const key of Object.keys(tags ?? {})) {
         if (FORBIDDEN_MP4_TAGS[key.toLowerCase()] === true) {
           addFailure(failures, "docs/media/omp-session-gateway-demo.mp4", `forbidden MP4 ${key} metadata`);
