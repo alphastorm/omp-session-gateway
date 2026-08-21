@@ -42,9 +42,10 @@
   - [x] Signed artifacts: release signing, SBOM, and provenance were re-run at the candidate, and
         `v0.1.0-alpha` was verified independently from a clean directory with a byte-identical
         exact-tag rebuild.
-  - [ ] Relay: satisfied by explicit one-time exception at 27,600 of 28,800 seconds, which
-        terminated for an external, understood cause unrelated to the relay. A completed
-        full-window run at the current pin is still outstanding.
+  - [x] Relay: the protected replacement completed the full 28,800-second authored window on
+        2026-08-21 with 22 transitions, `finalPhase: "live"`, exit code 0, and no restart. The
+        earlier 27,600-second externally contaminated run remains recorded rather than rewritten.
+        Named record: `~/.local/share/omp-session-gateway/test/v0.1.0-alpha.1/soak/protected-relay-soak-8h.json`.
   - [ ] Android network-change and reconnect: blocked by
         [#65](https://github.com/alphastorm/omp-session-gateway/issues/65), a Chrome-for-Android
         defect, rather than by a missing run.

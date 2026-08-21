@@ -11,6 +11,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Add deterministic, provenance-bound README media capture and verification, canonical mobile
   screenshots/GIF/MP4/product-flow assets, a product-first public README, a source-verified
   alternatives matrix, and draft launch copy. All public media uses seeded synthetic data.
+- Record the protected default-relay replacement soak: the complete 28,800-second authored window,
+  22 room transitions, final phase `live`, exit code 0, and no process restart.
 
 ### Changed
 
