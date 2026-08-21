@@ -629,7 +629,7 @@ interface FakeManager {
   /** Every command the flow issued, in order. */
   readonly commands: readonly (readonly string[])[];
   /** What the manager would execute for the label, and whether it is running it. */
-  readonly state: { program: string | undefined; running: boolean };
+  readonly state: { program: string | undefined; running: boolean; startLimited: boolean };
 }
 
 /** The manager verbs that change machine state; a refusal must have issued none of them. */
@@ -637,6 +637,7 @@ const mutatingVerbs = new Set([
   "daemon-reload",
   "enable",
   "disable",
+  "reset-failed",
   "start",
   "restart",
   "stop",
@@ -667,11 +668,16 @@ function fakeManager(
   initial: {
     readonly program?: string;
     readonly running?: boolean;
+    readonly startLimited?: boolean;
     readonly adopts?: string;
     readonly homeDirectory?: string;
   } = {},
 ): FakeManager {
-  const state = { program: initial.program, running: initial.running ?? false };
+  const state = {
+    program: initial.program,
+    running: initial.running ?? false,
+    startLimited: initial.startLimited ?? false,
+  };
   const commands: string[][] = [];
   const uid = process.getuid?.() ?? 0;
   const unit = "omp-session-gateway.service";
@@ -702,7 +708,12 @@ function fakeManager(
       return { ok: true };
     }
     if (is("systemctl", "--user", "enable", unit)) return { ok: state.program !== undefined };
+    if (is("systemctl", "--user", "reset-failed", unit)) {
+      state.startLimited = false;
+      return { ok: true };
+    }
     if (is("systemctl", "--user", "start", unit) || is("systemctl", "--user", "restart", unit)) {
+      if (state.startLimited) return { ok: false };
       state.running = state.program !== undefined;
       return { ok: state.program !== undefined };
     }
@@ -961,6 +972,7 @@ describe("service ownership across install roots", () => {
     expect(mutations(manager.commands)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user reset-failed omp-session-gateway.service",
       "systemctl --user start omp-session-gateway.service",
     ]);
     expect(manager.state.program).toBe(program);
@@ -983,6 +995,7 @@ describe("service ownership across install roots", () => {
     expect(mutations(manager.commands)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user reset-failed omp-session-gateway.service",
       "systemctl --user start omp-session-gateway.service",
     ]);
     expect(manager.state.program).toBe(next);
@@ -993,6 +1006,7 @@ describe("service ownership across install roots", () => {
     const target = rootedConfig(root);
     const next = stagedProgram(target.paths.stateDir, "0.1.0-222222222222");
     const manager = fakeManager("linux", {
+      startLimited: true,
       program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
       running: true,
       adopts: next,
@@ -1003,9 +1017,11 @@ describe("service ownership across install roots", () => {
     expect(mutations(manager.commands)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user reset-failed omp-session-gateway.service",
       "systemctl --user restart omp-session-gateway.service",
     ]);
     expect(manager.state.running).toBe(true);
+    expect(manager.state.startLimited).toBe(false);
   });
 
   test("creates and runs a task when nothing holds the task name", async () => {

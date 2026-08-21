@@ -166,7 +166,7 @@ jobs:
           | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 | signed-candidate install, upgrade/rollback, readiness, identity isolation, reboot persistence, and uninstall lanes |
           | macOS 26.6.1 arm64 (Mac14,3) | signed-candidate install, active reinstall, token rotation, identity isolation, reboot persistence, and uninstall |
 
-          Client: Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro). The advertised hosts and client were qualified against signed candidate \`v0.1.0-prealpha.18\`; this release records its own exact source commit and provenance below.
+          Client: Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro). The advertised hosts and client were qualified against signed candidate \`v0.1.0-prealpha.19\`; this release records its own exact source commit and provenance below.
 
           ### Required deployment precondition
 

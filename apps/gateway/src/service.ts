@@ -372,6 +372,9 @@ export async function installUserService(
     await host.run(["systemctl", "--user", "daemon-reload"]);
     await host.run(["systemctl", "--user", "enable", "omp-session-gateway.service"]);
     if (activate) {
+      // An explicit install/rollback is an operator request to start now. Clear systemd's start-rate
+      // counter first so several successful version switches cannot deadlock the next rollback.
+      await host.run(["systemctl", "--user", "reset-failed", "omp-session-gateway.service"]);
       await host.run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
     }
   } else if (host.platform === "darwin") {
