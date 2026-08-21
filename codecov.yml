@@ -1,0 +1,50 @@
+# Codecov configuration.
+#
+# Read these numbers with the runtime's limits in mind, because the limits are load-bearing:
+#
+#   - **There is no branch coverage.** Bun's coverage emits no `BRDA` records at all, so Codecov's
+#     branch column is not high, it is absent. Branch-level rigour in this repository comes from
+#     `apps/gateway/test/security-mutations.test.ts`, which weakens each named security guard in a
+#     copy of the tree and requires a specific named test to fail. That demonstrates an assertion
+#     *discriminates*, which is the property a branch percentage is usually a proxy for and never
+#     actually establishes.
+#   - **There is no per-function attribution.** `FNF`/`FNH` totals arrive with no `FN:`/`FNDA:`
+#     records, so function counts are totals only.
+#   - **Bun instruments only modules a test loads.** A file no test imports is missing from the
+#     report rather than reported at zero, which would let the headline flatter itself by omission
+#     and, worse, hide the file's existence. `scripts/module-import-sweep.test.ts` imports every
+#     server-side module so absence becomes an honest row; the cost is that import-time lines count
+#     as covered. Finding that sweep's first failure is what surfaced a real defect — a module that
+#     published sessions into a live gateway merely by being imported.
+#   - **`apps/web` is measured but under-reported.** Its behaviour is covered by the Playwright suite
+#     in `apps/web/e2e`, which Bun does not instrument, so its line coverage here reflects only what
+#     the unit tests load. It is kept in the report rather than ignored, because excluding production
+#     code to improve a number is exactly the move this file exists to discourage.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        # A real regression gate, not a fixed target. The absolute figure is not the point; a drop is.
+        threshold: 1%
+    patch:
+      default:
+        # Informational deliberately. Because Bun omits modules no test imports, a new and entirely
+        # untested file can be *absent* from the diff coverage rather than reported at 0%, so a
+        # blocking patch target would pass vacuously in precisely the case it exists to catch. The
+        # import sweep narrows that gap but does not close it, so this stays advisory until the
+        # measurement can carry the weight.
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
+
+ignore:
+  # Pinned upstream OMP collaboration client. Vendored at an exact commit, not written or fixable
+  # here; its provenance is recorded in packages/collab-client/upstream/UPSTREAM.json.
+  - "packages/collab-client/upstream/**"
+  # Test and fixture code. Measuring the tests' own coverage says nothing about the product.
+  - "**/*.test.ts"
+  - "apps/web/e2e/**"
