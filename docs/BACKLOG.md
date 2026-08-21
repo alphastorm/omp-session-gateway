@@ -24,15 +24,17 @@
       PowerShell, and the first spawn pair on `windows-2025-vs2026` is now wildly variable: 685 ms on
       2026-07-21, then 13.7 s, >30 s (timeout), and 6.6 s across three runs within 80 minutes on
       2026-08-19 — the same window in which an Ubuntu mirror stalled a CI job for 38 minutes, so the
-      outlier is at least partly hosted-runner degradation. Widening budgets again is the wrong
-      answer; the fixture does not need a .NET type load to set two ACEs, and every Windows OMP
-      publisher start pays the production probe at runtime. Validate on a day when the runners are
-      healthy.
-      Deferred: Windows is not advertised, and the change touches a token-privacy check whose only
-      validation is remote CI.
+      outlier is at least partly hosted-runner degradation. The scoped 60-second install deadline
+      fixes the concrete false rollback and now passes on a persistent 2-vCPU VM; it does not make
+      ten PowerShell starts efficient. Widening it again is the wrong answer. The fixture does not
+      need a .NET type load to set two ACEs, and every Windows OMP publisher start pays the
+      production probe at runtime.
+      Deferred as performance debt: Windows remains unadvertised pending signed-byte qualification,
+      and a native rewrite touches a token-privacy boundary despite the new persistent-host evidence.
 - [ ] Qualify the exact `v17.4.1` / `9350b7990` development pin before advertising the next
-      release. The six-commit patch and package provenance are refreshed in source; signed-artifact,
-      host, relay, and physical-client evidence from the published `v17.3.8` alpha does not transfer.
+      release. Patch application, provenance, Mac source checks, a protected relay window, and the
+      persistent Windows gateway/OMP source lane now pass. Signed gateway/OMP distributions plus
+      advertised-host and physical-client evidence still do not transfer from the v17.3.8 alpha.
 - [ ] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
       the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only. The ledger
       records this blocker as closed on 2026-08-21 with no stale or indeterminate row, so what

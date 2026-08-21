@@ -171,9 +171,10 @@ Known limits are part of the claim — read them before installing:
   force-stopping Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
 - **Preview notification detail currently falls back to Session detail** — the OMP publisher
   carries no bounded preview field yet.
-- **Windows is implemented but not advertised.** Hosted service-lifecycle checks pass; the measured
-  readiness-budget fix for [#90](https://github.com/alphastorm/omp-session-gateway/issues/90) still
-  requires persistent-VM acceptance, and no Windows platform claim is made.
+- **Windows source acceptance passes, but Windows is not advertised.** A persistent Server 2025 VM
+  passed install, reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback,
+  patched OMP publication, and uninstall. Exact signed gateway/OMP artifacts must repeat the lane
+  before support is claimed ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)).
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.

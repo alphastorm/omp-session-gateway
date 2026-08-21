@@ -31,8 +31,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   no longer ship the pre-alpha claim and unknown future channels fail before producing artifacts.
 - Give Windows managed-service startup a measured 60-second hard readiness deadline while
   retaining 15 seconds elsewhere, so cold per-path ACL verification no longer rolls back a
-  progressing service before it can bind. Persistent-VM acceptance remains required before Windows
-  is advertised.
+  progressing service before it can bind. A persistent Server 2025 source lane now passes install,
+  reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback, patched OMP
+  publication, and uninstall; Windows remains unadvertised until signed gateway/OMP artifacts
+  repeat it.
 
 ## [v0.1.0-alpha.1] — 2026-08-21
 

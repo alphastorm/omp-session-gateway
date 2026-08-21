@@ -6,8 +6,8 @@ destroyed, so nothing there can prove the service comes back after a reboot. Tha
 class of defect as issue #69 on Linux, which was invisible to every install-time check and only
 appeared across a boot.
 
-This document records what a persistent-VM attempt established on 2026-08-20, so the next
-attempt starts from measurements rather than assumptions.
+This document records the failed 2026-08-20 diagnosis and the successful 2026-08-21 persistent-VM
+source acceptance. Release support still requires the signed-byte rerun described below.
 
 ## Finding: the Windows gateway is login-gated by design
 
@@ -72,17 +72,43 @@ verification alone costs ~18.5 s. The budget was gone before the listener was re
 exactly the ~18 s of daemon lifetime tabulated above.
 
 Tracked as [#90](https://github.com/alphastorm/omp-session-gateway/issues/90).
-**Fixed in source, not yet accepted.** `readinessBudgetMs` in `cli.ts` now keeps 15 s on Linux and
-macOS and allows 60 s on Windows — ~3.2x the measured cold start, and still a hard deadline rather
-than a retry, so a service that never binds fails and rolls back exactly as before. Unit tests pin
-both bounds and the exact expiry instant. What is missing is host evidence: no persistent Windows
-VM has run `install` to completion against the new budget, so this is a source fix awaiting
-acceptance. The same spawn cost plausibly also explains the Windows CI job's recorded flakiness
-(`685 ms → 13.7 s → >30 s` spawn variance), which has been handled by rerunning rather than
-diagnosed.
+**Fixed and accepted in source on a persistent host.** `readinessBudgetMs` keeps 15 s on Linux and
+macOS and allows a 60 s hard deadline on Windows. On 2026-08-21 the exact source archive from
+`622c242c625f3ab23b11b55f5a6994953895ba23` completed install on the same modest 2-vCPU shape in
+77,498 ms end to end, with the Scheduled Task running and the listener bound only to `127.0.0.1`.
+The deadline remains fail-closed: tests pin its last legal poll and a never-ready service still
+terminates at the bound. PowerShell ACL startup cost remains performance debt; the bounded fix is
+enough for correctness but is not evidence that ten process spawns are efficient.
 
-What survives from the original reading is narrower but still true: the readiness proof fails
-closed, rolls back completely, and does not claim success for a service that never served.
+The original failure remains useful regression evidence: its readiness proof rolled back
+completely and never claimed success for a service that had not served.
+
+## Persistent-VM acceptance — 2026-08-21
+
+Environment: Windows Server 2025 Standard build `26100`, 2 vCPU, 4 GiB, Bun `1.3.14`, and a
+Vultr firewall allowing RDP/WinRM only from the operator's current `/32`. The gateway input was a
+deterministic unsigned archive from source
+`622c242c625f3ab23b11b55f5a6994953895ba23`, SHA-256
+`f458ab376350bb03246fe60ba3401bd67927ef19b6270461fb9c441fc567c2e2`, targeting OMP
+`v17.4.1` / `9350b7990d26ebf69a604edc82d8558ef04adf30`.
+
+| Transition | Observed result |
+| --- | --- |
+| Cold install with an RDP interactive session | Exit 0 after 77,498 ms; task `Running`, loopback health ready, one listener on `127.0.0.1`, 44-byte publisher token owned by the current user with only current-user/SYSTEM allow ACEs. |
+| Reboot before login | Both management ports went down and returned; task `Ready`, no interactive Administrator, no `4317` listener, and `status` reported installed but inactive/not ready. Config and token hashes were unchanged. |
+| First interactive login after reboot | A certificate-pinned RDP login created an active Administrator session. Without `/Run` or another manual service action, the `LogonTrigger` fired after boot and the gateway reached ready in 106,388 ms; task, listener, config, and token invariants held. |
+| Token rotation | Exit 0 after 55,987 ms; token changed, config did not, task and loopback readiness returned. |
+| Active upgrade | A synthetic help-text-only build staged a distinct runtime and became ready after 82,287 ms; config/token were byte-identical and activation history recorded the new pointer. |
+| History-selected rollback | Returned to the exact source runtime after 59,040 ms; config/token stayed byte-identical, current pointer, latest activation, service definition, and `status` agreed. |
+| Tailscale/doctor | Tailscale `1.102.3` was Authenticode-valid and joined as a temporary user-owned node. TUN-mode Serve mapped HTTPS to `127.0.0.1:4317`; `doctor` passed **17/17**. Tailscale was brought down after qualification. |
+| Patched OMP path | Pristine upstream `v17.4.1` accepted patch SHA-256 `abcc8866f76fc82485a42c0ce51ca19aec3b928afcddf0af1c25c35dd10ad4e2`. The Windows publisher suite passed 13/13; an unsigned `omp/17.4.1` binary (SHA-256 `4afb47e07092d8a1c14e6fbbc6ec15a5aa8b51bd78ffff25bbab299d0d942c24`) auto-published one generation with View and Control. Both launch modes returned `200` and `no-store`; a mismatched generation returned `409` with no capability; forced process termination removed the card at revision 2 in 374 ms. |
+| Uninstall | Exit 0 in 4,648 ms; task, gateway/OMP processes, and listener were absent, while config and publisher token were preserved exactly. |
+
+This accepts the source fix and the reboot→interactive-login contract. It does **not** promote
+Windows yet: the gateway archive and patched OMP binary in this lane were unsigned, and the complete
+`read-only.test.ts` file exposed a Windows-only fixture hang after its first six passing cases.
+The final release lane must repeat against signed gateway and patched-OMP artifacts and disposition
+that fixture hang rather than hiding it.
 
 ## Provider findings (Vultr)
 
@@ -99,22 +125,23 @@ Vultr was evaluated as the persistent-Windows provider. Usable, but only via Win
 | Time to WinRM | ~4–5 min from create. A plain TCP port check is misleading — it reads open during setup and then times out. Poll with a real authenticated call. |
 | `default_password` | **Returned only in the create response.** It is absent from `GET /v2/instances/{id}`, so an instance whose creation response was discarded is unreachable and must be destroyed. |
 
-Image used: Windows Server 2025 Standard (`os_id` 2514), `vc2-2c-4gb`, region `ewr`.
-Measured on the VM: PowerShell 5.1, `AMD64`, Bun 1.4.0 installs cleanly, and this repository's
-`bun install --frozen-lockfile` (36 packages) plus `bun run build` both succeed.
+Latest accepted image: Windows Server 2025 Standard (`os_id` 2514), `vc2-2c-4gb`, region `ewr`,
+Windows build `26100`, PowerShell 5.1, and Bun `1.3.14`. The VM also built the exact patched OMP
+Windows binary successfully after installing the official `@oh-my-pi/pi-natives@17.4.1` addon.
 
-### Recipe for the next attempt
+### Reproducible provider recipe
 
 1. Create the instance and **capture `default_password` from the create response immediately**;
    it is unrecoverable afterwards.
-2. Poll with an authenticated WinRM call, not a port scan.
-3. Immediately restrict 5985 to the operator's egress address:
-   `New-NetFirewallRule -DisplayName 'omp-winrm-locked' -LocalPort 5985 -Protocol TCP -Action Allow -RemoteAddress <egress>`.
-   The default rule is profile-scoped and leaves the port world-reachable.
-4. Label the instance `omp-winqual-*` so `scripts/vultr-target.ts` will accept it as disposable,
-   and destroy it as soon as the lane finishes.
+2. Attach a Vultr firewall group at creation that permits 3389 and 5985 only from the operator's
+   current `/32`; do not wait for a guest firewall repair after public boot.
+3. Poll with an authenticated WinRM call, not a port scan.
+4. Verify the RDP certificate fingerprint through WinRM's local `Remote Desktop` certificate store
+   before accepting it, then create the required interactive session.
+5. Label the instance `omp-winqual-*`; leave no gateway, OMP, listener, or active tailnet connection
+   while held, and destroy the VM immediately after the signed-candidate rerun.
 
-## What is still unproven
+## Remaining release qualification
 
 Automatic logon is the obvious way to create the interactive session a Scheduled Task needs, and
 **Windows Server 2025 refuses it**. `AutoAdminLogon=1`, `DefaultUserName`, `DefaultPassword`,
@@ -129,26 +156,29 @@ an RDP logon fires the `LogonTrigger`, and a disconnected RDP session keeps its 
 running, so the client does not need to stay attached. Lock 3389 to the operator's egress
 address alongside 5985.
 
-Remaining to close the row, in order:
+Remaining to advertise Windows:
 
-1. Accept the [#90](https://github.com/alphastorm/omp-session-gateway/issues/90) fix on a
-   persistent VM. The budget is corrected in source and unit-tested, but "install completes on a
-   modest 2-vCPU Windows host" has never been observed, and only that host can prove it. Until it
-   is observed, nothing downstream of `install` can be qualified there.
-2. Then, with an RDP session established: `install`, reboot, reconnect RDP to produce the logon,
-   and assert the task started with no manual step. That proves what the product actually
-   promises on Windows.
-3. Decide the product question above. If the gateway should survive a reboot with no login on
-   Windows, the task needs a boot trigger and a non-interactive principal — a behaviour change
-   with its own privilege and token-ACL consequences, not to be made casually.
+1. Build and sign the paired patched OMP distribution instead of using the unsigned source-built
+   binary from this acceptance.
+2. Repeat the accepted install → reboot → no-login inactive proof → RDP login → automatic start →
+   `doctor`/rotation/upgrade/rollback/uninstall sequence against the exact signed gateway candidate
+   and paired OMP bytes.
+3. Keep the product promise explicit: Windows starts at interactive login, not unattended boot.
+   Changing that would require a boot trigger and non-interactive principal with different
+   privilege and token-ACL consequences; this qualification does not authorize that redesign.
+4. Resolve or explicitly baseline the Windows-only `read-only.test.ts` fixture hang. The publisher
+   path itself passed 13/13, the remaining isolated patch fixtures passed, and the production binary
+   published and revoked correctly, but a hung fixture is not a green full-suite claim.
 
-Until then, `Windows host lifecycle` stays **PARTIAL**. The reason is now specific and has two
-parts: the gateway starts at interactive logon rather than at boot, and that logon has not been
-exercised across a reboot because a completed `install` on a 2-vCPU host is the prerequisite for
-trying — now expected to succeed on the corrected budget, but not yet witnessed.
+`Windows host lifecycle` therefore remains **PARTIAL for release**, but no longer because #90 or
+reboot/login behavior is unknown. The only release blockers are exact signed-byte repetition,
+paired OMP packaging, and the bounded test-hang disposition.
 
 ## Cost and hygiene
 
-Two instances were created and destroyed during this work; the account was verified empty of
-`omp-winqual-*` instances and startup scripts afterwards. The captured administrator password was
-shredded locally. No instance identifier, address, or credential is recorded in this repository.
+The two 2026-08-20 probes were destroyed. The current restricted VM is intentionally retained only
+for the signed-candidate rerun: gateway and OMP tasks are absent, no Bun/OMP process or port-4317
+listener remains, Tailscale is down, and RDP/WinRM are limited by the provider firewall to the
+operator's current `/32`. The captured password remains in a local mode-`0600` temporary file and
+must be shredded when the VM is destroyed. No instance identifier, address, login, or credential is
+recorded in this repository.
