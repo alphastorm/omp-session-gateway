@@ -19,6 +19,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Preserve OMP's immediate `Closing session…` status and arm its bounded slow-close timer before
   collaboration teardown; the v17.4.1 upstream regression test exposed the ordering defect during
   the patch rebase.
+- Bind `release-info.json` qualification to the workflow-validated release channel, so alpha tags
+  no longer ship the pre-alpha claim and unknown future channels fail before producing artifacts.
 
 ## [v0.1.0-alpha.1] — 2026-08-21
 

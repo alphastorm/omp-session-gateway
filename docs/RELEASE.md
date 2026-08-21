@@ -91,6 +91,8 @@ the release as final at publication; publish a new tag to correct it.
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
 emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
 inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
+For a byte-exact rebuild of an alpha tag, set `OMP_RELEASE_CHANNEL=alpha`; valid values are
+`pre-alpha` (default) and `alpha`, and any other value fails the build.
 This runtime-neutral Bun archive is not a substitute for qualified platform installers.
 
 Do not upload source maps, logs, test recordings, or diagnostics that might contain
