@@ -62,14 +62,24 @@ Polling every 3 s during the install shows what actually happens:
 The Scheduled Task is created and genuinely runs — two `bun` processes, the daemon alive for
 about 18 s — but it never binds the loopback listener before `install` gives up and rolls back.
 
-The cause is a fixed 15 s readiness budget (`cli.ts:200`) against ACL verification that spawns a
-separate PowerShell process per path (`config.ts:66-95`, reached from 7 call sites). A single
-minimal `Get-Acl` spawn on this 2-vCPU host measured 2132, 1780, 1787, 1810, 1762 ms — mean
-1854 ms. Several of those exhaust the budget before the HTTP listener is reached.
+The cause was a fixed 15 s readiness budget (`cli.ts`) against ACL verification that spawns a
+separate PowerShell process per path (`config.ts`, `applyWindowsAcl` and
+`assertWindowsAclPrivate`, reached from five call sites). A single minimal `Get-Acl` spawn on this
+2-vCPU host measured 2132, 1780, 1787, 1810, 1762 ms — mean 1854 ms. A cold `serve` executes ten
+of those spawns before it binds the listener — one for `config.json`, five for the publisher token
+and the two directories it creates, four more when the push service re-verifies them — so ACL
+verification alone costs ~18.5 s. The budget was gone before the listener was reached, which is
+exactly the ~18 s of daemon lifetime tabulated above.
 
-Tracked as [#90](https://github.com/alphastorm/omp-session-gateway/issues/90). It plausibly also
-explains the Windows CI job's recorded flakiness (`685 ms → 13.7 s → >30 s` spawn variance),
-which has been handled by rerunning rather than diagnosed.
+Tracked as [#90](https://github.com/alphastorm/omp-session-gateway/issues/90).
+**Fixed in source, not yet accepted.** `readinessBudgetMs` in `cli.ts` now keeps 15 s on Linux and
+macOS and allows 60 s on Windows — ~3.2x the measured cold start, and still a hard deadline rather
+than a retry, so a service that never binds fails and rolls back exactly as before. Unit tests pin
+both bounds and the exact expiry instant. What is missing is host evidence: no persistent Windows
+VM has run `install` to completion against the new budget, so this is a source fix awaiting
+acceptance. The same spawn cost plausibly also explains the Windows CI job's recorded flakiness
+(`685 ms → 13.7 s → >30 s` spawn variance), which has been handled by rerunning rather than
+diagnosed.
 
 What survives from the original reading is narrower but still true: the readiness proof fails
 closed, rolls back completely, and does not claim success for a service that never served.
@@ -121,9 +131,10 @@ address alongside 5985.
 
 Remaining to close the row, in order:
 
-1. Fix [#90](https://github.com/alphastorm/omp-session-gateway/issues/90). Until `install` can
-   finish on a modest Windows host, nothing downstream of it can be qualified there. This is now
-   the blocker, not session creation.
+1. Accept the [#90](https://github.com/alphastorm/omp-session-gateway/issues/90) fix on a
+   persistent VM. The budget is corrected in source and unit-tested, but "install completes on a
+   modest 2-vCPU Windows host" has never been observed, and only that host can prove it. Until it
+   is observed, nothing downstream of `install` can be qualified there.
 2. Then, with an RDP session established: `install`, reboot, reconnect RDP to produce the logon,
    and assert the task started with no manual step. That proves what the product actually
    promises on Windows.
@@ -133,7 +144,8 @@ Remaining to close the row, in order:
 
 Until then, `Windows host lifecycle` stays **PARTIAL**. The reason is now specific and has two
 parts: the gateway starts at interactive logon rather than at boot, and that logon has not been
-exercised across a reboot because `install` cannot currently complete on a 2-vCPU host.
+exercised across a reboot because a completed `install` on a 2-vCPU host is the prerequisite for
+trying — now expected to succeed on the corrected budget, but not yet witnessed.
 
 ## Cost and hygiene
 
