@@ -21,6 +21,14 @@ const config: GatewayConfig = {
 
 /** A generated CLI path shaped like the one `install` passes: under the state dir it is rooted in. */
 const installedCliPath = join(config.paths.stateDir, "installation", "versions", "0.1.0-a1b2c3d4e5f6", "apps", "gateway", "src", "cli.js");
+/**
+ * What a generated definition actually names for `installedCliPath`. The explicit `platform`
+ * argument selects which document to generate, not the path semantics the process runs under:
+ * `serviceDefinition` resolves the CLI path with the *host's* rules, so on Windows the separators
+ * are backslashes and `resolve` also prepends the current drive. Expectations therefore have to go
+ * through the same call rather than spell a path out, or they only hold on POSIX hosts.
+ */
+const installedCliArgument = resolve(installedCliPath);
 /** 43 url-safe characters: one unpadded 256-bit base64url value, the only shape the code accepts. */
 const boundInstance = "readiness_Instance-9".padEnd(43, "x");
 
@@ -411,18 +419,21 @@ describe("macOS launch agent", () => {
     // The plist embeds argv and nothing else, so the config reaches it through the installed CLI
     // path, which `install` roots under the state directory it was configured with.
     const definition = serviceDefinition(config, "darwin", installedCliPath);
-    expect(plistProgramArguments(definition.content)).toContain(installedCliPath);
-    expect(installedCliPath.startsWith(config.paths.stateDir + sep)).toBe(true);
+    expect(plistProgramArguments(definition.content)).toContain(installedCliArgument);
+    expect(installedCliArgument.startsWith(resolve(config.paths.stateDir) + sep)).toBe(true);
   });
 
   test("escapes markup in a program path instead of emitting another plist key", () => {
+    // On Windows the payload's own forward slashes are separators like any other, so `resolve`
+    // rewrites them: `</string>` arrives as `\string>`. The assertions below therefore name only
+    // characters no path rule touches, and the decoded round-trip at the end carries the exactness.
     const hostile = join(sep, "tmp", 'gateway&"<danger>"', "</string><key>RunAtLoad</key><false/><string>cli.js");
     const benign = serviceDefinition(config, "darwin", join(sep, "tmp", "gateway", "cli.js")).content;
     const injected = serviceDefinition(config, "darwin", hostile).content;
     // Escaping means the payload can only change text: the element structure is byte-for-byte the
     // same shape as a benign path's. Dropping xmlEscape diverges here immediately.
     expect(xmlElements(injected)).toEqual(xmlElements(benign));
-    expect(injected).toContain("&lt;/string&gt;");
+    expect(injected).toContain("&lt;key&gt;");
     expect(injected).toContain("&amp;");
     expect(injected).toContain("&quot;");
     expect(injected).toContain("<key>RunAtLoad</key><true/>");
@@ -459,7 +470,7 @@ describe("windows scheduled task", () => {
   test("splits the runtime from its arguments the way schtasks expects", () => {
     const content = serviceDefinition(config, "win32", installedCliPath).content;
     expect(xmlText(content, "Command")).toBe(process.execPath);
-    expect(taskArguments(content)).toEqual([installedCliPath, "serve"]);
+    expect(taskArguments(content)).toEqual([installedCliArgument, "serve"]);
     // Repeating the executable in <Arguments> would launch the runtime with itself as its script.
     expect(xmlText(content, "Arguments")).not.toContain(process.execPath);
   });
@@ -497,7 +508,7 @@ describe("service argv", () => {
   // The runtime here is bun, so the generated argv passes the script path explicitly; that is the
   // shape asserted below. These tokens are what the service manager execs, with no shell to re-split.
   test("threads the installed CLI into every platform's generated command", () => {
-    const expected = [process.execPath, installedCliPath, "serve"];
+    const expected = [process.execPath, installedCliArgument, "serve"];
     withEnv("XDG_RUNTIME_DIR", undefined, () => {
       expect(unitTokens(serviceDefinition(config, "linux", installedCliPath).content, "ExecStart")).toEqual(expected);
     });
@@ -510,7 +521,7 @@ describe("service argv", () => {
     // Two argv entries, and both after `serve`: the CLI reads argv[0] as the command and rejects an
     // unknown option, so a joined token or a flag ahead of the command is a daemon that will not
     // start. This is the handshake that proves the newly installed instance is the one answering.
-    const expected = [process.execPath, installedCliPath, "serve", "--readiness-instance", boundInstance];
+    const expected = [process.execPath, installedCliArgument, "serve", "--readiness-instance", boundInstance];
     withEnv("XDG_RUNTIME_DIR", undefined, () => {
       const content = serviceDefinition(config, "linux", installedCliPath, boundInstance).content;
       expect(unitTokens(content, "ExecStart")).toEqual(expected);
