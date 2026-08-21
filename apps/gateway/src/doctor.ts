@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { tailnetAddressIsLocallyBound, tailnetInterfacePresent } from "./tailnet.ts";
+import { tailnetAddressIsLocallyBound, tailscaleTunDevicePresent } from "./tailnet.ts";
 import { fileURLToPath } from "node:url";
 import { parseSessionListResponse, type SessionListResponse } from "@omp-session-gateway/protocol";
 import {
@@ -390,7 +390,7 @@ export async function runDoctorChecks(): Promise<DoctorReport> {
   // Reported from the interface table rather than from the configuration: a config that declares
   // `auth.trustIdentityWithoutTailnetDevice` asserts trust, it does not establish it, so a host that
   // sets the flag while running userspace mode must still fail here.
-  checks.loopbackTrustSound = tailnetInterfacePresent();
+  checks.loopbackTrustSound = tailscaleTunDevicePresent();
   if (checks.tailscaleConnected && !tailnetAddressIsLocallyBound(tailscaleIp)) {
     checks.listenerLoopbackOnly = false;
   }

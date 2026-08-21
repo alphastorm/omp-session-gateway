@@ -262,6 +262,69 @@ describe("HTTP boundary", () => {
       expect((await handler(launchRequest(), peer)).status).toBe(200);
     });
 
+    /**
+     * Authorization for a stream used to be a one-shot decision at request time, so a feed admitted
+     * while the topology justified it kept delivering the session directory afterwards. The keepalive
+     * is the stream's own liveness tick, so it is where the decision is revisited.
+     */
+    test("an admitted stream stops when the topology stops justifying it", async () => {
+      let present = true;
+      const handler = createHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        sseKeepaliveMs: 1,
+        tailnetPresent: () => present,
+      });
+
+      const stream = await handler(request("/api/v1/events"), peer);
+      expect(stream.status).toBe(200);
+      const reader = stream.body?.getReader();
+      if (reader === undefined) throw new Error("missing SSE body");
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain("event: snapshot");
+
+      present = false;
+      // Drain until the stream ends. It must end rather than keep emitting keepalives.
+      let closed = false;
+      for (let read = 0; read < 200; read += 1) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          closed = true;
+          break;
+        }
+      }
+      expect(closed).toBe(true);
+    });
+
+    test("declared trust always leaves a record, because it disables the measurement", async () => {
+      const lines: string[] = [];
+      createHttpHandler({
+        config: config(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        logger: new SafeLogger({ write: line => lines.push(line) }),
+        tailnetPresent: () => false,
+      });
+
+      // Without this the logs of a host asserting the flag would be byte-identical to a healthy one's.
+      expect(lines.map(line => (JSON.parse(line) as { event: string }).event)).toContain(
+        "http.identity_trust_declared",
+      );
+    });
+
+    test("dev mode declares nothing, because it believes no identity header", async () => {
+      const lines: string[] = [];
+      createHttpHandler({
+        config: config("dev-localhost"),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        logger: new SafeLogger({ write: line => lines.push(line) }),
+      });
+
+      expect(lines).toHaveLength(0);
+    });
+
     test("a declared tailnet-less host trusts the header without measuring", async () => {
       let measurements = 0;
       const handler = createHttpHandler({

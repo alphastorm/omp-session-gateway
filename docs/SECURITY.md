@@ -98,12 +98,23 @@ Run the TUN-mode client on any host serving this gateway. Tracked as
 **The gateway now refuses rather than warns.** Because Tailscale gives the backend no secret,
 signature, or channel binding that Serve alone could present, there is nothing to verify per
 request; the only thing checkable is whether the topology still makes Serve the sole path in. In
-`tailscale-serve` mode the daemon therefore reads the host's interface table and, unless some
-interface owns an address in Tailscale's own allocations (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`),
-returns `403` to every request instead of believing `Tailscale-User-Login`. It logs
-`http.identity_trust_unsound` once when it observes that state, and `doctor` reports
-`loopbackTrustSound: false`. Refusing costs nothing when the signal is absent: without a tailnet
-address, Serve cannot be routing tailnet requests to that process anyway.
+`tailscale-serve` mode the daemon therefore reads the host's interface table and, unless an interface
+looks like Tailscale's *tunnel device*, returns `403` to every request instead of believing
+`Tailscale-User-Login`. It logs `http.identity_trust_unsound` once when it observes that state, and
+`doctor` reports `loopbackTrustSound: false`. Refusing costs nothing when the signal is absent:
+without a tailnet interface, Serve cannot be routing tailnet requests to that process anyway.
+
+**`100.64.0.0/10` does not vouch for itself.** That range is not Tailscale's: RFC 6598 assigns it as
+shared address space, and carriers, mobile hotspots and container networks allocate out of it
+routinely, so a host holding a CGNAT lease would otherwise pass this check while running userspace
+mode — a container with a CGNAT pod CIDR being the obvious case, and containers being exactly where
+userspace networking is used. Accepted instead are an address in `fd7a:115c:a1e0::/48`, which is
+Tailscale's own allocation and decisive on its own, or a `100.64.0.0/10` **host route** on a
+tunnel-named interface (`tailscale0`, `utun<n>`, `Tailscale`). An IPv6-disabled host whose device is
+renamed through `--tun` fails closed and visibly, which is the safe direction for that error.
+
+An admitted `/api/v1/events` stream is re-authorized on each keepalive, so a feed cannot outlive the
+topology that justified it.
 
 The signal has to be read in that direction. Probing our own tailnet address cannot tell the two
 topologies apart, because in userspace mode the host has no route to that address either, so the
@@ -119,6 +130,17 @@ establishing one: setting it on a host running userspace-mode `tailscaled` resto
 `doctor` reports `loopbackTrustSound` from the interface table and not from the configuration, so a
 host that sets the flag while running userspace mode still fails that check. Never set it on a host
 that has Tailscale installed.
+
+A host that sets the flag also **cannot roll back** to an earlier gateway without editing its
+configuration, because the older parser rejects unknown `auth` keys and refuses to start.
+
+**If a pre-fix build ever ran on a userspace-mode host, treat what it accepted as compromised.**
+Refusing new requests does not retract what the exposed window granted. Push subscriptions are the
+persistent case: delivery re-checks the stored identity against the current allowlist on every send,
+so removing a login stops delivery, but a subscription registered under a *forged allowlisted* login
+is indistinguishable from a legitimate one. Delete `push-state.json` from the state directory and
+re-enable notifications from the phone. Collaboration capabilities need no such step because they are
+never persisted and die with their generation.
 
 A second tailnet node remains the only *end-to-end* proof, because the refusal above is a local
 inference about the topology rather than an observation of what a remote peer can reach; the

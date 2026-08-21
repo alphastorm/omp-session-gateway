@@ -148,7 +148,17 @@ async function readBoundedBody(request: Request, maximumBytes: number): Promise<
 
 const SSE_KEEPALIVE_MS = 5_000;
 
-function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS): Response {
+/**
+ * @param stillAuthorized re-read on every keepalive. Authorization for this endpoint would otherwise
+ * be evaluated once and never again, so a stream admitted while identity trust was sound would keep
+ * delivering the session directory after the topology stopped justifying it. The keepalive is
+ * already the stream's liveness tick, so this adds a predicate read rather than a timer.
+ */
+function eventStream(
+  registry: SessionRegistry,
+  keepaliveMs = SSE_KEEPALIVE_MS,
+  stillAuthorized: () => boolean = () => true,
+): Response {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
@@ -159,7 +169,7 @@ function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS):
           if ((controller.desiredSize ?? 1) < -32) {
             controller.close();
             unsubscribe?.();
-            if (keepalive !== undefined) clearInterval(keepalive);
+            clearInterval(keepalive);
             return;
           }
           controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
@@ -168,6 +178,12 @@ function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS):
         send({ type: "snapshot", revision: snapshot.revision, sessions: snapshot.sessions });
         unsubscribe = registry.subscribe(send);
         keepalive = setInterval(() => {
+          if (!stillAuthorized()) {
+            controller.close();
+            unsubscribe?.();
+            clearInterval(keepalive);
+            return;
+          }
           if ((controller.desiredSize ?? 1) >= -32) {
             controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
           }
@@ -175,7 +191,7 @@ function eventStream(registry: SessionRegistry, keepaliveMs = SSE_KEEPALIVE_MS):
       },
       cancel() {
         unsubscribe?.();
-        if (keepalive !== undefined) clearInterval(keepalive);
+        clearInterval(keepalive);
       },
     },
     { highWaterMark: 32 },
@@ -222,6 +238,12 @@ export function createHttpHandler(options: {
   // Tailscale installed; on a host running userspace-mode tailscaled that declaration is false and
   // re-opens #98, so `doctor` reports it rather than letting it pass silently.
   const identityTrustDeclared = config.auth.trustIdentityWithoutTailnetDevice === true;
+  if (identityTrustDeclared && config.auth.mode === "tailscale-serve") {
+    // Declared trust disables the measurement, so without this the daemon's logs would be
+    // byte-identical to a healthy host's. Emitted once at construction so the assertion is always on
+    // the record, whether or not it happens to be true.
+    logger.event("warn", "http.identity_trust_declared");
+  }
   // Seeded sound so a healthy daemon says nothing at startup and only a change is reported. This
   // governs logging only; authorization always uses the measured value.
   let identityTrustLogged = true;
@@ -288,7 +310,10 @@ export function createHttpHandler(options: {
       return withSecurityHeaders(Response.json(registry.snapshot()), true);
     }
     if (url.pathname === "/api/v1/events" && request.method === "GET") {
-      return eventStream(registry, options.sseKeepaliveMs);
+      // Re-read per keepalive: an admitted stream must not outlive the topology that justified it.
+      return eventStream(registry, options.sseKeepaliveMs, () =>
+        config.auth.mode !== "tailscale-serve" || identityTrustDeclared || tailnetPresent(),
+      );
     }
     if (url.pathname === "/api/v1/push/config" && request.method === "GET" && options.pushService !== undefined) {
       return withSecurityHeaders(Response.json(options.pushService.configResponse()), true);

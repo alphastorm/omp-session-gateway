@@ -18,12 +18,19 @@
 over tailnet HTTPS is the only supported remote path; Funnel must stay disabled; and Tailscale must
 run its **TUN-mode** client. Userspace-networking `tailscaled` forwards inbound tailnet connections to
 localhost, which makes the loopback listener remotely reachable and permits identity forgery
-([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). This is now **enforced rather
-than documented**: in `tailscale-serve` mode the daemon reads the host's interface table and returns
-`403` to every request unless some interface owns an address in `100.64.0.0/10` or
-`fd7a:115c:a1e0::/48`, logging `http.identity_trust_unsound` once when it observes that state, and
-`doctor` reports `loopbackTrustSound` alongside withholding `listenerLoopbackOnly`. A TUN-mode host is
-therefore a precondition the software checks, not one an operator has to remember.
+([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)).
+
+**On `main` this is enforced rather than documented; in the advertised candidate it is not.** In
+`tailscale-serve` mode the daemon now reads the host's interface table and returns `403` to every
+request unless an interface looks like Tailscale's tunnel device — an address in
+`fd7a:115c:a1e0::/48`, or a `100.64.0.0/10` host route on a tunnel-named interface — logging
+`http.identity_trust_unsound` once when it observes that state, with `doctor` reporting
+`loopbackTrustSound` alongside withholding `listenerLoopbackOnly`. That landed after
+`v0.1.0-prealpha.17` was cut, so **the published candidate named above does not contain it**: it is
+the build against which the bypass was demonstrated. Until a later candidate is published and
+qualified, TUN mode remains a precondition an operator has to satisfy, not one the advertised
+artifact checks. `100.64.0.0/10` deliberately does not vouch for itself, because RFC 6598 assigns it
+as shared space that carriers and container networks also use.
 
 **Known limitations of this alpha.** Recovery after an abrupt radio transition on Android may require
 force-stopping Chrome: Chrome-for-Android wedges its own network stack browser-wide, with the device

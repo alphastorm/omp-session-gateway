@@ -1,69 +1,94 @@
 import { describe, expect, test } from "bun:test";
 import {
   createTailnetPresenceProbe,
-  isTailnetAddress,
   tailnetAddressIsLocallyBound,
-  tailnetInterfacePresent,
+  tailscaleTunDevicePresent,
   type InterfaceTable,
 } from "../src/tailnet.ts";
 
 /**
- * These read an injected interface table rather than the host's own. The earlier versions of two of
- * these cases asserted against `networkInterfaces()` directly, which made them agree with whatever
- * machine happened to run them: on a developer workstation with Tailscale in TUN mode the unsafe
- * topology could not be expressed at all, which is the one case that matters. See #98.
+ * These read an injected interface table rather than the host's own. Asserting against
+ * `networkInterfaces()` made the outcome agree with whatever machine ran the test: on a workstation
+ * with Tailscale in TUN mode the unsafe topology could not be expressed at all, which is the one case
+ * that matters. See #98.
+ *
+ * The shapes below are measured, not invented. macOS 26.6.1 on 2026-08-21 reported `utun0` carrying a
+ * CGNAT address at netmask `255.255.255.255` plus the tailnet ULA at `/128`; Linux under libuv
+ * reported `tailscale0` with the same two shapes.
  */
 const userspaceMode: InterfaceTable = {
-  lo0: [{ address: "127.0.0.1" }, { address: "::1" }],
-  en0: [{ address: "192.168.1.24" }, { address: "fe80::1c9a:e0ff:fe32:1" }],
+  lo0: [{ address: "127.0.0.1", netmask: "255.0.0.0" }, { address: "::1", netmask: "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" }],
+  en0: [{ address: "192.168.1.24", netmask: "255.255.255.0" }, { address: "fe80::1c9a:e0ff:fe32:1", netmask: "ffff:ffff:ffff:ffff::" }],
 };
 
 const tunMode: InterfaceTable = {
   ...userspaceMode,
-  utun4: [{ address: "100.100.100.100" }, { address: "fd7a:115c:a1e0::1a2b:3c4d" }],
+  utun0: [
+    { address: "100.100.100.100", netmask: "255.255.255.255" },
+    { address: "fd7a:115c:a1e0::1a2b:3c4d", netmask: "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" },
+  ],
 };
 
-describe("tailnet address recognition", () => {
-  test("accepts the whole CGNAT allocation and nothing adjacent to it", () => {
-    expect(isTailnetAddress("100.64.0.0")).toBe(true);
-    expect(isTailnetAddress("100.127.255.255")).toBe(true);
-    expect(isTailnetAddress("100.100.100.100")).toBe(true);
-    // The bounds matter: 100.63.x and 100.128.x are ordinary public space, and treating them as
-    // tailnet addresses would let an unrelated interface vouch for a TUN device that is not there.
-    // Both literals are range boundaries, not anyone's address. identifier-leak-allow
-    expect(isTailnetAddress("100.63.255.255")).toBe(false); // identifier-leak-allow
-    expect(isTailnetAddress("100.128.0.0")).toBe(false); // identifier-leak-allow
-    expect(isTailnetAddress("10.0.100.64")).toBe(false);
-    expect(isTailnetAddress("127.0.0.1")).toBe(false);
+describe("tailscale tunnel device detection", () => {
+  test("a tunnel device carrying Tailscale's own address shapes is a TUN device", () => {
+    expect(tailscaleTunDevicePresent(tunMode)).toBe(true);
+    expect(tailscaleTunDevicePresent({ tailscale0: tunMode.utun0 })).toBe(true);
+    expect(tailscaleTunDevicePresent({ Tailscale: tunMode.utun0 })).toBe(true);
   });
 
-  test("accepts the tailnet ULA prefix, including a zone-suffixed form", () => {
-    expect(isTailnetAddress("fd7a:115c:a1e0::1")).toBe(true);
-    expect(isTailnetAddress("FD7A:115C:A1E0::1")).toBe(true);
-    expect(isTailnetAddress("fd7a:115c:a1e0::1%utun4")).toBe(true);
-    expect(isTailnetAddress("fd7a:115c:a1e1::1")).toBe(false);
-    expect(isTailnetAddress("fe80::1")).toBe(false);
-  });
-});
-
-describe("userspace-mode tailscaled detection", () => {
-  test("a tailnet address on some interface means a real TUN device", () => {
-    expect(tailnetInterfacePresent(tunMode)).toBe(true);
+  test("nothing Tailscale-shaped anywhere is userspace mode, so loopback trust is unsound", () => {
+    // What the exposed host looked like: tailscaled reported the node's tailnet address, no interface
+    // carried it, and inbound tailnet traffic still arrived on the loopback listener.
+    expect(tailscaleTunDevicePresent(userspaceMode)).toBe(false);
   });
 
-  test("no tailnet address anywhere is userspace mode, so loopback trust is unsound", () => {
-    // This is what the exposed host looked like: tailscaled reported the node's tailnet address, no
-    // interface carried it, and inbound tailnet traffic still arrived on the loopback listener.
-    expect(tailnetInterfacePresent(userspaceMode)).toBe(false);
+  /**
+   * The defect this predicate was rewritten for. `100.64.0.0/10` is RFC 6598 shared address space,
+   * not Tailscale's, so a userspace-mode host on a carrier or container network holding an ordinary
+   * CGNAT lease previously passed the gate and restored the whole bypass.
+   */
+  test("an ordinary interface on shared CGNAT space does not vouch for a TUN device", () => {
+    expect(
+      tailscaleTunDevicePresent({
+        ...userspaceMode,
+        eth0: [{ address: "100.96.4.7", netmask: "255.255.240.0" }],
+      }),
+    ).toBe(false);
+    // A container pod address is a host route on an ordinary interface: the shape alone is not enough.
+    expect(
+      tailscaleTunDevicePresent({ ...userspaceMode, eth0: [{ address: "100.96.4.7", netmask: "255.255.255.255" }] }),
+    ).toBe(false);
+    // And a tunnel-shaped name alone is not enough either, without Tailscale's address shape.
+    expect(
+      tailscaleTunDevicePresent({ ...userspaceMode, utun3: [{ address: "100.96.4.7", netmask: "255.255.240.0" }] }),
+    ).toBe(false);
   });
 
-  test("an interface carrying only the tailnet ULA still counts", () => {
-    expect(tailnetInterfacePresent({ utun4: [{ address: "fd7a:115c:a1e0::2c01:1" }] })).toBe(true);
+  test("Tailscale's IPv6 allocation is decisive on its own, whatever carries it", () => {
+    // Nothing but Tailscale assigns out of fd7a:115c:a1e0::/48, so this needs no name or netmask help.
+    expect(tailscaleTunDevicePresent({ wg0: [{ address: "fd7a:115c:a1e0::1" }] })).toBe(true);
+    expect(tailscaleTunDevicePresent({ utun0: [{ address: "FD7A:115C:A1E0::1" }] })).toBe(true);
+    expect(tailscaleTunDevicePresent({ utun0: [{ address: "fd7a:115c:a1e0::1%utun0" }] })).toBe(true);
+    // An adjacent ULA prefix is somebody else's.
+    expect(tailscaleTunDevicePresent({ utun0: [{ address: "fd7a:115c:a1e1::1" }] })).toBe(false);
+  });
+
+  test("the CGNAT bounds are exact where the shape and name do hold", () => {
+    const tunnel = (address: string): InterfaceTable => ({ utun0: [{ address, netmask: "255.255.255.255" }] });
+    expect(tailscaleTunDevicePresent(tunnel("100.64.0.0"))).toBe(true);
+    expect(tailscaleTunDevicePresent(tunnel("100.127.255.255"))).toBe(true);
+    // 100.63.x and 100.128.x are ordinary public space; both literals are range boundaries rather
+    // than anyone's address. identifier-leak-allow
+    expect(tailscaleTunDevicePresent(tunnel("100.63.255.255"))).toBe(false); // identifier-leak-allow
+    expect(tailscaleTunDevicePresent(tunnel("100.128.0.0"))).toBe(false); // identifier-leak-allow
+    expect(tailscaleTunDevicePresent(tunnel("10.0.100.64"))).toBe(false);
   });
 
   test("an empty or hole-bearing table is not treated as safe", () => {
-    expect(tailnetInterfacePresent({})).toBe(false);
-    expect(tailnetInterfacePresent({ utun4: undefined })).toBe(false);
+    expect(tailscaleTunDevicePresent({})).toBe(false);
+    expect(tailscaleTunDevicePresent({ utun0: undefined })).toBe(false);
+    // A missing netmask cannot satisfy the host-route requirement.
+    expect(tailscaleTunDevicePresent({ utun0: [{ address: "100.100.100.100" }] })).toBe(false);
   });
 });
 

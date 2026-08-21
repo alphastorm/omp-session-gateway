@@ -25,6 +25,28 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ### Security
 
+- **The daemon now refuses to believe `Tailscale-User-Login` unless Tailscale's tunnel device is
+  present.** `tailscaled --tun=userspace-networking` has no TUN device, so its netstack forwards
+  inbound tailnet connections to localhost; a listener bound strictly to `127.0.0.1` was therefore
+  reachable from the whole tailnet, and the caller arrived as a loopback peer whose forged identity
+  header was trusted verbatim. Demonstrated against a real host, from a distinct tailnet node, on a
+  build whose listener was correctly loopback-bound
+  ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)).
+
+  In `tailscale-serve` mode the gateway now reads the host's interface table and returns `403` to
+  every request unless an interface carries an address in `fd7a:115c:a1e0::/48` or a
+  `100.64.0.0/10` host route on a tunnel-named interface. `100.64.0.0/10` alone is not accepted: RFC
+  6598 assigns it as shared space that carriers and container networks also use, so a CGNAT address
+  on an ordinary interface proves nothing. `doctor` gains `loopbackTrustSound`, and an admitted SSE
+  stream is re-authorized on each keepalive so a feed cannot outlive the topology that justified it.
+
+  **This is a behaviour change.** A host running userspace-mode `tailscaled` now receives `403`
+  instead of working; that configuration was never supported and is the vulnerable one.
+  `auth.trustIdentityWithoutTailnetDevice` exists for loopback-only harnesses on machines with no
+  Tailscale installed, logs `http.identity_trust_declared` whenever it is set, and cannot influence
+  what `doctor` reports. Note that a config carrying that key will **not** load on an older gateway,
+  which rejects unknown `auth` keys, so a host that sets it cannot roll back without editing config.
+
 - `SECURITY.md` now names userspace-mode `tailscaled` as a forwarder that defeats loopback trust.
   This was previously implied by a general rule about tunnels and reverse proxies; it is now stated
   explicitly because it is the forwarder an operator is most likely to run, and because it was
