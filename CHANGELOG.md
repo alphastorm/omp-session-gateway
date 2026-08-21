@@ -21,6 +21,9 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   regenerate the six-commit collaboration patch from the maintained downstream series plus the
   carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
   new target repeats the applicable release lanes.
+- Keep the exact tested v17.4.1 OMP patch as the alpha installation prerequisite. Paired OMP
+  signing/install/update/rollback is deliberately deferred, but remains a hard beta gate unless
+  upstream first lands the required controller/publication seam.
 
 ### Fixed
 

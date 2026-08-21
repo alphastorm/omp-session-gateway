@@ -435,3 +435,27 @@ there is no upstream client-source change to re-vendor.
 rebased, but v17.3.8 platform evidence does not transfer. Until a signed candidate repeats the
 applicable host, relay, and physical-client lanes, v17.4.1 is an unreleased development target and
 must not be advertised as supported. The published alpha matrix remains immutable.
+
+---
+
+## ADR-024 — Keep the exact OMP patch as the alpha prerequisite and defer paired packaging
+
+**Status:** Accepted
+
+**Context:** Stock OMP v17.4.1 still does not provide the automatic collaboration controller and
+authenticated registry publication required by the product. Removing the patch would restore
+manual `/collab` commands and link transfer, eliminate zero-touch discovery, and drop the
+generation-ordered revoke/publish guarantees. A persistent Windows source lane proved the patch can
+produce and run a working binary, but building, signing, installing, updating, rolling back, and
+qualifying paired OMP artifacts is a separate distribution project.
+
+**Decision:** Do not expand the paired-OMP packaging lane now. Alpha installations continue to
+require the exact tested v17.4.1 patch in `patches/oh-my-pi`. Do not enable beta tags, advertise
+Windows, or imply stock-OMP compatibility. Before beta, choose one complete path: upstream the
+controller/publication seam into a supported OMP release, or ship and qualify a supported paired
+OMP installer with update and rollback.
+
+**Consequences:** The integration remains real and tested, but installation stays more manual than
+the final product goal. Windows source acceptance and the v17.4.1 rebase improve confidence without
+creating a support claim. The deferred packaging work remains a beta gate rather than being hidden
+as follow-up polish.
