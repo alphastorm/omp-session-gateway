@@ -465,3 +465,11 @@ independent signed-platform reasons, not because paired packaging is absent.
 second installer. Installation is more manual than the final product goal, and every participating
 OMP process must be launched from the verified patched binary. A future upstream seam or paired
 installer can replace this prerequisite, but neither blocks the bounded beta support matrix.
+
+**Qualification update (2026-08-21):** The exact route now passes on both advertised architectures.
+macOS candidate qualification and Debian [run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211)
+each reproduced the source/tree, used the matching official native addon, built the binary,
+auto-published View/Control, validated no-store launches, and revoked on process close. Isolated
+exact alpha/beta builds also passed symlink/version/config reversal. This proves the documented
+manual primitive; it does not create a coupled gateway/OMP updater or weaken the paired-packaging
+deferral.

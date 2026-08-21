@@ -520,9 +520,10 @@ depending on somebody remembering to run it, and so a regression like
 [#69](https://github.com/alphastorm/omp-session-gateway/issues/69) has a standing chance of being
 caught by the `persistence` lane rather than by a release attempt.
 
-The workflow has completed multiple real signed-candidate runs. The `omp` lane is new for the beta
-closure and remains unqualified until its first exact candidate run completes; static validation
-alone does not promote it.
+The workflow has completed multiple real signed-candidate runs. The exact OMP lane passed against
+candidate `.20` in [run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211):
+source/tree and full checks, Linux binary build, generation-1 View/Control publication, no-store
+launches, immediate revocation, OMP cleanup, gateway uninstall, and droplet/tailnet/key deletion.
 
 ### 9.1 Secrets to configure first
 

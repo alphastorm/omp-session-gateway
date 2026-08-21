@@ -4,9 +4,9 @@
 
 The repository can produce working Bun-runtime pre-alpha archives, advertised alpha releases, and
 advertised beta releases. `v0.1.0-beta.1` is the current qualified beta, promoted from exact signed
-candidate `v0.1.0-prealpha.20`; `v0.1.0-alpha.1` is its rollback predecessor. Neither may be
-described as stable or production-qualified, and repository commits remain preferred outside the
-exact platform and Android combinations recorded in the release ledger.
+candidate `v0.1.0-prealpha.20`; `v0.1.0-alpha.1` is its gateway rollback predecessor. Neither may
+be described as stable or production-qualified, and repository commits remain preferred outside
+the exact platform and Android combinations recorded in the release ledger.
 
 `beta` is a closed release channel, not a stability grade. A beta tag advertises the boundary the
 ledger already records at its source commit; the tag promotes nothing by itself, and the same
@@ -17,6 +17,12 @@ provided.
 The supported beta procedure is the
 [versioned `omp-gateway-patched` route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos);
 upstreaming and paired packaging are not release gates.
+
+Gateway rollback does not roll OMP back. Stop every participating OMP process, restore the exact
+alpha v17.3.8 patched binary/symlink and its source/tree/version/config assertions, then restore the
+alpha.1 gateway archive before restarting sessions. Gateway rollback-by-reinstall passed on Debian
+and macOS; the manual OMP symlink/config reversal passed in isolation. No coupled or paired
+gateway/OMP rollback command is implemented or claimed.
 
 ## Alpha and beta release gates
 
@@ -133,7 +139,7 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=provenance-test-v0.1.0.10
+TAG=v0.1.0-beta.1
 ARCHIVE=omp-session-gateway-0.1.0-bun.tar
 SBOM=omp-session-gateway-0.1.0.spdx.json
 

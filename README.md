@@ -47,8 +47,9 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 > is independently qualified against exact signed candidate `v0.1.0-prealpha.20`. Advertised
 > combinations only: Debian 13 (trixie) x86-64 or macOS 26.6.1 arm64 hosts with Chrome
 > `151.0.7922.171` on Android 17, behind Tailscale Serve with the **TUN-mode** client and Funnel
-> disabled. Everything else — including Windows and self-hosted or proxied relays — is unadvertised
-> and must not be treated as a working deployment path. Details and known limitations:
+> disabled. Everything else — including Windows, Portal Tunnel, and self-hosted/proxied relays — is
+> unadvertised. Background Web Push is implemented but not beta-qualified. Do not treat any excluded
+> path as working. Details and known limitations:
 > [Compatibility and beta status](#compatibility-and-beta-status) ·
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 
@@ -121,11 +122,12 @@ After installation and tailnet configuration:
    when they persist, and keeps each answer at `Sending…` until OMP acknowledges it. After an
    authoritative answer, it offers the next ask or returns to the exact directory order and scroll
    position.
-6. An explicit dashboard action enables background Web Push alerts; each device chooses Private,
-   Session, or Preview detail. A tap revalidates the exact live request and opens Control through
-   the ordinary no-store, in-memory launch path; no collaboration capability enters push or a URL.
-7. Session switches, exits, crashes, daemon restarts, and phone/tailnet outages reconcile without
-   manual cleanup or a prominent Refresh control.
+6. **Experimental in this beta:** an explicit dashboard action can enable background Web Push
+   alerts and choose Private, Session, or Preview detail. The no-store tap path is implemented and
+   capability-free, but closed-PWA/lock-screen/force-stop/network behavior is not beta-qualified.
+7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport
+   replacement reconcile without a prominent Refresh control. Abrupt Android radio transitions do
+   not reliably self-heal and may require force-stopping Chrome.
 
 <div align="center">
 <img
@@ -167,6 +169,9 @@ Known limits are part of the claim — read them before installing:
 - **Android radio transitions are unproven.** Chrome for Android can wedge its process-wide network
   stack after an abrupt radio change while the device stays healthy; recovery may require
   force-stopping Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+- **Background Web Push is not beta-qualified.** Repository and desktop Chromium coverage exists,
+  but the exact physical closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop,
+  network-change, and forbidden-sink matrix has not passed.
 - **Preview notification detail currently falls back to Session detail** — the OMP publisher
   carries no bounded preview field yet.
 - **Windows source acceptance passes, but Windows is not advertised.** A persistent Server 2025 VM
@@ -176,8 +181,8 @@ Known limits are part of the claim — read them before installing:
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.
-- **Self-hosted or proxied relay modes are unsupported.** The beta keeps OMP's existing
-  end-to-end-encrypted relay.
+- **Portal Tunnel and self-hosted or proxied relay modes are unsupported.** The beta supports only
+  Tailscale Serve and keeps OMP's existing end-to-end-encrypted relay.
 
 The [compatibility matrix](docs/COMPATIBILITY.md) defines the supported boundary; the
 [release ledger](docs/RELEASE_STATUS.md) holds the exact per-candidate evidence and is
@@ -185,7 +190,8 @@ authoritative where they disagree.
 
 ## Build and run
 
-Requires Bun 1.3.14 or newer:
+The qualified source-build baseline is exact Bun 1.3.14. The shipped archive declares Bun
+`>=1.3.14`, but newer Bun versions are development-only until independently requalified:
 
 ```sh
 bun install --frozen-lockfile
@@ -302,11 +308,11 @@ maintainers, and OMP itself may grow first-party enrollment and session listing
 |---|---|---|---|---|---|
 | Workflow boundary | Private directory, attention queue, and just-in-time View/Control broker for already-running terminal OMP sessions; not a second client | Web cockpit hosting its own OMP SDK sessions plus kanban, plan mode, inbox, knowledge base, routines, and messaging bridges | Skills plugin that exposes an agent from the phone — web chat, real terminal, sharing, notify — for OMP, Claude Code, Codex, Gemini CLI, and opencode | Web/desktop/mobile UI for Claude Code, Cursor CLI, and Codex with chat, shell, file and git explorers | Browser dashboard to spawn, mirror, and drive [`pi`](https://github.com/badlogic/pi-mono) agents; its README states Oh My Pi is **not** supported |
 | Zero-touch discovery of live terminal sessions | Yes — every live interactive OMP process registers through authenticated local IPC; no per-session command | No terminal attach; the deck creates and hosts its own sessions in-process | Per-surface setup through skills; its `omp-collab` skill shares one OMP session over OMP's own path | Discovers existing session files automatically; live terminal mirroring for OMP is proposed in the open PR below | For `pi` only, via a bridge extension loaded into every session |
-| Mobile surface | Android-first installable PWA with opt-in Web Push attention alerts, qualified on physical Pixel hardware | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
+| Mobile surface | Android-first installable PWA qualified on physical Pixel hardware for directory/View/Control/lock-resume/capability isolation; opt-in Web Push is implemented but not beta-qualified | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
 | Exact OMP collab client reuse | Yes — View/Control opens OMP's own encrypted `collab-web` client from pinned upstream source; no second chat surface | No — own chat surface over the embedded OMP SDK (`@oh-my-pi/*` 15.1.7) | No — own web chat over OMP RPC; `omp-collab` reuses OMP collab links separately | No — own transcript UI over ACP stdio | No — own WebSocket mirror protocol, `pi` only |
 | Attention triage | Metadata-only FIFO **Needs you** queue; the oldest ask is promoted to **Open request**; **All clear** otherwise | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session queue described | Interactive `ask_user` prompts inside a session view |
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
-| Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required, Funnel and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
+| Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
 | Install maturity and support | **Qualified beta, not stable**: signed artifacts and a per-release evidence ledger for exact host/client combinations; requires the pinned six-commit OMP patch and versioned binary route; everything else unsupported | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP support is an open, unmerged PR ([#1143](https://github.com/siteboon/claudecodeui/pull/1143)) as of 2026-08-21** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), **fork-only and dormant since 2026-07** with no upstream merge path |
 | Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |

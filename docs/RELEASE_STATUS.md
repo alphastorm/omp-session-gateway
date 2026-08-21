@@ -12,9 +12,9 @@ after publication and appended to this ledger.
 
 | role | exact candidate combination | evidence |
 | --- | --- | --- |
-| host | Debian 13 (trixie) x86-64, systemd 257, kernel `6.12.94+deb13-amd64` | [run `32530180990`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32530180990): signed artifact, install/readiness, migration/rollback, `107/107` invariants, tagged-source identity denial, lingering-off/on reboot persistence, uninstall, and complete droplet/tailnet/key teardown |
-| host | macOS 26.6.1 arm64 (`Mac14,3`) | checksums, GitHub attestations and Cosign verified; install, loopback-only listener, `doctor` 17/17, rotation, distinct-node identity/exposure, control-plane reboot/LaunchAgent return with token continuity, exact patched-OMP build/publication, and clean uninstall/Serve/source cleanup |
-| client | Chrome `151.0.7922.171` on Android 17, Pixel 10 Pro | exact candidate discovery and launch authorization; View connected read-only, Control enabled the composer and accepted send, stale View/Control `409`, lock/resume in 5,190 ms, self-verifying 7/7 capability sweep clean before and after force-stop recovery |
+| host | Debian 13 (trixie) x86-64, systemd 257, kernel `6.12.94+deb13-amd64` | [gateway run `32530180990`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32530180990): signed artifact, install/readiness, alpha.1 migration/rollback, `107/107` invariants, identity denial, lingering-off/on persistence, uninstall, and teardown. [OMP run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211): exact v17.4.1 source/tree, full checks, Linux binary build, generation-1 View/Control publication, no-store launches, immediate revocation, OMP cleanup, and complete droplet/tailnet/key teardown. |
+| host | macOS 26.6.1 arm64 (`Mac14,3`) | candidate checksums/attestations/Cosign, private install, loopback-only listener, `doctor` 17/17, rotation, distinct-node identity/exposure, control-plane reboot/LaunchAgent return, exact patched-OMP build/publication/revocation, and cleanup. A separate alpha.1 → candidate `.20` → alpha.1 rollback-by-reinstall passed 20/20 isolated invariants without touching the live LaunchAgent; exact alpha/beta patched source builds passed manual symlink/version/config reversal. |
+| client | Chrome `151.0.7922.171` on Android 17, Pixel 10 Pro | exact candidate discovery and launch authorization; View connected read-only, Control enabled the composer and accepted send, stale View/Control `409`, lock/resume in 5,190 ms, self-verifying 7/7 capability sweep clean before and after force-stop recovery. Abrupt network recovery and background Web Push are excluded. |
 
 **Candidate provenance.** `v0.1.0-prealpha.20` records source
 `cffd6bf697c2d3e4c5a5d235c6e58168f5db2eba`, exact OMP
@@ -26,30 +26,34 @@ SHA-256 values `ba789f7a7f6799a53dab205e26cf6f3ebbaa39c2e26655315c1a809075b09ed2
 `SHA256SUMS`, all three GitHub attestations, all three Cosign bundles, and the signed tag verified;
 a clean exact-tag rebuild reproduced all three files byte-for-byte.
 
-**Required OMP route.** Stock OMP is insufficient. The exact v17.4.1 mbox was applied from a
-pristine checkout, reproduced the pinned tree, passed source checks, and built
-`omp-gateway-patched` on the qualified Mac using OMP's exact official native addon. The installed
-binary reported `omp/17.4.1`, SHA-256
-`310ffd097c87752cbdf78d483e258c09a8450e123eed4e9df05fe9858a7de6b7`, auto-published
-View/Control at generation 1, and revoked to an empty revision 2 on stop. Upstreaming and paired
-packaging are not beta gates; using the versioned patched executable is.
+**Required OMP route.** Stock OMP is insufficient. On both advertised host architectures, the exact
+v17.4.1 mbox applied to a pristine checkout, reproduced the pinned tree, passed source checks, and
+built `omp-gateway-patched` using OMP's exact official native addon. The macOS build (SHA-256
+`310ffd097c87752cbdf78d483e258c09a8450e123eed4e9df05fe9858a7de6b7`) and Linux build (SHA-256
+`193b2b8088e78cf61d9bbf28661f3a8c971463cb008fc8d37e1d27eee63c95d3`) each reported
+`omp/17.4.1`, auto-published generation-1 View/Control, returned no-store launches, and revoked on
+process close. Upstreaming and paired packaging are not beta gates; using the versioned patched
+executable is.
 
 **Relay evidence.** The candidate completed a fresh 300-second default-relay smoke with two room
-transitions, `finalPhase: "live"`, and exit 0. The protected 28,800-second run remains the
-long-window evidence because collab-web and wire protocol bytes are unchanged.
+transitions, `finalPhase: "live"`, and exit 0. The protected 28,800-second result transfers because
+the relay host/client implementation, collab-web, and wire bytes are identical in the exact alpha
+and beta patched trees. The v17.4.1 session-close ordering change is outside the sustained path.
 
 **Accepted limitations, not hidden passes.** The Pixel again reproduced issue #65: after Airplane
 mode the device regained tailnet reachability at 29,109 ms while Chrome failed to recover through
 the 521-second window, and the subsequent Doze leg also remained wedged. Force-stopping/restarting
 Chrome restored a clean capability sweep. Network-change/reconnect therefore remains explicitly
-unproven. Windows, Portal Tunnel, self-hosted/proxied relays, userspace-networking Tailscale, and
-every unnamed platform/browser remain unadvertised.
+unproven. Background Web Push is implemented but not beta-qualified. Windows, Portal Tunnel,
+self-hosted/proxied relays, userspace-networking Tailscale, and every unnamed platform/browser
+remain unadvertised.
 
 Named local evidence:
 `~/.local/share/omp-session-gateway/test/v0.1.0-prealpha.20/qualification/beta-candidate.json`.
-Every candidate resource was cleaned: the Debian droplet/tailnet node/SSH key were deleted; the
-macOS gateway, Serve mapping, patched OMP process/binary/source, and listener were removed; the
-Pixel radio/battery/Doze state was restored.
+Every candidate resource was cleaned: both Debian droplet/tailnet-node/SSH-key sets were deleted;
+the macOS gateway, Serve mapping, patched OMP process/binary/source, and listener were removed; the
+isolated rollback root was deleted without changing the live LaunchAgent; and Pixel radio/battery/
+Doze state was restored.
 
 ## Published alpha baseline
 
@@ -112,12 +116,12 @@ induced-divergence repair, identity denial, two reboot/login persistence passes,
 **macOS candidate result.** The leased M2 host independently verified checksums, GitHub attestations,
 and the Cosign bundle, then installed the candidate with private files, a loopback-only listener, and
 `doctor` 17/17. Serve returned metadata-only `200 no-store` to the allowlisted identity while direct
-tailnet-IP and public-IP backend probes were refused. Token rotation changed PID `14609` to `14670`;
-the diagnostics bundle contained neither token nor login. A Scaleway control-plane reboot changed
-`kern.boottime` from `1787301091` to `1787330344`; auto-login returned console user `m1`,
-`gui/501/omp-session-gateway` was reachable, PID `461` listened only on `127.0.0.1:4317`, status was
-`installed/active/ready` with no divergence, and the token digest stayed `9311a61f3566`. Uninstall
-then left no plist, launchd job, gateway process, or listener.
+tailnet-IP and public-IP backend probes were refused. Token rotation restarted the daemon; the
+diagnostics bundle contained neither token nor login. A control-plane reboot changed the measured
+boot time, and automatic console login returned the LaunchAgent listening only on
+`127.0.0.1:4317` with `installed/active/ready` status and no divergence. The publisher token
+remained byte-identical without publishing its fingerprint. Uninstall then left no plist, launchd
+job, gateway process, or listener.
 
 **Physical Pixel result.** The candidate launch returned `200` with
 `cache-control: no-store, max-age=0`; a self-verifying control planted and detected all seven
@@ -159,8 +163,8 @@ proxied relay modes remain unsupported.
 Anything outside the table above is unqualified and must not be presented as a working deployment
 path. Passing one platform permits advertising only that exact platform/version combination.
 
-**Pin.** OMP `v17.3.8` / `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, refreshed
-2026-08-19 and revalidated unchanged in the candidate archive.
+**Pin (historical alpha baseline).** OMP `v17.3.8` /
+`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, refreshed 2026-08-19 and revalidated for alpha.1.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live in
 [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
@@ -256,10 +260,10 @@ native qualification and attach those records to its tag.
 > traceability gap, not a correctness one. The next candidate will be cut when an artifact is
 > actually needed.
 
-## Current release blockers
+## Alpha qualification blockers (historical)
 
-The alpha decision was **NO-GO** until the following were closed. **All six are now closed** and
-the decision is **GO** for the combinations named at the top of this document:
+The alpha decision was **NO-GO** until the following were closed. All six closed for the exact
+alpha combinations recorded in the historical section above:
 
 1. ~~at least one proposed host platform passes its complete native lifecycle and security matrix
    from the signed candidate artifact, including reboot/login persistence, upgrade, rollback,
@@ -360,14 +364,13 @@ mirrored here as the sixth handoff commit (`bfc555227`) and was clean-room verif
 all six commits `git am` onto pristine `858f7dd9` from a fresh shallow clone,
 `registry-publisher.test.ts` passes 13/13 and `controller.test.ts` 15/15. The behavioral gap was
 then closed with a live tracer against an isolated gateway on the activated release, recording the
-full state-faithful transition `publishing` → `retrying (attempt 8: EACCES)` → `publishing` with OMP
-PID `73776` unchanged throughout, no manual `/collab` and no restart. The fault was induced by
-denying read on a launcher-scoped `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` copy and restarting the
-isolated gateway to force a token reread; the card vanished (revision 0, listener-only socket) and
-returned about 20 seconds after the mode was restored (revision 1, same instance `aac1c980`, two
-socket descriptors). Production was untouched throughout: daemon `51469` stayed alive on the
-candidate, its publisher token digest `f361650a4974` is unchanged since Jul 19, and the tailnet
-origin kept answering `200`.
+full state-faithful transition `publishing` → `retrying (attempt 8: EACCES)` → `publishing` with no
+manual `/collab` or process restart. The fault denied read access to a launcher-scoped
+`OMP_GATEWAY_PUBLISHER_TOKEN_PATH` copy and restarted the isolated gateway to force a token reread;
+the card vanished and returned about 20 seconds after access was restored. Production was
+untouched: the daemon stayed alive on the candidate and the tailnet origin kept answering `200`.
+Process, instance, and publisher-token fingerprints are intentionally omitted from this public
+ledger.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.
 It does not promote untested rows or broaden the pinned OMP range. Two platforms passed, so two
@@ -384,11 +387,16 @@ are advertised; every other host, browser, device and OMP version remains unqual
 - The existing OMP relay remains an availability and traffic-metadata dependency.
 - Same-desktop-user malware, a compromised browser/OS, and an unlocked authorized phone are
   outside or inherited trust boundaries described in `SECURITY.md`.
-- Tagged Tailscale source devices, Tailscale Funnel, public/LAN HTTP, self-hosted relays,
-  WebAuthn gating, TWA/native clients, and multi-host federation are not supported by this release
-  line. Background Web Push is implemented but remains unqualified until the physical Android
-  closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop, and network matrix passes.
-- No production upgrade or rollback path has completed cross-platform qualification.
+- Tagged Tailscale source devices, Tailscale Funnel, Portal Tunnel, public/LAN HTTP, self-hosted
+  relays, WebAuthn gating, TWA/native clients, and multi-host federation are not supported by this
+  release line. Background Web Push is implemented but remains unqualified until the physical
+  Android closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop, and network matrix
+  passes.
+- Gateway rollback-by-reinstall from candidate `.20` to alpha.1 passed on Debian and macOS. OMP
+  rollback remains a separate manual operation: stop patched OMP processes, repoint the versioned
+  symlink to the exact alpha v17.3.8 build, and repeat source/tree/version/config assertions before
+  restarting. Isolated alpha→beta→alpha symlink/config reversal passed; paired gateway/OMP
+  update/rollback is not implemented or claimed.
 
 ## Updating this ledger
 

@@ -2,7 +2,7 @@
 
 ## Project status
 
-OMP Session Gateway is a qualified beta, not a stable or production-qualified service. Use only the exact host/client/deployment combinations advertised in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md); do not expose the loopback backend directly, enable Tailscale Funnel, or treat an unqualified platform as supported.
+OMP Session Gateway is a qualified beta, not a stable or production-qualified service. Use only the exact host/client/deployment combinations advertised in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md); do not expose the loopback backend directly, enable Tailscale Funnel, use Portal Tunnel or another forwarder, or treat an unqualified platform or background Web Push as supported.
 
 ## Reporting a vulnerability
 
@@ -37,4 +37,4 @@ The detailed threat model, trust boundaries, and release gates are in [`docs/SEC
 
 ## Supported versions
 
-`v0.1.0-beta.1` is the current qualified beta; `v0.1.0-alpha.1` is its supported rollback predecessor. Neither is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).
+`v0.1.0-beta.1` is the current qualified beta; `v0.1.0-alpha.1` is its gateway rollback predecessor. OMP must be restored separately to the matching exact alpha patch before sessions restart; no paired rollback is claimed. Neither release is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).

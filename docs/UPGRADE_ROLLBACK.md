@@ -164,6 +164,12 @@ downgrade: before restarting sessions, the operator must separately repoint
 `omp-gateway-patched` to the exact alpha v17.3.8 build and repeat its source/tree/version/config
 assertions. Paired OMP update/rollback remains deliberately unimplemented.
 
+Separately, the exact alpha.1 v17.3.8 patch and beta v17.4.1 patch were built with their matching
+official macOS arm64 native addons. In an isolated home, `omp-gateway-patched` moved
+alpha→beta→alpha; every step asserted the symlink target and `--version`, and both collaboration
+settings survived. No OMP process or live gateway participated, so this proves the manual
+version/config primitive rather than a coupled service rollback.
+
 ## 4. Historical pre-alpha record
 
 The 2026-08-20 macOS 26.6.1 arm64/Bun 1.3.14 run used `.13` and `.14` to expose
