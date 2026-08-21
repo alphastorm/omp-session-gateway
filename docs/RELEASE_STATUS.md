@@ -39,7 +39,11 @@ the final tag commit.
 The final `release-info.json` still carries the build script's conservative static
 `pre-alpha; cross-OS and real Android acceptance not yet completed` qualification string. It
 underclaims the independently verified release but does not alter executable bytes or the support
-matrix above. Make that field tag-aware before beta rather than rewriting this immutable release.
+matrix above. Rather than rewrite this immutable release, `scripts/build-release.ts` now derives
+that field from the release channel `release.yml` exports for the validated tag shape:
+`-alpha[.<n>]` records qualified alpha, `-prealpha.<n>` and `provenance-test-v…` stay pre-alpha, a
+build with no `OMP_RELEASE_CHANNEL` defaults to pre-alpha, and any other value fails the build. A
+byte-exact rebuild of a future alpha tag therefore has to set `OMP_RELEASE_CHANNEL=alpha`.
 
 **Candidate `.18` is retained as failed qualification evidence, not promoted.** It exposed a real
 operator-path defect: after several successful explicit version switches, systemd's start-rate

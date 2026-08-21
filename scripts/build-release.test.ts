@@ -6,8 +6,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PRODUCT_VERSION,
+  RELEASE_QUALIFICATIONS,
   RUNTIME_LICENSES,
   createSpdxSbom,
+  releaseQualification,
   releaseSourceFromEpoch,
   resolveReleaseSource,
   runtimeDependenciesFromLock,
@@ -56,15 +58,23 @@ async function releaseInputs(): Promise<{ lock: BunLockfile; lockSha256: string;
   };
 }
 
-async function runReleaseBuilder(releaseDirectory: string): Promise<{ archivePath: string; sbomPath: string }> {
+async function runReleaseBuilder(
+  releaseDirectory: string,
+  overrides: Readonly<Record<string, string>> = {},
+): Promise<{ archivePath: string; sbomPath: string }> {
   const checkoutSource = await resolveReleaseSource({});
+  // A release-tag build exports `OMP_RELEASE_CHANNEL` for the whole job, `bun run check` included,
+  // so the ambient value must not decide what these assertions observe. Each case pins its own.
+  const environment: Record<string, string | undefined> = { ...process.env };
+  delete environment.OMP_RELEASE_CHANNEL;
   const subprocess = Bun.spawn([process.execPath, "scripts/build-release.ts"], {
     cwd: root,
     env: {
-      ...process.env,
+      ...environment,
       GITHUB_SHA: checkoutSource.commit,
       SOURCE_DATE_EPOCH: String(Date.parse(checkoutSource.created) / 1_000),
       RELEASE_OUTPUT_DIR: releaseDirectory,
+      ...overrides,
     },
     stdin: "ignore",
     stdout: "ignore",
@@ -183,13 +193,72 @@ test(
       }
       const releaseInfo = JSON.parse(entries.get(`${archivePrefix}release-info.json`)?.toString("utf8") ?? "{}") as {
         bunLockSha256?: string;
+        qualification?: string;
       };
       const archivedLock = entries.get(`${archivePrefix}bun.lock`);
       expect(archivedLock).toBeDefined();
       expect(releaseInfo.bunLockSha256).toBe(createHash("sha256").update(archivedLock ?? "").digest("hex"));
+      expect(releaseInfo.qualification).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
   },
   20_000,
+);
+
+test("the recorded qualification comes from a closed channel set that fails shut", () => {
+  expect(Object.keys(RELEASE_QUALIFICATIONS)).toEqual(["pre-alpha", "alpha"]);
+  expect(releaseQualification({})).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
+  expect(releaseQualification({ OMP_RELEASE_CHANNEL: "pre-alpha" })).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
+  expect(releaseQualification({ OMP_RELEASE_CHANNEL: "alpha" })).toBe(RELEASE_QUALIFICATIONS.alpha);
+  expect(RELEASE_QUALIFICATIONS["pre-alpha"]).toStartWith("pre-alpha;");
+  expect(RELEASE_QUALIFICATIONS.alpha).toStartWith("qualified alpha;");
+  expect(RELEASE_QUALIFICATIONS.alpha).toContain("not beta, stable, or production-qualified");
+
+  // An empty, spelled-differently, or not-yet-earned channel is a broken caller, and `toString`,
+  // `__proto__`, and `constructor` all resolve to `Object.prototype` members under a plain lookup.
+  // Every one of them must refuse the build rather than record a claim nobody chose.
+  for (const injected of ["", " ", "beta", "stable", "Alpha", "pre-alpha ", "toString", "__proto__", "constructor"]) {
+    expect(() => releaseQualification({ OMP_RELEASE_CHANNEL: injected })).toThrow(
+      /^OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha: /,
+    );
+  }
+});
+
+test(
+  "the release channel decides only the recorded qualification, and an unknown one fails the build",
+  async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-release-channel-"));
+    const infoPath = `omp-session-gateway-${PRODUCT_VERSION}-bun/release-info.json`;
+    try {
+      const candidate = await runReleaseBuilder(join(temporaryRoot, "candidate"));
+      const alpha = await runReleaseBuilder(join(temporaryRoot, "alpha"), { OMP_RELEASE_CHANNEL: "alpha" });
+      const candidateEntries = tarEntries(await readFile(candidate.archivePath));
+      const alphaEntries = tarEntries(await readFile(alpha.archivePath));
+      const qualificationOf = (entries: Map<string, Buffer>): unknown => {
+        const info: unknown = JSON.parse(entries.get(infoPath)?.toString("utf8") ?? "{}");
+        if (info === null || typeof info !== "object" || !("qualification" in info)) return undefined;
+        return info.qualification;
+      };
+
+      expect(qualificationOf(candidateEntries)).toBe(RELEASE_QUALIFICATIONS["pre-alpha"]);
+      expect(qualificationOf(alphaEntries)).toBe(RELEASE_QUALIFICATIONS.alpha);
+      // Promotion may move that one sentence and nothing else: same paths, same bytes everywhere
+      // else, and an SBOM that is not a function of the channel at all.
+      expect([...alphaEntries.keys()]).toEqual([...candidateEntries.keys()]);
+      expect(
+        [...alphaEntries]
+          .filter(([path, content]) => !content.equals(candidateEntries.get(path) ?? Buffer.alloc(0)))
+          .map(([path]) => path),
+      ).toEqual([infoPath]);
+      expect((await readFile(alpha.sbomPath)).equals(await readFile(candidate.sbomPath))).toBe(true);
+
+      await expect(
+        runReleaseBuilder(join(temporaryRoot, "refused"), { OMP_RELEASE_CHANNEL: "beta" }),
+      ).rejects.toThrow(/OMP_RELEASE_CHANNEL must be one of pre-alpha, alpha: "beta"/);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+  30_000,
 );

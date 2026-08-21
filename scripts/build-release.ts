@@ -376,6 +376,53 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
   if (status.length > 0) throw new Error("release builds require a clean Git checkout");
 }
 
+/**
+ * The qualification recorded in `release-info.json`, keyed by release channel.
+ *
+ * `release.yml` validates the tag shape and exports exactly one of these keys as
+ * `OMP_RELEASE_CHANNEL`; the claims themselves live here so that a tag can select a claim but
+ * never write one. `pre-alpha` covers both the `-prealpha.<n>` candidates and the
+ * `provenance-test-v…` exercises, which are unadvertised engineering artifacts. `alpha` names the
+ * support boundary rather than restating it, because that boundary moves per tag and this file
+ * does not. There is deliberately no beta or stable entry while those gates are open; adding one
+ * requires accepting its tag shape in `release.yml` first.
+ */
+export const RELEASE_QUALIFICATIONS = {
+  "pre-alpha": "pre-alpha; cross-OS and real Android acceptance not yet completed",
+  alpha:
+    "qualified alpha; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit; not beta, stable, or production-qualified",
+} as const;
+
+export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;
+
+/**
+ * Resolve the recorded qualification from the build environment.
+ *
+ * An unset channel is a local or untagged build and takes the conservative pre-alpha claim, which
+ * also keeps a developer rebuild of a pre-alpha tag byte-identical to the published archive. A
+ * rebuild of an alpha tag must therefore pass `OMP_RELEASE_CHANNEL=alpha` alongside `GITHUB_SHA`
+ * and `SOURCE_DATE_EPOCH` to reproduce those bytes.
+ *
+ * Every other value fails the build instead of shipping an unintended or missing claim: an empty
+ * string from a broken workflow expression, an unknown channel, and inherited property names such
+ * as `toString` or `__proto__` are all refused. That last case is why this is `Object.hasOwn`
+ * rather than a lookup with a fallback: a plain index resolves those names to `Object.prototype`
+ * members, which `JSON.stringify` then writes as `{}` or drops entirely instead of recording a
+ * claim.
+ */
+export function releaseQualification(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const channel = environment.OMP_RELEASE_CHANNEL;
+  if (channel === undefined) return RELEASE_QUALIFICATIONS["pre-alpha"];
+  if (!Object.hasOwn(RELEASE_QUALIFICATIONS, channel)) {
+    throw new Error(
+      `OMP_RELEASE_CHANNEL must be one of ${Object.keys(RELEASE_QUALIFICATIONS).join(", ")}: ${JSON.stringify(channel)}`,
+    );
+  }
+  return RELEASE_QUALIFICATIONS[channel as ReleaseChannel];
+}
+
 export function createSpdxSbom(
   lock: BunLockfile,
   source: ReleaseSource,
@@ -545,6 +592,8 @@ async function archiveFiles(directory: string): Promise<ArchiveFile[]> {
 }
 
 async function buildRelease(): Promise<void> {
+  // Resolved before anything is read or written so an unknown channel fails the build immediately.
+  const qualification = releaseQualification();
   const releaseDirectory = process.env.RELEASE_OUTPUT_DIR ?? defaultReleaseRoot;
   const lockText = await Bun.file(join(root, "bun.lock")).text();
   const lock = Bun.JSONC.parse(lockText) as BunLockfile;
@@ -645,7 +694,7 @@ async function buildRelease(): Promise<void> {
           sourceCreated: source.created,
           upstreamCommit: upstream.commit,
           bunLockSha256: lockSha256,
-          qualification: "pre-alpha; cross-OS and real Android acceptance not yet completed",
+          qualification,
         },
         null,
         2,
