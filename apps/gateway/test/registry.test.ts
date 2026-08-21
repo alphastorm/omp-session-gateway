@@ -171,4 +171,118 @@ describe("SessionRegistry", () => {
     registry.upsert("owner-a", published());
     expect(() => registry.upsert("owner-a", published(1, { sessionId: "different" }))).toThrow("identity conflict");
   });
+
+  test("admits a subscriber atomically when snapshot delivery mutates the registry", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.upsert("owner-a", published(1));
+    const observed: SessionEvent[] = [];
+    let reentered = false;
+    const unsubscribe = registry.subscribeWithSnapshot(event => {
+      observed.push(event);
+      if (event.type !== "snapshot" || reentered) return;
+      reentered = true;
+      // Lands after the snapshot was read but before admission completes: exactly the window a
+      // snapshot-then-subscribe handshake drops a revision into.
+      registry.upsert("owner-a", published(2));
+    });
+    registry.upsert("owner-a", published(3));
+    unsubscribe();
+    registry.upsert("owner-a", published(4));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["snapshot", 1],
+      ["session_upsert", 2],
+      ["session_upsert", 3],
+    ]);
+    expect(observed[0]).toMatchObject({ sessions: [{ generation: 1 }] });
+    expect(registry.snapshot().sessions[0]?.generation).toBe(4);
+  });
+
+  test("drops admission-buffered revisions the snapshot already represents", () => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    registry.upsert("owner-a", published(1));
+    clock.advance(35_000);
+
+    const observed: SessionEvent[] = [];
+    // Admission sweeps the expired record while the listener is already registered, yet that removal
+    // is folded into the snapshot revision; replaying it would repeat revision 2.
+    registry.subscribeWithSnapshot(event => observed.push(event));
+    registry.upsert("owner-a", published(1));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["snapshot", 2],
+      ["session_upsert", 3],
+    ]);
+    expect(observed[0]).toMatchObject({ sessions: [] });
+  });
+
+  test("keeps revisions increasing for every listener when one mutates during dispatch", () => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0002" }));
+    clock.advance(35_000);
+
+    // Mirrors the push service: a listener that reads the directory sweeps it, producing a newer
+    // revision from inside the dispatch of an older one.
+    registry.subscribe(() => {
+      registry.snapshot();
+    });
+    const observed: SessionEvent[] = [];
+    registry.subscribe(event => observed.push(event));
+    registry.upsert("owner-a", published(1));
+
+    expect(observed.map(event => [event.type, event.revision])).toEqual([
+      ["session_upsert", 2],
+      ["session_remove", 3],
+    ]);
+  });
+
+  test("reports observer failure after delivering queued revisions to every healthy listener", () => {
+    const errors: unknown[] = [];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      onListenerError: error => errors.push(error),
+    });
+    const first: number[] = [];
+    const third: number[] = [];
+    registry.subscribe(event => first.push(event.revision));
+    registry.subscribe(event => {
+      if (event.type !== "session_upsert" || event.revision !== 1) return;
+      registry.upsert("owner-a", published(2));
+      throw new Error("observer failed");
+    });
+    registry.subscribe(event => third.push(event.revision));
+
+    registry.upsert("owner-a", published(1));
+
+    expect(first).toEqual([1, 2]);
+    expect(third).toEqual([1, 2]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(Error);
+    expect((errors[0] as Error).message).toBe("observer failed");
+    expect(registry.snapshot().sessions[0]?.generation).toBe(2);
+  });
+
+  test("revokes every owned capability when a removal observer fails", () => {
+    const errors: unknown[] = [];
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      onListenerError: error => errors.push(error),
+    });
+    registry.subscribe(event => {
+      if (event.type === "session_remove") throw new Error("remove observer failed");
+    });
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0001" }));
+    registry.upsert("owner-a", published(1, { instanceId: "registry-instance-0002" }));
+
+    expect(registry.removeOwner("owner-a")).toBe(2);
+
+    expect(registry.size).toBe(0);
+    expect(registry.lookupCapability("registry-instance-0001", 1, "control").status).toBe("missing");
+    expect(registry.lookupCapability("registry-instance-0002", 1, "control").status).toBe("missing");
+    expect(errors).toHaveLength(2);
+  });
 });

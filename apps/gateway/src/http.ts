@@ -153,6 +153,10 @@ const SSE_KEEPALIVE_MS = 5_000;
  * be evaluated once and never again, so a stream admitted while identity trust was sound would keep
  * delivering the session directory after the topology stopped justifying it. The keepalive is
  * already the stream's liveness tick, so this adds a predicate read rather than a timer.
+ *
+ * Admission goes through `subscribeWithSnapshot` so the snapshot and the live subscription are one
+ * step: a revision landing mid-handshake is replayed in order rather than lost, and teardown is
+ * reachable from the first frame onward instead of only after the subscription is assigned.
  */
 function eventStream(
   registry: SessionRegistry,
@@ -162,36 +166,62 @@ function eventStream(
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+  const release = (): void => {
+    closed = true;
+    unsubscribe?.();
+    unsubscribe = undefined;
+    clearInterval(keepalive);
+    keepalive = undefined;
+  };
   const stream = new ReadableStream<Uint8Array>(
     {
       start(controller) {
-        const send = (event: SessionEvent): void => {
-          if ((controller.desiredSize ?? 1) < -32) {
+        const close = (): void => {
+          release();
+          try {
             controller.close();
-            unsubscribe?.();
-            clearInterval(keepalive);
+          } catch {
+            // The peer may have errored the stream before Bun delivered cancel().
+          }
+        };
+        const send = (event: SessionEvent): void => {
+          if (closed) return;
+          if ((controller.desiredSize ?? 1) < -32) {
+            close();
             return;
           }
-          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+          try {
+            controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+          } catch {
+            release();
+          }
         };
-        const snapshot = registry.snapshot();
-        send({ type: "snapshot", revision: snapshot.revision, sessions: snapshot.sessions });
-        unsubscribe = registry.subscribe(send);
+        const dispose = registry.subscribeWithSnapshot(send);
+        // A stream abandoned during admission has no subscription handle to revoke yet, so revoke the
+        // one admission just returned instead of leaving the listener attached to the registry.
+        if (closed) {
+          dispose();
+          return;
+        }
+        unsubscribe = dispose;
         keepalive = setInterval(() => {
+          if (closed) return;
           if (!stillAuthorized()) {
-            controller.close();
-            unsubscribe?.();
-            clearInterval(keepalive);
+            close();
             return;
           }
           if ((controller.desiredSize ?? 1) >= -32) {
-            controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+            try {
+              controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+            } catch {
+              release();
+            }
           }
         }, keepaliveMs);
       },
       cancel() {
-        unsubscribe?.();
-        clearInterval(keepalive);
+        release();
       },
     },
     { highWaterMark: 32 },
@@ -216,6 +246,8 @@ export function createHttpHandler(options: {
   readonly readinessToken?: string;
   readonly readinessInstance?: string;
   readonly sseKeepaliveMs?: number;
+  /** Supplies wall-clock time for deterministic rate-window enforcement. */
+  readonly now?: () => number;
   /**
    * Reports whether the registry rendezvous point is still reachable by publishers. A daemon whose
    * socket path was removed underneath it keeps serving HTTP while no session can ever register, so
@@ -230,7 +262,11 @@ export function createHttpHandler(options: {
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets } = options;
   const logger = options.logger ?? new SafeLogger();
-  const limiter = new LaunchRateLimiter();
+  const identityCapacity = config.auth.mode === "dev-localhost" ? 1 : config.auth.allowedLogins.length;
+  // Each admitted identity can own exactly two keys (`launch` and `push`), so configured identities
+  // can never deny one another merely by filling the bounded map.
+  const limiter = new LaunchRateLimiter(20, 60_000, Math.max(2, identityCapacity * 2));
+  const now = options.now ?? Date.now;
   const tailnetPresent = options.tailnetPresent ?? createTailnetPresenceProbe();
   // `tailscale-serve` mode trusts an identity header from any loopback peer, which is only sound
   // while Serve is the sole way in. Configuration may declare that no tailnet reaches this host at
@@ -329,7 +365,7 @@ export function createHttpHandler(options: {
       if (request.headers.get("Content-Type")?.toLowerCase() !== "application/json") {
         return problem(415, "unsupported_media_type", "Expected application/json");
       }
-      if (!limiter.allow(`${authorization.identityKey}\0push`)) {
+      if (!limiter.allow(`${authorization.identityKey}\0push`, now())) {
         return problem(429, "rate_limited", "Too many requests");
       }
       let body: unknown;
@@ -393,7 +429,7 @@ export function createHttpHandler(options: {
       } catch {
         return problem(400, "bad_request", "Invalid request");
       }
-      if (!limiter.allow(`${authorization.identityKey}\0${instanceId}`)) {
+      if (!limiter.allow(`${authorization.identityKey}\0launch`, now())) {
         return problem(429, "rate_limited", "Too many requests");
       }
       const lookup = registry.lookupCapability(

@@ -20,6 +20,7 @@ export interface RegistryOptions {
   readonly maxSessions: number;
   readonly clock?: RegistryClock;
   readonly requestIdFactory?: () => string;
+  readonly onListenerError?: (error: unknown) => void;
 }
 
 interface InternalMetadataRecord {
@@ -50,10 +51,14 @@ export class SessionRegistry {
   readonly #metadata = new Map<string, InternalMetadataRecord>();
   readonly #secrets = new Map<string, SecretSessionRecord>();
   readonly #listeners = new Set<(event: SessionEvent) => void>();
+  readonly #pending: SessionEvent[] = [];
   readonly #ttlMs: number;
   readonly #maxSessions: number;
   readonly #clock: RegistryClock;
   readonly #requestIdFactory: () => string;
+  readonly #onListenerError: (error: unknown) => void;
+  #pendingHead = 0;
+  #dispatching = false;
   #revision = 0;
 
   constructor(options: RegistryOptions) {
@@ -63,6 +68,7 @@ export class SessionRegistry {
     this.#maxSessions = options.maxSessions;
     this.#clock = options.clock ?? systemClock;
     this.#requestIdFactory = options.requestIdFactory ?? randomUUID;
+    this.#onListenerError = options.onListenerError ?? (() => undefined);
   }
 
   get revision(): number {
@@ -88,6 +94,50 @@ export class SessionRegistry {
     return () => {
       this.#listeners.delete(listener);
     };
+  }
+
+  /**
+   * Atomic admission: the listener is registered before the snapshot is observed, so a mutation that
+   * races the handshake — including one the listener itself causes while reading the snapshot — is
+   * buffered instead of falling into the gap between reading the directory and subscribing to it.
+   * Buffered revisions at or below the snapshot revision are already represented by the snapshot and
+   * are dropped; every newer one is replayed in order before the subscription goes live, so the
+   * listener observes exactly one snapshot followed by strictly increasing revisions.
+   */
+  subscribeWithSnapshot(listener: (event: SessionEvent) => void): () => void {
+    const buffered: SessionEvent[] = [];
+    let snapshotRevision = -1;
+    let live = false;
+    const gate = (event: SessionEvent): void => {
+      if (!live) {
+        buffered.push(event);
+        return;
+      }
+      // Still filtered once live: admission can complete inside an in-flight dispatch that has yet to
+      // reach this listener, and that event is already folded into the snapshot.
+      if (event.revision > snapshotRevision) listener(event);
+    };
+    this.#listeners.add(gate);
+    const unsubscribe = (): void => {
+      this.#listeners.delete(gate);
+    };
+    try {
+      const snapshot = this.snapshot();
+      snapshotRevision = snapshot.revision;
+      listener({ type: "snapshot", revision: snapshot.revision, sessions: snapshot.sessions });
+      // Indexed rather than shifted: the gate keeps appending while this drains, and those late
+      // arrivals belong at the tail of the same ordered replay.
+      for (let index = 0; index < buffered.length; index += 1) {
+        const event = buffered[index] as SessionEvent;
+        if (event.revision > snapshotRevision) listener(event);
+      }
+      live = true;
+    } catch (error) {
+      // A throwing listener must not leave its admission wrapper registered on the registry.
+      unsubscribe();
+      throw error;
+    }
+    return unsubscribe;
   }
 
   upsert(ownerId: string, input: PublishedSessionInput): UpsertResult {
@@ -196,7 +246,38 @@ export class SessionRegistry {
     this.#emit({ type: "session_remove", revision: this.#revision, instanceId, generation });
   }
 
+  /**
+   * Dispatch is serialized. A listener is free to mutate the registry — `PushService` does so
+   * indirectly by sweeping through `snapshot()` — and delivering that nested revision inline would
+   * hand it to every listener the outer loop has not reached yet, ahead of the older revision they
+   * are still owed. Queueing keeps delivery in strictly increasing revision order for all listeners.
+   */
   #emit(event: SessionEvent): void {
-    for (const listener of this.#listeners) listener(event);
+    this.#pending.push(event);
+    if (this.#dispatching) return;
+    this.#dispatching = true;
+    try {
+      while (this.#pendingHead < this.#pending.length) {
+        const next = this.#pending[this.#pendingHead] as SessionEvent;
+        this.#pendingHead += 1;
+        for (const listener of this.#listeners) {
+          try {
+            listener(next);
+          } catch (error) {
+            // Observers do not own registry state. Report the fault without letting one callback
+            // interrupt capability revocation or starve the remaining observers.
+            try {
+              this.#onListenerError(error);
+            } catch {
+              // Error reporting is an observer too and must not become a mutation dependency.
+            }
+          }
+        }
+      }
+    } finally {
+      this.#pending.splice(0, this.#pendingHead);
+      this.#pendingHead = 0;
+      this.#dispatching = false;
+    }
   }
 }

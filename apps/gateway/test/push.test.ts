@@ -6,6 +6,7 @@ import {
   PUSH_API_VERSION,
   type BrowserPushSubscription,
   type PublishedSessionInput,
+  type PushSubscriptionKeys,
   parseAttentionPushMessage,
   parsePushSubscriptionRequest,
 } from "@omp-session-gateway/protocol";
@@ -15,11 +16,28 @@ import { PushService, type PushTransport } from "../src/push.ts";
 import { SessionRegistry } from "../src/registry.ts";
 
 const endpoint = "https://push.example.test/send/device-subscription";
+const previousKeys: PushSubscriptionKeys = { p256dh: "P".repeat(88), auth: "A".repeat(22) };
+const renewedKeys: PushSubscriptionKeys = { p256dh: "Q".repeat(88), auth: "B".repeat(22) };
 const subscription: BrowserPushSubscription = {
   endpoint,
   expirationTime: null,
-  keys: { p256dh: "P".repeat(88), auth: "A".repeat(22) },
+  keys: previousKeys,
 };
+
+/** Names a device by its key pair so a failed expectation never prints transport key material. */
+function keyLabel(keys: PushSubscriptionKeys): string {
+  if (keys.p256dh === previousKeys.p256dh && keys.auth === previousKeys.auth) return "previous";
+  if (keys.p256dh === renewedKeys.p256dh && keys.auth === renewedKeys.auth) return "renewed";
+  return "unrecognized";
+}
+
+function pushError(status: number): Error {
+  const error = new Error("push service rejected request");
+  Object.defineProperty(error, "statusCode", { value: status });
+  return error;
+}
+
+type SettleSend = (error?: unknown) => void;
 
 function config(root: string): GatewayConfig {
   return {
@@ -66,6 +84,18 @@ class RecordingTransport implements PushTransport {
     };
   }> = [];
   statusCode: number | undefined;
+  blockWhen: ((subscription: BrowserPushSubscription) => boolean) | undefined;
+  readonly #gates: SettleSend[] = [];
+  readonly #waiters: Array<(settle: SettleSend) => void> = [];
+
+  /** Resolves with the gate of the next blocked send, awaiting that signal instead of a timer. */
+  nextBlockedSend(): Promise<SettleSend> {
+    const ready = this.#gates.shift();
+    if (ready !== undefined) return Promise.resolve(ready);
+    const { promise, resolve } = Promise.withResolvers<SettleSend>();
+    this.#waiters.push(resolve);
+    return promise;
+  }
 
   async send(
     pushSubscription: BrowserPushSubscription,
@@ -79,11 +109,19 @@ class RecordingTransport implements PushTransport {
     },
   ): Promise<void> {
     this.calls.push({ subscription: pushSubscription, payload, options });
-    if (this.statusCode !== undefined) {
-      const error = new Error("push service rejected request");
-      Object.defineProperty(error, "statusCode", { value: this.statusCode });
-      throw error;
+    if (this.blockWhen?.(pushSubscription) === true) {
+      const { promise, resolve, reject } = Promise.withResolvers<void>();
+      const settle: SettleSend = error => {
+        if (error === undefined) resolve();
+        else reject(error);
+      };
+      const waiter = this.#waiters.shift();
+      if (waiter === undefined) this.#gates.push(settle);
+      else waiter(settle);
+      await promise;
+      return;
     }
+    if (this.statusCode !== undefined) throw pushError(this.statusCode);
   }
 }
 
@@ -211,5 +249,70 @@ describe("Web Push service", () => {
     expect(lines.join("\n")).not.toContain(endpoint);
     expect(lines.join("\n")).not.toContain("CONTENT_CANARY");
     expect(lines.join("\n")).not.toContain("CAPABILITY_CANARY");
+  });
+
+  test("keeps a renewed subscription when the in-flight send for the replaced keys is gone", async () => {
+    const root = await createRoot();
+    const gatewayConfig = config(root);
+    const statePath = join(gatewayConfig.paths.stateDir, "push-state.json");
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const lines: string[] = [];
+    const logger = new SafeLogger({ write(line): void { lines.push(line); } });
+    const service = await PushService.open({ config: gatewayConfig, registry, transport, logger });
+    const subscribeWith = async (keys: PushSubscriptionKeys): Promise<void> => {
+      await service.subscribe(
+        "dev-localhost",
+        parsePushSubscriptionRequest({
+          version: PUSH_API_VERSION,
+          detailLevel: "private",
+          subscription: { endpoint, expirationTime: null, keys: { ...keys } },
+        }),
+      );
+    };
+    const storedLabels = async (): Promise<readonly string[]> => {
+      const state = JSON.parse(await readFile(statePath, "utf8")) as {
+        readonly subscriptions: readonly { readonly keys: PushSubscriptionKeys }[];
+      };
+      return state.subscriptions.map(entry => keyLabel(entry.keys));
+    };
+
+    await subscribeWith(previousKeys);
+    transport.blockWhen = candidate => keyLabel(candidate.keys) === "previous";
+
+    const blockedSend = transport.nextBlockedSend();
+    registry.upsert("owner", published(true));
+    const settleBlockedSend = await blockedSend;
+    expect(transport.calls.map(call => keyLabel(call.subscription.keys))).toEqual(["previous"]);
+
+    await subscribeWith(renewedKeys);
+    expect(await storedLabels()).toEqual(["renewed"]);
+    expect(transport.calls).toHaveLength(1);
+
+    transport.blockWhen = undefined;
+    settleBlockedSend(pushError(410));
+    await service.flush();
+
+    expect(await storedLabels()).toEqual(["renewed"]);
+
+    const deliveredBeforeClear = transport.calls.length;
+    registry.upsert("owner", published(false));
+    await service.flush();
+    const afterRenewal = transport.calls.slice(deliveredBeforeClear);
+    expect(afterRenewal.map(call => keyLabel(call.subscription.keys))).toEqual(["renewed"]);
+    expect(afterRenewal.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual(["clear"]);
+
+    transport.statusCode = 410;
+    registry.upsert("owner", published(true));
+    await service.flush();
+    expect(await storedLabels()).toEqual([]);
+
+    await service.stop();
+    const log = lines.join("\n");
+    expect(log).not.toContain(endpoint);
+    expect(log).not.toContain(previousKeys.auth);
+    expect(log).not.toContain(renewedKeys.auth);
+    expect(log).not.toContain(previousKeys.p256dh);
+    expect(log).not.toContain(renewedKeys.p256dh);
   });
 });

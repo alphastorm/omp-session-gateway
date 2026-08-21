@@ -1,9 +1,17 @@
-import { describe, expect, test } from "bun:test";
-import { statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve, sep } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, statSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { GatewayConfig } from "../src/config.ts";
-import { serviceDefinition, serviceProgramBelongsTo } from "../src/service.ts";
+import {
+  installUserService,
+  serviceDefinition,
+  type ServiceHost,
+  serviceProgramBelongsTo,
+  stopUserService,
+  uninstallUserService,
+} from "../src/service.ts";
 
 const config: GatewayConfig = {
   http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
@@ -234,8 +242,8 @@ describe("service packaging", () => {
  * which took the active branch and booted out the production daemon.
  */
 describe("loaded service ownership", () => {
-  // Build fixtures with the host separator: the predicate compares against `stateDir + sep`, so a
-  // hard-coded POSIX fixture would vacuously fail on Windows and pass for the wrong reason on macOS.
+  // Use the host separator for ordinary manager output. A separate fixture below proves serialized
+  // definitions remain recognizable when their path syntax differs from the runner's.
   const stateDir = join(sep, "Users", "example", ".local", "state", "omp-session-gateway");
   const installedCli = join(stateDir, "installation", "versions", "0.1.0-77e3a6914cea", "apps", "gateway", "src", "cli.js");
   const otherRoot = join(sep, "tmp", "smoke.abc123", "state", "omp-session-gateway");
@@ -270,6 +278,14 @@ describe("loaded service ownership", () => {
     const execStart = `{ path=/usr/bin/bun ; argv[]=/usr/bin/bun ${installedCli} serve ; ignore_errors=no }`;
     expect(serviceProgramBelongsTo(execStart, stateDir)).toBe(true);
     expect(serviceProgramBelongsTo(execStart, otherRoot)).toBe(false);
+  });
+
+  test("recognizes a JSON-escaped Windows path in a systemd definition on every runner", () => {
+    const windowsState = String.raw`C:\Users\example\AppData\Local\omp-session-gateway`;
+    const windowsCli = String.raw`${windowsState}\installation\versions\0.1.0-test\apps\gateway\src\cli.js`;
+    const definition = `ExecStart=${JSON.stringify(windowsCli)}`;
+    expect(serviceProgramBelongsTo(definition, windowsState)).toBe(true);
+    expect(serviceProgramBelongsTo(definition, `${windowsState}-2`)).toBe(false);
   });
 
   test("disclaims a root whose name is a prefix of an unrelated directory's name", () => {
@@ -600,5 +616,578 @@ describe("unsupported platforms", () => {
     expect(() => serviceDefinition(config, "sunos", installedCliPath, "short")).toThrow(
       "invalid service readiness instance",
     );
+  });
+});
+
+interface FakeCommandResult {
+  readonly ok: boolean;
+  readonly stdout?: string;
+}
+
+interface FakeManager {
+  readonly host: ServiceHost;
+  /** Every command the flow issued, in order. */
+  readonly commands: readonly (readonly string[])[];
+  /** What the manager would execute for the label, and whether it is running it. */
+  readonly state: { program: string | undefined; running: boolean };
+}
+
+/** The manager verbs that change machine state; a refusal must have issued none of them. */
+const mutatingVerbs = new Set([
+  "daemon-reload",
+  "enable",
+  "disable",
+  "start",
+  "restart",
+  "stop",
+  "bootout",
+  "bootstrap",
+  "/Create",
+  "/Run",
+  "/End",
+  "/Delete",
+]);
+
+function mutations(commands: readonly (readonly string[])[]): readonly string[] {
+  return commands.filter(command => command.some(token => mutatingVerbs.has(token))).map(command => command.join(" "));
+}
+
+/**
+ * A service manager that answers from state instead of from the machine running the suite.
+ *
+ * `program` is what it would execute for the gateway's label — the one piece of a manager's identity
+ * that carries the install root — and undefined means nothing holds the label. `running` is separate
+ * on purpose: systemd loads units it never started and Task Scheduler holds idle tasks, and both are
+ * as destructible as a running one. Queries are answered from that state and mutations apply to it,
+ * `adopts` being the program the definition under installation names. An unmodelled command throws
+ * rather than reporting a plausible success.
+ */
+function fakeManager(
+  platform: ServiceHost["platform"],
+  initial: {
+    readonly program?: string;
+    readonly running?: boolean;
+    readonly adopts?: string;
+    readonly homeDirectory?: string;
+  } = {},
+): FakeManager {
+  const state = { program: initial.program, running: initial.running ?? false };
+  const commands: string[][] = [];
+  const uid = process.getuid?.() ?? 0;
+  const unit = "omp-session-gateway.service";
+  const task = "OMP Session Gateway";
+  const target = `gui/${uid}/omp-session-gateway`;
+  /** The manager's own rendering of the program it holds, in the shape the real one prints. */
+  const rendered = (program: string): string => {
+    if (platform === "linux") {
+      return `{ path=${process.execPath} ; argv[]=${process.execPath} ${program} serve ; ignore_errors=no }\n`;
+    }
+    if (platform === "darwin") {
+      return `${target} = {\n\tprogram = ${process.execPath}\n\targuments = {\n\t\t${process.execPath}\n\t\t${program}\n\t\tserve\n\t}\n}\n`;
+    }
+    return `<Task version="1.4">\n  <Actions Context="Author"><Exec><Command>${process.execPath}</Command><Arguments>&quot;${program}&quot; &quot;serve&quot;</Arguments></Exec></Actions>\n</Task>\n`;
+  };
+  const answer = (command: readonly string[]): FakeCommandResult => {
+    const is = (...tokens: readonly string[]): boolean =>
+      command.length === tokens.length && tokens.every((token, index) => command[index] === token);
+    if (is("systemctl", "--user", "show", "-p", "ExecStart", "--value", unit)) {
+      // systemctl exits zero for a unit it does not know and prints an empty value for it.
+      return { ok: true, stdout: state.program === undefined ? "\n" : rendered(state.program) };
+    }
+    if (is("systemctl", "--user", "is-active", unit)) return { ok: state.running };
+    if (is("systemctl", "--user", "is-enabled", unit)) return { ok: state.program !== undefined };
+    if (is("systemctl", "--user", "daemon-reload")) {
+      // Reloading is where the manager adopts the unit file the caller just wrote.
+      if (initial.adopts !== undefined) state.program = initial.adopts;
+      return { ok: true };
+    }
+    if (is("systemctl", "--user", "enable", unit)) return { ok: state.program !== undefined };
+    if (is("systemctl", "--user", "start", unit) || is("systemctl", "--user", "restart", unit)) {
+      state.running = state.program !== undefined;
+      return { ok: state.program !== undefined };
+    }
+    if (is("systemctl", "--user", "stop", unit)) {
+      state.running = false;
+      return { ok: true };
+    }
+    if (is("systemctl", "--user", "disable", "--now", unit) || is("systemctl", "--user", "disable", unit)) {
+      if (command.includes("--now")) state.running = false;
+      state.program = undefined;
+      return { ok: true };
+    }
+    if (is("launchctl", "print", `gui/${uid}`)) return { ok: true };
+    if (is("launchctl", "print", target)) {
+      return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
+    }
+    if (is("launchctl", "bootout", target)) {
+      state.program = undefined;
+      state.running = false;
+      return { ok: true };
+    }
+    if (command[0] === "launchctl" && command[1] === "bootstrap") {
+      state.program = initial.adopts;
+      state.running = initial.adopts !== undefined;
+      return { ok: true };
+    }
+    // `Get-ScheduledTask -ErrorAction Stop` fails outright when no task carries the name.
+    if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
+    if (is("schtasks.exe", "/Query")) return { ok: true };
+    if (is("schtasks.exe", "/Query", "/TN", task, "/XML")) {
+      return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
+    }
+    if (is("schtasks.exe", "/Query", "/TN", task)) return { ok: state.program !== undefined };
+    if (is("schtasks.exe", "/End", "/TN", task)) {
+      state.running = false;
+      return { ok: true };
+    }
+    if (command[0] === "schtasks.exe" && command[1] === "/Create") {
+      state.program = initial.adopts;
+      return { ok: true };
+    }
+    if (is("schtasks.exe", "/Run", "/TN", task)) {
+      state.running = state.program !== undefined;
+      return { ok: state.program !== undefined };
+    }
+    if (is("schtasks.exe", "/Delete", "/TN", task, "/F")) {
+      state.program = undefined;
+      state.running = false;
+      return { ok: true };
+    }
+    throw new Error(`fake service manager received an unmodelled command: ${command.join(" ")}`);
+  };
+  const record = (command: readonly string[]): FakeCommandResult => {
+    commands.push([...command]);
+    return answer(command);
+  };
+  return {
+    state,
+    commands,
+    host: {
+      platform,
+      ...(initial.homeDirectory === undefined ? {} : { homeDirectory: initial.homeDirectory }),
+      output: async command => {
+        const result = record(command);
+        return result.ok ? (result.stdout ?? "") : undefined;
+      },
+      succeeds: async command => record(command).ok,
+      run: async command => {
+        if (!record(command).ok) throw new Error(`${command[0] ?? "service command"} failed`);
+      },
+    },
+  };
+}
+
+/** The staged program a definition names: `install` always roots it under the state directory. */
+function stagedProgram(stateDir: string, version: string): string {
+  return join(stateDir, "installation", "versions", version, "apps", "gateway", "src", "cli.js");
+}
+
+/**
+ * Regression for the rest of the 2026-08-19 outage class: the predicate above was wired into one
+ * platform and one moment.
+ *
+ * Ownership was consulted on macOS only, after the plist had already been written, and only when the
+ * install was activating. Linux gated it behind `is-active`, so a foreign unit systemd had loaded but
+ * never started was invisible and got reloaded, enabled and restarted; Windows gated it behind
+ * `State -eq 'Running'`, so an idle foreign task was invisible and got recreated. `installed` is
+ * label-scoped on both — `systemctl is-enabled`, `schtasks /Query` — so uninstall disabled, stopped
+ * and deleted a foreign service as well, and its closing `rm` removed a definition path two roots
+ * sharing a HOME compute identically.
+ *
+ * Producing a foreign holder for real means loading a service on the machine running the suite,
+ * which is the accident under test, so these drive the injected `ServiceHost` instead.
+ */
+describe("service ownership across install roots", () => {
+  const saved = { ...process.env };
+  const roots: string[] = [];
+
+  afterEach(async () => {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+    await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+  });
+
+  /**
+   * A throwaway install root with the XDG variables pointed into it, so the systemd definition path
+   * — which comes from `XDG_CONFIG_HOME` rather than from the config — lands inside it too.
+   */
+  async function isolatedRoot(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "gateway-service-"));
+    roots.push(root);
+    process.env.XDG_CONFIG_HOME = join(root, "config");
+    process.env.XDG_STATE_HOME = join(root, "state");
+    process.env.XDG_RUNTIME_DIR = join(root, "run");
+    return root;
+  }
+
+  function rootedConfig(root: string): GatewayConfig {
+    const configDir = join(root, "config", "omp-session-gateway");
+    return {
+      ...config,
+      paths: {
+        configDir,
+        stateDir: join(root, "state", "omp-session-gateway"),
+        runtimeDir: join(root, "run", "omp-session-gateway"),
+        socketPath: join(root, "run", "omp-session-gateway", "registry.sock"),
+        tokenPath: join(configDir, "publisher-token"),
+        configPath: join(configDir, "config.json"),
+      },
+    };
+  }
+
+  /** A program staged under a second install root on the same machine. */
+  function foreignProgram(root: string): string {
+    return stagedProgram(join(root, "other", "omp-session-gateway"), "0.1.0-f0f0f0f0f0f0");
+  }
+
+  test("refuses an unloaded foreign LaunchAgent definition before install or uninstall", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const homeDirectory = join(root, "home");
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("darwin", { homeDirectory });
+    const definition = serviceDefinition(target, "darwin", foreign, undefined, homeDirectory);
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+
+    await expect(
+      installUserService(target, false, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, manager.host),
+    ).rejects.toThrow("another gateway service already holds this launchd label from a different install root");
+    await expect(uninstallUserService(target, true, manager.host)).rejects.toThrow(
+      "another gateway service already holds this launchd label from a different install root",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(manager.state.program).toBeUndefined();
+  });
+
+  test("fails closed before file mutation when the systemd ownership query is unavailable", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("linux");
+    const host: ServiceHost = {
+      ...manager.host,
+      output: async command => {
+        await manager.host.output(command);
+        return undefined;
+      },
+    };
+    const definition = serviceDefinition(
+      target,
+      "linux",
+      stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+    );
+    await expect(stopUserService(target, host)).rejects.toThrow(
+      "cannot verify systemd user unit name ownership",
+    );
+
+    await expect(
+      installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, host),
+    ).rejects.toThrow("cannot verify systemd user unit name ownership");
+    expect(existsSync(dirname(definition.path))).toBe(false);
+
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+    await expect(uninstallUserService(target, true, host)).rejects.toThrow(
+      "cannot verify systemd user unit name ownership",
+    );
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(mutations(manager.commands)).toEqual([]);
+  });
+
+  test("refuses to install a definition that does not identify this state root", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("linux");
+    const definitionPath = serviceDefinition(target, "linux").path;
+
+    await expect(installUserService(target, false, undefined, undefined, manager.host)).rejects.toThrow(
+      "gateway service program must be staged under the configured state directory",
+    );
+
+    expect(existsSync(definitionPath)).toBe(false);
+    expect(mutations(manager.commands)).toEqual([]);
+  });
+
+  test("refuses a loaded but idle foreign systemd unit before writing or reloading anything", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const foreign = foreignProgram(root);
+    // Never started, so `is-active` reports nothing holds the label and `show` reports otherwise.
+    const manager = fakeManager("linux", { program: foreign, running: false });
+    const definitionPath = serviceDefinition(target, "linux").path;
+
+    await expect(
+      installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, manager.host),
+    ).rejects.toThrow("another gateway service already holds this systemd user unit name from a different install root");
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(existsSync(definitionPath)).toBe(false);
+    // Not even the directory: the refusal precedes the `mkdir`.
+    expect(existsSync(dirname(definitionPath))).toBe(false);
+    expect(manager.state.program).toBe(foreign);
+  });
+
+  test("refuses an idle foreign scheduled task before writing the definition or recreating it", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("win32", { program: foreign, running: false });
+    const definitionPath = serviceDefinition(target, "win32").path;
+
+    await expect(
+      installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, manager.host),
+    ).rejects.toThrow("another gateway service already holds this scheduled task name from a different install root");
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(existsSync(definitionPath)).toBe(false);
+    expect(existsSync(target.paths.configDir)).toBe(false);
+    expect(manager.state.program).toBe(foreign);
+  });
+
+  test("installs when nothing holds the systemd unit name", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const manager = fakeManager("linux", { adopts: program });
+
+    const definition = await installUserService(target, true, program, boundInstance, manager.host);
+
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    // A fake Linux manager does not give the Windows filesystem POSIX mode semantics; the native
+    // Linux job owns this permission assertion.
+    if (process.platform !== "win32") expect(statSync(definition.path).mode & 0o777).toBe(0o600);
+    expect(mutations(manager.commands)).toEqual([
+      "systemctl --user daemon-reload",
+      "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user start omp-session-gateway.service",
+    ]);
+    expect(manager.state.program).toBe(program);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("upgrades a unit this root already owns, starting it when systemd had it stopped", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const next = stagedProgram(target.paths.stateDir, "0.1.0-222222222222");
+    const manager = fakeManager("linux", {
+      program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+      running: false,
+      adopts: next,
+    });
+
+    const definition = await installUserService(target, true, next, boundInstance, manager.host);
+
+    expect(await readFile(definition.path, "utf8")).toBe(definition.content);
+    expect(mutations(manager.commands)).toEqual([
+      "systemctl --user daemon-reload",
+      "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user start omp-session-gateway.service",
+    ]);
+    expect(manager.state.program).toBe(next);
+  });
+
+  test("restarts instead of starting when the unit it replaces was already running", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const next = stagedProgram(target.paths.stateDir, "0.1.0-222222222222");
+    const manager = fakeManager("linux", {
+      program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+      running: true,
+      adopts: next,
+    });
+
+    await installUserService(target, true, next, boundInstance, manager.host);
+
+    expect(mutations(manager.commands)).toEqual([
+      "systemctl --user daemon-reload",
+      "systemctl --user enable omp-session-gateway.service",
+      "systemctl --user restart omp-session-gateway.service",
+    ]);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("creates and runs a task when nothing holds the task name", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const manager = fakeManager("win32", { adopts: program });
+
+    const definition = await installUserService(target, true, program, boundInstance, manager.host);
+
+    // UTF-16LE behind a hand-written BOM, which is the only encoding Task Scheduler loads.
+    const written = await readFile(definition.path);
+    expect([...written.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+    expect(written.subarray(2).toString("utf16le")).toBe(definition.content);
+    expect(mutations(manager.commands)).toEqual([
+      `schtasks.exe /Create /TN OMP Session Gateway /XML ${definition.path} /F`,
+      "schtasks.exe /Run /TN OMP Session Gateway",
+    ]);
+  });
+
+  test("stops, recreates and runs a task this root already owns", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const next = stagedProgram(target.paths.stateDir, "0.1.0-222222222222");
+    const manager = fakeManager("win32", {
+      program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+      running: true,
+      adopts: next,
+    });
+
+    const definition = await installUserService(target, true, next, boundInstance, manager.host);
+
+    expect(mutations(manager.commands)).toEqual([
+      "schtasks.exe /End /TN OMP Session Gateway",
+      `schtasks.exe /Create /TN OMP Session Gateway /XML ${definition.path} /F`,
+      "schtasks.exe /Run /TN OMP Session Gateway",
+    ]);
+    expect(manager.state.program).toBe(next);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("refuses to uninstall a foreign task, leaving its registration and definition alone", async () => {
+    // `installed` is the task *name*, so this branch reached `/End` and `/Delete` on a task another
+    // root owns, and the closing `rm` removed the definition both roots resolve to.
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("win32", { program: foreign, running: true });
+    const definitionPath = serviceDefinition(target, "win32").path;
+    await mkdir(dirname(definitionPath), { recursive: true, mode: 0o700 });
+    await writeFile(definitionPath, "definition owned by the other root\n");
+
+    await expect(uninstallUserService(target, true, manager.host)).rejects.toThrow(
+      "another gateway service already holds this scheduled task name from a different install root",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(await readFile(definitionPath, "utf8")).toBe("definition owned by the other root\n");
+    expect(manager.state.program).toBe(foreign);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("refuses to uninstall a foreign unit, leaving it enabled and its definition in place", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("linux", { program: foreign, running: true });
+    const definitionPath = serviceDefinition(target, "linux").path;
+    await mkdir(dirname(definitionPath), { recursive: true, mode: 0o700 });
+    await writeFile(definitionPath, "definition owned by the other root\n");
+
+    await expect(uninstallUserService(target, true, manager.host)).rejects.toThrow(
+      "another gateway service already holds this systemd user unit name from a different install root",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(await readFile(definitionPath, "utf8")).toBe("definition owned by the other root\n");
+    expect(manager.state.program).toBe(foreign);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("uninstalls a unit this root owns", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const manager = fakeManager("linux", { program, running: true });
+    const definition = serviceDefinition(target, "linux", program);
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+
+    await uninstallUserService(target, true, manager.host);
+
+    expect(mutations(manager.commands)).toEqual([
+      "systemctl --user disable --now omp-session-gateway.service",
+      "systemctl --user daemon-reload",
+    ]);
+    expect(existsSync(definition.path)).toBe(false);
+    expect(manager.state.program).toBeUndefined();
+    expect(manager.state.running).toBe(false);
+  });
+
+  test("preserves a definition another root writes after the manager mutation", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const foreignDefinition = serviceDefinition(target, "linux", foreignProgram(root));
+    const definition = serviceDefinition(target, "linux", program);
+    await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
+    await writeFile(definition.path, definition.content);
+    const manager = fakeManager("linux", { program, running: true });
+    const host: ServiceHost = {
+      ...manager.host,
+      run: async command => {
+        await manager.host.run(command);
+        if (command.includes("disable")) await writeFile(definition.path, foreignDefinition.content);
+      },
+    };
+
+    await expect(uninstallUserService(target, true, host)).rejects.toThrow(
+      "another gateway service already holds this systemd user unit name from a different install root",
+    );
+
+    expect(await readFile(definition.path, "utf8")).toBe(foreignDefinition.content);
+    expect(mutations(manager.commands)).toEqual(["systemctl --user disable --now omp-session-gateway.service"]);
+  });
+
+  test("leaves a running foreign task alone when asked to stop", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const foreign = foreignProgram(root);
+    const manager = fakeManager("win32", { program: foreign, running: true });
+
+    await expect(stopUserService(target, manager.host)).rejects.toThrow(
+      "another gateway service already holds this scheduled task name from a different install root",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("rechecks ownership when a task is replaced after the active-status probe", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("win32", {
+      program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+      running: true,
+    });
+    const foreign = foreignProgram(root);
+    let ownershipReads = 0;
+    const host: ServiceHost = {
+      ...manager.host,
+      output: async command => {
+        const rendered = await manager.host.output(command);
+        if (command[0] === "schtasks.exe" && command.includes("/XML")) {
+          ownershipReads += 1;
+          if (ownershipReads === 2) manager.state.program = foreign;
+        }
+        return rendered;
+      },
+    };
+
+    await expect(stopUserService(target, host)).rejects.toThrow(
+      "another gateway service already holds this scheduled task name from a different install root",
+    );
+
+    expect(ownershipReads).toBe(3);
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(manager.state.program).toBe(foreign);
+    expect(manager.state.running).toBe(true);
+  });
+
+  test("stops a running task this root owns", async () => {
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const manager = fakeManager("win32", {
+      program: stagedProgram(target.paths.stateDir, "0.1.0-111111111111"),
+      running: true,
+    });
+
+    await stopUserService(target, manager.host);
+
+    expect(mutations(manager.commands)).toEqual(["schtasks.exe /End /TN OMP Session Gateway"]);
+    expect(manager.state.running).toBe(false);
   });
 });

@@ -178,6 +178,24 @@ function statusCode(error: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
+/**
+ * A 404/410 condemns exactly the subscription that was sent, so stale cleanup compares the whole
+ * delivery target — owner identity, endpoint, expiry, and both transport keys — instead of the endpoint
+ * alone. A browser may renew a subscription while a delivery is still in flight, and that renewal reuses
+ * the endpoint with fresh keys; matching on the endpoint alone would let the obsolete failure delete the
+ * live record. `detailLevel` is a presentation preference rather than part of the target, so changing it
+ * never shields a dead endpoint from cleanup.
+ */
+function isSameDeliveryTarget(subscription: StoredPushSubscription, other: StoredPushSubscription): boolean {
+  return (
+    subscription.identityKey === other.identityKey &&
+    subscription.endpoint === other.endpoint &&
+    subscription.expirationTime === other.expirationTime &&
+    subscription.keys.p256dh === other.keys.p256dh &&
+    subscription.keys.auth === other.keys.auth
+  );
+}
+
 function sessionNotificationBody(session: SessionMetadata, detailLevel: PushDetailLevel): string | undefined {
   if (detailLevel === "private") return undefined;
   const labels = [session.title, session.cwdLabel].filter(
@@ -222,14 +240,7 @@ export class PushService {
     this.#subscriptions = options.state.subscriptions.filter(subscription =>
       subscription.expirationTime === null || subscription.expirationTime > Date.now(),
     );
-    for (const session of this.#registry.snapshot().sessions) {
-      this.#attention.set(session.instanceId, {
-        generation: session.generation,
-        ...(session.ask === undefined ? {} : { requestId: session.ask.requestId }),
-        active: session.inputRequired && session.canControl && session.ask !== undefined,
-      });
-    }
-    this.#unsubscribeRegistry = this.#registry.subscribe(event => this.#acceptRegistryEvent(event));
+    this.#unsubscribeRegistry = this.#registry.subscribeWithSnapshot(event => this.#acceptRegistryEvent(event));
   }
 
   static async open(options: {
@@ -312,7 +323,18 @@ export class PushService {
   }
 
   #acceptRegistryEvent(event: SessionEvent): void {
-    if (this.#stopped || event.type === "snapshot") return;
+    if (this.#stopped) return;
+    if (event.type === "snapshot") {
+      this.#attention.clear();
+      for (const session of event.sessions) {
+        this.#attention.set(session.instanceId, {
+          generation: session.generation,
+          ...(session.ask === undefined ? {} : { requestId: session.ask.requestId }),
+          active: session.inputRequired && session.canControl && session.ask !== undefined,
+        });
+      }
+      return;
+    }
     if (event.type === "session_remove") {
       const previous = this.#attention.get(event.instanceId);
       if (previous?.generation !== event.generation) return;
@@ -411,7 +433,7 @@ export class PushService {
     );
     if (subscriptions.length === 0) return;
     const topic = createHash("sha256").update(instanceId).digest("base64url").slice(0, 32);
-    const stale = new Set<string>();
+    const stale: StoredPushSubscription[] = [];
     await Promise.all(
       subscriptions.map(async subscription => {
         try {
@@ -424,13 +446,17 @@ export class PushService {
           });
         } catch (error) {
           const code = statusCode(error);
-          if (code === 404 || code === 410) stale.add(subscription.endpoint);
+          if (code === 404 || code === 410) stale.push(subscription);
           else this.#logger.event("warn", "push.delivery_failed", { ...(code === undefined ? {} : { status: code }) });
         }
       }),
     );
-    if (stale.size > 0) {
-      await this.#mutateSubscriptions(current => current.filter(subscription => !stale.has(subscription.endpoint)));
+    if (stale.length > 0) {
+      await this.#mutateSubscriptions(current =>
+        current.filter(
+          subscription => !stale.some(failed => isSameDeliveryTarget(subscription, failed)),
+        ),
+      );
     }
   }
 

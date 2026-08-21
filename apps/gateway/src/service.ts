@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,7 @@ export function serviceDefinition(
   platform = process.platform,
   installedCli?: string,
   readinessInstance?: string,
+  homeDirectory = homedir(),
 ): ServiceDefinition {
   if (readinessInstance !== undefined && !/^[A-Za-z0-9_-]{43}$/u.test(readinessInstance)) {
     throw new Error("invalid service readiness instance");
@@ -67,7 +68,7 @@ export function serviceDefinition(
     const argumentsXml = argv.map(value => `      <string>${xmlEscape(value)}</string>`).join("\n");
     return {
       identifier: "omp-session-gateway",
-      path: join(homedir(), "Library", "LaunchAgents", "omp-session-gateway.plist"),
+      path: join(homeDirectory, "Library", "LaunchAgents", "omp-session-gateway.plist"),
       content: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key><string>omp-session-gateway</string>\n    <key>ProgramArguments</key>\n    <array>\n${argumentsXml}\n    </array>\n    <key>RunAtLoad</key><true/>\n    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n    <key>ProcessType</key><string>Background</string>\n    <key>StandardOutPath</key><string>/dev/null</string>\n    <key>StandardErrorPath</key><string>/dev/null</string>\n  </dict>\n</plist>\n`,
     };
   }
@@ -114,6 +115,34 @@ async function commandOutput(command: readonly string[]): Promise<string | undef
 }
 
 /**
+ * The OS surface the service verbs read and mutate: the running platform and the service-manager
+ * commands.
+ *
+ * Injectable because the ownership rules below cannot be exercised any other way. A service manager
+ * keys its registry on identity no filesystem override can scope, so producing a *foreign* holder of
+ * the label on the machine running the suite would mean loading a real unit there — and the refusals
+ * have to be proven to fire before the first byte is written and before the first mutating command.
+ */
+export interface ServiceHost {
+  readonly platform: typeof process.platform;
+  /** Injectable only so macOS file-only ownership can be exercised outside the real home. */
+  readonly homeDirectory?: string;
+  /** Stdout of a command that exited zero; undefined when it failed or could not be spawned. */
+  readonly output: (command: readonly string[]) => Promise<string | undefined>;
+  readonly succeeds: (command: readonly string[]) => Promise<boolean>;
+  /** Runs a command that must succeed, surfacing its stderr otherwise. */
+  readonly run: (command: readonly string[]) => Promise<void>;
+}
+
+const systemServiceHost: ServiceHost = {
+  platform: process.platform,
+  homeDirectory: homedir(),
+  output: commandOutput,
+  succeeds: commandSucceeds,
+  run,
+};
+
+/**
  * Whether a service manager's rendering of a loaded unit names a program under `stateDir`.
  *
  * Installed runtimes live at `<stateDir>/installation/versions/<id>/...`, so the install root is a
@@ -122,7 +151,47 @@ async function commandOutput(command: readonly string[]): Promise<string | undef
  * `/tmp/x/state/omp-session-gateway-2`.
  */
 export function serviceProgramBelongsTo(programText: string | undefined, stateDir: string): boolean {
-  return programText !== undefined && programText.includes(stateDir + sep);
+  if (programText === undefined) return false;
+  return ["/", "\\"].some(separator => {
+    const prefix = `${stateDir}${separator}`;
+    const jsonEncoded = JSON.stringify(prefix).slice(1, -1);
+    const xmlEncoded = xmlEscape(prefix);
+    return programText.includes(prefix) || programText.includes(jsonEncoded) || programText.includes(xmlEncoded);
+  });
+}
+
+type ServiceProgramLookup =
+  | { readonly status: "found"; readonly rendered: string }
+  | { readonly status: "absent" }
+  | { readonly status: "unavailable" };
+
+/**
+ * What the service manager would execute for the gateway's label, running or not.
+ *
+ * Registration, not activity: systemd answers for a unit it has loaded but never started, Task
+ * Scheduler for a task sitting idle, launchd for any loaded job. Installing and uninstalling are
+ * destructive to all of those, so ownership is read from the manager's own metadata rather than from
+ * an activity probe. A failed Linux query is distinct from an absent unit because systemctl reports
+ * an unknown unit successfully with an empty ExecStart; failing open on an unavailable user manager
+ * would permit a definition write before the later mutation reports the real error.
+ */
+async function loadedServiceProgram(host: ServiceHost): Promise<ServiceProgramLookup> {
+  const query =
+    host.platform === "linux"
+      ? ["systemctl", "--user", "show", "-p", "ExecStart", "--value", "omp-session-gateway.service"]
+      : host.platform === "darwin"
+        ? ["launchctl", "print", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]
+        : ["schtasks.exe", "/Query", "/TN", "OMP Session Gateway", "/XML"];
+  const rendered = await host.output(query);
+  if (rendered === undefined) {
+    if (host.platform === "linux") return { status: "unavailable" };
+    const managerAvailable =
+      host.platform === "darwin"
+        ? await host.succeeds(["launchctl", "print", `gui/${process.getuid?.() ?? 0}`])
+        : await host.succeeds(["schtasks.exe", "/Query"]);
+    return managerAvailable ? { status: "absent" } : { status: "unavailable" };
+  }
+  return rendered.trim() === "" ? { status: "absent" } : { status: "found", rendered };
 }
 
 /**
@@ -138,27 +207,74 @@ export function serviceProgramBelongsTo(programText: string | undefined, stateDi
  * The loaded service's own program path is the one piece of identity that does carry the root, so
  * compare against it rather than trusting the label. Returns false when nothing is loaded.
  */
-async function loadedServiceIsOurs(config: ServicePathConfig): Promise<boolean> {
-  const owns = (text: string | undefined): boolean => serviceProgramBelongsTo(text, config.paths.stateDir);
-  if (process.platform === "linux") {
-    if (!(await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]))) return false;
-    return owns(
-      await commandOutput(["systemctl", "--user", "show", "-p", "ExecStart", "--value", "omp-session-gateway.service"]),
+async function loadedServiceIsOurs(config: ServicePathConfig, host: ServiceHost): Promise<boolean> {
+  // launchd has no activity gate: a job it has loaded is a job it is keeping alive.
+  if (host.platform === "linux") {
+    if (!(await host.succeeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]))) return false;
+  } else if (host.platform !== "darwin" && !(await windowsTaskActive(host))) return false;
+  const lookup = await loadedServiceProgram(host);
+  return lookup.status === "found" && serviceProgramBelongsTo(lookup.rendered, config.paths.stateDir);
+}
+
+function serviceRegistryName(host: ServiceHost): string {
+  return host.platform === "linux"
+    ? "systemd user unit name"
+    : host.platform === "darwin"
+      ? "launchd label"
+      : "scheduled task name";
+}
+
+async function existingServiceDefinition(config: ServicePathConfig, host: ServiceHost): Promise<string | undefined> {
+  const path = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory).path;
+  try {
+    const bytes = await readFile(path);
+    if (host.platform !== "win32") return bytes.toString("utf8");
+    const offset = bytes[0] === 0xff && bytes[1] === 0xfe ? 2 : 0;
+    return bytes.subarray(offset).toString("utf16le");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Refuses when either the manager identity or its shared definition path belongs to another root.
+ *
+ * The file check covers an install staged with `--no-start`, which has no manager registration yet.
+ * The manager check covers loaded definitions whose source file moved or disappeared.
+ */
+async function assertNoForeignServiceLabel(config: ServicePathConfig, host: ServiceHost): Promise<void> {
+  const registry = serviceRegistryName(host);
+  const foreign = (): never => {
+    throw new Error(
+      `another gateway service already holds this ${registry} from a different install root; ` +
+        "uninstall it from that root first",
     );
+  };
+  const definition = await existingServiceDefinition(config, host);
+  if (definition !== undefined && !serviceProgramBelongsTo(definition, config.paths.stateDir)) foreign();
+
+  const lookup = await loadedServiceProgram(host);
+  if (lookup.status === "unavailable") {
+    throw new Error(`cannot verify ${registry} ownership; refusing to modify gateway service state`);
   }
-  if (process.platform === "darwin") {
-    return owns(await commandOutput(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]));
-  }
-  if (!(await windowsTaskActive())) return false;
-  return owns(await commandOutput(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway", "/XML"]));
+  if (lookup.status === "found" && !serviceProgramBelongsTo(lookup.rendered, config.paths.stateDir)) foreign();
+}
+
+/** Fail-closed preflight for callers that mutate service-adjacent state before invoking a verb. */
+export async function assertUserServiceOwnership(
+  config: ServicePathConfig,
+  host: ServiceHost = systemServiceHost,
+): Promise<void> {
+  await assertNoForeignServiceLabel(config, host);
 }
 
 
-async function bootstrapLaunchAgent(domain: string, path: string): Promise<void> {
+async function bootstrapLaunchAgent(domain: string, path: string, host: ServiceHost): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      await run(["launchctl", "bootstrap", domain, path]);
+      await host.run(["launchctl", "bootstrap", domain, path]);
       return;
     } catch (error) {
       lastError = error;
@@ -176,8 +292,8 @@ async function fileExists(path: string): Promise<boolean> {
     return false;
   }
 }
-async function windowsTaskActive(): Promise<boolean> {
-  return commandSucceeds([
+async function windowsTaskActive(host: ServiceHost): Promise<boolean> {
+  return host.succeeds([
     "powershell.exe",
     "-NoProfile",
     "-NonInteractive",
@@ -186,35 +302,41 @@ async function windowsTaskActive(): Promise<boolean> {
   ]);
 }
 
-export async function assertServiceInstallPreflight(activate: boolean): Promise<void> {
-  if (process.platform === "win32" && !activate && (await windowsTaskActive())) {
+export async function assertServiceInstallPreflight(
+  activate: boolean,
+  host: ServiceHost = systemServiceHost,
+): Promise<void> {
+  if (host.platform === "win32" && !activate && (await windowsTaskActive(host))) {
     throw new Error("cannot replace an active Windows service with --no-start");
   }
 }
 
-async function stopWindowsTask(): Promise<void> {
-  await commandSucceeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
+async function stopWindowsTask(host: ServiceHost): Promise<void> {
+  await host.succeeds(["schtasks.exe", "/End", "/TN", "OMP Session Gateway"]);
   const deadline = Date.now() + 7_500;
   while (Date.now() < deadline) {
-    if (!(await windowsTaskActive())) return;
+    if (!(await windowsTaskActive(host))) return;
     await Bun.sleep(100);
   }
   throw new Error("running gateway task did not stop");
 }
 
-export async function userServiceStatus(config: ServicePathConfig): Promise<UserServiceStatus> {
-  const definition = serviceDefinition(config);
+export async function userServiceStatus(
+  config: ServicePathConfig,
+  host: ServiceHost = systemServiceHost,
+): Promise<UserServiceStatus> {
+  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
   const definitionExists = await fileExists(definition.path);
   // `active` means "a service this install owns is running", never "some service holds our label".
   // Everything downstream acts on it: rotation restarts, stop boots out, uninstall refuses.
-  const active = await loadedServiceIsOurs(config);
-  if (process.platform === "linux") {
+  const active = await loadedServiceIsOurs(config, host);
+  if (host.platform === "linux") {
     const installed =
-      definitionExists && (await commandSucceeds(["systemctl", "--user", "is-enabled", "omp-session-gateway.service"]));
+      definitionExists && (await host.succeeds(["systemctl", "--user", "is-enabled", "omp-session-gateway.service"]));
     return { installed, active };
   }
-  if (process.platform === "darwin") return { installed: definitionExists, active };
-  const installed = await commandSucceeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]);
+  if (host.platform === "darwin") return { installed: definitionExists, active };
+  const installed = await host.succeeds(["schtasks.exe", "/Query", "/TN", "OMP Session Gateway"]);
   return { installed, active };
 }
 
@@ -223,69 +345,99 @@ export async function installUserService(
   activate = true,
   installedCli?: string,
   readinessInstance?: string,
+  host: ServiceHost = systemServiceHost,
 ): Promise<ServiceDefinition> {
-  await assertServiceInstallPreflight(activate);
-  const definition = serviceDefinition(config, process.platform, installedCli, readinessInstance);
+  // Ownership first, before `mkdir` and before the definition write. Two roots that share a HOME
+  // compute the same definition path, so the write alone replaces the other root's service, and on
+  // Linux and Windows the manager mutations that follow act on a label a sandbox cannot scope.
+  await assertNoForeignServiceLabel(config, host);
+  await assertServiceInstallPreflight(activate, host);
+  const definition = serviceDefinition(config, host.platform, installedCli, readinessInstance, host.homeDirectory);
+  if (!serviceProgramBelongsTo(definition.content, config.paths.stateDir)) {
+    throw new Error("gateway service program must be staged under the configured state directory");
+  }
   await mkdir(dirname(definition.path), { recursive: true, mode: 0o700 });
   const serialized =
-    process.platform === "win32"
+    host.platform === "win32"
       ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(definition.content, "utf16le")])
       : definition.content;
   await writeFile(definition.path, serialized, { mode: 0o600 });
-  if (process.platform !== "win32") await chmod(definition.path, 0o600);
-  if (process.platform === "linux") {
-    const wasActive = await commandSucceeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]);
-    await run(["systemctl", "--user", "daemon-reload"]);
-    await run(["systemctl", "--user", "enable", "omp-session-gateway.service"]);
-    if (activate) await run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
-  } else if (process.platform === "darwin") {
+  if (host.platform !== "win32") await chmod(definition.path, 0o600);
+  if (host.platform === "linux") {
+    const wasActive = await host.succeeds(["systemctl", "--user", "is-active", "omp-session-gateway.service"]);
+    // Re-read ownership immediately before the manager is touched. Nothing has reloaded yet, so the
+    // manager still reports the unit it holds, and an install that landed from another root while
+    // this one was writing must not be reloaded, enabled or restarted out from under it.
+    await assertNoForeignServiceLabel(config, host);
+    await host.run(["systemctl", "--user", "daemon-reload"]);
+    await host.run(["systemctl", "--user", "enable", "omp-session-gateway.service"]);
+    if (activate) {
+      await host.run(["systemctl", "--user", wasActive ? "restart" : "start", "omp-session-gateway.service"]);
+    }
+  } else if (host.platform === "darwin") {
     if (!activate) return definition;
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
-    if (await commandSucceeds(["launchctl", "print", target])) {
+    if (await host.succeeds(["launchctl", "print", target])) {
       // Replacing our own running instance is the ordinary upgrade path. Booting out a service that
       // belongs to a different install root is how a sandboxed run kills the real daemon, so refuse
       // instead: launchd keys the label on uid alone and cannot tell the two apart for us.
-      if (!(await loadedServiceIsOurs(config))) {
-        throw new Error(
-          "another gateway service already holds this launchd label from a different install root; " +
-            "uninstall it from that root before installing here",
-        );
-      }
-      await run(["launchctl", "bootout", target]);
+      await assertNoForeignServiceLabel(config, host);
+      await host.run(["launchctl", "bootout", target]);
     }
-    await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path);
+    await assertNoForeignServiceLabel(config, host);
+    await bootstrapLaunchAgent(`gui/${process.getuid?.() ?? 0}`, definition.path, host);
   } else {
-    const status = await userServiceStatus(config);
-    if (status.active) await stopWindowsTask();
-    await run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
-    if (activate) await run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
+    const status = await userServiceStatus(config, host);
+    await assertNoForeignServiceLabel(config, host);
+    if (status.active) {
+      await stopWindowsTask(host);
+      await assertNoForeignServiceLabel(config, host);
+    }
+    await host.run(["schtasks.exe", "/Create", "/TN", "OMP Session Gateway", "/XML", definition.path, "/F"]);
+    if (activate) await host.run(["schtasks.exe", "/Run", "/TN", "OMP Session Gateway"]);
   }
   return definition;
 }
 
-export async function stopUserService(config: ServicePathConfig): Promise<void> {
-  const status = await userServiceStatus(config);
+export async function stopUserService(config: ServicePathConfig, host: ServiceHost = systemServiceHost): Promise<void> {
+  await assertNoForeignServiceLabel(config, host);
+  const status = await userServiceStatus(config, host);
+  // `active` is ownership-scoped, so a foreign holder of the label leaves nothing here to stop.
   if (!status.active) return;
-  if (process.platform === "linux") {
-    await run(["systemctl", "--user", "stop", "omp-session-gateway.service"]);
-  } else if (process.platform === "darwin") {
+  // The label can be replaced after the status probe; re-read immediately before stopping it.
+  await assertNoForeignServiceLabel(config, host);
+  if (host.platform === "linux") {
+    await host.run(["systemctl", "--user", "stop", "omp-session-gateway.service"]);
+  } else if (host.platform === "darwin") {
     const target = `gui/${process.getuid?.() ?? 0}/omp-session-gateway`;
-    await run(["launchctl", "bootout", target]);
+    await host.run(["launchctl", "bootout", target]);
   } else {
-    await stopWindowsTask();
+    await stopWindowsTask(host);
   }
-  if ((await userServiceStatus(config)).active) throw new Error("gateway service remained active after stop");
+  if ((await userServiceStatus(config, host)).active) throw new Error("gateway service remained active after stop");
 }
 
-export async function uninstallUserService(config: ServicePathConfig, deactivate = true): Promise<void> {
-  const definition = serviceDefinition(config);
-  const status = await userServiceStatus(config);
+export async function uninstallUserService(
+  config: ServicePathConfig,
+  deactivate = true,
+  host: ServiceHost = systemServiceHost,
+): Promise<void> {
+  // `installed` answers for the label, not for the root that owns it: `schtasks /Query` finds any
+  // task carrying our name and `systemctl is-enabled` any unit carrying our unit name. Every branch
+  // below acts on that — `disable --now`, `/End`, `/Delete` — and the closing `rm` targets a path
+  // two roots sharing a HOME compute identically. Refuse first, so an uninstall run from one root
+  // cannot stop, delete or unfile another root's service.
+  await assertNoForeignServiceLabel(config, host);
+  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
+  const status = await userServiceStatus(config, host);
   if (!deactivate && status.active) {
     throw new Error("cannot uninstall an active gateway with --no-stop");
   }
-  if (process.platform === "linux") {
+  // The status probes are read-only but not atomic with manager mutation; close that interleaving.
+  await assertNoForeignServiceLabel(config, host);
+  if (host.platform === "linux") {
     if (status.installed || status.active) {
-      await run([
+      await host.run([
         "systemctl",
         "--user",
         "disable",
@@ -293,14 +445,18 @@ export async function uninstallUserService(config: ServicePathConfig, deactivate
         "omp-session-gateway.service",
       ]);
     }
-  } else if (process.platform === "darwin") {
+  } else if (host.platform === "darwin") {
     if (deactivate && status.active) {
-      await run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
+      await host.run(["launchctl", "bootout", `gui/${process.getuid?.() ?? 0}/omp-session-gateway`]);
     }
   } else if (status.installed) {
-    if (deactivate && status.active) await stopWindowsTask();
-    await run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
+    if (deactivate && status.active) {
+      await stopWindowsTask(host);
+      await assertNoForeignServiceLabel(config, host);
+    }
+    await host.run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
   }
+  await assertNoForeignServiceLabel(config, host);
   await rm(definition.path, { force: true });
-  if (process.platform === "linux") await run(["systemctl", "--user", "daemon-reload"]);
+  if (host.platform === "linux") await host.run(["systemctl", "--user", "daemon-reload"]);
 }
