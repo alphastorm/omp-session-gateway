@@ -109,7 +109,31 @@ test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125
 (
   cd "$OMP_ROOT"
   test "$(bun --version)" = 1.3.14
-  bun setup
+  bun install --frozen-lockfile
+
+  # Fresh source workspaces shadow the npm package, so stage the exact official native addon.
+  native_fixture="$(mktemp -d)"
+  trap 'rm -rf "$native_fixture"' EXIT
+  printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives":"17.4.1"}}' \
+    > "$native_fixture/package.json"
+  (cd "$native_fixture" && bun install)
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)
+      native_package=pi-natives-darwin-arm64
+      native_file=pi_natives.darwin-arm64.node
+      ;;
+    Linux-x86_64)
+      native_package=pi-natives-linux-x64
+      native_file=pi_natives.linux-x64-baseline.node
+      ;;
+    *)
+      echo "unsupported beta build host: $(uname -s)-$(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+  cp "$native_fixture/node_modules/@oh-my-pi/$native_package/$native_file" \
+    "packages/natives/native/$native_file"
+
   bun run ci:check:full
   bun --cwd=packages/coding-agent run build
   test "$(packages/coding-agent/dist/omp --version)" = omp/17.4.1
@@ -130,6 +154,12 @@ fi
 "$HOME/.local/bin/omp-gateway-patched" config get collab.autoStart --json
 "$HOME/.local/bin/omp-gateway-patched" config get collab.registryEndpoint --json
 ```
+
+The native step consumes OMP's exact official npm package and matching platform addon rather than
+requiring a local Rust toolchain. A fresh workspace shadows that package with `packages/natives`,
+which is why `bun install` alone does not place the `.node` file where the binary builder can embed
+it. `bun setup` remains upstream's source-development route when Rust/Cargo is installed; the beta
+route above is the bounded binary path tested on the advertised macOS architecture.
 
 Launch sessions that should publish with `omp-gateway-patched`, not stock `omp`. Keep the source
 checkout: its exact commit/tree plus a SHA-256 of the installed binary are the local provenance
