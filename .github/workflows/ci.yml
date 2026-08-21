@@ -27,9 +27,9 @@ on:
         required: false
         type: string
       playwright_workers:
-        description: Playwright workers for the browser suite; benchmark sweep values only
+        description: Playwright workers for the browser suite; 2 is the qualified default
         required: false
-        default: "1"
+        default: "2"
         type: choice
         options:
           - "1"
@@ -105,9 +105,9 @@ jobs:
     # hung this job for 38 minutes with no output before it was cancelled by hand.
     timeout-minutes: 20
     env:
-      # Benchmark knob. Automatic events pin the single-worker baseline so push and pull_request
-      # timings stay comparable across runs; only a manual dispatch sweeps 2 or 4.
-      PLAYWRIGHT_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.playwright_workers || '1' }}
+      # Two workers is the qualified default for automatic and manual runs. A manual dispatch can
+      # still select 1 or 4 for a bounded benchmark.
+      PLAYWRIGHT_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.playwright_workers || '2' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Bun
