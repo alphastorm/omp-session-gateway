@@ -4,6 +4,22 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Changed
+
+- Move the unreleased default-branch OMP target to exact `v17.4.1` /
+  `9350b7990d26ebf69a604edc82d8558ef04adf30`, update `@oh-my-pi/pi-wire` to `17.4.1`, and
+  regenerate the six-commit collaboration patch from the maintained downstream series plus the
+  carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
+  new target repeats the applicable release lanes.
+
+### Fixed
+
+- Preserve OMP's immediate `Closing session…` status and arm its bounded slow-close timer before
+  collaboration teardown; the v17.4.1 upstream regression test exposed the ordering defect during
+  the patch rebase.
+
 ## [v0.1.0-alpha.1] — 2026-08-21
 
 ### Fixed

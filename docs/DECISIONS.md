@@ -409,3 +409,29 @@ Tailscale, relay, Android, browser, and signed-artifact row reverts to **NOT RUN
 the previous pin's platform evidence does not transfer. Had the dropped health-probe commit not
 been restored, the client's relay probes would have gone permanently inert rather than failing
 loudly, because `#relayProbeSupported` only becomes true when the host sends a seed pong.
+
+---
+
+## ADR-023 — Move the unreleased OMP target to v17.4.1 without widening alpha support
+
+**Status:** Accepted
+
+**Context:** OMP released `v17.4.1` at
+`9350b7990d26ebf69a604edc82d8558ef04adf30`. The maintained downstream
+`gateway-collaboration` series already uses that exact base. Relative to the alpha's v17.3.8 pin,
+upstream changed neither collab-web source nor wire-protocol source; collab-web only changed package
+authorship metadata, while coding-agent integration points changed enough that the new
+slash-command fixture needed to model `resumePublication()`. The published alphas remain qualified
+only for v17.3.8.
+
+**Decision:** Target v17.4.1 on the default branch for the next candidate. Regenerate the shipped
+six-commit mbox from the maintained v17.4.1 commits `0006 → 0002 → 0003 → 0004 → 0007`, restoring
+the separately carried health-probe commit before `0007`. Update `@oh-my-pi/pi-wire`, upstream
+locks, licenses, notices, release metadata, doctor expectations, and hosted patch-application lanes
+to the same immutable commit. Keep npm `marked` and the existing in-memory client integration;
+there is no upstream client-source change to re-vendor.
+
+**Consequences:** Source application and test results can establish that the patch is correctly
+rebased, but v17.3.8 platform evidence does not transfer. Until a signed candidate repeats the
+applicable host, relay, and physical-client lanes, v17.4.1 is an unreleased development target and
+must not be advertised as supported. The published alpha matrix remains immutable.

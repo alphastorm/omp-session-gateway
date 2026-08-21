@@ -226,9 +226,10 @@ qualification until a lane has been run against those bytes and its record attac
 
 ## Current upstream baseline
 
-Pinned OMP commit: `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, observed on **2026-08-19** at tag
-**v17.3.8**. See [`UPSTREAM.lock.json`](UPSTREAM.lock.json) for package versions and
-source paths.
+Default-branch OMP target: `9350b7990d26ebf69a604edc82d8558ef04adf30`, observed on **2026-08-21** at
+tag **v17.4.1**. The published alpha remains qualified only for its recorded `v17.3.8` baseline; see
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md). Exact source and package metadata live in
+[`UPSTREAM.lock.json`](UPSTREAM.lock.json).
 
 ## Contributing and releases
 

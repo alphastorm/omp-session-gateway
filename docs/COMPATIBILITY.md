@@ -14,6 +14,11 @@ the required loopback/identity boundary and is refused
 ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The gateway requires exact OMP
 `v17.3.8` at `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` plus the repository's six-commit patch.
 
+The default branch has moved the next candidate to exact OMP `v17.4.1` at
+`9350b7990d26ebf69a604edc82d8558ef04adf30`. That source integration is **not** part of either
+published alpha and carries no support claim until the applicable signed-artifact, host, relay, and
+physical-client lanes are requalified.
+
 The successor's support claim comes from exact signed-candidate evidence, not row counts:
 
 - Debian [run `32502584598`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32502584598)
@@ -60,15 +65,23 @@ installation, lifecycle, and cleanup scenario passes. Blank version ranges never
 
 ## Exact OMP baseline
 
-The alpha targets one immutable upstream source revision:
+Published releases and unreleased development targets use separate immutable upstream revisions:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
+| default branch, unreleased | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Source-integrated next candidate; qualification pending |
 
-`v17.3.8` is the release tag and package baseline recorded on **2026-08-19**. It is
-not a claim that every checkout or package combination labeled `v17.3.8` is compatible.
-No earlier or later OMP release, commit, fork, or loose semver range is supported.
+`v17.3.8` is the package baseline qualified for the published alpha. No earlier or later OMP
+release, commit, fork, or loose semver range is supported by that release. The v17.4.1 row is an
+explicit development target, not a retroactive expansion of the alpha support boundary.
+
+**Development pin refreshed 2026-08-21, from `v17.3.8` to `v17.4.1`.** The maintained
+`gateway-collaboration` series already targeted the new exact base. The carried health-probe commit
+applied cleanly, and the v17.4.1 QR-command fixture was adapted to exercise manual publication
+recovery. Upstream collab-web source and wire protocol source are unchanged across these pins;
+package versions, package authorship/license metadata, the mbox, and all provenance records still
+move to the exact new commit. No platform or signed-artifact evidence transfers to this row.
 
 **Pin refreshed 2026-08-19, from `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`.** The
 previous mbox did not apply at this commit (`interactive-mode.ts`, `agent-session.ts`,

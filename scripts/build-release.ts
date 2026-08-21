@@ -64,11 +64,11 @@ interface RuntimeLicenseMetadata {
 
 export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> = {
   "@oh-my-pi/pi-wire": {
-    version: "17.3.8",
-    source: "https://github.com/can1357/oh-my-pi/tree/v17.3.8/packages/wire",
+    version: "17.4.1",
+    source: "https://github.com/can1357/oh-my-pi/tree/v17.4.1/packages/wire",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
-    copyrightText: "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük",
+    copyrightText: "Copyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
     licensePath: "licenses/runtime/@oh-my-pi__pi-wire/LICENSE",
   },
   "agent-base": {
@@ -428,7 +428,8 @@ export function createSpdxSbom(
     licenseConcluded: "MIT",
     licenseDeclared: "MIT",
     licenseComments: `License text: ${COLLAB_WEB_LICENSE_PATH}`,
-    copyrightText: "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük",
+    copyrightText:
+      "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
     sourceInfo: `Vendored from ${upstream.commit} (${upstream.tag}) with local modifications documented in THIRD_PARTY_NOTICES.md`,
   };
   const codingAgentPatchPackage = {
@@ -440,7 +441,8 @@ export function createSpdxSbom(
     licenseConcluded: "MIT",
     licenseDeclared: "MIT",
     licenseComments: `License text: ${OMP_LICENSE_PATH}`,
-    copyrightText: "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük",
+    copyrightText:
+      "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
     sourceInfo: `Patch derived from ${upstream.commit} (${upstream.tag}); archive path patches/oh-my-pi/0001-collab-controller-autostart-registry.patch`,
   };
   return `${JSON.stringify(

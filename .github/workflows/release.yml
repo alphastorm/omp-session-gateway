@@ -133,6 +133,8 @@ jobs:
             exit 1
           fi
           notes="$RUNNER_TEMP/release-notes.md"
+          upstream_commit="$(jq -r '.commit' UPSTREAM.lock.json)"
+          upstream_tag="$(jq -r '.tag' UPSTREAM.lock.json)"
           if [[ "$GITHUB_REF_NAME" == provenance-test-* ]]; then
             cat > "$notes" <<EOF
           ## Provenance workflow test; not an alpha release
@@ -140,7 +142,7 @@ jobs:
           This release exercises the pre-alpha build and keyless provenance path. It is not an alpha or production-qualified release.
 
           - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8)
+          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag)
           - Runtime: Bun 1.3.14 or newer
           - Registry protocol: 1
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
@@ -188,7 +190,7 @@ jobs:
           Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha\` archive with the deployment's existing origin and allowlist.
 
           - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` (tag v17.3.8) with the included patch
+          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
           - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
@@ -217,7 +219,7 @@ jobs:
           ### Compatibility and open qualification
 
           - Source commit: \`$GITHUB_SHA\`
-          - Exact release baseline: OMP v17.3.8 at \`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\` with the included patch.
+          - Exact release baseline: OMP $upstream_tag at \`$upstream_commit\` with the included patch.
           - Runtime: Bun 1.3.14; registry protocol 1; Push API 2.
           - Preview notification detail falls back to Session detail until the publisher protocol gains a bounded preview source.
           - Advertised Debian, macOS, and physical Pixel lanes must pass against these exact signed bytes before alpha promotion.

@@ -30,6 +30,9 @@
       healthy.
       Deferred: Windows is not advertised, and the change touches a token-privacy check whose only
       validation is remote CI.
+- [ ] Qualify the exact `v17.4.1` / `9350b7990` development pin before advertising the next
+      release. The six-commit patch and package provenance are refreshed in source; signed-artifact,
+      host, relay, and physical-client evidence from the published `v17.3.8` alpha does not transfer.
 - [ ] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
       the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only. The ledger
       records this blocker as closed on 2026-08-21 with no stale or indeterminate row, so what

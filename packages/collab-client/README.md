@@ -1,7 +1,7 @@
 # `packages/collab-client`
 
 Pinned integration of OMP's existing `packages/collab-web` source at commit
-`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`.
+`9350b7990d26ebf69a604edc82d8558ef04adf30`.
 
 The local patch passes the capability directly into the root `App` component. The installed PWA
 mounts that component in its current document so Android standalone navigation does not depend on

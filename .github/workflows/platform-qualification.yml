@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55
+          ref: 9350b7990d26ebf69a604edc82d8558ef04adf30
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Apply and test the Windows OMP publisher
@@ -273,7 +273,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55
+          ref: 9350b7990d26ebf69a604edc82d8558ef04adf30
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Apply the OMP patch and run its collab fixtures on aarch64
@@ -289,9 +289,9 @@ jobs:
           patch="$GITHUB_WORKSPACE/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
           git apply --check "$patch" ||
             fail "OMP patch does not apply" \
-              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at 858f7dd9. This is patch/pin drift, not an architecture result."
+              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at 9350b799. This is patch/pin drift, not an architecture result."
           git apply "$patch"
-          printf 'patch applied to pin 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55\n'
+          printf 'patch applied to pin 9350b7990d26ebf69a604edc82d8558ef04adf30\n'
 
           # The step most likely to fail for a genuinely architectural reason. UPSTREAM.lock.json
           # records that `@oh-my-pi/pi-natives` ships per-platform binaries — it is why the vendored

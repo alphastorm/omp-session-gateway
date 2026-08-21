@@ -12,11 +12,11 @@ source locations, and required attributions are included at the stated archive p
 
 ## Bundled runtime dependencies
 
-### @oh-my-pi/pi-wire@17.3.8
+### @oh-my-pi/pi-wire@17.4.1
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/v17.3.8/packages/wire>
+- Source: <https://github.com/can1357/oh-my-pi/tree/v17.4.1/packages/wire>
 - License: MIT
-- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
+- Copyright: Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/runtime/@oh-my-pi__pi-wire/LICENSE`
 
 ### agent-base@7.1.4
@@ -181,10 +181,10 @@ source locations, and required attributions are included at the stated archive p
 
 ### @oh-my-pi/collab-web@16.3.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55/packages/collab-web>
-- Pinned source: tag `v17.3.8`, commit `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`
+- Source: <https://github.com/can1357/oh-my-pi/tree/9350b7990d26ebf69a604edc82d8558ef04adf30/packages/collab-web>
+- Pinned source: tag `v17.4.1`, commit `9350b7990d26ebf69a604edc82d8558ef04adf30`
 - License: MIT
-- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
+- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/collab-web/LICENSE`
 - Distributed code: `apps/web/dist/assets/collab-client.<content-hash>.js` and
   `apps/web/dist/assets/collab-client.<content-hash>.css`
@@ -196,12 +196,12 @@ source locations, and required attributions are included at the stated archive p
 
 ## Distributed OMP integration patch
 
-### @oh-my-pi/pi-coding-agent patch@17.3.8
+### @oh-my-pi/pi-coding-agent patch@17.4.1
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55/packages/coding-agent>
-- Pinned source: tag `v17.3.8`, commit `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`
+- Source: <https://github.com/can1357/oh-my-pi/tree/9350b7990d26ebf69a604edc82d8558ef04adf30/packages/coding-agent>
+- Pinned source: tag `v17.4.1`, commit `9350b7990d26ebf69a604edc82d8558ef04adf30`
 - License: MIT
-- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük
+- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/oh-my-pi/LICENSE`
 - Distributed patch: `patches/oh-my-pi/0001-collab-controller-autostart-registry.patch`
 - Local modifications: shared collaboration controller ownership, auto-start settings, lifecycle

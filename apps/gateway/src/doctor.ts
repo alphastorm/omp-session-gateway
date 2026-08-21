@@ -24,8 +24,8 @@ const DEFAULT_RELAY_HEALTH_URL = "https://my.omp.sh";
  * reading the expectation out of the same file would make it tautological. `pin contract` in
  * `apps/gateway/test/doctor.test.ts` fails whenever the two drift, so refresh both together.
  */
-export const EXPECTED_UPSTREAM_COMMIT = "858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55";
-export const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "17.3.8";
+export const EXPECTED_UPSTREAM_COMMIT = "9350b7990d26ebf69a604edc82d8558ef04adf30";
+export const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "17.4.1";
 
 function property(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
