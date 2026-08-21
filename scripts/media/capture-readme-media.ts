@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import type { SessionMetadata } from "@omp-session-gateway/protocol";
+import type { SessionMetadata } from "../../packages/protocol/src/index.ts";
 import { startDashboardFixture } from "../../apps/web/e2e/fixture-server.ts";
 import { findCapabilityLeaks } from "../capability-leak-rules.ts";
 import { findIdentifierLeaks } from "../identifier-leak-rules.ts";
