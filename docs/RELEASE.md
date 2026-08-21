@@ -2,10 +2,10 @@
 
 ## Pre-alpha and alpha artifacts
 
-The repository can produce working Bun-runtime pre-alpha archives and advertised alpha releases
-(`v0.1.0-alpha` published; `v0.1.0-alpha.1` qualified and pending promotion in this stream). They
-must not be described as stable or production releases. Repository commits remain preferred outside
-the exact platform and Android combinations recorded in the release ledger.
+The repository can produce working Bun-runtime pre-alpha archives and advertised alpha releases.
+`v0.1.0-alpha.1` is the current published qualified alpha. It must not be described as stable or
+production-qualified, and repository commits remain preferred outside the exact platform and
+Android combinations recorded in the release ledger.
 
 ## Alpha release gates
 

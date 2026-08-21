@@ -1,12 +1,11 @@
 # Release status
 
 **Updated:** 2026-08-21<br>
-**Repository version:** `0.1.0`; current public release **`v0.1.0-alpha`**; qualified successor
-candidate **`v0.1.0-prealpha.19`** for planned **`v0.1.0-alpha.1`**<br>
+**Repository version:** `0.1.0`, released as **`v0.1.0-alpha.1`** (published and independently
+verified)<br>
 **Classification:** qualified alpha<br>
-**Alpha.1 decision:** **GO to promotion**, for the combinations named immediately below and for
-nothing else; the final tag still requires protected-main evidence updates, release-workflow
-success, and candidate/final executable-byte comparison<br>
+**Alpha.1 decision:** **GO, completed**, for the combinations named immediately below and for
+nothing else<br>
 
 **Advertised host platforms**
 
@@ -25,6 +24,22 @@ success, and candidate/final executable-byte comparison<br>
 `f6e01c4b96b5630fccbb3c79f0a0dae1677e316990d869db6e300ce96605a762`. From a clean directory,
 `SHA256SUMS` verified, all three GitHub attestations verified against the exact tag/workflow, and all
 three Cosign bundles returned `Verified OK`.
+
+**The final release is independently verified and executable-byte-equivalent to the candidate.**
+`v0.1.0-alpha.1` records source `5323303cdc3156854f7ede9267863b0148407357`; its archive, SPDX,
+and checksum-manifest digests are respectively
+`37f12c21975759bbc10fb2f7288149d3cdc5dc82caddcc0a1645d93be71b7506`,
+`5c83c333579fc948857255383e4003535c64c596e129444379c910da77a65f7b`, and
+`ce220ca82e4174f23da86e3f710b2fbc5020382adb5e966b506952a23ce28a27`. Checksums, all three
+GitHub attestations, and all three Cosign bundles verified against the final tag. Candidate and
+final archives contain the same 48 paths; 46 are byte-identical, and the only differences are
+`release-info.json` plus `SBOM.spdx.json`, where source commit/timestamp/namespace provenance names
+the final tag commit.
+
+The final `release-info.json` still carries the build script's conservative static
+`pre-alpha; cross-OS and real Android acceptance not yet completed` qualification string. It
+underclaims the independently verified release but does not alter executable bytes or the support
+matrix above. Make that field tag-aware before beta rather than rewriting this immutable release.
 
 **Candidate `.18` is retained as failed qualification evidence, not promoted.** It exposed a real
 operator-path defect: after several successful explicit version switches, systemd's start-rate

@@ -2,9 +2,9 @@
 
 ## Current claim
 
-**Current public release:** qualified alpha `v0.1.0-alpha`.<br>
-**Qualified successor:** `v0.1.0-alpha.1`, pending final tag/workflow promotion from signed candidate
-`v0.1.0-prealpha.19`.<br>
+**Current public release:** qualified alpha `v0.1.0-alpha.1`.<br>
+**Rollback predecessor:** qualified alpha `v0.1.0-alpha`.<br>
+**Qualification candidate:** signed `v0.1.0-prealpha.19`.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
 `151.0.7922.171` on Android 17 (Pixel 10 Pro). Nothing else is advertised.
 
@@ -64,7 +64,7 @@ The alpha targets one immutable upstream source revision:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
-| `0.1.0`, published as `v0.1.0-alpha` and qualified for `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
+| `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 
 `v17.3.8` is the release tag and package baseline recorded on **2026-08-19**. It is
 not a claim that every checkout or package combination labeled `v17.3.8` is compatible.
