@@ -176,8 +176,8 @@ The alpha decision remains **NO-GO** until, at minimum:
    discussed before the branch without re-reading the file. It also correctly reported the branched
    timeline's bullet count rather than the file's, which is worth knowing — a branch forks the
    conversation, not the filesystem;
-5. the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
-   current `v17.3.8` pin. **Audited 2026-08-20**: of the 23 ledger rows, **10 are current**
+5. ~~the native, Tailscale, relay, Android, browser, and signed-artifact rows are re-run at the
+   current `v17.3.8` pin~~ — **closed 2026-08-21**. No ledger row is stale or indeterminate. **Audited 2026-08-20**: of the 23 ledger rows, **10 are current**
    (evidence at the refreshed pin or from a candidate built after it), **6 were stale**; **three
    have since been re-run at `v0.1.0-prealpha.17` on 2026-08-20/21** (Release signing/SBOM/provenance,
    Fifty-publisher capacity, and the host half of Three real OMP processes auto-discover), and on 2026-08-21 the remaining **three Android rows were re-run**
