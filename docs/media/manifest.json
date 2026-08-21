@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "d4be927076e9f3a1f1dad655a089b8d82877e388",
+  "upstreamClient": {
+    "tag": "v17.3.8",
+    "commit": "858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55",
+    "packageVersion": "16.3.6"
+  },
+  "generatedBy": {
+    "command": "bun run media:capture",
+    "bun": "1.3.14",
+    "typescript": "7.0.2",
+    "playwright": "1.62.1",
+    "chromium": "151.0.7922.34",
+    "ffmpeg": "9.0",
+    "ffprobe": "9.0.1"
+  },
+  "capture": {
+    "clock": "2026-08-21T12:10:00.000Z",
+    "locale": "en-US",
+    "timezone": "UTC",
+    "colorScheme": "dark",
+    "reducedMotion": "reduce",
+    "viewportCss": [
+      390,
+      844
+    ],
+    "deviceScaleFactor": 2,
+    "runtimeNetworkPolicy": "same-origin-fixture-only",
+    "compositorNetworkPolicy": "offline-data-urls-only",
+    "unexpectedRuntimeRequests": 0,
+    "unexpectedCompositorRequests": 0
+  },
+  "assets": {
+    "omp-session-gateway-demo.gif": {
+      "bytes": 340653,
+      "sha256": "f8190ebc8b8044906f61af6d2a9c2519325d23df368062aa3709f587ccf11058",
+      "width": 960,
+      "height": 540,
+      "provenance": "capture-only-presentation-composite",
+      "frameCount": 130,
+      "durationSeconds": 13,
+      "fps": 10,
+      "loopCount": 0,
+      "compositeInputs": [
+        {
+          "id": "runtime:01-all-clear.png",
+          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+        },
+        {
+          "id": "runtime:discovered-live-five",
+          "sha256": "8d9d591b255d4ed89b98b1da63011aada20cebdac532b5ac188007f1b69b84fa"
+        },
+        {
+          "id": "runtime:02-needs-you.png",
+          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+        },
+        {
+          "id": "runtime:03-open-request.png",
+          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+        },
+        {
+          "id": "brand:assets/logo.svg",
+          "sha256": "4adfd1c978e8cef7b61c3b474842e16deae05f5917a590cb80403ffe9582cb6e"
+        }
+      ]
+    },
+    "omp-session-gateway-demo.mp4": {
+      "bytes": 381817,
+      "sha256": "b7565611a347223124b8ecfdf3df5b40d808c9cc665aaaf001350bc945a68380",
+      "width": 960,
+      "height": 540,
+      "provenance": "capture-only-presentation-composite",
+      "frameCount": 130,
+      "durationSeconds": 13,
+      "fps": 10,
+      "codec": "h264",
+      "pixelFormat": "yuv420p",
+      "compositeInputs": [
+        {
+          "id": "runtime:01-all-clear.png",
+          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+        },
+        {
+          "id": "runtime:discovered-live-five",
+          "sha256": "8d9d591b255d4ed89b98b1da63011aada20cebdac532b5ac188007f1b69b84fa"
+        },
+        {
+          "id": "runtime:02-needs-you.png",
+          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+        },
+        {
+          "id": "runtime:03-open-request.png",
+          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+        },
+        {
+          "id": "brand:assets/logo.svg",
+          "sha256": "4adfd1c978e8cef7b61c3b474842e16deae05f5917a590cb80403ffe9582cb6e"
+        }
+      ]
+    },
+    "omp-session-gateway-demo-poster.png": {
+      "bytes": 70022,
+      "sha256": "c66e58a7d72f89f3ce3d1f1a86d1ede1f07e3175fd2e8af53c3cb7a3f7bf7d3b",
+      "width": 960,
+      "height": 540,
+      "provenance": "capture-only-presentation-composite",
+      "compositeInputs": [
+        {
+          "id": "runtime:02-needs-you.png",
+          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+        },
+        {
+          "id": "brand:assets/logo.svg",
+          "sha256": "4adfd1c978e8cef7b61c3b474842e16deae05f5917a590cb80403ffe9582cb6e"
+        }
+      ],
+      "sourceFrame": 60
+    },
+    "omp-session-gateway-product-flow.png": {
+      "bytes": 170766,
+      "sha256": "f88906e626e436eaddb83148df16143df1ba8fbca8a3655a4621b642029f1250",
+      "width": 1600,
+      "height": 980,
+      "provenance": "capture-only-presentation-composite",
+      "compositeInputs": [
+        {
+          "id": "runtime:01-all-clear.png",
+          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+        },
+        {
+          "id": "runtime:02-needs-you.png",
+          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+        },
+        {
+          "id": "runtime:03-open-request.png",
+          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+        },
+        {
+          "id": "brand:assets/logo.svg",
+          "sha256": "4adfd1c978e8cef7b61c3b474842e16deae05f5917a590cb80403ffe9582cb6e"
+        }
+      ]
+    },
+    "01-all-clear.png": {
+      "bytes": 79267,
+      "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c",
+      "width": 780,
+      "height": 1688,
+      "provenance": "built-pwa-runtime"
+    },
+    "02-needs-you.png": {
+      "bytes": 103839,
+      "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd",
+      "width": 780,
+      "height": 1688,
+      "provenance": "built-pwa-runtime"
+    },
+    "03-open-request.png": {
+      "bytes": 72413,
+      "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f",
+      "width": 780,
+      "height": 1688,
+      "provenance": "built-pwa-runtime-with-pinned-collab-client"
+    },
+    "04-notification-settings.png": {
+      "bytes": 149901,
+      "sha256": "7f604752f354d11abd06980fc072bc6d64060454504e8296dc3762c377496206",
+      "width": 780,
+      "height": 1688,
+      "provenance": "built-pwa-runtime"
+    }
+  }
+}
