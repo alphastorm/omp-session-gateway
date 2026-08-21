@@ -9,7 +9,7 @@
 [![CI][ci-badge]][ci]
 [![Windows lifecycle][windows-badge]][windows]
 [![Coverage][coverage-badge]][coverage]
-[![Latest pre-alpha][release-badge]][releases]
+[![Latest release][release-badge]][releases]
 [![License][license-badge]][license]
 
 [![Project status][status-badge]][status]
@@ -29,7 +29,7 @@
 [coverage]: https://codecov.io/gh/alphastorm/omp-session-gateway
 [coverage-badge]: https://img.shields.io/codecov/c/github/alphastorm/omp-session-gateway?label=coverage&color=1C232B&labelColor=0B0E11
 [releases]: https://github.com/alphastorm/omp-session-gateway/releases
-[release-badge]: https://img.shields.io/github/v/release/alphastorm/omp-session-gateway?include_prereleases&filter=v*-prealpha.*&label=pre-alpha&color=C99B45&labelColor=0B0E11
+[release-badge]: https://img.shields.io/github/v/release/alphastorm/omp-session-gateway?include_prereleases&filter=v*&label=release&color=C99B45&labelColor=0B0E11
 [license]: LICENSE
 [license-badge]: https://img.shields.io/github/license/alphastorm/omp-session-gateway?color=1C232B&labelColor=0B0E11
 [status]: docs/RELEASE_STATUS.md
@@ -155,6 +155,9 @@ Release-blocking invariants include:
 - launch capabilities are fetched only after an explicit tap and use `Cache-Control: no-store`;
 - no capability enters logs, telemetry, crash reports, files, cookies, Local Storage, IndexedDB, Cache Storage, query strings, or service-worker caches;
 - the HTTP server binds only to loopback by default;
+- identity headers are believed only while Tailscale's tunnel device is present, because a
+  userspace-networking `tailscaled` forwards inbound tailnet traffic to that loopback listener and
+  the caller then arrives indistinguishable from a local one;
 - production requests require a verified and allowlisted Tailscale identity;
 - the local registry uses user-only IPC plus a random 256-bit installation token;
 - stale and replaced generations become unlaunchable promptly; and
@@ -204,13 +207,22 @@ bun apps/gateway/src/cli.ts doctor
 
 V1 assumes a user-controlled workstation with no mutually untrusted local accounts: a direct loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy it on a shared shell host.
 
+**Run Tailscale's TUN-mode client on the gateway host.** With
+`tailscaled --tun=userspace-networking` there is no tunnel device, so its netstack forwards inbound
+tailnet connections to `localhost` and every tailnet peer reaches the loopback listener as a loopback
+peer. The daemon detects that and returns `403` to every request rather than believing an identity
+header, `doctor` reports `loopbackTrustSound: false`, and the log carries one
+`http.identity_trust_unsound`. If a correctly configured host is refused, that check is what to look
+at first.
+
 Never enable Tailscale Funnel. Apply the pinned OMP patch and configure `collab.autoStart` to `view` or
 `control`; see [`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md) and
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 Build the deterministic Bun-runtime archive and checksum manifest with `bun run release:build`.
-The archive remains pre-alpha until every mandatory acceptance gate in [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md)
-has passed on the advertised platforms.
+An archive is qualified only for the exact platform and candidate combination recorded in
+[`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md); a build from `main` carries no native
+qualification until a lane has been run against those bytes and its record attached to a tag.
 
 ## Current upstream baseline
 
