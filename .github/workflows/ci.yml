@@ -22,15 +22,19 @@ on:
         required: false
         default: manual
         type: string
+      routing_label:
+        description: Controller-supplied one-time label; leave blank in the GitHub UI
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   implementation-checks:
-    # Pushes and pull requests always resolve to GitHub-hosted. Only an explicit trusted
-    # workflow_dispatch can select the transient, repository-scoped runner appliance.
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && 'gateway-ci-linux-x64' || 'ubuntu-24.04' }}
+    # Pushes and pull requests always resolve to GitHub-hosted. A trusted controller must
+    # supply the unpredictable one-time label exposed by its two ephemeral runners.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.routing_label || 'ubuntu-24.04' }}
     # Observed ~20s. A bound keeps a hung step from holding a required check for the 6h default.
     timeout-minutes: 15
     env:
@@ -65,9 +69,9 @@ jobs:
           fail_ci_if_error: false
 
   browser-notifications:
-    # Same routing invariant as implementation-checks: untrusted automatic events cannot
-    # select the self-hosted label.
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && 'gateway-ci-linux-x64' || 'ubuntu-24.04' }}
+    # Same one-time-label invariant as implementation-checks: automatic and concurrently
+    # queued jobs cannot select this invocation's runners.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.routing_label || 'ubuntu-24.04' }}
     # Observed 2-7 min. On 2026-08-19 an Ubuntu mirror stall inside `playwright install --with-deps`
     # hung this job for 38 minutes with no output before it was cancelled by hand.
     timeout-minutes: 20
