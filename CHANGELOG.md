@@ -6,6 +6,40 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Added
+
+- **Alpha decision is GO** for two host platforms and one client, against candidate
+  `v0.1.0-prealpha.17`: Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts, with Chrome
+  `151.0.7922.139` on Android 17 as the client. All six release blockers are closed. Nothing outside
+  that combination is advertised, and the scope rule is unchanged: passing a platform permits
+  advertising only that exact platform and version.
+- `doctor` now withholds `listenerLoopbackOnly` when tailscaled owns no TUN device. A loopback bind
+  address is necessary but not sufficient, because userspace-networking `tailscaled` forwards inbound
+  tailnet connections to localhost and the caller then arrives as a loopback peer that `auth.ts`
+  trusts ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)).
+- A scheduled capacity workflow and an evidence checker that compares machine-readable qualification
+  records against the ledger, so a claim that contradicts its own measurement fails mechanically
+  rather than relying on someone rereading a log.
+- `omp-gateway rollback` is qualified on Linux, and a Linux lane now exercises the command itself
+  rather than only rollback-by-reinstall.
+
+### Security
+
+- `SECURITY.md` now names userspace-mode `tailscaled` as a forwarder that defeats loopback trust.
+  This was previously implied by a general rule about tunnels and reverse proxies; it is now stated
+  explicitly because it is the forwarder an operator is most likely to run, and because it was
+  demonstrated as a working remote authentication bypass against a real host.
+
+### Known limitations
+
+- Recovery after an abrupt radio transition on Android may require force-stopping Chrome.
+  Chrome-for-Android wedges its own network stack browser-wide while the device remains healthy, so
+  network-change and reconnect are not proven
+  ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+- Windows is implemented and partly qualified but not advertised
+  ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)).
+- Self-hosted and proxied relay modes remain unsupported.
+
 ### Fixed
 
 - Mirror the upstream fix for the silent publisher latch

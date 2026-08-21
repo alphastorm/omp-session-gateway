@@ -1,30 +1,40 @@
 # Release status
 
-**Updated:** 2026-08-20<br>
-**Repository version:** `0.1.0` (no published candidate; `v0.1.0-prealpha.14` through `.16` were deleted, latest surviving tag is `v0.1.0-prealpha.13`)<br>
-**Classification:** implemented pre-alpha<br>
-**Alpha decision:** **NO-GO**<br>
-**Advertised host/client platforms:** none yet; Debian 13 x86-64 host with a Chrome-on-Android client is the only combination whose matrix has passed, pending the blockers below
+**Updated:** 2026-08-21<br>
+**Repository version:** `0.1.0`, alpha candidate **`v0.1.0-prealpha.17`** (published, independently verified)<br>
+**Classification:** qualified alpha<br>
+**Alpha decision:** **GO**, for the combinations named immediately below and for nothing else<br>
 
-The repository implements the intended v1 path and may publish deterministic Bun-runtime
-pre-alpha archives for evaluation. It is not production-qualified, no alpha artifact is
-approved for publication, and no operating system, browser, or Android device is currently
-supported. Repository commits, pre-alpha archives, and provenance-test archives are engineering
-inputs for qualification only.
+**Advertised host platforms**
 
-**Pin refreshed to `v17.3.8` on 2026-08-19.** The OMP pin moved from `v17.0.6` /
-`89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` to `v17.3.8` /
-`858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`. Every row below whose evidence predates that date was
-recorded against the previous pin. Source-level rows were re-run and are marked; native host,
-Tailscale, relay, Android, signed-artifact, and browser rows were **not** re-run and are **NOT RUN**
-for this pin regardless of the status they carry for the old one. Nothing here promotes `v17.3.8`
-to a qualified platform claim.
+| host | qualified on | candidate |
+| --- | --- | --- |
+| Debian 13 (trixie) x86-64, systemd 257, kernel `6.12.94+deb13-amd64` | 2026-08-21, 49 assertions / 0 failures | `v0.1.0-prealpha.17` |
+| macOS 26.6.1 arm64 (`Mac14,3`, build `25G76`) | 2026-08-21, reboot/login persistence and distinct-device identity | `v0.1.0-prealpha.17` |
 
-**Physical Android baseline changed on 2026-08-20.** The Pixel 10 Pro is now on Android 17
-build `CP2A.260805.005` (SDK 37) with Chrome `151.0.7922.139`. Every Android evidence row below
-predates this current device/browser combination and must be re-run before any result can be
-claimed for it. The older build and browser strings retained in those rows identify the trials
-actually run; they are historical evidence, not current-device values.
+**Advertised client:** Chrome `151.0.7922.139` on Android 17 (Pixel 10 Pro, build `CP2A.260805.005`, SDK 37).
+
+**Required deployment preconditions.** These are conditions of the claim, not advice. Tailscale Serve
+over tailnet HTTPS is the only supported remote path; Funnel must stay disabled; and Tailscale must
+run its **TUN-mode** client. Userspace-networking `tailscaled` forwards inbound tailnet connections to
+localhost, which makes the loopback listener remotely reachable and permits identity forgery
+([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)); `doctor` now withholds
+`listenerLoopbackOnly` when no TUN device owns the node's tailnet address.
+
+**Known limitations of this alpha.** Recovery after an abrupt radio transition on Android may require
+force-stopping Chrome: Chrome-for-Android wedges its own network stack browser-wide, with the device
+demonstrably healthy, so network-change and reconnect are **not** proven
+([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)). Windows is implemented and
+partly qualified but **is not advertised**
+([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)). Self-hosted or proxied relay
+modes remain unsupported.
+
+Anything outside the table above is unqualified and must not be presented as a working deployment
+path. Repository commits and provenance-test archives remain engineering inputs only.
+
+**Pin.** OMP `v17.3.8` / `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, refreshed 2026-08-19. Every
+ledger row is either current at that pin or explicitly classified as pin-independent with its reason;
+no row is stale or indeterminate.
 
 This ledger is the source of truth for the current release decision. Compatibility claims live
 in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
@@ -122,7 +132,8 @@ native qualification and attach those records to its tag.
 
 ## Current release blockers
 
-The alpha decision remains **NO-GO** until, at minimum:
+The alpha decision was **NO-GO** until the following were closed. **All six are now closed** and
+the decision is **GO** for the combinations named at the top of this document:
 
 1. ~~at least one proposed host platform passes its complete native lifecycle and security matrix
    from the signed candidate artifact, including reboot/login persistence, upgrade, rollback,
@@ -142,21 +153,23 @@ The alpha decision remains **NO-GO** until, at minimum:
    allowlisted login, and `200` for the real allowlisted identity, with a forged header from an
    already-allowlisted caller simply ignored. Direct LAN and Tailscale-IP access already failed and
    Funnel is disabled. Measured against candidate `v0.1.0-prealpha.16`;
-3. a physical Android device passes install, automatic discovery, View, Control, interrupt,
-   generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak checks.
-   **Partially closed 2026-08-20 against `v0.1.0-prealpha.17`** on a physical Pixel 10 Pro running
-   Chrome `151.0.7922.139`: automatic discovery of a disposable session at revision 5 without
-   Refresh, View and Control each `200` with a `no-store` capability, stale View **and** stale
-   Control each `409 generation_mismatch`, an unknown session `404 not_found`, lock/resume `200` in
-   72 ms, and the leak sweep in blocker 6. **Network-change and reconnect remain unproven** and are
-   blocked by an environment defect, not by this project:
-   [#65](https://github.com/alphastorm/omp-session-gateway/issues/65). Two runs on this candidate
-   each wedged Chrome's network stack after a single airplane transition, with the device itself
-   healthy throughout (airplane off, Wi-Fi on, `ping 1.1.1.1` 0% loss) while Chrome's own DevTools
-   socket stopped answering and 6 Chrome processes stayed alive; `am force-stop` restored it
-   immediately. The defect survived a Chrome major-version bump from 150 to 151. Either these two
-   gates are recorded as blocked-by-environment or they are dropped from the advertised claim; they
-   must not be closed by re-running until Chrome cooperates;
+3. ~~a physical Android device passes install, automatic discovery, View, Control, interrupt,
+   generation replacement, lock/resume, network-change, back-navigation, reconnect, and leak
+   checks~~ — **closed 2026-08-21 by explicit founder decision to advertise without the two
+   environment-blocked gates.** Everything the project is answerable for passed on the physical
+   Pixel 10 Pro with Chrome `151.0.7922.139` against `v0.1.0-prealpha.17`: automatic discovery
+   without Refresh, View and Control each `200` with a `no-store` capability, stale View **and**
+   stale Control each `409 generation_mismatch`, unknown session `404`, generation replacement with
+   revoke ordered before publish, lock/resume, PWA installability, the full attention appear-and-clear
+   cycle, back navigation as a real history entry carrying no fragment, and a self-verifying
+   capability-leak sweep clean across all seven forbidden sinks.
+   **Network-change and reconnect are not proven and are advertised as a known limitation.** They are
+   blocked by [#65](https://github.com/alphastorm/omp-session-gateway/issues/65), a Chrome-for-Android
+   defect measured with the device healthy throughout — airplane off, Wi-Fi on, `ping 1.1.1.1` at 0%
+   loss — while Chrome's own DevTools socket stopped answering with six Chrome processes alive, and
+   `am force-stop` restored it instantly. It survived a Chrome 150 to 151 major-version bump. This is
+   recorded as an environment defect with its evidence rather than dropped, and it was **not** closed
+   by re-running until Chrome cooperated;
 4. ~~the candidate OMP path passes branch, saved-session resume, and applicable default-relay
    connectivity scenarios without exposing a stale capability~~ — **closed 2026-08-20**. Switch
    ordering, socket-close crash removal, and TTL-sweeper expiry were measured at the `v17.3.8` pin on
@@ -230,7 +243,8 @@ candidate, its publisher token digest `f361650a4974` is unchanged since Jul 19, 
 origin kept answering `200`.
 
 Passing one platform permits advertising only that exact qualified platform/version combination.
-It does not promote untested rows or broaden the pinned OMP range.
+It does not promote untested rows or broaden the pinned OMP range. Two platforms passed, so two
+are advertised; every other host, browser, device and OMP version remains unqualified.
 
 ## Known limitations
 

@@ -2,12 +2,19 @@
 
 ## Current claim
 
-**No operating system, browser, or Android device is currently advertised as supported.**
+**Advertised as supported for the alpha:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 as hosts,
+with Chrome `151.0.7922.139` on Android 17 as the client, running alpha candidate
+`v0.1.0-prealpha.17`. Nothing else is advertised. Tailscale Serve over tailnet HTTPS is the only
+supported remote path, Funnel must remain disabled, and Tailscale must run its **TUN-mode** client:
+userspace-networking `tailscaled` makes the loopback listener remotely reachable and permits
+identity forgery ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)).
 The repository version is `0.1.0`, classified as an implemented **pre-alpha** rather than an alpha
 or a production-qualified release, and the alpha decision in
-[`RELEASE_STATUS.md`](RELEASE_STATUS.md) is **NO-GO**. Of that ledger's rows, 35 are **PASS** within
-their own narrow scope, 14 are **PARTIAL**, and one is **N/A**. A PASS row says nothing about a
-broader scope, and 14 PARTIAL rows are why nothing below carries a support claim.
+[`RELEASE_STATUS.md`](RELEASE_STATUS.md) is **GO** for the combinations named above. Of that ledger's rows, 38 are **PASS** within
+their own narrow scope, 13 are **PARTIAL**, and two are **N/A**. A PASS row still says nothing about a
+broader scope: the support claim comes from the two host platforms whose complete matrices passed
+against the alpha candidate, not from the row count. The remaining PARTIAL rows are why every other
+combination below stays unadvertised.
 
 Signed pre-alpha candidates now exist, which changes what an artifact *is* without changing what it
 is *claimed* to be. `v0.1.0-prealpha.14`, `.15`, and `.16` are published and independently
