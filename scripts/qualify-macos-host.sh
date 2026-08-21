@@ -129,7 +129,9 @@ REMOTE
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 if ! command -v tailscale >/dev/null 2>&1 && [ ! -x "$HOME/go/bin/tailscale" ]; then echo "no-tailscale"; exit 0; fi
 TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"
-state="$(S "$TS" status --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("BackendState","?"), "tagged" if d.get("Self",{}).get("Tags") else "user-owned", d.get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null || echo "? ? ?")"
+state="$("$TS" status --json 2>/dev/null || S "$TS" status --json 2>/dev/null)" &&
+  state="$(printf '%s' "$state" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("BackendState","?"), "tagged" if d.get("Self",{}).get("Tags") else "user-owned", d.get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null || echo "? ? ?")" ||
+  state="? ? ?"
 # A tailnet address on a real interface is what distinguishes TUN mode from userspace networking, and
 # it is the same signal the gateway itself enforces.
 tun="userspace"
@@ -201,7 +203,9 @@ TS="\$(command -v tailscale || echo "\$HOME/go/bin/tailscale")"
 
 # The operator grant matters: doctor runs as this user and shells out to \`tailscale\`, so without it
 # the tailscale checks fail for a permission reason that looks like a gateway fault.
-S "\$TS" set --operator="\$(whoami)" >/dev/null 2>&1 || true
+"\$TS" set --operator="\$(whoami)" >/dev/null 2>&1 ||
+  S "\$TS" set --operator="\$(whoami)" >/dev/null 2>&1 ||
+  true
 
 bun "\$CLI" install --origin "https://$DNS_NAME" --allow "\$LOGIN" >/dev/null 2>&1 ||
   { echo "   install FAILED"; exit 1; }
@@ -217,7 +221,8 @@ show "launchagent state" "\$(launchctl print "gui/\$(id -u)/omp-session-gateway"
 # trap described in this script's header.
 \$TS serve reset >/dev/null 2>&1 || true
 \$TS serve --bg --https=443 "http://127.0.0.1:\$PORT" >/dev/null 2>&1 || true
-S "\$TS" cert --cert-file /tmp/omp-qual.crt --key-file /tmp/omp-qual.key "$DNS_NAME" >/dev/null 2>&1 &&
+("\$TS" cert --cert-file /tmp/omp-qual.crt --key-file /tmp/omp-qual.key "$DNS_NAME" >/dev/null 2>&1 ||
+  S "\$TS" cert --cert-file /tmp/omp-qual.crt --key-file /tmp/omp-qual.key "$DNS_NAME" >/dev/null 2>&1) &&
   show "tls certificate" "provisioned for $DNS_NAME" ||
   show "tls certificate" "NOT provisioned (check the ACME rate limit; do not retry by probing)"
 
@@ -258,7 +263,8 @@ lane_identity() {
   host_ip="$(remote <<'REMOTE'
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"
-S "$TS" status --json 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["Self"]["TailscaleIPs"][0])' 2>/dev/null
+("$TS" status --json 2>/dev/null || S "$TS" status --json 2>/dev/null) |
+  python3 -c 'import json,sys;print(json.load(sys.stdin)["Self"]["TailscaleIPs"][0])' 2>/dev/null
 REMOTE
 )"
   measure "host tailnet address" "${host_ip:-<unknown>}"

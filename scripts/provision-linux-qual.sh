@@ -1549,6 +1549,28 @@ prev_root="$(find ~/runtime-prev -maxdepth 1 -mindepth 1 -type d 2>/dev/null | h
 # Every rollback here is driven by the candidate's CLI: it is the newer of the two artifacts, it is
 # what an operator on this box would reach for, and the predecessor may predate the command entirely.
 cli="$next_root/apps/gateway/src/cli.js"
+candidate_cli() {
+  "$bun" -e '
+const [, modulePath, ...args] = Bun.argv;
+const { main } = await import(modulePath);
+const describe = error => {
+  const message = error instanceof Error ? error.message : String(error);
+  const children =
+    error instanceof AggregateError
+      ? error.errors
+      : error instanceof Error && error.cause !== undefined
+        ? [error.cause]
+        : [];
+  return [message, ...children.flatMap(describe)];
+};
+try {
+  await main(args);
+} catch (error) {
+  console.error(describe(error).map((line, index) => `${index === 0 ? "" : "caused by: "}${line}`).join("\n"));
+  process.exitCode = 1;
+}
+' "$cli" "$@"
+}
 grep -q -a -F 'refusing to guess a rollback target' "$cli" || {
   echo "the candidate artifact carries no rollback target resolver, so it predates PR #78 and there is no command for this lane to exercise. Point OMP_QUAL_RELEASE_TAG at a candidate that has it." >&2
   exit 1
@@ -1639,7 +1661,7 @@ roll() {
   ROLL_PID_BEFORE="$(main_pid)"
   ROLL_HISTORY_BEFORE="$(history_count)"
   ROLL_HISTORY_LAST_BEFORE="$(history_last)"
-  ROLL_OUTPUT="$("$bun" "$cli" rollback "$@" | tr '\n' ' ')"
+  ROLL_OUTPUT="$(candidate_cli rollback "$@" | tr '\n' ' ')"
   ROLL_TO="$(pointer_version)"
   ROLL_UNIT_PATH="$(unit_exec_path)"
   ROLL_UNIT_VERSION="$(version_of_path "$ROLL_UNIT_PATH")"
@@ -1716,7 +1738,7 @@ show "active version directory" "$w0_active"
 show "activations recorded" "$(history_entries | tr '\n' ' ' | sed 's/ *$//' | grep . || printf 'none')"
 show "recorded predecessor, computed here" "$w0_expected"
 w0_rc=0
-"$bun" "$cli" rollback >"$work/w0.log" 2>&1 || w0_rc=$?
+candidate_cli rollback >"$work/w0.log" 2>&1 || w0_rc=$?
 show "exit code" "$w0_rc"
 show "output" "$(head -c 240 "$work/w0.log" | tr '\n' ' ')"
 show "current.json after" "$(pointer_version)"
