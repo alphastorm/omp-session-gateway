@@ -208,6 +208,48 @@ describe("HTTP boundary", () => {
       expect((await handler(launchRequest(), peer)).status).toBe(403);
     });
 
+    /**
+     * The class, not the two instances above. Every route that can answer must sit behind the
+     * identity gate, so adding one in front of it fails here rather than in a later qualification.
+     *
+     * `/api/v1/health` is the single deliberate exception and is asserted as such. It is loopback-
+     * gated only, carries no session data and no capability, and on a userspace-mode host a tailnet
+     * peer can read `{"status":"ready"}` and obtain `HMAC(publisherToken, challenge \0 instance)` for
+     * a challenge of its choice. That is bounded: the proof authenticates a daemon to an installer
+     * over loopback on the same host, which a remote caller cannot become, and it cannot be
+     * repurposed as a registry proof, because the IPC message begins
+     * `omp-session-gateway.registry.client.v1\n` while a readiness challenge is
+     * `[A-Za-z0-9_-]{43}` and so cannot contain that prefix's `.` characters. Gating it would also
+     * blind `doctor`, which reaches the daemon through this endpoint, exactly when it needs to report
+     * `loopbackTrustSound: false`.
+     */
+    test("no route but health answers while identity trust is unsound", async () => {
+      const handler = createHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+        // No push service: the gate runs before route dispatch, so `/api/v1/push/config` below is
+        // refused by the gate rather than by being unrouted, which is the invariant being asserted.
+        tailnetPresent: () => false,
+      });
+
+      for (const path of [
+        "/",
+        "/api/v1/sessions",
+        "/api/v1/events",
+        "/api/v1/push/config",
+        "/manifest.webmanifest",
+        "/service-worker.js",
+        "/assets/app.0123456789ab.js",
+        "/client/",
+      ]) {
+        expect({ path, status: (await handler(request(path), peer)).status }).toEqual({ path, status: 403 });
+      }
+
+      const health = await handler(new Request("http://127.0.0.1:4317/api/v1/health"), peer);
+      expect(health.status).toBe(200);
+    });
+
     test("serves the same identity once a TUN device owns a tailnet address", async () => {
       const handler = createHttpHandler({
         config: measured(),
