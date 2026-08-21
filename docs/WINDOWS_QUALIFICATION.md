@@ -158,11 +158,11 @@ address alongside 5985.
 
 Remaining to advertise Windows:
 
-1. Build and sign the paired patched OMP distribution instead of using the unsigned source-built
-   binary from this acceptance.
+1. Produce and retain an exact signed patched-OMP Windows artifact, whether through a future paired
+   package or an equivalent qualified build from the accepted patch route.
 2. Repeat the accepted install → reboot → no-login inactive proof → RDP login → automatic start →
    `doctor`/rotation/upgrade/rollback/uninstall sequence against the exact signed gateway candidate
-   and paired OMP bytes.
+   and that exact OMP binary.
 3. Keep the product promise explicit: Windows starts at interactive login, not unattended boot.
    Changing that would require a boot trigger and non-interactive principal with different
    privilege and token-ACL consequences; this qualification does not authorize that redesign.
@@ -171,13 +171,12 @@ Remaining to advertise Windows:
    published and revoked correctly, but a hung fixture is not a green full-suite claim.
 
 `Windows host lifecycle` therefore remains **PARTIAL for release**, but no longer because #90 or
-reboot/login behavior is unknown. The only release blockers are exact signed-byte repetition,
-paired OMP packaging, and the bounded test-hang disposition.
+reboot/login behavior is unknown. These are Windows-promotion requirements only; Windows is outside
+the advertised beta matrix.
 
-The 2026-08-21 scope decision deliberately stops here: alpha installations continue to require the
-exact tested v17.4.1 patch. Building/signing a paired OMP distribution is deferred; before beta,
-either upstream the controller/publication seam or ship and qualify a supported paired installer.
-This deferral does not weaken the integration requirement or promote Windows.
+Beta itself uses the command-complete, versioned v17.4.1 patch route documented in
+`patches/oh-my-pi/README.md`. Upstreaming and paired packaging are not beta gates. This scope choice
+does not weaken the integration requirement, imply stock-OMP compatibility, or promote Windows.
 
 ## Cost and hygiene
 

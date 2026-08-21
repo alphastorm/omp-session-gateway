@@ -438,7 +438,7 @@ must not be advertised as supported. The published alpha matrix remains immutabl
 
 ---
 
-## ADR-024 — Keep the exact OMP patch as the alpha prerequisite and defer paired packaging
+## ADR-024 — Use the exact OMP patch as the beta prerequisite and defer paired packaging
 
 **Status:** Accepted
 
@@ -449,13 +449,14 @@ generation-ordered revoke/publish guarantees. A persistent Windows source lane p
 produce and run a working binary, but building, signing, installing, updating, rolling back, and
 qualifying paired OMP artifacts is a separate distribution project.
 
-**Decision:** Do not expand the paired-OMP packaging lane now. Alpha installations continue to
-require the exact tested v17.4.1 patch in `patches/oh-my-pi`. Do not enable beta tags, advertise
-Windows, or imply stock-OMP compatibility. Before beta, choose one complete path: upstream the
-controller/publication seam into a supported OMP release, or ship and qualify a supported paired
-OMP installer with update and rollback.
+**Decision:** Accept the exact, tested v17.4.1 patch in `patches/oh-my-pi` as the supported beta
+prerequisite. Upstreaming discussion #6460 and a paired OMP package are not beta gates. The route
+must remain command-complete and versioned: exact checkout and tree assertions, upstream-supported
+source build, a separate `omp-gateway-patched` activation path, explicit config verification, and
+symlink-based rollback. Do not imply stock-OMP compatibility. Windows remains unadvertised for
+independent signed-platform reasons, not because paired packaging is absent.
 
-**Consequences:** The integration remains real and tested, but installation stays more manual than
-the final product goal. Windows source acceptance and the v17.4.1 rebase improve confidence without
-creating a support claim. The deferred packaging work remains a beta gate rather than being hidden
-as follow-up polish.
+**Consequences:** Beta can ship without waiting on an upstream maintainer or expanding into a
+second installer. Installation is more manual than the final product goal, and every participating
+OMP process must be launched from the verified patched binary. A future upstream seam or paired
+installer can replace this prerequisite, but neither blocks the bounded beta support matrix.

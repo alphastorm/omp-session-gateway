@@ -89,6 +89,60 @@ status, optional read-only health probes, and duplicate response acknowledgement
 focused tests, the complete coding-agent test buckets, `bun run ci:check:full`, and the applicable
 platform lanes against the exact pin before release qualification.
 
+## Supported beta prerequisite route (Linux and macOS)
+
+Stock OMP v17.4.1 is not sufficient. Until the controller/publication seam lands upstream, every
+OMP process expected to appear automatically must run a binary built from the exact source and
+mbox above. The supported beta route is versioned and deliberately does not overwrite the user's
+ordinary `omp` command:
+
+```sh
+export GATEWAY_ROOT=/absolute/path/to/omp-session-gateway
+export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v17.4.1"
+
+git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
+git -C "$OMP_ROOT" checkout --detach 9350b7990d26ebf69a604edc82d8558ef04adf30
+test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = 9350b7990d26ebf69a604edc82d8558ef04adf30
+git -C "$OMP_ROOT" am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
+
+(
+  cd "$OMP_ROOT"
+  test "$(bun --version)" = 1.3.14
+  bun setup
+  bun run ci:check:full
+  bun --cwd=packages/coding-agent run build
+  test "$(packages/coding-agent/dist/omp --version)" = omp/17.4.1
+)
+
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v17.4.1-a5cfc80f"
+mkdir -p "$version_dir" "$HOME/.local/bin"
+install -m 0755 "$OMP_ROOT/packages/coding-agent/dist/omp" "$version_dir/omp"
+ln -sfn "$version_dir/omp" "$HOME/.local/bin/omp-gateway-patched"
+test "$(readlink "$HOME/.local/bin/omp-gateway-patched")" = "$version_dir/omp"
+"$HOME/.local/bin/omp-gateway-patched" config set collab.autoStart control
+"$HOME/.local/bin/omp-gateway-patched" config set collab.registryEndpoint auto
+if command -v sha256sum >/dev/null; then
+  sha256sum "$version_dir/omp"
+else
+  shasum -a 256 "$version_dir/omp"
+fi
+"$HOME/.local/bin/omp-gateway-patched" config get collab.autoStart --json
+"$HOME/.local/bin/omp-gateway-patched" config get collab.registryEndpoint --json
+```
+
+Launch sessions that should publish with `omp-gateway-patched`, not stock `omp`. Keep the source
+checkout: its exact commit/tree plus a SHA-256 of the installed binary are the local provenance
+record. `omp-gateway doctor` verifies the bundled integration artifacts but cannot inspect a
+separate OMP executable, so the `readlink`, version, and source-tree assertions above are required.
+
+For rollback, stop every process launched from `omp-gateway-patched` before changing the symlink;
+running processes retain their original executable and capabilities. Repoint the symlink to a
+previously retained, qualified patched version and re-run the readlink/version/config assertions.
+If returning to stock OMP instead, first set `collab.autoStart` to `off`, remove only the
+`omp-gateway-patched` symlink, and accept that zero-touch gateway enrollment is disabled. Never
+silently point `omp-gateway-patched` at an unpatched or loosely versioned binary.
+
 On Windows every publisher-token fixture is secured, and the publisher's own token ACL is
 validated, by spawning `powershell.exe`. Hosted runner images have made that spawn cost seconds
 rather than milliseconds, and the first test in `registry-publisher.test.ts` pays two cold starts.

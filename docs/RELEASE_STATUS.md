@@ -103,8 +103,9 @@ force-stopping Chrome: Chrome-for-Android can wedge its network stack while the 
 healthy, so network-change and reconnect remain explicitly **unproven**
 ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)). Preview notification detail
 currently falls back to Session detail because the OMP publisher carries no bounded preview field.
-Windows is not advertised: #90 and reboot/login behavior now pass in source, but the paired signed
-gateway/OMP artifact lane remains open. Self-hosted or proxied relay modes remain unsupported.
+Windows is not advertised: #90 and reboot/login behavior now pass in source, but its exact signed
+Windows artifact lane remains open; that narrower support gap does not block beta. Self-hosted or
+proxied relay modes remain unsupported.
 
 Anything outside the table above is unqualified and must not be presented as a working deployment
 path. Passing one platform permits advertising only that exact platform/version combination.

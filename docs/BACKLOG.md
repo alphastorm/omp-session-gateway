@@ -31,14 +31,15 @@
       production probe at runtime.
       Deferred as performance debt: Windows remains unadvertised pending signed-byte qualification,
       and a native rewrite touches a token-privacy boundary despite the new persistent-host evidence.
-- [ ] Qualify the exact `v17.4.1` / `9350b7990` development pin before advertising the next
-      release. Patch application, provenance, Mac source checks, a protected relay window, and the
-      persistent Windows gateway/OMP source lane now pass. Signed gateway/OMP distributions plus
-      advertised-host and physical-client evidence still do not transfer from the v17.3.8 alpha.
-- [ ] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
-      the `v17.3.8` pin. The 2026-08-19 refresh regenerated source-level evidence only. The ledger
-      records this blocker as closed on 2026-08-21 with no stale or indeterminate row, so what
-      remains below is desirable rather than release-blocking.
+- [ ] Qualify the exact `v17.4.1` / `9350b7990` development pin before advertising beta.
+  - [x] Exact patch acquisition, `git am` tree assertion, upstream source build, versioned
+        `omp-gateway-patched` activation/config verification, and rollback are documented as the
+        supported beta prerequisite. Upstreaming and paired packaging are not blockers.
+  - [ ] Build the signed gateway beta candidate and repeat the advertised Debian, macOS, and
+        physical-Android lanes against sessions launched from that exact patched tree.
+- [x] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
+      the `v17.3.8` alpha pin. Closed 2026-08-21; retained below as historical evidence rather than
+      a current beta gate.
   - [x] Native hosts: Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 are both qualified against
         candidate `provenance-test-v0.1.0.11`.
   - [x] Signed artifacts: release signing, SBOM, and provenance were re-run at the candidate, and
@@ -48,9 +49,9 @@
         2026-08-21 with 22 transitions, `finalPhase: "live"`, exit code 0, and no restart. The
         earlier 27,600-second externally contaminated run remains recorded rather than rewritten.
         Named record: `~/.local/share/omp-session-gateway/test/v0.1.0-alpha.1/soak/protected-relay-soak-8h.json`.
-  - [ ] Android network-change and reconnect: blocked by
-        [#65](https://github.com/alphastorm/omp-session-gateway/issues/65), a Chrome-for-Android
-        defect, rather than by a missing run.
+  - [x] Android network-change and reconnect scope resolved as a disclosed Chrome limitation in
+        [#65](https://github.com/alphastorm/omp-session-gateway/issues/65), not a beta publication
+        blocker or a claim of successful radio-transition recovery.
 
 ## v1.1 candidates
 

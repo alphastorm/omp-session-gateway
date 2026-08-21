@@ -2,13 +2,19 @@
 
 ## 1. One-time prerequisites
 
-- an OMP build containing the supported collaboration automation/publisher integration;
+- the exact OMP v17.4.1 gateway patch built and activated through the
+  [versioned prerequisite route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos);
 - Tailscale installed and signed into the same tailnet on the desktop and Android phone;
 - tailnet HTTPS/DNS enabled as required by Tailscale Serve;
 - a tailnet policy restricting the gateway host's HTTPS service to the intended user/device posture;
 - an Android browser supported by the release compatibility matrix.
 
 The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login, gateway installation, and OMP configuration happen once.
+
+Stock OMP does not provide automatic startup or authenticated registry publication. Beta operators
+must launch participating sessions with the versioned `omp-gateway-patched` executable; the route
+keeps the user's ordinary `omp` installation untouched and includes explicit provenance and
+rollback checks.
 
 For v1 header-based authorization, the Android source must be a user-authenticated Tailscale device. Tagged source devices do not receive the user identity header used by the default auth mode.
 
@@ -229,7 +235,11 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 - publisher count and heartbeat health without exposing capabilities;
 - config validation plus the presence and exact pin of the bundled `UPSTREAM.lock.json` and OMP patch artifacts.
 
-The compatibility check validates the gateway distribution's pinned integration artifacts. It does not inspect or claim that the locally installed OMP executable contains the patch; verify that separately against the exact commit during installation and qualification. Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
+The compatibility check validates the gateway distribution's pinned integration artifacts. It does
+not inspect or claim that a separately installed OMP executable contains the patch; installation
+and qualification must run the source-tree, symlink, version, and config assertions in the
+[versioned patch route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos).
+Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.
 

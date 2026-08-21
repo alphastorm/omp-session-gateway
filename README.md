@@ -216,8 +216,10 @@ identity header, `doctor` reports `loopbackTrustSound: false`, and the log carri
 `http.identity_trust_unsound`. If a correctly configured host is refused, that check is what to
 look at first.
 
-Never enable Tailscale Funnel. Apply the pinned OMP patch and configure `collab.autoStart` to
-`view` or `control`; see [`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md) and
+Never enable Tailscale Funnel. Stock OMP is insufficient: build and launch participating sessions
+with the exact versioned v17.4.1 patch route in
+[`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos),
+then set `collab.autoStart` to `view` or `control`; see
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 Build the deterministic Bun-runtime archive and checksum manifest with `bun run release:build`.

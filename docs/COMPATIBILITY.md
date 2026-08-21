@@ -82,6 +82,9 @@ applied cleanly, and the v17.4.1 QR-command fixture was adapted to exercise manu
 recovery. Upstream collab-web source and wire protocol source are unchanged across these pins;
 package versions, package authorship/license metadata, the mbox, and all provenance records still
 move to the exact new commit. No platform or signed-artifact evidence transfers to this row.
+The command-complete, versioned `omp-gateway-patched` route is the accepted beta prerequisite;
+upstreaming and paired OMP packaging are not beta gates. The remaining gate for this row is
+candidate evidence on the advertised hosts/client, not a different distribution mechanism.
 
 **Pin refreshed 2026-08-19, from `v17.0.6` / `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6`.** The
 previous mbox did not apply at this commit (`interactive-mode.ts`, `agent-session.ts`,
@@ -133,8 +136,8 @@ The following describes code, evidence, and each row's support boundary. Linux, 
 Android client retain their `v0.1.0-alpha` support claim and have passed successor
 `v0.1.0-alpha.1` qualification for the exact versions named below. Windows now passes persistent
 source acceptance through reboot→interactive-login and the complete gateway/OMP path, but remains
-unadvertised until exact signed gateway and paired OMP artifacts repeat it. Desktop Chromium is
-smoke only.
+unadvertised until exact signed gateway and patched-OMP Windows artifacts repeat it. This
+Windows-only support gap does not block the narrower beta matrix. Desktop Chromium is smoke only.
 
 | Platform | Implemented path | Recorded evidence | Qualification | Support claim |
 |---|---|---|---|---|
