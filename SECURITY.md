@@ -37,4 +37,4 @@ The detailed threat model, trust boundaries, and release gates are in [`docs/SEC
 
 ## Supported versions
 
-`v0.1.0-alpha` is the current published qualified alpha; `v0.1.0-alpha.1` has passed exact-candidate qualification and is pending promotion. Neither is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).
+`v0.1.0-alpha.1` is the current published qualified alpha; `v0.1.0-alpha` is its supported rollback predecessor. Neither is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).

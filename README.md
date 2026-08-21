@@ -33,7 +33,7 @@
 [license]: LICENSE
 [license-badge]: https://img.shields.io/github/license/alphastorm/omp-session-gateway?color=1C232B&labelColor=0B0E11
 [status]: docs/RELEASE_STATUS.md
-[status-badge]: https://img.shields.io/badge/status-alpha%20v0.1.0--alpha-C99B45?labelColor=0B0E11
+[status-badge]: https://img.shields.io/badge/status-alpha%20v0.1.0--alpha.1-C99B45?labelColor=0B0E11
 [omp-lock]: UPSTREAM.lock.json
 [omp-badge]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Falphastorm%2Fomp-session-gateway%2Fmain%2FUPSTREAM.lock.json&query=%24.tag&label=OMP%20baseline&color=1C232B&labelColor=0B0E11
 [bun]: https://bun.sh
@@ -43,12 +43,11 @@
 
 </div>
 
-> **Project status: alpha.** [`v0.1.0-alpha`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0-alpha)
+> **Project status: alpha.** [`v0.1.0-alpha.1`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0-alpha.1)
 > is published and independently verified. It is qualified for Debian 13 (trixie) x86-64 and
-> macOS 26.6.1 arm64 as hosts, with Chrome `151.0.7922.139`
-> on Android 17 as the client. Anything outside that
-> combination is unqualified and must not be treated as a working deployment path: Windows is
-> implemented but **not advertised**, and self-hosted or proxied relay modes remain unsupported.
+> macOS 26.6.1 arm64 as hosts, with Chrome `151.0.7922.171` on Android 17 as the client. Anything
+> outside that combination is unqualified and must not be treated as a working deployment path:
+> Windows is implemented but **not advertised**, and self-hosted or proxied relay modes remain unsupported.
 > Tailscale must run its **TUN-mode** client — the gateway refuses identity headers otherwise, because
 > userspace-networking `tailscaled` makes the loopback listener reachable from the whole tailnet
 > ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). Android recovery after an
