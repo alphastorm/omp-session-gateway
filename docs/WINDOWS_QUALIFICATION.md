@@ -174,11 +174,16 @@ Remaining to advertise Windows:
 reboot/login behavior is unknown. The only release blockers are exact signed-byte repetition,
 paired OMP packaging, and the bounded test-hang disposition.
 
+The 2026-08-21 scope decision deliberately stops here: alpha installations continue to require the
+exact tested v17.4.1 patch. Building/signing a paired OMP distribution is deferred; before beta,
+either upstream the controller/publication seam or ship and qualify a supported paired installer.
+This deferral does not weaken the integration requirement or promote Windows.
+
 ## Cost and hygiene
 
-The two 2026-08-20 probes were destroyed. The current restricted VM is intentionally retained only
-for the signed-candidate rerun: gateway and OMP tasks are absent, no Bun/OMP process or port-4317
-listener remains, Tailscale is down, and RDP/WinRM are limited by the provider firewall to the
-operator's current `/32`. The captured password remains in a local mode-`0600` temporary file and
-must be shredded when the VM is destroyed. No instance identifier, address, login, or credential is
-recorded in this repository.
+The two 2026-08-20 probes and the successful 2026-08-21 qualification VM were destroyed. Before
+the final deletion, gateway and OMP tasks were absent, no Bun/OMP process or port-4317 listener
+remained, and the temporary Tailscale identity was logged out. The Vultr API then reported zero
+`omp-winqual-*` instances and zero firewall groups; the captured administrator password and local
+state file were shredded/removed. The one unrelated pre-existing instance was not touched. No
+instance identifier, address, login, or credential is recorded in this repository.
