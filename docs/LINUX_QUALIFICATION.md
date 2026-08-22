@@ -520,6 +520,8 @@ this same script on a hosted runner: `workflow_dispatch` at any time, plus a wee
 job spends money and a fork's pull request has no access to the secrets below — and because an
 arbitrary edit of this script must never execute against these credentials.
 
+Stable qualification supplies an opaque `qualification_id` and the workflow uses it in the run name. The orchestrator persists that identifier before dispatch, then locates exactly one run by run name and orchestrator commit through the Actions API; it does not parse `gh workflow run` stdout. If GitHub accepted the request but the run is not yet discoverable, resume fails closed instead of issuing a second paid workflow. The workflow-wide `droplet-linux-qualification` concurrency group remains serialized with `cancel-in-progress: false`.
+
 Nothing about the workflow changes what the lanes measure. It exists so the Linux evidence stops
 depending on somebody remembering to run it, and so a regression like
 [#69](https://github.com/alphastorm/omp-session-gateway/issues/69) has a standing chance of being

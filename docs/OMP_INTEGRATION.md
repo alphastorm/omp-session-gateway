@@ -192,3 +192,18 @@ Add tests for:
 - malformed endpoint/token fails safely;
 - no links in captured logs or snapshots;
 - command behavior remains backward compatible.
+
+## 9. Stable qualification pin
+
+`patches/oh-my-pi/qualification.env` is the machine-readable source shared by the stable orchestrator and retained-Mac OMP helper:
+
+```sh
+OMP_PIN_BUN_VERSION=1.3.14
+OMP_PIN_SOURCE_COMMIT=9350b7990d26ebf69a604edc82d8558ef04adf30
+OMP_PIN_PATCHED_TREE=a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
+OMP_PIN_VERSION=17.4.1
+OMP_PIN_NATIVE_TARBALL_SHA256=f4787a93438e5dd94b67211eb0fc22036e186f39cb4ab7b36c6c79dc2891553c
+OMP_PIN_NATIVE_BINARY_SHA256=7fd4e3f822ff5b1fb890c27ec8a7e19166902f70c81eb4d303061fefe26766f1
+```
+
+Qualification rejects a source commit, patched tree, Bun version, native npm tarball, or extracted Darwin arm64 `.node` payload outside those exact pins. The native archive is downloaded from the versioned npm registry URL and verified before its payload is copied into the patched source tree.

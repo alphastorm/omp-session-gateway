@@ -495,6 +495,7 @@ join_tailnet() {
   ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'umask 077; cat > /root/.ts-authkey' <"$key_file"
   rm -f "$key_file"
   remote_root <<'REMOTE' && joined=1
+set -euo pipefail
 trap 'rm -f /root/.ts-authkey' EXIT
 test -s /root/.ts-authkey
 # A freshly started daemon can already have a machine key while still being in NeedsLogin. `up`

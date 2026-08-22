@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,6 +9,7 @@ const VERSION = "0.1.0";
 const PREVIOUS_TAG = "v0.1.0-beta.1";
 const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
+const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
 const DEFAULT_MAC_ZONE = "fr-par-1";
 const DEFAULT_MAC_NAME = "omp-macqual-01";
 const DEFAULT_MAC_LOGIN = "alphastorm@github";
@@ -114,6 +115,8 @@ export interface OmpPins {
   readonly sourceCommit: string;
   readonly patchedTree: string;
   readonly version: string;
+  readonly nativeTarballSha256: string;
+  readonly nativeBinarySha256: string;
 }
 
 interface CandidateVerification extends CandidateIdentity {
@@ -191,8 +194,8 @@ export function parseStableQualificationArgs(
       join(homedir(), ".local", "share", "omp-session-gateway", "qualification", tag),
   );
   const sessionLabel = environment.OMP_STABLE_SESSION_LABEL ?? DEFAULT_SESSION_LABEL;
-  if (!/^[A-Za-z0-9._-]+$/u.test(sessionLabel)) {
-    throw new Error("OMP_STABLE_SESSION_LABEL contains unsupported characters");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(sessionLabel)) {
+    throw new Error("OMP_STABLE_SESSION_LABEL must be a safe single path component of at most 128 characters");
   }
   return {
     tag,
@@ -230,11 +233,19 @@ export function createStableQualificationReceipt(tag: string, orchestratorCommit
   };
 }
 
-function validateReceipt(value: unknown, expectedTag: string): StableQualificationReceipt {
+export function validateStableQualificationReceipt(
+  value: unknown,
+  expectedTag: string,
+  expectedCommit: string,
+): StableQualificationReceipt {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("qualification receipt is invalid");
   const receipt = value as Partial<StableQualificationReceipt>;
-  if (receipt.schemaVersion !== 1 || receipt.tag !== expectedTag || typeof receipt.orchestratorCommit !== "string") {
-    throw new Error("qualification receipt identity is invalid");
+  if (
+    receipt.schemaVersion !== 1 ||
+    receipt.tag !== expectedTag ||
+    receipt.orchestratorCommit !== expectedCommit
+  ) {
+    throw new Error("qualification receipt identity is invalid; do not resume evidence across orchestrator commits");
   }
   if (typeof receipt.lanes !== "object" || receipt.lanes === null) throw new Error("qualification receipt lanes are invalid");
   for (const name of LANE_NAMES) {
@@ -253,7 +264,7 @@ function assertNoSecretFields(value: unknown, path = "receipt"): void {
   }
   if (typeof value !== "object" || value === null) return;
   for (const [key, child] of Object.entries(value)) {
-    if (/^(?:capability|password|sudoPassword|secret|secretKey|authKey|token)$/iu.test(key)) {
+    if (/(?:capability|password|secret|authKey|token|bearer)/iu.test(key)) {
       throw new Error(`refusing to persist secret-bearing receipt field ${path}.${key}`);
     }
     assertNoSecretFields(child, `${path}.${key}`);
@@ -273,7 +284,7 @@ async function saveReceipt(path: string, receipt: StableQualificationReceipt): P
 
 async function loadReceipt(path: string, tag: string, commit: string): Promise<StableQualificationReceipt> {
   if (!(await Bun.file(path).exists())) return createStableQualificationReceipt(tag, commit);
-  return validateReceipt(JSON.parse(await readFile(path, "utf8")), tag);
+  return validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), tag, commit);
 }
 
 export async function executeReceiptLane<T extends Record<string, unknown>>(
@@ -306,7 +317,7 @@ export async function executeReceiptLane<T extends Record<string, unknown>>(
   } catch (error) {
     lane.status = "failed";
     lane.completedAt = now();
-    lane.error = errorMessage(error);
+    lane.error = "lane execution failed; inspect the qualification process output";
     await persist();
     throw error;
   }
@@ -441,56 +452,194 @@ async function gitQualificationRef(commit: string): Promise<string> {
   return branch;
 }
 
-async function qualifyDebian(
+interface DebianWorkflowRun {
+  readonly id: number;
+  readonly title: string;
+  readonly headSha: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly url: string;
+}
+
+export interface DebianQualificationRuntime {
+  readonly output: (command: readonly string[], timeoutMs?: number) => Promise<string>;
+  readonly execute: (
+    command: readonly string[],
+    options?: { readonly timeoutMs?: number; readonly allowFailure?: boolean; readonly echo?: boolean },
+  ) => Promise<void>;
+  readonly sleep: (milliseconds: number) => Promise<void>;
+  readonly createDispatchId: () => string;
+}
+
+const defaultDebianRuntime: DebianQualificationRuntime = {
+  output: (command, timeoutMs) => commandOutput(command, timeoutMs === undefined ? {} : { timeoutMs }),
+  execute: async (command, options = {}) => {
+    await runCommand(command, options);
+  },
+  sleep: Bun.sleep,
+  createDispatchId: randomUUID,
+};
+
+async function findDebianRun(
+  qualificationRef: string,
+  dispatchId: string,
+  orchestratorCommit: string,
+  runtime: DebianQualificationRuntime,
+): Promise<DebianWorkflowRun | undefined> {
+  const payload = JSON.parse(
+    await runtime.output(
+      [
+        "gh",
+        "api",
+        "--method",
+        "GET",
+        `repos/${REPOSITORY}/actions/workflows/${DEBIAN_WORKFLOW}/runs`,
+        "-f",
+        "event=workflow_dispatch",
+        "-f",
+        `branch=${qualificationRef}`,
+        "-f",
+        "per_page=100",
+      ],
+      120_000,
+    ),
+  ) as { workflow_runs?: unknown };
+  if (!Array.isArray(payload.workflow_runs)) throw new Error("GitHub workflow-run lookup returned an invalid response");
+  const title = `${DEBIAN_RUN_TITLE_PREFIX} ${dispatchId}`;
+  const matches = payload.workflow_runs.filter(run => {
+    if (!isRecord(run)) return false;
+    return run.display_title === title && run.head_sha === orchestratorCommit;
+  });
+  if (matches.length > 1) throw new Error(`multiple Debian workflow runs matched dispatch ${dispatchId}`);
+  const match = matches[0];
+  if (!isRecord(match)) return undefined;
+  if (
+    typeof match.id !== "number" ||
+    typeof match.display_title !== "string" ||
+    typeof match.head_sha !== "string" ||
+    typeof match.status !== "string" ||
+    !(typeof match.conclusion === "string" || match.conclusion === null) ||
+    typeof match.html_url !== "string"
+  ) {
+    throw new Error("GitHub workflow-run match returned invalid fields");
+  }
+  return {
+    id: match.id,
+    title: match.display_title,
+    headSha: match.head_sha,
+    status: match.status,
+    conclusion: match.conclusion,
+    url: match.html_url,
+  };
+}
+
+async function waitForDebianRun(
+  qualificationRef: string,
+  dispatchId: string,
+  orchestratorCommit: string,
+  runtime: DebianQualificationRuntime,
+): Promise<DebianWorkflowRun | undefined> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const run = await findDebianRun(qualificationRef, dispatchId, orchestratorCommit, runtime);
+    if (run !== undefined) return run;
+    await runtime.sleep(2_000);
+  }
+  return undefined;
+}
+
+export async function qualifyDebian(
   options: StableQualificationOptions,
   receipt: StableQualificationReceipt,
   checkpoint: Checkpoint,
   qualificationRef: string,
+  runtime: DebianQualificationRuntime = defaultDebianRuntime,
 ): Promise<Record<string, unknown>> {
-  let runId = typeof receipt.lanes.debian.evidence?.runId === "number" ? receipt.lanes.debian.evidence.runId : undefined;
+  const laneEvidence = receipt.lanes.debian.evidence ?? {};
+  let dispatchId = typeof laneEvidence.dispatchId === "string" ? laneEvidence.dispatchId : undefined;
+  let dispatchRequestedAt = typeof laneEvidence.dispatchRequestedAt === "string"
+    ? laneEvidence.dispatchRequestedAt
+    : undefined;
+  let runId = typeof laneEvidence.runId === "number" ? laneEvidence.runId : undefined;
+  let priorFailed = false;
   if (runId !== undefined) {
-    const prior = JSON.parse(await commandOutput(["gh", "run", "view", String(runId), "--json", "status,conclusion,url"])) as {
+    const prior = JSON.parse(await runtime.output(["gh", "run", "view", String(runId), "--json", "status,conclusion,url"])) as {
       status?: string;
       conclusion?: string;
       url?: string;
     };
-    if (prior.status === "completed" && prior.conclusion !== "success") runId = undefined;
+    priorFailed = prior.status === "completed" && prior.conclusion !== "success";
+    if (priorFailed) {
+      dispatchId = undefined;
+      dispatchRequestedAt = undefined;
+      runId = undefined;
+    }
   }
   if (runId === undefined) {
-    const dispatched = await commandOutput([
-      "gh",
-      "workflow",
-      "run",
-      DEBIAN_WORKFLOW,
-      "--ref",
-      qualificationRef,
-      "-f",
-      `release_tag=${options.tag}`,
-      "-f",
-      `previous_tag=${options.previousTag}`,
-      "-f",
-      "lanes=",
-      "-f",
-      "droplet_size=s-2vcpu-4gb",
-    ]);
-    const match = dispatched.match(/\/runs\/(\d+)/u);
-    if (!match) throw new Error(`could not read Debian workflow run id: ${dispatched}`);
-    runId = Number(match[1]);
-    await checkpoint({ runId, url: match[0] });
+    if (dispatchId === undefined) {
+      dispatchId = runtime.createDispatchId();
+      if (!/^[0-9a-f-]{36}$/u.test(dispatchId)) throw new Error("Debian dispatch id generator returned an invalid value");
+      dispatchRequestedAt = undefined;
+      await checkpoint({ dispatchId, dispatchRequestedAt: null, runId: null, url: null });
+    }
+
+    let discovered = await findDebianRun(qualificationRef, dispatchId, receipt.orchestratorCommit, runtime);
+    if (discovered === undefined && dispatchRequestedAt === undefined) {
+      dispatchRequestedAt = now();
+      await checkpoint({ dispatchId, dispatchRequestedAt });
+      await runtime.execute([
+        "gh",
+        "workflow",
+        "run",
+        DEBIAN_WORKFLOW,
+        "--ref",
+        qualificationRef,
+        "-f",
+        `qualification_id=${dispatchId}`,
+        "-f",
+        `release_tag=${options.tag}`,
+        "-f",
+        `previous_tag=${options.previousTag}`,
+        "-f",
+        "lanes=",
+        "-f",
+        "droplet_size=s-2vcpu-4gb",
+      ]);
+    }
+    discovered ??= await waitForDebianRun(qualificationRef, dispatchId, receipt.orchestratorCommit, runtime);
+    if (discovered === undefined) {
+      throw new Error(
+        `Debian dispatch ${dispatchId} is not discoverable; refusing to dispatch again until the existing request is resolved`,
+      );
+    }
+    runId = discovered.id;
+    await checkpoint({ dispatchId, dispatchRequestedAt, runId, url: discovered.url });
   }
-  await runCommand(["gh", "run", "watch", String(runId), "--exit-status"], {
+  await runtime.execute(["gh", "run", "watch", String(runId), "--exit-status"], {
     timeoutMs: 55 * 60 * 1_000,
     allowFailure: true,
     echo: true,
   });
   const result = JSON.parse(
-    await commandOutput(["gh", "run", "view", String(runId), "--json", "status,conclusion,headSha,url,jobs"]),
+    await runtime.output(["gh", "run", "view", String(runId), "--json", "status,conclusion,headSha,url,jobs"]),
   ) as { status?: string; conclusion?: string; headSha?: string; url?: string; jobs?: unknown[] };
   if (result.status !== "completed" || result.conclusion !== "success") {
     throw new Error(`Debian qualification run ${runId} concluded ${result.conclusion ?? result.status ?? "unknown"}`);
   }
   if (result.headSha !== receipt.orchestratorCommit) throw new Error("Debian qualification ran different orchestration source");
-  return { runId, url: result.url, headSha: result.headSha, conclusion: result.conclusion };
+  if (!Array.isArray(result.jobs)) throw new Error("Debian qualification did not return job evidence");
+  const observedJobs = result.jobs.map(job => isRecord(job) ? { name: job.name, conclusion: job.conclusion } : {});
+  const requiredJob = observedJobs.find(job => job.name === "Qualify on disposable droplet");
+  if (requiredJob?.conclusion !== "success") {
+    throw new Error("Debian qualification missed successful job: Qualify on disposable droplet");
+  }
+  return {
+    dispatchId,
+    dispatchRequestedAt,
+    runId,
+    url: result.url,
+    headSha: result.headSha,
+    conclusion: result.conclusion,
+  };
 }
 
 function parseCredentialAssignments(text: string): Record<string, string> {
@@ -526,8 +675,17 @@ export function parseQualificationPins(text: string): OmpPins {
     sourceCommit: values.OMP_PIN_SOURCE_COMMIT ?? "",
     patchedTree: values.OMP_PIN_PATCHED_TREE ?? "",
     version: values.OMP_PIN_VERSION ?? "",
+    nativeTarballSha256: values.OMP_PIN_NATIVE_TARBALL_SHA256 ?? "",
+    nativeBinarySha256: values.OMP_PIN_NATIVE_BINARY_SHA256 ?? "",
   };
-  if (!/^\d+\.\d+\.\d+$/u.test(pins.bunVersion) || !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) || !/^[0-9a-f]{40}$/u.test(pins.patchedTree) || !/^\d+\.\d+\.\d+$/u.test(pins.version)) {
+  if (
+    !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.bunVersion) ||
+    !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) ||
+    !/^[0-9a-f]{40}$/u.test(pins.patchedTree) ||
+    !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.version) ||
+    !/^[0-9a-f]{64}$/u.test(pins.nativeTarballSha256) ||
+    !/^[0-9a-f]{64}$/u.test(pins.nativeBinarySha256)
+  ) {
     throw new Error("OMP qualification pin is invalid");
   }
   return pins;
@@ -580,19 +738,26 @@ async function recoverRetainedMac(options: StableQualificationOptions): Promise<
   return { sshDestination: `${user}@${ip}`, sudoPassword };
 }
 
-function macEnvironment(options: StableQualificationOptions, target: MacTarget): Record<string, string> {
+function macEnvironment(
+  options: StableQualificationOptions,
+  target: MacTarget,
+  candidate: CandidateIdentity,
+): Record<string, string> {
   return {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     OMP_MAC_HOST: target.sshDestination,
     OMP_MAC_TAG: options.tag,
     OMP_MAC_PREVIOUS_TAG: options.previousTag,
     OMP_MAC_LOGIN: options.macLogin,
     OMP_MAC_SUDO_PW: target.sudoPassword,
+    OMP_MAC_ARCHIVE_SHA256: candidate.archiveSha256,
   };
 }
 
-function assertMacLifecycleOutput(output: string, candidateCommit: string): void {
+function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
   for (const expected of [
-    `release-info commit:                   ${candidateCommit}`,
+    `release-info commit:                   ${candidate.sourceCommit}`,
+    candidate.archiveSha256,
     "hardware:                              Mac14,3",
     "doctor                                 17/17 true",
     "doctor false checks                    (none)",
@@ -601,11 +766,11 @@ function assertMacLifecycleOutput(output: string, candidateCommit: string): void
     "gateway returned after:",
     "20/20 invariants PASS",
     '"version":"17.4.1"',
+    `"nativeSha256":"${pins.nativeBinarySha256}"`,
   ]) {
     if (!output.includes(expected)) throw new Error(`Mac lifecycle output missed required evidence: ${expected}`);
   }
 }
-
 async function readMacPublicOrigin(target: MacTarget): Promise<string> {
   const result = await commandOutput([
     "ssh",
@@ -639,18 +804,20 @@ async function runMacScript(environment: Record<string, string>, lanes: readonly
 async function runStagedMac(
   options: StableQualificationOptions,
   target: MacTarget,
+  candidate: CandidateVerification,
   lanes: readonly string[],
   timeoutMs: number,
 ): Promise<StagedMacRun> {
-  const environment = macEnvironment(options, target);
-  const artifactOutput = await runMacScript(environment, ["artifact"], 10 * 60 * 1_000);
-  const context: MacContext = { target, environment, publicOrigin: await readMacPublicOrigin(target) };
+  const environment = macEnvironment(options, target, candidate);
+  const cleanupContext: Pick<MacContext, "target" | "environment"> = { target, environment };
   try {
+    const artifactOutput = await runMacScript(environment, ["artifact"], 10 * 60 * 1_000);
+    const context: MacContext = { ...cleanupContext, publicOrigin: await readMacPublicOrigin(target) };
     const laneOutput = await runMacScript(environment, lanes, timeoutMs);
     return { context, output: `${artifactOutput}${laneOutput}` };
   } catch (error) {
     try {
-      await cleanupMac(context);
+      await cleanupMac(cleanupContext);
     } catch (cleanupError) {
       throw new AggregateError([error, cleanupError], "Mac qualification and recovery cleanup failed");
     }
@@ -662,19 +829,23 @@ async function qualifyMacLifecycle(
   options: StableQualificationOptions,
   target: MacTarget,
   candidate: CandidateVerification,
+  pins: OmpPins,
 ): Promise<Record<string, unknown>> {
   const run = await runStagedMac(
     options,
     target,
+    candidate,
     ["omp-clean", "uninstall", "install", "identity", "persistence", "rollback", "omp-build"],
     50 * 60 * 1_000,
   );
-  assertMacLifecycleOutput(run.output, candidate.sourceCommit);
+  assertMacLifecycleOutput(run.output, candidate, pins);
   return {
     hardware: "Mac14,3",
     os: "macOS 26.6.1 arm64",
     doctor: "17/17",
     rollbackInvariants: "20/20",
+    archiveSha256: candidate.archiveSha256,
+    nativeAddonSha256: pins.nativeBinarySha256,
     outputSha256: sha256(run.output),
   };
 }
@@ -683,14 +854,22 @@ async function prepareMacFixture(
   options: StableQualificationOptions,
   target: MacTarget,
   candidate: CandidateVerification,
+  pins: OmpPins,
 ): Promise<MacContext> {
   const run = await runStagedMac(
     options,
     target,
+    candidate,
     ["omp-clean", "uninstall", "install", "omp-build"],
     45 * 60 * 1_000,
   );
-  for (const expected of [`release-info commit:                   ${candidate.sourceCommit}`, "doctor                                 17/17 true", '"version":"17.4.1"']) {
+  for (const expected of [
+    `release-info commit:                   ${candidate.sourceCommit}`,
+    candidate.archiveSha256,
+    "doctor                                 17/17 true",
+    '"version":"17.4.1"',
+    `"nativeSha256":"${pins.nativeBinarySha256}"`,
+  ]) {
     if (!run.output.includes(expected)) throw new Error(`Mac fixture preparation missed required evidence: ${expected}`);
   }
   return run.context;
@@ -700,7 +879,7 @@ function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins): s
   return [
     'export PATH="$HOME/.bun/bin:$PATH"',
     'root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"',
-    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_PATCHED_TREE=${shellQuote(pins.patchedTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
+    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_PATCHED_TREE=${shellQuote(pins.patchedTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
   ].join("; ");
 }
 
@@ -841,6 +1020,7 @@ async function runAndroidAcceptance(
   context: MacContext,
 ): Promise<Record<string, unknown>> {
   const androidEnvironment = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     OMP_ANDROID_BROWSER_PACKAGE: process.env.OMP_ANDROID_BROWSER_PACKAGE ?? "com.android.chrome",
     OMP_ANDROID_BROWSER_ACTIVITY:
       process.env.OMP_ANDROID_BROWSER_ACTIVITY ?? "com.android.chrome/com.google.android.apps.chrome.Main",
@@ -888,7 +1068,7 @@ async function runAndroidAcceptance(
     dozeRecoveredMs: summary.dozeRecoveredMs,
     acceptanceOutputSha256: sha256(`${acceptance.stdout}${acceptance.stderr}`),
     leakSweepOutputSha256: sha256(leakOutput),
-    secretSinks: "7/7 detectable; clean",
+    forbiddenSinkSweep: "7/7 detectable; clean",
   };
 }
 
@@ -910,35 +1090,107 @@ async function runRelaySmoke(
     echo: true,
   });
   const summary = JSON.parse(result.stdout) as Record<string, unknown>;
-  if (summary.finalPhase !== "live" || summary.durationSeconds !== options.relaySeconds) {
-    throw new Error("bounded relay smoke did not remain live for its exact duration");
+  if (
+    typeof summary.startedAt !== "string" ||
+    typeof summary.completedAt !== "string" ||
+    summary.finalPhase !== "live" ||
+    summary.durationSeconds !== options.relaySeconds ||
+    !Number.isInteger(summary.transitions)
+  ) {
+    throw new Error("bounded relay smoke returned an invalid or incomplete safe summary");
   }
-  return summary;
+  return {
+    startedAt: summary.startedAt,
+    completedAt: summary.completedAt,
+    durationSeconds: summary.durationSeconds,
+    transitions: summary.transitions,
+    finalPhase: summary.finalPhase,
+  };
 }
 
-async function cleanupMac(context: MacContext): Promise<Record<string, unknown>> {
-  const output = await runMacScript(context.environment, ["omp-clean", "uninstall"], 10 * 60 * 1_000);
-  for (const expected of [
-    '"patchedOmpProcessCount":0,"symlinkPresent":false,"sourcePresent":false',
-    "plist present:                         no",
-    "gui job:                               absent",
-    "gateway pids:                          0",
-  ]) {
-    if (!output.includes(expected)) throw new Error(`Mac cleanup missed required evidence: ${expected}`);
+async function cleanupMac(
+  context: Pick<MacContext, "target" | "environment">,
+): Promise<Record<string, unknown>> {
+  const errors: unknown[] = [];
+  let uninstallOutput = "";
+  let ompOutput = "";
+  const attempt = async (label: string, action: () => Promise<unknown>): Promise<void> => {
+    try {
+      await action();
+    } catch (error) {
+      errors.push(new Error(`${label} failed`, { cause: error }));
+    }
+  };
+
+  await attempt("gateway uninstall", async () => {
+    uninstallOutput = await runMacScript(context.environment, ["uninstall"], 10 * 60 * 1_000);
+  });
+  await attempt("Tailscale Serve reset", async () => {
+    await runCommand([
+      "ssh",
+      "-o",
+      "StrictHostKeyChecking=accept-new",
+      "-o",
+      "ConnectTimeout=15",
+      "-o",
+      "BatchMode=yes",
+      "-q",
+      context.target.sshDestination,
+      'TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" serve reset >/dev/null',
+    ]);
+  });
+  await attempt("patched OMP cleanup", async () => {
+    ompOutput = await runMacScript(context.environment, ["omp-clean"], 10 * 60 * 1_000);
+  });
+  await attempt("qualification artifact cleanup", async () => {
+    await runCommand([
+      "ssh",
+      "-o",
+      "StrictHostKeyChecking=accept-new",
+      "-o",
+      "ConnectTimeout=15",
+      "-o",
+      "BatchMode=yes",
+      "-q",
+      context.target.sshDestination,
+      'rm -rf "$HOME/qual" "$HOME/qual-tools"',
+    ]);
+  });
+
+  for (const [output, expected] of [
+    [ompOutput, '"patchedOmpProcessCount":0,"symlinkPresent":false,"sourcePresent":false'],
+    [uninstallOutput, "plist present:                         no"],
+    [uninstallOutput, "gui job:                               absent"],
+    [uninstallOutput, "gateway pids:                          0"],
+    [uninstallOutput, "listeners:                             0"],
+  ] as const) {
+    if (!output.includes(expected)) errors.push(new Error(`Mac cleanup missed required evidence: ${expected}`));
   }
-  await runCommand([
-    "ssh",
-    "-o",
-    "StrictHostKeyChecking=accept-new",
-    "-o",
-    "ConnectTimeout=15",
-    "-o",
-    "BatchMode=yes",
-    "-q",
-    context.target.sshDestination,
-    'TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" serve reset >/dev/null 2>&1 || true; rm -rf "$HOME/qual" "$HOME/qual-tools"',
-  ]);
-  return { gatewayProcesses: 0, gatewayListeners: 0, patchedOmpProcesses: 0, outputSha256: sha256(output) };
+  if (errors.length > 0) throw new AggregateError(errors, "Mac cleanup did not fully remove qualification state");
+  return {
+    gatewayProcesses: 0,
+    gatewayListeners: 0,
+    patchedOmpProcesses: 0,
+    outputSha256: sha256(`${uninstallOutput}${ompOutput}`),
+  };
+}
+
+export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boolean {
+  if (receipt.lanes.cleanup.status === "passed") return false;
+  return (["macos", "ompPublication", "android", "relay", "cleanup"] as const).some(
+    name => receipt.lanes[name].attempts > 0,
+  );
+}
+
+export function markMacCleanupRequired(receipt: StableQualificationReceipt): boolean {
+  const cleanup = receipt.lanes.cleanup;
+  if (cleanup.status !== "passed") return false;
+  cleanup.status = "pending";
+  delete cleanup.startedAt;
+  delete cleanup.completedAt;
+  delete cleanup.error;
+  delete cleanup.evidence;
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -951,7 +1203,6 @@ async function main(): Promise<void> {
   const qualificationRef = await gitQualificationRef(orchestratorCommit);
   const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit);
   receipt.status = "running";
-  receipt.orchestratorCommit = orchestratorCommit;
   delete receipt.completedAt;
   delete receipt.error;
   const ompPins = await loadQualificationPins();
@@ -959,12 +1210,27 @@ async function main(): Promise<void> {
   const persist = () => saveReceipt(receiptPath, receipt);
   await persist();
 
+  let target: MacTarget | undefined;
+  let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
   let macContext: MacContext | undefined;
   let ompProcess: ManagedProcess | undefined;
   let tunnelProcess: ManagedProcess | undefined;
   let primaryError: unknown;
-  let macEffects = false;
+  let cleanupRequired = receiptNeedsMacCleanup(receipt);
+  const requireMacCleanup = async (): Promise<void> => {
+    cleanupRequired = true;
+    if (markMacCleanupRequired(receipt)) await persist();
+  };
   try {
+    if (cleanupRequired) {
+      if (receipt.candidate === undefined) throw new Error("receipt records Mac effects without a candidate identity");
+      target = await recoverRetainedMac(options);
+      macCleanupContext = {
+        target,
+        environment: macEnvironment(options, target, receipt.candidate),
+      };
+    }
+
     const ghToken = await commandOutput(["gh", "auth", "token"]);
     if (ghToken === "") throw new Error("GitHub CLI is not authenticated");
     const candidate = await executeReceiptLane(receipt, "artifacts", persist, async checkpoint => {
@@ -982,16 +1248,7 @@ async function main(): Promise<void> {
         sourceCommit: verified.sourceCommit,
         archiveSha256: verified.archiveSha256,
       };
-      await checkpoint({
-        sourceCommit: verified.sourceCommit,
-        archiveSha256: verified.archiveSha256,
-        releaseUrl: verified.releaseUrl,
-        signedTag: true,
-        checksums: "passed",
-        githubAttestations: "3/3",
-        sigstoreBundles: "3/3",
-      });
-      return {
+      const evidence = {
         sourceCommit: verified.sourceCommit,
         archiveSha256: verified.archiveSha256,
         releaseUrl: verified.releaseUrl,
@@ -1000,6 +1257,8 @@ async function main(): Promise<void> {
         githubAttestations: "3/3",
         sigstoreBundles: "3/3",
       };
+      await checkpoint(evidence);
+      return evidence;
     }, true);
     const candidateVerification: CandidateVerification = {
       tag: options.tag,
@@ -1009,22 +1268,34 @@ async function main(): Promise<void> {
       assetDirectory: join(options.receiptRoot, "assets"),
     };
 
-    await executeReceiptLane(receipt, "debian", persist, checkpoint => qualifyDebian(options, receipt, checkpoint, qualificationRef));
-    const target = await recoverRetainedMac(options);
+    await executeReceiptLane(receipt, "debian", persist, checkpoint =>
+      qualifyDebian(options, receipt, checkpoint, qualificationRef),
+    );
+    target ??= await recoverRetainedMac(options);
+    macCleanupContext ??= {
+      target,
+      environment: macEnvironment(options, target, candidateVerification),
+    };
     const macWasPassed = receipt.lanes.macos.status === "passed";
     if (!macWasPassed) {
-      await executeReceiptLane(receipt, "macos", persist, async () => qualifyMacLifecycle(options, target, candidateVerification));
-      macContext = { target, environment: macEnvironment(options, target), publicOrigin: await readMacPublicOrigin(target) };
-      macEffects = true;
+      await requireMacCleanup();
+      await executeReceiptLane(receipt, "macos", persist, async () =>
+        qualifyMacLifecycle(options, target!, candidateVerification, ompPins),
+      );
+      macContext = {
+        ...macCleanupContext,
+        publicOrigin: await readMacPublicOrigin(target),
+      };
     }
 
-    const liveEvidenceNeeded = ["ompPublication", "android", "relay"].some(name =>
-      receipt.lanes[name as StableQualificationLane].status !== "passed",
+    const liveEvidenceNeeded = (["ompPublication", "android", "relay"] as const).some(
+      name => receipt.lanes[name].status !== "passed",
     );
     if (liveEvidenceNeeded) {
+      await requireMacCleanup();
       if (macWasPassed) {
-        macContext = await prepareMacFixture(options, target, candidateVerification);
-        macEffects = true;
+        macContext = await prepareMacFixture(options, target, candidateVerification, ompPins);
+        macCleanupContext = macContext;
       }
       if (macContext === undefined) throw new Error("Mac live fixture was not prepared");
       const publicationLane = receipt.lanes.ompPublication;
@@ -1049,11 +1320,17 @@ async function main(): Promise<void> {
         pending.push(executeReceiptLane(receipt, "android", persist, async () => runAndroidAcceptance(options, macContext!)));
       }
       if (receipt.lanes.relay.status !== "passed") {
-        pending.push(executeReceiptLane(receipt, "relay", persist, async () => runRelaySmoke(options, macContext!, tunnelPort, instanceId)));
+        pending.push(
+          executeReceiptLane(receipt, "relay", persist, async () =>
+            runRelaySmoke(options, macContext!, tunnelPort, instanceId),
+          ),
+        );
       }
       const settled = await Promise.allSettled(pending);
       const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failures.length > 0) throw new AggregateError(failures.map(result => result.reason), "physical-client or relay qualification failed");
+      if (failures.length > 0) {
+        throw new AggregateError(failures.map(result => result.reason), "physical-client or relay qualification failed");
+      }
       await stopSubprocess(tunnelProcess);
       tunnelProcess = undefined;
       await stopSubprocess(ompProcess);
@@ -1070,28 +1347,33 @@ async function main(): Promise<void> {
   } finally {
     await stopSubprocess(tunnelProcess).catch(() => {});
     await stopSubprocess(ompProcess).catch(() => {});
-    if (macEffects && macContext !== undefined) {
+    if (cleanupRequired && macCleanupContext !== undefined) {
       try {
-        await executeReceiptLane(receipt, "cleanup", persist, async () => cleanupMac(macContext!), true);
+        await executeReceiptLane(receipt, "cleanup", persist, async () => cleanupMac(macCleanupContext!), true);
       } catch (cleanupError) {
-        primaryError = primaryError === undefined ? cleanupError : new AggregateError([primaryError, cleanupError], "qualification and cleanup failed");
+        primaryError = primaryError === undefined
+          ? cleanupError
+          : new AggregateError([primaryError, cleanupError], "qualification and cleanup failed");
       }
     }
     try {
       await assertProtectedFilesUnchanged(protectedFiles);
     } catch (guardError) {
-      primaryError = primaryError === undefined ? guardError : new AggregateError([primaryError, guardError], "qualification modified protected state");
+      primaryError = primaryError === undefined
+        ? guardError
+        : new AggregateError([primaryError, guardError], "qualification modified protected state");
     }
   }
 
+  if (primaryError === undefined) {
+    const incomplete = LANE_NAMES.find(name => receipt.lanes[name].status !== "passed");
+    if (incomplete !== undefined) primaryError = new Error(`qualification lane ${incomplete} did not pass`);
+  }
   if (primaryError !== undefined) {
     receipt.status = "failed";
-    receipt.error = errorMessage(primaryError);
+    receipt.error = "qualification failed; inspect the qualification process output";
     await persist();
     throw primaryError;
-  }
-  for (const name of LANE_NAMES) {
-    if (receipt.lanes[name].status !== "passed") throw new Error(`qualification lane ${name} did not pass`);
   }
   receipt.status = "passed";
   receipt.completedAt = now();

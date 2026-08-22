@@ -8,8 +8,13 @@ import {
   assertProtectedFilesUnchanged,
   createStableQualificationReceipt,
   executeReceiptLane,
+  markMacCleanupRequired,
   parseQualificationPins,
   parseStableQualificationArgs,
+  qualifyDebian,
+  receiptNeedsMacCleanup,
+  validateStableQualificationReceipt,
+  type DebianQualificationRuntime,
   type ProtectedFileSnapshot,
 } from "./stable-qualification.ts";
 
@@ -49,10 +54,18 @@ describe("stable qualification arguments", () => {
       "must not exceed 3600",
     );
   });
+
+  test("rejects path-special and overlong session labels before host access", () => {
+    for (const sessionLabel of [".", "..", "a".repeat(129)]) {
+      expect(() =>
+        parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_SESSION_LABEL: sessionLabel }),
+      ).toThrow("safe single path component");
+    }
+  });
 });
 
 describe("shared OMP qualification pin", () => {
-  test("parses the exact source, tree, runtime, and Bun contract", () => {
+  test("parses the exact source, tree, runtime, Bun, and native-byte contract", () => {
     expect(
       parseQualificationPins(`
 # comment
@@ -60,12 +73,16 @@ OMP_PIN_BUN_VERSION=1.3.14
 OMP_PIN_SOURCE_COMMIT=${"1".repeat(40)}
 OMP_PIN_PATCHED_TREE=${"2".repeat(40)}
 OMP_PIN_VERSION=17.4.1
+OMP_PIN_NATIVE_TARBALL_SHA256=${"3".repeat(64)}
+OMP_PIN_NATIVE_BINARY_SHA256=${"4".repeat(64)}
 `),
     ).toEqual({
       bunVersion: "1.3.14",
       sourceCommit: "1".repeat(40),
       patchedTree: "2".repeat(40),
       version: "17.4.1",
+      nativeTarballSha256: "3".repeat(64),
+      nativeBinarySha256: "4".repeat(64),
     });
   });
 
@@ -107,7 +124,120 @@ describe("resumable receipt lanes", () => {
       }),
     );
     expect(message).toContain("host lane failed");
-    expect(receipt.lanes.debian).toMatchObject({ status: "failed", attempts: 1, error: "host lane failed" });
+    expect(receipt.lanes.debian).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      error: "lane execution failed; inspect the qualification process output",
+    });
+  });
+});
+
+test("receipt identity cannot mix passed lanes across orchestrator commits", () => {
+  const receipt = createStableQualificationReceipt(TAG, COMMIT);
+  receipt.lanes.debian.status = "passed";
+  expect(validateStableQualificationReceipt(receipt, TAG, COMMIT)).toBe(receipt);
+  expect(() => validateStableQualificationReceipt(receipt, TAG, "b".repeat(40))).toThrow(
+    "do not resume evidence across orchestrator commits",
+  );
+});
+
+test("receipt-driven Mac cleanup survives restarts and reopens before renewed effects", () => {
+  const receipt = createStableQualificationReceipt(TAG, COMMIT);
+  expect(receiptNeedsMacCleanup(receipt)).toBe(false);
+  receipt.lanes.macos.attempts = 1;
+  receipt.lanes.macos.status = "failed";
+  expect(receiptNeedsMacCleanup(receipt)).toBe(true);
+  receipt.lanes.cleanup.attempts = 1;
+  receipt.lanes.cleanup.status = "failed";
+  expect(receiptNeedsMacCleanup(receipt)).toBe(true);
+  receipt.lanes.cleanup.status = "passed";
+  receipt.lanes.cleanup.completedAt = "2026-08-22T00:00:00.000Z";
+  receipt.lanes.cleanup.evidence = { gatewayProcesses: 0 };
+  expect(receiptNeedsMacCleanup(receipt)).toBe(false);
+  expect(markMacCleanupRequired(receipt)).toBe(true);
+  expect(receipt.lanes.cleanup).toMatchObject({ status: "pending", attempts: 1 });
+  expect(receipt.lanes.cleanup.completedAt).toBeUndefined();
+  expect(receipt.lanes.cleanup.evidence).toBeUndefined();
+  expect(receiptNeedsMacCleanup(receipt)).toBe(true);
+});
+
+describe("Debian workflow dispatch resume", () => {
+  const dispatchId = "11111111-1111-4111-8111-111111111111";
+  const options = parseStableQualificationArgs(["--tag", TAG], {});
+
+  test("persists dispatch intent before creating one discoverable run", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const commands: string[][] = [];
+    let dispatched = false;
+    const checkpoint = async (evidence: Record<string, unknown>) => {
+      receipt.lanes.debian.evidence = { ...(receipt.lanes.debian.evidence ?? {}), ...evidence };
+    };
+    const runtime: DebianQualificationRuntime = {
+      output: async command => {
+        commands.push([...command]);
+        if (command[1] === "api") {
+          return JSON.stringify({
+            workflow_runs: dispatched
+              ? [{ id: 77, display_title: `Stable qualification ${dispatchId}`, head_sha: COMMIT, status: "queued", conclusion: null, html_url: "https://example.invalid/runs/77" }]
+              : [],
+          });
+        }
+        return JSON.stringify({
+          status: "completed",
+          conclusion: "success",
+          headSha: COMMIT,
+          url: "https://example.invalid/runs/77",
+          jobs: [{ name: "Qualify on disposable droplet", conclusion: "success" }],
+        });
+      },
+      execute: async command => {
+        commands.push([...command]);
+        if (command[1] === "workflow") {
+          expect(receipt.lanes.debian.evidence).toMatchObject({
+            dispatchId,
+            dispatchRequestedAt: expect.any(String),
+            runId: null,
+          });
+          dispatched = true;
+        }
+      },
+      sleep: async () => {},
+      createDispatchId: () => dispatchId,
+    };
+
+    const evidence = await qualifyDebian(options, receipt, checkpoint, "feat/stable", runtime);
+    expect(commands.filter(command => command[1] === "workflow")).toHaveLength(1);
+    expect(evidence).toMatchObject({
+      dispatchId,
+      dispatchRequestedAt: expect.any(String),
+      runId: 77,
+      url: "https://example.invalid/runs/77",
+    });
+  });
+
+  test("never redispatches after a durable request whose run is not yet visible", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    receipt.lanes.debian.evidence = { dispatchId, dispatchRequestedAt: "2026-08-22T00:00:00.000Z" };
+    let dispatches = 0;
+    const runtime: DebianQualificationRuntime = {
+      output: async () => JSON.stringify({ workflow_runs: [] }),
+      execute: async command => {
+        if (command[1] === "workflow") dispatches += 1;
+      },
+      sleep: async () => {},
+      createDispatchId: () => { throw new Error("must reuse durable id"); },
+    };
+    const message = await rejectionMessage(
+      qualifyDebian(
+        options,
+        receipt,
+        async evidence => { receipt.lanes.debian.evidence = { ...(receipt.lanes.debian.evidence ?? {}), ...evidence }; },
+        "feat/stable",
+        runtime,
+      ),
+    );
+    expect(message).toContain("refusing to dispatch again");
+    expect(dispatches).toBe(0);
   });
 });
 
@@ -127,6 +257,35 @@ test.skipIf(process.platform === "win32")("patched OMP helper refuses missing pi
   expect(exitCode).toBe(1);
   expect(stdout).toBe("");
   expect(stderr).toContain("OMP_QUAL_GATEWAY_ROOT is required");
+});
+
+test.skipIf(process.platform === "win32")("patched OMP helper rejects dot-dot before cleanup", async () => {
+  const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "clean"], {
+    cwd: REPOSITORY_ROOT,
+    env: {
+      PATH: process.env.PATH,
+      HOME: "/tmp/omp-path-guard-never-used",
+      OMP_QUAL_GATEWAY_ROOT: "/tmp/omp-candidate-never-used",
+      OMP_PIN_SOURCE_COMMIT: "1".repeat(40),
+      OMP_PIN_PATCHED_TREE: "2".repeat(40),
+      OMP_PIN_VERSION: "17.4.1",
+      OMP_PIN_BUN_VERSION: "1.3.14",
+      OMP_PIN_NATIVE_TARBALL_SHA256: "3".repeat(64),
+      OMP_PIN_NATIVE_BINARY_SHA256: "4".repeat(64),
+      OMP_QUAL_SESSION_LABEL: "..",
+    },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect(exitCode).toBe(1);
+  expect(stdout).toBe("");
+  expect(stderr).toContain("safe single path component");
 });
 
 test("protected release state guard detects implicit ledger promotion", async () => {

@@ -9,6 +9,8 @@ source_commit="${OMP_PIN_SOURCE_COMMIT:-}"
 patched_tree="${OMP_PIN_PATCHED_TREE:-}"
 omp_version="${OMP_PIN_VERSION:-}"
 bun_version="${OMP_PIN_BUN_VERSION:-}"
+native_tarball_sha256="${OMP_PIN_NATIVE_TARBALL_SHA256:-}"
+native_binary_sha256="${OMP_PIN_NATIVE_BINARY_SHA256:-}"
 session_label="${OMP_QUAL_SESSION_LABEL:-omp-stable-pixel-qualification}"
 
 fail() { printf 'FAILED: %s\n' "$*" >&2; exit 1; }
@@ -19,9 +21,12 @@ require_value OMP_PIN_SOURCE_COMMIT "$source_commit"
 require_value OMP_PIN_PATCHED_TREE "$patched_tree"
 require_value OMP_PIN_VERSION "$omp_version"
 require_value OMP_PIN_BUN_VERSION "$bun_version"
+require_value OMP_PIN_NATIVE_TARBALL_SHA256 "$native_tarball_sha256"
+require_value OMP_PIN_NATIVE_BINARY_SHA256 "$native_binary_sha256"
 case "$session_label" in
-  *[!A-Za-z0-9._-]* | "") fail "OMP_QUAL_SESSION_LABEL must contain only letters, digits, dot, underscore, and hyphen" ;;
+  *[!A-Za-z0-9._-]* | "" | . | ..) fail "OMP_QUAL_SESSION_LABEL must be a safe single path component" ;;
 esac
+[ "${#session_label}" -le 128 ] || fail "OMP_QUAL_SESSION_LABEL must not exceed 128 characters"
 
 export PATH="$HOME/.bun/bin:$PATH"
 omp_root="$HOME/src/oh-my-pi-gateway-v${omp_version}"
@@ -32,20 +37,29 @@ fixture="$HOME/omp-native-fixture"
 build_log="/tmp/omp-stable-patched-build.log"
 qualification_cwd="$HOME/$session_label"
 patch="$gateway_root/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+native_path="$omp_root/packages/natives/native/pi_natives.darwin-arm64.node"
+native_tarball_url="https://registry.npmjs.org/@oh-my-pi/pi-natives-darwin-arm64/-/pi-natives-darwin-arm64-${omp_version}.tgz"
 
 validate_host() {
   [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] || fail "patched OMP stable qualification requires Darwin-arm64"
-  command -v bun >/dev/null 2>&1 || fail "bun is missing"
-  command -v git >/dev/null 2>&1 || fail "git is missing"
-  command -v python3 >/dev/null 2>&1 || fail "python3 is missing"
+  local tool
+  for tool in bun git python3 curl shasum tar; do
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is missing"
+  done
   [ "$(bun --version)" = "$bun_version" ] || fail "bun version does not match the qualification pin"
   [ -f "$patch" ] || fail "candidate artifact is missing the OMP patch"
+}
+
+native_file_matches() {
+  [ -f "$native_path" ] || return 1
+  [ "$(shasum -a 256 "$native_path" | cut -d' ' -f1)" = "$native_binary_sha256" ]
 }
 
 source_is_prepared() {
   [ -d "$omp_root/.git" ] || return 1
   [ "$(git -C "$omp_root" rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$patched_tree" ] || return 1
-  [ -f "$omp_root/packages/natives/native/pi_natives.darwin-arm64.node" ]
+  native_file_matches || return 1
+  [ -z "$(git -C "$omp_root" status --porcelain --untracked-files=all -- . ":(exclude)packages/natives/native/pi_natives.darwin-arm64.node")" ]
 }
 
 prepare_source() {
@@ -59,18 +73,21 @@ prepare_source() {
   [ "$(git -C "$omp_root" rev-parse HEAD)" = "$source_commit" ] || fail "source checkout does not match the pin"
   git -C "$omp_root" -c user.name=omp-session-gateway -c user.email=qual@example.invalid am "$patch" >/dev/null 2>&1
   [ "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$patched_tree" ] || fail "patched tree does not match the pin"
-
   (
     cd "$omp_root"
     bun install --frozen-lockfile >"$build_log" 2>&1
   )
-  mkdir -p "$fixture"
-  printf '%s\n' "{\"private\":true,\"dependencies\":{\"@oh-my-pi/pi-natives\":\"$omp_version\"}}" >"$fixture/package.json"
-  (cd "$fixture" && bun install) >>"$build_log" 2>&1
-  cp "$fixture/node_modules/@oh-my-pi/pi-natives-darwin-arm64/pi_natives.darwin-arm64.node" \
-    "$omp_root/packages/natives/native/pi_natives.darwin-arm64.node"
   rm -rf "$fixture"
-  printf 'source preparation: %s / %s\n' "${source_commit:0:12}" "${patched_tree:0:12}"
+  mkdir -p "$fixture/unpack"
+  curl -fsSL "$native_tarball_url" -o "$fixture/native.tgz"
+  printf '%s  %s\n' "$native_tarball_sha256" "$fixture/native.tgz" | shasum -a 256 -c - >/dev/null ||
+    fail "native package tarball does not match the qualification pin"
+  tar -xzf "$fixture/native.tgz" -C "$fixture/unpack"
+  install -m 0644 "$fixture/unpack/package/pi_natives.darwin-arm64.node" "$native_path"
+  native_file_matches || fail "native addon does not match the qualification pin"
+  rm -rf "$fixture"
+  source_is_prepared || fail "patched OMP working tree contains unpinned changes"
+  printf 'source preparation: %s / %s / native %s\n' "${source_commit:0:12}" "${patched_tree:0:12}" "${native_binary_sha256:0:12}"
 }
 
 build() {
@@ -110,16 +127,17 @@ PY
   "$symlink" config set collab.registryEndpoint auto >/dev/null
   [ "$("$symlink" config get collab.autoStart --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')" = control ] || fail "collab.autoStart is wrong"
   [ "$("$symlink" config get collab.registryEndpoint --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')" = auto ] || fail "collab.registryEndpoint is wrong"
-
-  printf '{"version":"%s","sourceCommit":"%s","patchedTree":"%s","binarySha256":"%s","symlink":"%s"}\n' \
-    "$omp_version" "$source_commit" "$patched_tree" "$(shasum -a 256 "$binary" | cut -d' ' -f1)" "$(readlink "$symlink")"
+  source_is_prepared || fail "patched OMP working tree changed during the build"
+  printf '{"version":"%s","sourceCommit":"%s","patchedTree":"%s","nativeSha256":"%s","binarySha256":"%s","symlink":"%s"}\n' \
+    "$omp_version" "$source_commit" "$patched_tree" "$native_binary_sha256" \
+    "$(shasum -a 256 "$binary" | cut -d' ' -f1)" "$(readlink "$symlink")"
 }
 
 run_session() {
   validate_host
   [ -x "$binary" ] || fail "patched OMP binary is missing; run build first"
   [ "$(readlink "$symlink" 2>/dev/null || true)" = "$binary" ] || fail "patched OMP symlink does not name the qualified binary"
-  [ "$(git -C "$omp_root" rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$patched_tree" ] || fail "patched OMP source tree is missing or wrong"
+  source_is_prepared || fail "patched OMP source or native addon is missing, changed, or unpinned"
   [ "$("$symlink" --version)" = "omp/$omp_version" ] || fail "patched OMP version changed"
   mkdir -p "$qualification_cwd"
   cd "$qualification_cwd"
@@ -130,9 +148,25 @@ run_session() {
 }
 
 clean() {
-  pkill -TERM -f 'omp-gateway-patched.*--api-key qualification-synthetic-never-sent' >/dev/null 2>&1 || true
-  sleep 1
-  if [ "$(readlink "$symlink" 2>/dev/null || true)" = "$binary" ]; then rm -f "$symlink"; fi
+  local process_ids="" process_id waits=0
+  process_ids="$(pgrep -f 'omp-gateway-patched.*--api-key qualification-synthetic-never-sent' || true)"
+  if [ -n "$process_ids" ]; then
+    while IFS= read -r process_id; do
+      [ -z "$process_id" ] || kill -TERM "$process_id" >/dev/null 2>&1 || true
+    done <<<"$process_ids"
+  fi
+  while [ "$waits" -lt 10 ]; do
+    process_ids="$(pgrep -f 'omp-gateway-patched.*--api-key qualification-synthetic-never-sent' || true)"
+    [ -z "$process_ids" ] && break
+    sleep 1
+    waits=$((waits + 1))
+  done
+  if [ -n "$process_ids" ]; then
+    while IFS= read -r process_id; do
+      [ -z "$process_id" ] || kill -KILL "$process_id" >/dev/null 2>&1 || true
+    done <<<"$process_ids"
+    sleep 1
+  fi
   rm -rf "$version_dir" "$omp_root" "$fixture" "$qualification_cwd"
   rm -f "$build_log"
   local process_count symlink_present source_present

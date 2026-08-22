@@ -57,23 +57,15 @@ Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
 bun run qualify:stable --tag v0.1.0-prealpha.21
 ```
 
-The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations,
-and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained
-Scaleway Mac by name; runs install, doctor, exposure, reboot, beta-to-candidate rollback, exact
-patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a
-bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one
-mode-0600 resumable receipt at
-`~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. A failed run
-records its exact lane and resumes passed lanes; a running Debian run is watched instead of
-duplicated.
+The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, beta-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel,
-and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment
-overrides are prefixed `OMP_STABLE_`; `--previous-tag` changes the exact rollback predecessor.
-The orchestrator refuses a dirty or unpublished branch, rejects changed candidate identity, and
-hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file,
-creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain
-separate maintainer effects after the receipt is reviewed.
+The receipt resumes only for the same candidate and exact orchestrator commit. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
+
+Mac qualification receives the archive SHA-256 already verified by the orchestrator and rejects different bytes. The workstation verifies and stages rollback assets, including their Sigstore bundles, so the retained Mac needs no GitHub credential. OMP source commit, patched tree, Bun version, native-package tarball, and extracted native binary are exact pins from `patches/oh-my-pi/qualification.env`.
+
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`; `--previous-tag` changes the exact rollback predecessor.
+
+The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 
 Before the real stable tag, rehearse the exact gh create/edit flags in a private repository. Require
 six assets in the draft and published states, prerelease/not-Latest for the prerelease control,

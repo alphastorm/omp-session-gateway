@@ -10,16 +10,24 @@ test.skipIf(process.platform === "win32")(
   "fresh NeedsLogin state uses bounded login rather than up",
   async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-tailnet-login-test-"));
+    const localTemp = join(temporaryRoot, "local");
+    const remoteTemp = join(temporaryRoot, "remote");
     const bin = join(temporaryRoot, "bin");
     const argsPath = join(temporaryRoot, "tailscale-args");
-    await mkdir(bin);
+    await Promise.all([mkdir(localTemp), mkdir(remoteTemp), mkdir(bin)]);
     const fakeTailscale = join(bin, "tailscale");
     await writeFile(
       fakeTailscale,
       `#!/bin/bash
 set -euo pipefail
-printf '%s\\n' "$*" >"$TEST_ARGS"
+echo "$*" >"$TEST_ARGS"
 [ "$1" = login ]
+auth_file=""
+for argument in "$@"; do
+  case "$argument" in --auth-key=file:*) auth_file="$(echo "$argument" | sed 's/^--auth-key=file://')" ;; esac
+done
+[ -s "$auth_file" ]
+[ "$(cat "$auth_file")" = "$EXPECTED_KEY" ]
 `,
     );
     await chmod(fakeTailscale, 0o700);
@@ -27,34 +35,37 @@ printf '%s\\n' "$*" >"$TEST_ARGS"
     const harness = `
 set -euo pipefail
 source "$1"
-tmp="$2"
-LOCAL_TEMP="$tmp"
+local_tmp="$2"
+remote_tmp="$3"
+LOCAL_TEMP="$local_tmp"
 DROPLET_IP=synthetic
 TS_AUTHKEY=tskey-auth-test-secret
 SSH_OPTS=(-o synthetic)
-export TEST_ARGS="$3"
+export TEST_ARGS="$4"
+export EXPECTED_KEY="$TS_AUTHKEY"
 ssh() {
   case "$*" in
-    *"cat > /root/.ts-authkey"*) umask 077; cat >"$tmp/authkey" ;;
-    *"rm -f /root/.ts-authkey"*) rm -f "$tmp/authkey" ;;
+    *"cat > /root/.ts-authkey"*) umask 077; cat >"$remote_tmp/authkey" ;;
+    *"rm -f /root/.ts-authkey"*) rm -f "$remote_tmp/authkey" ;;
     *) return 1 ;;
   esac
 }
 remote_root() {
   local script
   script="$(cat)"
-  script="\${script//\\/root\\/.ts-authkey/$tmp/authkey}"
-  PATH="$tmp/bin:$PATH" bash -c "$script"
+  script="$(echo "$script" | sed "s#/root/.ts-authkey#$remote_tmp/authkey#g")"
+  PATH="$local_tmp/../bin:$PATH" bash -c "$script"
 }
 join_tailnet
-test ! -e "$tmp/authkey"
+test ! -e "$local_tmp/authkey"
+test ! -e "$remote_tmp/authkey"
 grep -q '^login ' "$TEST_ARGS"
 grep -q -- '--auth-key=file:' "$TEST_ARGS"
 grep -q -- '--timeout=120s' "$TEST_ARGS"
 `;
     try {
       const child = Bun.spawn(
-        ["/bin/bash", "-c", harness, "test", join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh"), temporaryRoot, argsPath],
+        ["/bin/bash", "-c", harness, "test", join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh"), localTemp, remoteTemp, argsPath],
         { cwd: REPOSITORY_ROOT, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
       );
       const [exitCode, stdout, stderr] = await Promise.all([
