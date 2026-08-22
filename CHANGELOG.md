@@ -4,7 +4,7 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
-## [Unreleased]
+## [v0.1.0-beta.1] — 2026-08-21
 
 ### Added
 
@@ -21,18 +21,25 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   unsupported self-hosted/proxied relay caveats alongside the required exact OMP patch.
   `release-candidate` and stable tags stay rejected, pre-alpha and alpha archives stay
   byte-compatible, and the SBOM stays channel-independent.
+- Qualify the exact signed beta candidate on Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome
+  151 / Android 17 on a physical Pixel 10 Pro; verify checksums, attestations, Cosign bundles,
+  byte-identical rebuild, gateway lifecycle/capability isolation, exact patched-OMP source builds
+  and real publication on both host architectures, alpha.1 gateway rollback-by-reinstall on Debian
+  and macOS, manual exact-OMP symlink/config reversal, and a fresh default-relay smoke. Android
+  radio recovery and background Push, Windows, Portal Tunnel, and self-hosted/proxied relays remain
+  explicitly unadvertised.
 
 ### Changed
 
-- Move the unreleased default-branch OMP target to exact `v17.4.1` /
+- Move the beta OMP baseline to exact `v17.4.1` /
   `9350b7990d26ebf69a604edc82d8558ef04adf30`, update `@oh-my-pi/pi-wire` to `17.4.1`, and
   regenerate the six-commit collaboration patch from the maintained downstream series plus the
-  carried health-probe commit. The published alphas remain qualified only for v17.3.8 until the
-  new target repeats the applicable release lanes.
-- Keep the exact tested v17.4.1 OMP patch as the alpha and beta installation prerequisite. Paired
-  OMP signing/install/update/rollback stays deliberately deferred and is a disclosed limitation
-  rather than a beta gate; the exact patch is an accepted beta prerequisite, and stock OMP is never
-  sufficient on its own.
+  carried health-probe commit. The qualified route reproduced its patch tree, passed source checks,
+  built a versioned binary, auto-published View/Control, and revoked on stop.
+- Keep the exact tested v17.4.1 OMP patch as the beta installation prerequisite. Paired OMP
+  signing/install/update/rollback stays deliberately deferred and is a disclosed limitation rather
+  than a beta gate; stock OMP is never sufficient on its own. Published alphas remain immutable at
+  their recorded v17.3.8 patch.
 
 ### Fixed
 
@@ -44,15 +51,22 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Make pre-release candidate notes channel-neutral and bind them to the current OMP patch,
   advertised beta lanes, limitations, and `v0.1.0-alpha.1` rollback predecessor instead of the
   already-published alpha-point plan.
-- Make the documented OMP binary route work on a fresh host without Rust/Cargo by staging the exact
-  official `@oh-my-pi/pi-natives@17.4.1` platform addon before the upstream binary build; retain
-  `bun setup` as the source-development alternative.
+- Make the documented OMP binary route work on a fresh host without ambient Git identity or
+  Rust/Cargo by supplying a scoped synthetic committer identity and staging the exact official
+  `@oh-my-pi/pi-natives@17.4.1` platform addon before the upstream binary build; retain `bun setup`
+  as the source-development alternative.
 - Give Windows managed-service startup a measured 60-second hard readiness deadline while
   retaining 15 seconds elsewhere, so cold per-path ACL verification no longer rolls back a
   progressing service before it can bind. A persistent Server 2025 source lane now passes install,
   reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback, patched OMP
   publication, and uninstall; Windows remains unadvertised until signed gateway/OMP artifacts
   repeat it.
+- Reconcile every current beta support surface with candidate `.20`: replace stale alpha-era
+  detailed matrix rows, narrow Push and Android outage promises, require exact Bun 1.3.14 for the
+  qualified source route, name Portal Tunnel as unsupported, make gateway/OMP rollback separation
+  explicit, scrub live identity/token/capability fingerprints from public evidence, and make the
+  published-build verification recipe target `v0.1.0-beta.1` instead of a historical provenance
+  test tag.
 
 ## [v0.1.0-alpha.1] — 2026-08-21
 

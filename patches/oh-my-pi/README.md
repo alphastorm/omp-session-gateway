@@ -103,7 +103,8 @@ export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v17.4.1"
 git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
 git -C "$OMP_ROOT" checkout --detach 9350b7990d26ebf69a604edc82d8558ef04adf30
 test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = 9350b7990d26ebf69a604edc82d8558ef04adf30
-git -C "$OMP_ROOT" am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
+git -C "$OMP_ROOT" -c user.name=omp-session-gateway -c user.email=qual@example.invalid \
+  am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
 test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
 
 (
@@ -158,8 +159,10 @@ fi
 The native step consumes OMP's exact official npm package and matching platform addon rather than
 requiring a local Rust toolchain. A fresh workspace shadows that package with `packages/natives`,
 which is why `bun install` alone does not place the `.node` file where the binary builder can embed
-it. `bun setup` remains upstream's source-development route when Rust/Cargo is installed; the beta
-route above is the bounded binary path tested on the advertised macOS architecture.
+it. `bun setup` remains upstream's source-development route when Rust/Cargo is installed. The beta
+binary path above passed on advertised macOS arm64 and Debian 13 x86-64; Linux
+[run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211)
+also exercised real publication, no-store View/Control launch, revocation, and cleanup.
 
 Launch sessions that should publish with `omp-gateway-patched`, not stock `omp`. Keep the source
 checkout: its exact commit/tree plus a SHA-256 of the installed binary are the local provenance
@@ -168,10 +171,12 @@ separate OMP executable, so the `readlink`, version, and source-tree assertions 
 
 For rollback, stop every process launched from `omp-gateway-patched` before changing the symlink;
 running processes retain their original executable and capabilities. Repoint the symlink to a
-previously retained, qualified patched version and re-run the readlink/version/config assertions.
-If returning to stock OMP instead, first set `collab.autoStart` to `off`, remove only the
-`omp-gateway-patched` symlink, and accept that zero-touch gateway enrollment is disabled. Never
-silently point `omp-gateway-patched` at an unpatched or loosely versioned binary.
+previously retained, exact qualified patched version and re-run the source-tree, readlink, version,
+and config assertions. Exact alpha v17.3.8 → beta v17.4.1 → alpha symlink/version/config reversal
+passed in an isolated macOS home; the gateway archive must be restored separately. This is a manual
+primitive, not paired packaging. If returning to stock OMP instead, first set `collab.autoStart` to
+`off`, remove only the `omp-gateway-patched` symlink, and accept that zero-touch gateway enrollment
+is disabled. Never silently point it at an unpatched or loosely versioned binary.
 
 On Windows every publisher-token fixture is secured, and the publisher's own token ACL is
 validated, by spawning `powershell.exe`. Hosted runner images have made that spawn cost seconds

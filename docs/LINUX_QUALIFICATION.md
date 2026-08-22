@@ -2,7 +2,7 @@
 
 One throwaway DigitalOcean droplet, driven by
 [`scripts/provision-linux-qual.sh`](../scripts/provision-linux-qual.sh), that produces measured
-evidence for four holes in [`RELEASE_STATUS.md`](RELEASE_STATUS.md) at once.
+evidence for five gaps in [`RELEASE_STATUS.md`](RELEASE_STATUS.md) at once.
 
 This document is the operating manual for that lane. It does not promote any ledger row. Every
 command below prints numbers; the lead decides what those numbers mean.
@@ -11,7 +11,7 @@ command below prints numbers; the lead decides what those numbers mean.
 
 The Linux evidence in the ledger came from a Debian 13 aarch64 container with a real `systemd --user`
 manager. That run was worth having: it proved the install/readiness/permissions/reinstall/rotation/
-uninstall sequence and the file modes. It could not prove four things, for structural reasons rather
+uninstall sequence and file modes. It could not prove five things, for structural reasons rather
 than for want of effort.
 
 | The container could not show | Because |
@@ -20,10 +20,11 @@ than for want of effort.
 | Reboot and login persistence | It never boots. Its user manager exists because something outside it kept the container alive, so "the service came back" was never a question it could be asked. |
 | A denied Tailscale identity | It was not a tailnet node. Every tailnet device on a single account is user-owned, and Serve stamps user-owned sources with a login that is on the allowlist, so denial has never been observable. |
 | Public-Internet unreachability | It had no public IP, so "the listener is not reachable from the Internet" was true by absence rather than by policy. |
+| Exact patched-OMP operation on Linux | It contained only the gateway and synthetic publishers; the mandatory versioned OMP binary was never built or run there. |
 
-A droplet answers all four. It boots, it can be rebooted freely unlike the operator's workstation, it
-has a routable public IP, and it can join the tailnet as a **tagged** node, which is the only
-practical way to make Tailscale Serve present an identity that the gateway must refuse.
+A droplet answers all five. It boots, it can be rebooted freely unlike the operator's workstation,
+it has a routable public IP, it can join the tailnet as a **tagged** node, and it can build and run
+the exact patched OMP prerequisite against the signed gateway on the advertised architecture.
 
 The default image is `debian-13-x64` deliberately. The ledger already carries Debian 13 evidence, so
 keeping the distribution fixed makes the container-versus-machine comparison clean instead of
@@ -35,7 +36,7 @@ custom image id, which is how [section 10](#10-the-non-systemd-path-alpine-and-o
 an imported Alpine image to observe what the installer does on a host with no systemd. Leaving the
 knob unset reproduces the Debian run exactly.
 
-## 2. The four gaps, and how each is closed
+## 2. The five gaps, and how each is closed
 
 ### Gap 1 — bare-metal/VM Linux host lifecycle
 
@@ -132,8 +133,8 @@ the denial result rather than as a gateway fault:
 | `pwa` | `/`, `/manifest.webmanifest`, and `/service-worker.js` are refused for the same reason. |
 | `securityHeaders` | Read from that refused response; whether a `403` carries the CSP header is printed rather than predicted. |
 
-`publisherHealth` would also be uninformative here regardless, because no OMP publisher runs on this
-droplet.
+`publisherHealth` remains intentionally empty during `identity`: lane `omp` runs and revokes its
+real publisher before the identity matrix changes the allowlist.
 
 ### Gap 4 — install/doctor/uninstall from the signed candidate artifact
 
@@ -160,6 +161,26 @@ The lane then extracts the archive and prints its bundled `UPSTREAM.lock.json` p
 development pin rather than a stale baseline. It installs the Bun version recorded by the lock and
 runs the archive's `apps/gateway/src/cli.js` for every subsequent step, never a development
 checkout.
+
+### Gap 5 — the exact patched-OMP prerequisite on Linux
+
+Lane `omp` consumes the patch from the already verified candidate archive, clones exact OMP
+`v17.4.1`, asserts its source commit and post-patch tree, stages OMP's official Linux x86-64 native
+addon, runs the complete upstream source check, and builds a versioned `omp-gateway-patched`
+executable. The lane then:
+
+1. verifies the binary version, SHA-256, symlink target, and persisted `collab.autoStart=control` /
+   `collab.registryEndpoint=auto` settings;
+2. starts the real binary in an SSH-backed pseudo-terminal with output discarded;
+3. observes exactly one generation-1 registry record with View and Control;
+4. validates generation-bound View and Control launch responses and `no-store` without writing or
+   printing either bearer capability;
+5. closes the OMP process, observes immediate registry revocation, and removes the source, binary,
+   symlink, config, and process before later lanes.
+
+The source check has its own 25-minute deadline so a stalled upstream build cannot consume the
+workflow's teardown window. The unattended workflow uses `s-2vcpu-4gb`; direct gateway-only runs
+retain the script's cheaper `s-1vcpu-2gb` default.
 
 ## 3. Prerequisites
 
@@ -215,7 +236,8 @@ export TS_AUTHKEY=tskey-auth-...          # tagged, pre-approved, NOT ephemeral
 export TS_API_KEY=tskey-api-...           # optional, lets destroy delete the tailnet node
 
 # What to qualify.
-export OMP_QUAL_RELEASE_TAG=v0.1.0-prealpha.14
+export OMP_QUAL_RELEASE_TAG=v0.1.0-prealpha.20
+export OMP_QUAL_PREVIOUS_TAG=v0.1.0-alpha.1
 export OMP_QUAL_ALLOWED_LOGIN=you@example.com   # optional; read from local `tailscale status` if unset
 
 cd /path/to/omp-session-gateway
@@ -235,6 +257,7 @@ sequence again:
 ```sh
 ./scripts/provision-linux-qual.sh qualify host
 ./scripts/provision-linux-qual.sh qualify artifact lifecycle
+./scripts/provision-linux-qual.sh qualify artifact lifecycle omp
 ./scripts/provision-linux-qual.sh qualify migration
 ./scripts/provision-linux-qual.sh qualify rollback
 ./scripts/provision-linux-qual.sh qualify identity
@@ -242,14 +265,15 @@ sequence again:
 ./scripts/provision-linux-qual.sh qualify uninstall
 ```
 
-Default order is `host artifact lifecycle migration rollback identity persistence uninstall`. The
-lanes are ordered so the identity matrix is captured before the reboots: a reboot failure then costs
-no identity evidence. `migration`, `identity`, and `persistence` all assume `lifecycle` has already
-installed the service, and `rollback` additionally assumes `migration` has run — see
+Default order is
+`host artifact lifecycle omp migration rollback identity persistence uninstall`. The OMP lane
+proves and then removes a real publisher before the identity matrix changes the allowlist.
+`omp`, `migration`, `identity`, and `persistence` assume `artifact lifecycle` has already verified
+and installed the service, and `rollback` additionally assumes `migration` has run — see
 [section 11](#11-the-two-rollback-mechanisms). Run them after those lanes, or after a previous full
 run, not standalone on a fresh droplet. With `OMP_QUAL_INIT=openrc` the default becomes
-`host artifact init` and the six lanes that need an installed service are refused by name before a
-droplet is touched; see [section 10](#10-the-non-systemd-path-alpine-and-openrc).
+`host artifact init`; every lane that needs an installed service is refused by name before a
+droplet is touched.
 
 Lane `migration` proves explicit forward upgrade and rollback on a real systemd user manager, which
 the macOS harness in [`UPGRADE_ROLLBACK.md`](UPGRADE_ROLLBACK.md) cannot do: it has no user unit, no
@@ -277,11 +301,10 @@ post-fix shape and asserts it, so `persistence` never reboots onto a pre-fix uni
 `migration` and then `persistence` **without** `rollback` in between does reboot onto one, and the
 failure you would get is #69 rather than anything about upgrade or rollback.
 
-At the time of writing the only published releases are `v0.1.0-prealpha.13` and
-`v0.1.0-prealpha.17`; `.14`, `.15`, and `.16` exist as neither releases nor tags, so the script's
-`OMP_QUAL_PREVIOUS_TAG` default of `v0.1.0-prealpha.15` names nothing reproducible. Set it
-explicitly. `.13` is the only predecessor a third party can currently fetch, and it is a pre-#69
-artifact, which is why the paragraph above is an ordering rule rather than a prohibition.
+The current workflow defaults are the independently published
+`v0.1.0-alpha.1` predecessor and signed `v0.1.0-prealpha.20` candidate. Override both explicitly
+when qualifying a successor; the script never follows “latest” because that would silently change
+the subject of the evidence.
 
 Lane `uninstall` leaves the droplet clean — no service, no Serve mapping — so the next `qualify` starts
 from the same state as the first.
@@ -303,7 +326,7 @@ from the same state as the first.
 | `OMP_QUAL_GH_VERSION` | `2.97.0` | `gh` release fetched onto the droplet. |
 | `OMP_QUAL_COSIGN_VERSION` | `3.1.3` | `cosign` release fetched onto the droplet. |
 | `OMP_QUAL_TAG` | `tag:omp-session-gateway` | Tag the auth key is expected to carry; used in messages only. |
-| `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-prealpha.15` | Predecessor tag for the `migration` lane, and the first of the two archives lane `rollback` reads. **The default names nothing reproducible** — no `.15` release or tag exists — so set it explicitly; see [section 4](#4-running-the-lane). |
+| `OMP_QUAL_PREVIOUS_TAG` | `v0.1.0-alpha.1` | Exact predecessor for the `migration` lane and the first of the two archives lane `rollback` reads. |
 | `OMP_QUAL_INIT` | `systemd` | `systemd` is the historical path and changes nothing. `openrc` provisions a non-systemd box — no Tailscale, an Alpine-shaped cloud-config, the `init` lane instead of the install lanes — to measure the installer's refusal. Any other value is rejected in preflight before anything is created. |
 | `GH_TOKEN` | unset | If set, the droplet verifies attestations online instead of offline. |
 
@@ -497,8 +520,10 @@ depending on somebody remembering to run it, and so a regression like
 [#69](https://github.com/alphastorm/omp-session-gateway/issues/69) has a standing chance of being
 caught by the `persistence` lane rather than by a release attempt.
 
-**This has not been executed yet.** The workflow was validated statically and its shell steps were
-exercised against stubs; the first real run is the lead's to trigger.
+The workflow has completed multiple real signed-candidate runs. The exact OMP lane passed against
+candidate `.20` in [run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211):
+source/tree and full checks, Linux binary build, generation-1 View/Control publication, no-store
+launches, immediate revocation, OMP cleanup, gateway uninstall, and droplet/tailnet/key deletion.
 
 ### 9.1 Secrets to configure first
 

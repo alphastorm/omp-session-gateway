@@ -2,16 +2,16 @@
 #
 # `scripts/provision-linux-qual.sh` already creates one droplet under a fixed name, joins it to the
 # tailnet as a tagged node, runs the qualification lanes, and deletes the droplet again. That makes it
-# the cheapest cross-platform automation this repository has: a full sequence is roughly twenty-five
-# minutes and one billed DigitalOcean hour, $0.01786. It has already produced two real findings, one
-# of which became #69 and its fix. This workflow runs that script unattended so the Linux evidence
-# stops depending on somebody remembering to run it by hand.
+# the cheapest cross-platform automation this repository has: the gateway lifecycle is roughly
+# twenty-five minutes, and the exact patched-OMP source/build/publication lane remains bounded inside
+# one billed droplet hour. It has already produced two real findings, one of which became #69.
+# The workflow runs the script unattended, so Linux evidence stops depending on a manual invocation.
 #
 # Nothing here promotes a ledger row. The lanes print measurements; `docs/RELEASE_STATUS.md` is
 # changed by hand, by the lead, after reading them.
 #
 # The property that matters more than any lane result is that the droplet always goes away. A failed
-# lane costs nothing. A leaked droplet bills until somebody notices. Teardown is therefore its own
+# lane costs one bounded droplet-hour. A leaked droplet bills until somebody notices. Teardown is therefore an
 # `if: always()` step, it runs after a failed, cancelled, or timed-out job, and it fails the job when
 # it cannot finish.
 #
@@ -35,18 +35,22 @@ on:
       release_tag:
         description: Signed candidate tag to qualify
         required: false
-        default: v0.1.0-prealpha.16
+        default: v0.1.0-prealpha.20
       previous_tag:
-        description: Predecessor tag for the migration lane (must be v0.1.0-prealpha.15 or later)
+        description: Exact signed predecessor for gateway migration and rollback
         required: false
-        default: v0.1.0-prealpha.15
+        default: v0.1.0-alpha.1
       lanes:
         description: >-
           Space-separated lane subset; empty runs the script's full default order. A subset must be
-          self-sufficient on a fresh droplet, so anything after `lifecycle` needs `artifact lifecycle`
-          in front of it.
+          self-sufficient on a fresh droplet, so installed-service or OMP lanes need
+          `artifact lifecycle` in front of them.
         required: false
         default: ""
+      droplet_size:
+        description: DigitalOcean size slug; full patched-OMP qualification needs two vCPUs
+        required: false
+        default: s-2vcpu-4gb
   schedule:
     # Weekly. Off the hour because GitHub's shared cron queue is congested at :00, and early Monday so
     # a failure is visible at the start of a week rather than discovered during a release attempt.
@@ -73,21 +77,20 @@ concurrency:
 jobs:
   droplet-qualification:
     runs-on: ubuntu-24.04
-    # Observed full sequence is about twenty-five minutes. The script's own bounded waits (five minutes
-    # for SSH, ten for cloud-init, about five per reboot) put a slow but legitimate run under forty.
-    # Fifty keeps the whole job, teardown included, inside a single billed DigitalOcean hour, so a hung
-    # step costs $0.018 instead of accruing hour after hour: DigitalOcean bills whole hours and refunds
-    # none of them, which is exactly why the bound sits just under sixty rather than at some round
-    # multiple of the expected duration.
+    # The gateway-only sequence is about twenty-five minutes. The exact OMP source suite/build has an
+    # independent 25-minute hard deadline and is faster on the optional two-vCPU dispatch size. Fifty
+    # minutes keeps the normal path and teardown inside one billed hour while still failing a stalled
+    # upstream build before the job-level deadline.
     timeout-minutes: 50
     permissions:
       # Checkout, plus `gh release download` and `gh attestation download` for the candidate assets.
       contents: read
     env:
-      # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the two copies in
+      # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the copies in
       # step: the input default is what a human sees in the dispatch form, this is what cron uses.
-      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-prealpha.16' }}
-      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.1.0-prealpha.15' }}
+      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-prealpha.20' }}
+      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.1.0-alpha.1' }}
+      OMP_QUAL_SIZE: ${{ inputs.droplet_size || 's-2vcpu-4gb' }}
       QUAL_LANES: ${{ inputs.lanes || '' }}
       # Pinned here rather than left to the script's default so the droplet name this workflow checks
       # for, refuses to adopt, and destroys is the same string in every step.
@@ -189,16 +192,16 @@ jobs:
           if [ -n "$QUAL_LANES" ]; then
             for lane in $QUAL_LANES; do
               case "$lane" in
-                host | artifact | lifecycle | migration | rollback | identity | persistence | uninstall) ;;
-                *) fail "Unknown lane '$lane'" "Choose from: host artifact lifecycle migration rollback identity persistence uninstall." ;;
+                host | artifact | lifecycle | omp | migration | rollback | identity | persistence | uninstall) ;;
+                *) fail "Unknown lane '$lane'" "Choose from: host artifact lifecycle omp migration rollback identity persistence uninstall." ;;
               esac
             done
             case " $QUAL_LANES " in
-              *" migration "* | *" identity "* | *" persistence "* | *" uninstall "*)
+              *" omp "* | *" migration "* | *" rollback "* | *" identity "* | *" persistence "* | *" uninstall "*)
                 case " $QUAL_LANES " in
-                  *" lifecycle "*) ;;
+                  *" artifact "*"lifecycle "*) ;;
                   *) fail "Lane subset is not self-sufficient" \
-                    "migration, identity, persistence, and uninstall all measure an installed service, and every CI run starts on a fresh droplet. Include 'artifact lifecycle' before them." ;;
+                    "omp, migration, rollback, identity, persistence, and uninstall all consume the verified artifact and installed service on a fresh droplet. Include 'artifact lifecycle' before them." ;;
                 esac
                 ;;
             esac

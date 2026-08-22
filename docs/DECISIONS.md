@@ -436,6 +436,11 @@ rebased, but v17.3.8 platform evidence does not transfer. Until a signed candida
 applicable host, relay, and physical-client lanes, v17.4.1 is an unreleased development target and
 must not be advertised as supported. The published alpha matrix remains immutable.
 
+**Qualification update (2026-08-21):** Signed candidate `v0.1.0-prealpha.20` repeated the
+applicable Debian, macOS, physical-Pixel, patched-OMP, and relay lanes at this exact pin. The
+condition above is therefore satisfied for the bounded beta matrix only; alpha support remains
+immutable at v17.3.8 and no loose OMP compatibility range is inferred.
+
 ---
 
 ## ADR-024 — Use the exact OMP patch as the beta prerequisite and defer paired packaging
@@ -460,3 +465,11 @@ independent signed-platform reasons, not because paired packaging is absent.
 second installer. Installation is more manual than the final product goal, and every participating
 OMP process must be launched from the verified patched binary. A future upstream seam or paired
 installer can replace this prerequisite, but neither blocks the bounded beta support matrix.
+
+**Qualification update (2026-08-21):** The exact route now passes on both advertised architectures.
+macOS candidate qualification and Debian [run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211)
+each reproduced the source/tree, used the matching official native addon, built the binary,
+auto-published View/Control, validated no-store launches, and revoked on process close. Isolated
+exact alpha/beta builds also passed symlink/version/config reversal. This proves the documented
+manual primitive; it does not create a coupled gateway/OMP updater or weaken the paired-packaging
+deferral.

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# macOS rollback qualification: install .13, upgrade to .14, roll back to .13.
+# macOS gateway rollback qualification: install an exact predecessor, upgrade to an exact candidate,
+# then reinstall the predecessor from its signed archive.
 #
-# Rollback is the single untested item behind four PARTIAL rows in `docs/RELEASE_STATUS.md`
-# (Linux/macOS/Windows host lifecycle and "Configuration migration and rollback"). There is no
-# first-class `rollback` command: the installer keeps every version side by side under
-# `<stateDir>/installation/versions/<version>/` and names the active one in
-# `<stateDir>/installation/current.json`, so rollback means installing the predecessor archive
-# again. This script proves that on two real signed artifacts and measures what actually moves.
+# This harness measures the isolated installer's cross-version state machine without touching a live
+# LaunchAgent. The first-class `omp-gateway rollback` command has separate Linux and unit coverage;
+# this path deliberately exercises rollback-by-reinstall because that is the recovery available from
+# an older predecessor archive. OMP binary rollback is separate and must restore the matching exact
+# patched OMP version before sessions restart.
 #
 # WHY THE launchctl GATE EXISTS
 #
@@ -17,10 +17,10 @@
 # live daemon four minutes: an "isolated" smoke read `active: true` off the production service and
 # booted it out.
 #
-# The published v0.1.0-prealpha.13 CLI still has that defect. Its `active` is `launchctl print
-# <label>` succeeding, with no check of which install root owns the loaded program; .14 added the
-# program-path check. So this harness drives one artifact that will try to bootout the production
-# daemon and one that will not, and it has to survive both.
+# The original `v0.1.0-prealpha.13` artifact had that defect; `.14` added the program-path ownership
+# check. Current predecessor/candidate pairs should both refuse before touching a foreign service.
+# The shim and positive control remain mandatory so a regression is observed rather than aimed at a
+# live daemon.
 #
 # It therefore puts a `launchctl` shim first on PATH for every isolated call. The shim refuses every
 # mutating verb, unconditionally, and logs the attempt. That is a gate rather than an assertion:
@@ -30,11 +30,10 @@
 #
 # The shim also scopes the one read launchd cannot scope itself: `print` of our exact label reports
 # "not loaded" when the loaded program lives outside the scratch root. That is the launchd analogue
-# of XDG_STATE_HOME -- it shows an isolated root the view a dedicated host would show it -- and it
-# is what lets .13's installer proceed at all. The scoping is measured, never hidden: step 4b runs
-# both artifacts' `status` with scoping OFF so the .13 ownership defect is recorded from real
-# launchd state, step 8 replays the 2026-08-19 incident into the gate with scoping OFF, and every
-# scoped read is logged and counted.
+# of XDG_STATE_HOME and lets an isolated installer observe only its own service. Step 4b runs both
+# selected artifacts' `status` with scoping OFF to test ownership against real launchd state; step 8
+# repeats uninstall with scoping OFF and records any attempted mutation. Every scoped read and
+# refusal is logged and counted.
 #
 # Nothing is ever activated (`--no-start` throughout), so no isolated service is ever loaded. The
 # trap still boots one out if launchd somehow holds a label whose program lives inside the scratch
@@ -44,13 +43,14 @@
 # printed, or copied.
 #
 # Usage:
-#   scripts/qualify-rollback.sh run     # full qualification; prints an invariant table
+#   OMP_ROLLBACK_OLD_TAG=v0.1.0-alpha.1 OMP_ROLLBACK_NEW_TAG=v0.1.0-prealpha.20 \
+#     scripts/qualify-rollback.sh run   # full qualification; prints an invariant table
 #   scripts/qualify-rollback.sh clean   # remove leftover scratch roots from earlier runs
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
-OLD_TAG="v0.1.0-prealpha.13"
-NEW_TAG="v0.1.0-prealpha.14"
+OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.1.0-alpha.1}"
+NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.1.0-prealpha.20}"
 ARCHIVE="omp-session-gateway-0.1.0-bun.tar"
 ARCHIVE_ROOT="omp-session-gateway-0.1.0-bun"
 LABEL="omp-session-gateway"
@@ -83,9 +83,9 @@ die() { printf '\nABORT: %s\n' "$*" >&2; exit 2; }
 digest_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 mode_of() { stat -f '%Lp' "$1"; }
 
-# The token's own digest, truncated the way the ledger records it. Its bytes never leave the file.
+# Full digest used only for in-memory equality checks. Never print a publisher-token fingerprint.
 token_digest() {
-  if [ -f "$1" ]; then printf 'sha256:%s' "$(digest_of "$1" | cut -c1-12)"; else printf 'absent'; fi
+  if [ -f "$1" ]; then digest_of "$1"; else printf 'absent'; fi
 }
 
 pointer_version() {
@@ -426,7 +426,7 @@ snapshot() { # index
   fact "current.json -> versionDirectory" "${STEP_POINTER[$i]}"
   fact "version directories present" "$(version_dirs | tr '\n' ' ')"
   fact "config.json sha256" "${STEP_CONFIG[$i]}"
-  fact "publisher token digest / mode" "${STEP_TOKEN[$i]} / ${STEP_TOKEN_MODE[$i]}"
+  fact "publisher token mode" "${STEP_TOKEN_MODE[$i]} (content retained only for equality checks)"
   fact "LaunchAgent ProgramArguments version" "${STEP_PLIST[$i]}"
 }
 
@@ -491,15 +491,17 @@ step_rollback() {
 
 step_invariants() {
   banner "step 7 -- invariants"
-  row_expect "current.json after install (.13)" "-" "${STEP_POINTER[0]}" "$INSTALL_EXPECTED"
-  row_expect "current.json after upgrade (.14)" "${STEP_POINTER[0]}" "${STEP_POINTER[1]}" "$UPGRADE_EXPECTED"
-  row_expect "current.json after rollback (.13)" "${STEP_POINTER[1]}" "${STEP_POINTER[2]}" "${STEP_POINTER[0]}"
+  row_expect "current.json after predecessor install" "-" "${STEP_POINTER[0]}" "$INSTALL_EXPECTED"
+  row_expect "current.json after candidate upgrade" "${STEP_POINTER[0]}" "${STEP_POINTER[1]}" "$UPGRADE_EXPECTED"
+  row_expect "current.json after predecessor restore" "${STEP_POINTER[1]}" "${STEP_POINTER[2]}" "${STEP_POINTER[0]}"
   row_expect "both runtimes kept side by side" "1" "$VERSION_COUNT_AFTER_UPGRADE" "2"
   row_expect "predecessor dir survives the upgrade" "${STEP_POINTER[0]}" "$PREDECESSOR_AFTER_UPGRADE" "present"
   row_same "config.json identical install->upgrade" "${STEP_CONFIG[0]}" "${STEP_CONFIG[1]}"
   row_same "config.json identical upgrade->rollback" "${STEP_CONFIG[1]}" "${STEP_CONFIG[2]}"
-  row_same "token digest identical install->upgrade" "${STEP_TOKEN[0]}" "${STEP_TOKEN[1]}"
-  row_same "token digest identical upgrade->rollback" "${STEP_TOKEN[1]}" "${STEP_TOKEN[2]}"
+  row_expect "token unchanged install->upgrade" "unchanged" \
+    "$([ "${STEP_TOKEN[0]}" = "${STEP_TOKEN[1]}" ] && echo unchanged || echo changed)" unchanged
+  row_expect "token unchanged upgrade->rollback" "unchanged" \
+    "$([ "${STEP_TOKEN[1]}" = "${STEP_TOKEN[2]}" ] && echo unchanged || echo changed)" unchanged
   row_same "token mode identical install->upgrade" "${STEP_TOKEN_MODE[0]}" "${STEP_TOKEN_MODE[1]}"
   row_same "token mode identical upgrade->rollback" "${STEP_TOKEN_MODE[1]}" "${STEP_TOKEN_MODE[2]}"
   row_same "LaunchAgent follows active (install)" "${STEP_POINTER[0]}" "${STEP_PLIST[0]}"
@@ -511,9 +513,9 @@ step_invariants() {
 step_uninstall() {
   banner "step 8 -- uninstall and residue"
 
-  # Unscoped, on purpose, and first. .13 believes the production daemon is its own, so this replays
-  # the 2026-08-19 incident straight into the gate. Expect: the CLI asks for a bootout, the gate
-  # refuses, uninstall aborts, production is untouched.
+  # Unscoped, on purpose, and first. Old artifacts that key ownership only on the launchd label
+  # target the production daemon here; current predecessors refuse before mutation. The gate keeps
+  # either result observational and the host daemon untouched.
   local before after rc=0 plist_state residue held preserved
   before=$(gate_count '^refused')
   ISO_SCOPE="off"
@@ -545,14 +547,15 @@ step_uninstall() {
   preserved="missing"
   if [ -f "$ISO_CONFIG_JSON" ] && [ -f "$ISO_TOKEN" ]; then preserved="present"; fi
   fact "files left under config/ and state/" "$residue (two runtime payloads plus config and token)"
-  fact "config.json + publisher-token" "$preserved (token $(token_digest "$ISO_TOKEN") mode $(mode_of "$ISO_TOKEN"))"
+  fact "config.json + publisher-token" "$preserved (token fingerprint withheld; mode $(mode_of "$ISO_TOKEN"))"
   fact "version directories left" "$(version_dirs | tr '\n' ' ')"
   held=$(loaded_program_path)
   fact "launchd label held by" "${held:-nothing}"
 
   row_expect "uninstall removes isolated LaunchAgent" "present" "$plist_state" "removed"
   row_expect "uninstall preserves config and token" "present" "$preserved" "present"
-  row_same "token digest survives uninstall" "${STEP_TOKEN[2]}" "$(token_digest "$ISO_TOKEN")"
+  row_expect "token survives uninstall unchanged" "unchanged" \
+    "$([ "${STEP_TOKEN[2]}" = "$(token_digest "$ISO_TOKEN")" ] && echo unchanged || echo changed)" unchanged
   case "$held" in
     "$QUAL_BASE"/*) row_expect "no isolated service loaded" "none" "$held" "none" ;;
     *) row_expect "no isolated service loaded" "none" "none" "none" ;;
