@@ -36,7 +36,7 @@
 # Secrets. The DigitalOcean token and the Tailscale auth key are read from the environment and never
 # appear in argv, in cloud-init user data (which is readable from the droplet's own metadata service
 # and from the DigitalOcean API), or in any printed line. The auth key is streamed over stdin into a
-# mode-0600 file that a remote EXIT trap removes, and `tailscale up` reads it with the documented
+# mode-0600 file that a remote EXIT trap removes, and `tailscale login` reads it with the documented
 # `file:` form. The service's one-time readiness nonce is redacted where ExecStart is printed.
 #
 # The image is a parameter. OMP_QUAL_IMAGE defaults to the same `debian-13-x64` slug this lane has
@@ -71,6 +71,12 @@
 #
 set -euo pipefail
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SCRIPT_ROOT
+readonly OMP_PIN_PATH="$SCRIPT_ROOT/patches/oh-my-pi/qualification.env"
+[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP qualification pin: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
+# shellcheck source=../patches/oh-my-pi/qualification.env
+. "$OMP_PIN_PATH"
 readonly REPO_SLUG="alphastorm/omp-session-gateway"
 readonly TAILNET_TAG="${OMP_QUAL_TAG:-tag:omp-session-gateway}"
 readonly DROPLET_NAME="${OMP_QUAL_NAME:-omp-gateway-qual}"
@@ -79,13 +85,13 @@ readonly DROPLET_SIZE="${OMP_QUAL_SIZE:-s-1vcpu-2gb}"
 readonly DROPLET_IMAGE="${OMP_QUAL_IMAGE:-debian-13-x64}"
 readonly SSH_KEY_ID="${OMP_QUAL_SSH_KEY_ID:-11924832}"
 readonly QUAL_USER="${OMP_QUAL_USER:-ompqual}"
-readonly BUN_VERSION="${OMP_QUAL_BUN_VERSION:-1.3.14}"
+readonly BUN_VERSION="${OMP_QUAL_BUN_VERSION:-$OMP_PIN_BUN_VERSION}"
 readonly GH_CLI_VERSION="${OMP_QUAL_GH_VERSION:-2.97.0}"
 readonly COSIGN_VERSION="${OMP_QUAL_COSIGN_VERSION:-3.1.3}"
 readonly GATEWAY_PORT="${OMP_QUAL_PORT:-4317}"
-readonly OMP_SOURCE_COMMIT="9350b7990d26ebf69a604edc82d8558ef04adf30"
-readonly OMP_PATCHED_TREE="a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7"
-readonly OMP_VERSION="17.4.1"
+readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
+readonly OMP_PATCHED_TREE="$OMP_PIN_PATCHED_TREE"
+readonly OMP_VERSION="$OMP_PIN_VERSION"
 
 # Which init system the droplet is expected to run. `systemd` is the historical and only supported
 # shape; `openrc` provisions a non-systemd box so the installer's refusal can be observed. Validated
@@ -491,11 +497,15 @@ join_tailnet() {
   remote_root <<'REMOTE' && joined=1
 trap 'rm -f /root/.ts-authkey' EXIT
 test -s /root/.ts-authkey
-tailscale up --auth-key "file:/root/.ts-authkey" --hostname "$(hostname -s)" --accept-dns=true --ssh=false
+# A freshly started daemon can already have a machine key while still being in NeedsLogin. `up`
+# then supplies AuthKey without starting the login flow; it can return while WantRunning remains
+# false. `login` always starts reauthentication, and its bound makes that transition the gate.
+tailscale login --auth-key="file:/root/.ts-authkey" --hostname="$(hostname -s)" \
+  --accept-dns=true --ssh=false --timeout=120s
 REMOTE
   ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'rm -f /root/.ts-authkey' || true
   [ "$joined" -eq 1 ] ||
-    die "'tailscale up' failed on the droplet. The auth key file was removed; check that the key is still valid, preauthorized, and carries $TAILNET_TAG."
+    die "'tailscale login' failed on the droplet. The auth key file was removed; check that the key is still valid, preauthorized, and carries $TAILNET_TAG."
 }
 
 # Extracted from cmd_provision unchanged so the OpenRC path can skip it as a unit. Everything here is
@@ -2382,4 +2392,6 @@ main() {
   esac
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

@@ -47,7 +47,8 @@
 #
 # WHAT IT MEASURES, AND WHAT IT CANNOT
 #
-# Lanes: artifact, install, identity, persistence, uninstall. Every line it prints is a measurement.
+# Lanes: artifact, install, identity, persistence, rollback, omp-build, omp-clean, uninstall.
+# Every line it prints is a measurement.
 # Two things it cannot establish and does not claim:
 #
 #   - Reboot persistence on macOS is LaunchAgent behaviour, so it proves return at **console login**.
@@ -60,13 +61,20 @@
 #
 # Environment:
 #   OMP_MAC_HOST      required, ssh destination (`user@host`)
-#   OMP_MAC_TAG       required, signed release tag to qualify
+#   OMP_MAC_TAG          required, signed release tag to qualify
+#   OMP_MAC_PREVIOUS_TAG optional, exact predecessor for rollback; defaults to v0.1.0-beta.1
 #   OMP_MAC_LOGIN     required, tailnet login to allowlist
 #   OMP_MAC_SUDO_PW   optional, sudo password piped to `sudo -S`; omit if sudo is passwordless
 #   OMP_MAC_SSH_KEY   optional, identity file
 #
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
+readonly OMP_PIN_PATH="$REPO_ROOT/patches/oh-my-pi/qualification.env"
+[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP qualification pin: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
+# shellcheck source=../patches/oh-my-pi/qualification.env
+. "$OMP_PIN_PATH"
 step() { printf '\n== %s\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
 measure() { printf '   %-38s %s\n' "$1:" "$2"; }
@@ -78,14 +86,22 @@ die() {
 
 readonly HOST="${OMP_MAC_HOST:-}"
 readonly TAG="${OMP_MAC_TAG:-}"
+readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.1.0-beta.1}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly REPO_SLUG="${OMP_MAC_REPO:-alphastorm/omp-session-gateway}"
 readonly GATEWAY_PORT="${OMP_MAC_PORT:-4317}"
 readonly RECORD_DIR="${OMP_MAC_RECORD_DIR:-$HOME/.local/share/omp-session-gateway/test}"
+readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
+readonly OMP_PATCHED_TREE="$OMP_PIN_PATCHED_TREE"
+readonly OMP_VERSION="$OMP_PIN_VERSION"
+readonly BUN_VERSION="$OMP_PIN_BUN_VERSION"
 
 [ -n "$HOST" ] || die "OMP_MAC_HOST is not set. Nothing was measured."
 [ -n "$TAG" ] || die "OMP_MAC_TAG is not set; name the signed release tag to qualify. Nothing was measured."
 [ -n "$LOGIN" ] || die "OMP_MAC_LOGIN is not set; name the tailnet login to allowlist. Nothing was measured."
+case "$TAG:$PREVIOUS_TAG" in
+  *[!A-Za-z0-9._:-]*) die "OMP_MAC_TAG and OMP_MAC_PREVIOUS_TAG must be plain release tags" ;;
+esac
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes)
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
@@ -95,9 +111,10 @@ remote() {
   local script bootstrap
   script="$(cat)"
   printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_PATCHED_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
   {
-    printf '%s\0' "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$script"
+    printf '%s\0' "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" \
+      "$OMP_SOURCE_COMMIT" "$OMP_PATCHED_TREE" "$OMP_VERSION" "$BUN_VERSION" "$script"
   } | ssh "${SSH_OPTS[@]}" -q "$HOST" "$bootstrap"
 }
 
@@ -112,6 +129,7 @@ preflight() {
   need_command ssh
   need_command gh
   need_command shasum
+  need_command scp
 
   remote <<'REMOTE' || die "cannot reach the host over SSH, or its shell rejected the probe."
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
@@ -351,6 +369,74 @@ REMOTE
   note "mint new publisher credentials."
 }
 
+stage_remote_rollback_tools() {
+  local gh_bin cosign_bin
+  need_command cosign
+  gh_bin="$(command -v gh)"
+  cosign_bin="$(command -v cosign)"
+  remote <<'REMOTE'
+mkdir -p "$HOME/qual-tools"
+chmod 700 "$HOME/qual-tools"
+REMOTE
+  scp "${SSH_OPTS[@]}" -q "$gh_bin" "$cosign_bin" "$REPO_ROOT/scripts/qualify-rollback.sh" "$HOST:qual-tools/" ||
+    die "could not stage the rollback harness and verification tools on the Mac."
+  remote <<'REMOTE'
+chmod 700 "$HOME/qual-tools/gh" "$HOME/qual-tools/cosign" "$HOME/qual-tools/qualify-rollback.sh"
+REMOTE
+}
+
+lane_rollback() {
+  step "Lane 5: isolated gateway upgrade and rollback"
+  stage_remote_rollback_tools
+  remote <<'REMOTE'
+export PATH="$HOME/qual-tools:$HOME/.bun/bin:$PATH"
+OMP_ROLLBACK_OLD_TAG="$PREVIOUS_TAG" OMP_ROLLBACK_NEW_TAG="$TAG" \
+  bash "$HOME/qual-tools/qualify-rollback.sh" run
+REMOTE
+}
+
+stage_remote_omp_helper() {
+  remote <<'REMOTE'
+mkdir -p "$HOME/qual-tools"
+chmod 700 "$HOME/qual-tools"
+REMOTE
+  scp "${SSH_OPTS[@]}" -q "$REPO_ROOT/scripts/qualify-macos-omp.sh" "$HOST:qual-tools/" ||
+    die "could not stage the patched OMP qualification helper on the Mac."
+  remote <<'REMOTE'
+chmod 700 "$HOME/qual-tools/qualify-macos-omp.sh"
+REMOTE
+}
+
+lane_omp_build() {
+  step "Lane 6: exact patched OMP build"
+  stage_remote_omp_helper
+  remote <<'REMOTE'
+export PATH="$HOME/.bun/bin:$PATH"
+root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"
+OMP_QUAL_GATEWAY_ROOT="$root" \
+OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
+OMP_PIN_PATCHED_TREE="$OMP_PATCHED_TREE" \
+OMP_PIN_VERSION="$OMP_VERSION" \
+OMP_PIN_BUN_VERSION="$BUN_VERSION" \
+  bash "$HOME/qual-tools/qualify-macos-omp.sh" build
+REMOTE
+}
+
+lane_omp_clean() {
+  step "Lane 7: patched OMP cleanup"
+  stage_remote_omp_helper
+  remote <<'REMOTE'
+export PATH="$HOME/.bun/bin:$PATH"
+root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"
+OMP_QUAL_GATEWAY_ROOT="$root" \
+OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
+OMP_PIN_PATCHED_TREE="$OMP_PATCHED_TREE" \
+OMP_PIN_VERSION="$OMP_VERSION" \
+OMP_PIN_BUN_VERSION="$BUN_VERSION" \
+  bash "$HOME/qual-tools/qualify-macos-omp.sh" clean
+REMOTE
+}
+
 lane_uninstall() {
   step "Lane 5: uninstall"
   remote <<'REMOTE'
@@ -379,8 +465,8 @@ lanes=("$@")
 
 for lane in "${lanes[@]}"; do
   case "$lane" in
-    artifact | install | identity | persistence | uninstall) ;;
-    *) die "unknown lane '$lane'; choose from artifact install identity persistence uninstall" ;;
+    artifact | install | identity | persistence | rollback | omp-build | omp-clean | uninstall) ;;
+    *) die "unknown lane '$lane'; choose from artifact install identity persistence rollback omp-build omp-clean uninstall" ;;
   esac
 done
 
@@ -391,6 +477,9 @@ for lane in "${lanes[@]}"; do
     install) lane_install ;;
     identity) lane_identity ;;
     persistence) lane_persistence ;;
+    rollback) lane_rollback ;;
+    omp-build) lane_omp_build ;;
+    omp-clean) lane_omp_clean ;;
     uninstall) lane_uninstall ;;
   esac
 done

@@ -188,6 +188,11 @@ test(
       expect(entries.has(`${archivePrefix}licenses/collab-web/LICENSE`)).toBe(true);
       expect(entries.has(`${archivePrefix}licenses/oh-my-pi/LICENSE`)).toBe(true);
       expect(entries.has(`${archivePrefix}bun.lock`)).toBe(true);
+      expect(
+        entries.get(`${archivePrefix}patches/oh-my-pi/qualification.env`)?.equals(
+          await readFile(join(root, "patches/oh-my-pi/qualification.env")),
+        ),
+      ).toBe(true);
       for (const metadata of Object.values(RUNTIME_LICENSES)) {
         expect(entries.has(`${archivePrefix}${metadata.licensePath}`)).toBe(true);
       }

@@ -252,7 +252,7 @@ cd /path/to/omp-session-gateway
 ```
 
 `provision` is idempotent: it reuses an existing droplet named `omp-gateway-qual` rather than creating
-a second one, and it skips `tailscale up` if the node is already online. Re-running it after a failed
+a second one, and it skips `tailscale login` if the node is already online. Re-running it after a failed
 attempt is safe and cheap.
 
 `qualify` accepts a lane list, so a single observation can be repeated without paying for the whole
@@ -446,8 +446,9 @@ before `droplet delete`, which is the one failure mode teardown must never have.
 - The Tailscale auth key is **not** in cloud-init user data. User data is readable from the droplet's
   own metadata service and from the DigitalOcean API, so it carries only package installation, the
   qualified user, and the Tailscale installer. The key is streamed over SSH stdin under a fixed argv
-  into a mode-0600 file, consumed by `tailscale up --auth-key file:…`, and removed on both the success
-  and failure path.
+  into a mode-0600 file, consumed by bounded `tailscale login --auth-key=file:…`, and removed on
+  both paths. `login` is deliberate: a fresh daemon can already hold a machine key while still in
+  `NeedsLogin`, and `up` does not force that state through reauthentication.
 - The publisher token is never printed. The lifecycle lane reads it only to search the diagnostics
   bundle for it, and reports the byte count and mode rather than the value.
 - The service's one-time readiness nonce is redacted where `ExecStart` is printed.
