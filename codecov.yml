@@ -47,4 +47,10 @@ ignore:
   - "packages/collab-client/upstream/**"
   # Test and fixture code. Measuring the tests' own coverage says nothing about the product.
   - "**/*.test.ts"
+  # Physical-device acceptance harness. Bun 1.3.14 reports 20/33 functions hit for this module but
+  # maps those executions to only 6/591 source lines, even when its focused 21-test suite runs in
+  # isolation. Keep the executable tests and physical gate authoritative instead of feeding that
+  # known-bad source map into the project line regression.
+  - "scripts/android-device.ts"
+  - "scripts/android-acceptance.ts"
   - "apps/web/e2e/**"
