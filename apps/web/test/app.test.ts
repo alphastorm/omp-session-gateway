@@ -229,6 +229,7 @@ interface BrowserHarness {
     readonly notificationButton: FakeElement;
     readonly notificationDisclosure: FakeElement;
     readonly notificationSettings: FakeElement;
+    readonly networkRecoveryHelp: FakeElement;
     readonly notificationDisable: FakeElement;
     readonly notificationDetailInputs: readonly FakeElement[];
     readonly statusBanner: FakeElement;
@@ -313,6 +314,8 @@ async function bootApp(options: {
   notificationButton.disabled = true;
   const notificationDisclosure = new FakeElement("p");
   const notificationSettings = new FakeElement("dialog");
+  const networkRecoveryHelp = new FakeElement("dialog");
+  const networkRecoveryHelpClose = new FakeElement("button");
   const notificationSettingsClose = new FakeElement("button");
   const notificationDisable = new FakeElement("button");
   const notificationDetailInputs = (["private", "session", "preview"] as const).map(value => {
@@ -337,6 +340,8 @@ async function bootApp(options: {
     "#notification-settings": notificationSettings,
     "#notification-settings-close": notificationSettingsClose,
     "#notification-disable": notificationDisable,
+    "#network-recovery-help": networkRecoveryHelp,
+    "#network-recovery-help-close": networkRecoveryHelpClose,
   };
   const document = new FakeDocument(bySelector, notificationDetailInputs);
   const window = new FakeWindow();
@@ -512,6 +517,7 @@ async function bootApp(options: {
       notificationButton,
       notificationDisclosure,
       notificationSettings,
+      networkRecoveryHelp,
       notificationDisable,
       notificationDetailInputs,
       directoryTitle,
@@ -746,7 +752,7 @@ describe("dashboard attention and notifications", () => {
     expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
   });
 
-  test("offers browser recovery guidance only after a prolonged visible outage", async () => {
+  test("offers local browser recovery help only after a prolonged visible outage", async () => {
     const base = session("prolonged-outage-001");
     const harness = await bootApp({
       permission: "denied",
@@ -762,19 +768,23 @@ describe("dashboard attention and notifications", () => {
 
     harness.setVisibility("hidden");
     harness.advanceClock(45_000);
-    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
-
     harness.failNextListRequest();
     harness.setVisibility("visible");
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+
+    harness.advanceClock(45_000);
+    harness.failNextListRequest();
+    harness.window.dispatchEvent(new Event("online"));
     await settleUntil(() => harness.elements.statusBanner.querySelector(".status-guidance") !== null);
     expect(harness.elements.statusBanner.querySelector(".status-guidance")?.textContent).toContain(
       "Android Chrome may be stuck after a network change",
     );
     const troubleshooting = harness.elements.statusBanner
       .querySelectorAll(".status-action")
-      .find(element => element.tagName === "a");
-    expect(troubleshooting?.textContent).toBe("Troubleshooting");
-    expect(troubleshooting?.getAttribute("href")).toBe("/help/network-recovery/");
+      .find(element => element.tagName === "button" && element.textContent === "Troubleshooting");
+    troubleshooting?.dispatchEvent(new Event("click"));
+    expect(harness.elements.networkRecoveryHelp.open).toBeTrue();
 
     harness.setList(2, [base]);
     harness.window.dispatchEvent(new Event("online"));

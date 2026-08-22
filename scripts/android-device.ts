@@ -18,6 +18,9 @@
  */
 const DEFAULT_BROWSER_PACKAGE = "com.android.chrome";
 const DEFAULT_DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
+const ANDROID_PACKAGE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/u;
+const ANDROID_CLASS_PATTERN = /^\.?[A-Za-z_][A-Za-z0-9_$.]*(?:\.[A-Za-z_][A-Za-z0-9_$.]*)*$/u;
+const DEVTOOLS_SOCKET_PATTERN = /^localabstract:[A-Za-z0-9_.-]+$/u;
 const DEFAULT_FORWARD_PORT = 9222;
 const CALL_TIMEOUT_MS = 25_000;
 const OPEN_TIMEOUT_MS = 10_000;
@@ -45,14 +48,32 @@ export function resolveAndroidBrowserTarget(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): AndroidBrowserTarget {
   const packageName = environmentOverride(environment, "OMP_ANDROID_BROWSER_PACKAGE") ?? DEFAULT_BROWSER_PACKAGE;
-  return {
-    packageName,
-    activity:
-      environmentOverride(environment, "OMP_ANDROID_BROWSER_ACTIVITY") ??
-      packageName + "/com.google.android.apps.chrome.Main",
-    devtoolsSocket:
-      environmentOverride(environment, "OMP_ANDROID_DEVTOOLS_SOCKET") ?? DEFAULT_DEVTOOLS_SOCKET,
-  };
+  if (!ANDROID_PACKAGE_PATTERN.test(packageName)) {
+    throw new Error("OMP_ANDROID_BROWSER_PACKAGE must be an Android package name");
+  }
+
+  const activity =
+    environmentOverride(environment, "OMP_ANDROID_BROWSER_ACTIVITY") ??
+    packageName + "/com.google.android.apps.chrome.Main";
+  const [activityPackage, activityClass, extraActivityPart] = activity.split("/");
+  if (
+    extraActivityPart !== undefined ||
+    activityPackage !== packageName ||
+    activityClass === undefined ||
+    !ANDROID_CLASS_PATTERN.test(activityClass)
+  ) {
+    throw new Error("OMP_ANDROID_BROWSER_ACTIVITY must be a component in the selected package");
+  }
+
+  const socketOverride = environmentOverride(environment, "OMP_ANDROID_DEVTOOLS_SOCKET");
+  if (packageName !== DEFAULT_BROWSER_PACKAGE && socketOverride === undefined) {
+    throw new Error("OMP_ANDROID_DEVTOOLS_SOCKET is required for an alternate browser package");
+  }
+  const devtoolsSocket = socketOverride ?? DEFAULT_DEVTOOLS_SOCKET;
+  if (!DEVTOOLS_SOCKET_PATTERN.test(devtoolsSocket)) {
+    throw new Error("OMP_ANDROID_DEVTOOLS_SOCKET must be a localabstract socket name");
+  }
+  return { packageName, activity, devtoolsSocket };
 }
 
 export interface AndroidChromeDriver {
@@ -91,6 +112,21 @@ export function parseAndroidPackageVersion(dumpsys: string): string {
     throw new Error("Android package metadata is missing versionName");
   }
   return version;
+}
+
+export function assertBrowserVersionMatchesPackage(
+  packageName: string,
+  androidPackageVersion: string,
+  browserVersion: Readonly<Record<string, unknown>>,
+): void {
+  const product = browserVersion.product;
+  const cdpVersion = typeof product === "string" ? product.match(/^Chrome\/(.+)$/u)?.[1] : undefined;
+  if (cdpVersion !== androidPackageVersion) {
+    throw new Error(
+      "DevTools browser version does not match " + packageName + ": " +
+        JSON.stringify(product) + " != " + JSON.stringify(androidPackageVersion),
+    );
+  }
 }
 
 async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
@@ -188,13 +224,16 @@ export async function withAndroidChrome<T>(
       setTimeout(() => reject(new Error("DevTools WebSocket open timeout")), OPEN_TIMEOUT_MS);
     });
 
+    const browserVersion = await send("Browser.getVersion", {}, false);
+    assertBrowserVersionMatchesPackage(target.packageName, packageVersion, browserVersion);
+
     const driver: AndroidChromeDriver = {
       serial,
       packageName: target.packageName,
       androidPackageVersion: packageVersion,
       browserActivity: target.activity,
       devtoolsSocket: target.devtoolsSocket,
-      version: () => send("Browser.getVersion", {}, false),
+      version: () => Promise.resolve(browserVersion),
       async openTab() {
         const created = await send("Target.createTarget", { url: "about:blank" }, false);
         targetId = String(created.targetId);

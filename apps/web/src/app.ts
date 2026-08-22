@@ -45,6 +45,8 @@ function requiredElement<ElementType extends Element>(selector: string): Element
 const sessionList = requiredElement<HTMLElement>("#session-list");
 const emptyState = requiredElement<HTMLElement>("#empty-state");
 const statusBanner = requiredElement<HTMLElement>("#status-banner");
+const networkRecoveryHelp = requiredElement<HTMLDialogElement>("#network-recovery-help");
+const networkRecoveryHelpClose = requiredElement<HTMLButtonElement>("#network-recovery-help-close");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 const directoryTitle = requiredElement<HTMLElement>("#directory-title");
@@ -478,8 +480,13 @@ function scheduleTransportGuidance(): void {
   }, remaining);
 }
 function showTransportFailure(kind: TransportFailureKind): void {
-  if (transportFailureSince === undefined) transportFailureSince = Date.now();
-  transportFailureKind = kind;
+  const tracksVisibleFailure = kind !== "offline" && document.visibilityState === "visible";
+  if (tracksVisibleFailure) {
+    if (transportFailureSince === undefined) transportFailureSince = Date.now();
+    transportFailureKind = kind;
+  } else {
+    clearTransportFailureTracking();
+  }
   directoryRevision = -1;
   render();
   const asOf =
@@ -538,16 +545,17 @@ function showTransportFailure(kind: TransportFailureKind): void {
     retry.addEventListener("click", () => void refreshAndConnect());
     actions.append(retry);
     if (extended) {
-      const troubleshooting = document.createElement("a");
-      troubleshooting.className = "status-action status-link";
+      const troubleshooting = document.createElement("button");
+      troubleshooting.type = "button";
+      troubleshooting.className = "status-action";
       troubleshooting.textContent = "Troubleshooting";
-      troubleshooting.setAttribute("href", "/help/network-recovery/");
+      troubleshooting.addEventListener("click", () => networkRecoveryHelp.showModal());
       actions.append(troubleshooting);
     }
     statusBanner.append(actions);
   }
   statusBanner.hidden = false;
-  if (kind !== "offline") scheduleTransportGuidance();
+  if (tracksVisibleFailure) scheduleTransportGuidance();
 }
 
 function clearEventLiveness(): void {
@@ -1496,6 +1504,7 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
 notificationDisable.addEventListener("click", () => void disableBackgroundNotifications());
+networkRecoveryHelpClose.addEventListener("click", () => networkRecoveryHelp.close());
 for (const input of notificationDetailInputs) {
   input.addEventListener("change", () => {
     if (!input.checked || notificationRegistration === undefined) return;
@@ -1549,8 +1558,11 @@ window.addEventListener("offline", () => {
  * a timer that was frozen with it.
  */
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || authorizationDenied) return;
-  if (directoryStreamIsLive()) return;
+  if (document.visibilityState !== "visible") {
+    clearTransportFailureTracking();
+    return;
+  }
+  if (authorizationDenied || directoryStreamIsLive()) return;
   void refreshAndConnect();
 });
 

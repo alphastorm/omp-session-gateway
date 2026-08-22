@@ -133,7 +133,7 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
   }
 });
 
-test("a prolonged visible outage offers local browser recovery help", async ({ page }) => {
+test("a prolonged visible outage opens recovery help from the loaded shell", async ({ page }) => {
   const active = session();
   const fixture = await startDashboardFixture([active]);
 
@@ -150,14 +150,13 @@ test("a prolonged visible outage offers local browser recovery help", async ({ p
     await expect(page.locator("#status-banner .status-guidance")).toContainText(
       "Android Chrome may be stuck after a network change",
     );
-    const troubleshooting = page.getByRole("link", { name: "Troubleshooting" });
-    await expect(troubleshooting).toHaveAttribute("href", "/help/network-recovery/");
-    await troubleshooting.click();
+    await page.route("**/*", route => route.abort("connectionrefused"));
+    await page.getByRole("button", { name: "Troubleshooting" }).click();
 
-    await expect(page).toHaveURL(fixture.origin + "/help/network-recovery/");
-    await expect(page.getByRole("heading", { name: "Still unreachable?" })).toBeVisible();
-    await expect(page.getByText("Force stop", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Return to Sessions" })).toHaveAttribute("href", "/");
+    const help = page.getByRole("dialog", { name: "Still unreachable?" });
+    await expect(help).toBeVisible();
+    await expect(help.getByText("Force stop", { exact: true })).toBeVisible();
+    await expect(help.getByText("These steps are guidance, not a diagnosis", { exact: false })).toBeVisible();
   } finally {
     await fixture.stop();
   }

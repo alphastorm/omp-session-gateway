@@ -50,6 +50,24 @@
         <p id="notify-note" class="notify-note" hidden>Alerts work with the app closed. Tapping one opens current Control after revalidation.</p>
       </section>
     </main>
+    <dialog id="network-recovery-help" class="notification-sheet recovery-help" aria-labelledby="network-recovery-help-title">
+      <div class="notification-sheet-handle" aria-hidden="true"></div>
+      <header>
+        <div>
+          <p class="sheet-kicker">OMP Sessions troubleshooting</p>
+          <h2 id="network-recovery-help-title">Still unreachable?</h2>
+        </div>
+        <button id="network-recovery-help-close" class="sheet-close" type="button" aria-label="Close network troubleshooting">Close</button>
+      </header>
+      <p>Android Chrome can rarely stop networking after the phone locks or changes networks. OMP Sessions cannot restart the browser process itself.</p>
+      <ol>
+        <li>Open Android <strong>Settings</strong>, then <strong>Apps</strong>.</li>
+        <li>Select the browser that hosts OMP Sessions and tap <strong>Force stop</strong>.</li>
+        <li>Reopen <strong>OMP Sessions</strong> from the home screen.</li>
+        <li>If it remains unavailable, confirm Tailscale is connected and the desktop is awake.</li>
+      </ol>
+      <p class="recovery-help-note">These steps are guidance, not a diagnosis: the same banner can mean the tailnet, desktop, or gateway is genuinely unavailable.</p>
+    </dialog>
     <dialog id="notification-settings" class="notification-sheet" aria-labelledby="notification-settings-title">
       <div class="notification-sheet-handle" aria-hidden="true"></div>
       <header>

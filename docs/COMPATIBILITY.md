@@ -41,8 +41,9 @@ promotion must repeat every applicable candidate-bound lane rather than inheriti
 - Windows source/lifecycle checks passed, but Windows remains unadvertised and is outside beta and the stable target.
 
 Known limits remain part of the claim. Chrome for Android can wedge its process-wide network state
-after an abrupt transition while Android remains healthy. The PWA retries and, after 45 seconds of
-visible failure, offers same-origin force-stop/reopen guidance; it does not claim to repair Chrome
+after an abrupt transition while Android remains healthy. The PWA retries and, after 45 uninterrupted
+seconds of visible failure, opens force-stop/reopen help already carried by the loaded shell; it
+does not claim to repair Chrome
 ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)). Preview detail currently falls
 back to Session detail. Background Web Push remains outside the stable core claim. Portal Tunnel,
 self-hosted/proxied relays, Funnel, userspace networking, shared mutually untrusted local accounts,

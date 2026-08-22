@@ -1,0 +1,21 @@
+{
+  "$schema": "./schemas/stable-release.schema.json",
+  "schemaVersion": 1,
+  "version": "0.1.0",
+  "releaseTag": "v0.1.0",
+  "status": "pending",
+  "candidateTag": "v0.1.0-prealpha.21",
+  "candidateSourceCommit": null,
+  "candidateArchiveSha256": null,
+  "releaseSourceCommit": null,
+  "runtimeByteComparison": "pending",
+  "evidence": {
+    "debian": "pending",
+    "macos": "pending",
+    "android": "pending",
+    "ompPublication": "pending",
+    "provenance": "pending",
+    "secretSinks": "pending"
+  },
+  "approvedAt": null
+}

@@ -38,15 +38,22 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Validate protected release tag and derive its channel
+      - name: Validate signed release tag and derive its channel
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="$(bun -e 'process.stdout.write((await Bun.file("package.json").json()).version)')"
-          bun scripts/release-policy.ts "$GITHUB_REF_NAME" "$version" >> "$GITHUB_ENV"
+          version="$(jq -er '.version' package.json)"
           if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
             echo "Tagged commit must be reachable from origin/main." >&2
             exit 1
           fi
+          bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+          bun scripts/release-policy.ts \
+            "$GITHUB_REF_NAME" \
+            "$version" \
+            "$GITHUB_SHA" \
+            STABLE_RELEASE.lock.json >> "$GITHUB_ENV"
           archive="dist/release/omp-session-gateway-$version-bun.tar"
           checksums="dist/release/SHA256SUMS"
           sbom="dist/release/omp-session-gateway-$version.spdx.json"
@@ -127,6 +134,7 @@ jobs:
             exit 1
           fi
           notes="$RUNNER_TEMP/release-notes.md"
+          bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
           upstream_commit="$(jq -r '.commit' UPSTREAM.lock.json)"
           upstream_tag="$(jq -r '.tag' UPSTREAM.lock.json)"
           if [[ "$GITHUB_REF_NAME" == provenance-test-* ]]; then
@@ -164,7 +172,7 @@ jobs:
 
           ### Known environment limitation
 
-          Android Chrome can wedge its process-wide network state after a lock/Doze/radio transition even while Android itself remains online. The PWA retries, reports the unreachable path honestly, and after a prolonged visible outage links to local force-stop/reopen guidance. The release does not claim that page JavaScript can repair a failed browser process.
+          Android Chrome can wedge its process-wide network state after a lock/Doze/radio transition even while Android itself remains online. The PWA retries, reports the unreachable path honestly, and after an uninterrupted prolonged visible outage opens force-stop/reopen help already carried by the loaded shell. The release does not claim that page JavaScript can repair a failed browser process.
 
           Windows remains unadvertised. Background Web Push delivery remains best-effort and is not part of the stable core support claim.
 
@@ -206,7 +214,7 @@ jobs:
 
           ### Known limitations
 
-          - Android Chrome may require force-stop/reopen after a browser-process network wedge; the PWA keeps bounded retries and offers local guidance, but network-change recovery is not claimed.
+          - Android Chrome may require force-stop/reopen after a browser-process network wedge; the PWA keeps bounded retries and opens in-shell help after uninterrupted visible failure, but network-change recovery is not claimed.
           - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
           - Windows is implemented and tested but **not advertised**.
           - Self-hosted or proxied relay modes remain unsupported; Tailscale Serve over tailnet HTTPS is the only supported remote path.
@@ -319,13 +327,39 @@ jobs:
           else
             create_release --draft --latest=false
           fi
+          draft_state="$(gh release view "$GITHUB_REF_NAME" --json assets,isDraft,isPrerelease)"
+          expected_prerelease="$RELEASE_IS_PRERELEASE" bun -e '
+            const state = JSON.parse(await Bun.stdin.text());
+            if (state.isDraft !== true || state.isPrerelease !== (process.env.expected_prerelease === "true")) {
+              throw new Error("draft release flags do not match the validated policy");
+            }
+            if (!Array.isArray(state.assets) || state.assets.length !== 6) {
+              throw new Error("draft release does not contain exactly six assets");
+            }
+          ' <<< "$draft_state"
 
       - name: Publish release once
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
           if [[ "$RELEASE_IS_LATEST" == "true" ]]; then
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest
           else
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
           fi
+          published_state="$(gh release view "$GITHUB_REF_NAME" --json assets,isDraft,isLatest,isPrerelease,tagName)"
+          expected_latest="$RELEASE_IS_LATEST" expected_prerelease="$RELEASE_IS_PRERELEASE" expected_tag="$GITHUB_REF_NAME" bun -e '
+            const state = JSON.parse(await Bun.stdin.text());
+            if (
+              state.tagName !== process.env.expected_tag ||
+              state.isDraft !== false ||
+              state.isLatest !== (process.env.expected_latest === "true") ||
+              state.isPrerelease !== (process.env.expected_prerelease === "true") ||
+              !Array.isArray(state.assets) ||
+              state.assets.length !== 6
+            ) {
+              throw new Error("published release state does not match the validated policy");
+            }
+          ' <<< "$published_state"

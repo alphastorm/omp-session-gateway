@@ -45,12 +45,12 @@ Issue [#65](https://github.com/alphastorm/omp-session-gateway/issues/65) establi
 outside the PWA: Android retained a working default route while Chrome failed the gateway and an
 unrelated public origin, then stopped answering through its own DevTools socket. Force-stopping and
 reopening Chrome restored networking. The dashboard therefore keeps bounded retries and accurate
-path status, then shows same-origin recovery guidance after 45 seconds of repeated visible failure.
-It does not add a public connectivity probe, reload loop, cache-busting URL, or extra EventSource;
-none can restart Chrome's process-wide network service.
+path status, then opens recovery guidance already present in the loaded shell after 45 uninterrupted
+seconds of visible failure. It does not add a public connectivity probe, reload loop, cache-busting
+URL, extra EventSource, or outage-time navigation; none can restart Chrome's network service.
 
-The physical-device driver defaults to stable Chrome. Alternate channels are selected without code
-changes, and every override is independent:
+The physical-device driver defaults to stable Chrome. Alternate channels require explicit package,
+activity, and DevTools socket selection:
 
     OMP_ANDROID_BROWSER_PACKAGE=com.chrome.canary \
     OMP_ANDROID_BROWSER_ACTIVITY=com.chrome.canary/com.google.android.apps.chrome.Main \
@@ -58,9 +58,10 @@ changes, and every override is independent:
     bun scripts/android-acceptance.ts "$ORIGIN" "$DISPOSABLE_SESSION_LABEL"
 
 Every acceptance record includes the package name, Android package version, complete
-Browser.getVersion result, launch activity, and DevTools socket. A Canary run is evidence only for
-that exact build. Do not claim #65 resolved until the Stable control reproduces and the selected
-Canary completes the separately recorded focused cycle gate without a wedge.
+Browser.getVersion result, launch activity, and DevTools socket. Before recording evidence, the
+driver requires the CDP product version to equal the selected package version; a mismatched socket
+fails the run. A Canary result applies only to that exact build and socket. Do not claim #65 resolved
+until the Stable control reproduces and the selected Canary completes the recorded cycle gate.
 
 ## Launch UX
 

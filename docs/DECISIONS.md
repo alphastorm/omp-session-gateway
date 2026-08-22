@@ -491,14 +491,20 @@ stable claim remains limited to the Debian, macOS, physical Pixel, TUN-mode Tail
 exact patched-OMP combinations recorded at the tag's source commit. Every pre-alpha, alpha, beta,
 provenance, unknown, and cross-version tag stays a prerelease or fails before artifact creation.
 Publish the bare tag as GitHub Latest only after a signed candidate repeats the applicable matrix.
+The stable workflow must also refuse the bare tag until STABLE_RELEASE.lock.json binds a fully
+passed candidate matrix and runtime-byte comparison to the exact release commit. It must require a
+GitHub-verified signed annotated tag and revalidate that tag's target before draft creation and
+public promotion.
 
 Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
-case and not as a reason to add another transport workaround. After 45 seconds of repeated failure
-while visibly foregrounded, the PWA must offer a clean retry and same-origin force-stop/reopen
-guidance; it must remove that guidance immediately after recovery and must make no third-party
-connectivity probe. The physical-device driver must allow package, activity, and DevTools-socket
-selection independently and record the exact Android package and browser revision. Canary evidence
-may narrow or retire the limitation later; v0.1.0 does not claim the upstream fix is proven.
+case and not as a reason to add another transport workaround. After 45 uninterrupted seconds of
+failure while visibly foregrounded, the PWA must offer a clean retry and an in-shell
+force-stop/reopen help panel; it must reset that clock while offline or hidden, remove guidance on
+recovery, and make no third-party connectivity probe.
+The physical-device driver must validate package, activity, and socket selectors before ADB,
+require an explicit socket for alternate packages, and reject evidence when the CDP product version
+does not match the selected Android package version. Canary evidence may narrow or retire the
+limitation later; v0.1.0 does not claim the upstream fix is proven.
 
 ADR-024's exact patched-OMP prerequisite and paired-packaging deferral extend to this narrow 0.1
 release. Windows, background Push qualification, Portal Tunnel, userspace-networking Tailscale,

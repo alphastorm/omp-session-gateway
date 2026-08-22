@@ -665,9 +665,14 @@ async function buildRelease(): Promise<void> {
       join(root, "packages", "collab-client", "upstream", "LICENSE"),
       join(staging, COLLAB_WEB_LICENSE_PATH),
     );
-    for (const name of ["LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.md", "UPSTREAM.lock.json", "bun.lock"]) {
+    for (const name of ["LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.md", "STABLE_RELEASE.lock.json", "UPSTREAM.lock.json", "bun.lock"]) {
       await cp(join(root, name), join(staging, name));
     }
+    await mkdir(join(staging, "schemas"), { recursive: true });
+    await cp(
+      join(root, "schemas", "stable-release.schema.json"),
+      join(staging, "schemas", "stable-release.schema.json"),
+    );
     await writeFile(
       join(staging, "package.json"),
       `${JSON.stringify(

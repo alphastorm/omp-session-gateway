@@ -41,12 +41,13 @@ Every advertised release requires:
 - complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
   verification.
 
-Stable v0.1.0 additionally requires that the exact Debian, retained Mac14,3, and physical Pixel
-candidate lanes pass, that prerelease tags remain excluded from GitHub Latest, and that final
-runtime bytes are compared with the candidate. Issue #65 is accepted only as a browser-process
-environment limitation: the PWA must keep bounded retries, identify the unreachable path, show
-same-origin force-stop/reopen guidance after a prolonged visible failure, make no third-party
-probe, and never claim the browser process recovered when it did not.
+Stable v0.1.0 additionally requires that STABLE_RELEASE.lock.json bind the exact release commit to a
+fully passed candidate, candidate archive digest, runtime-byte comparison, Debian, retained
+Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence. The workflow
+also requires a GitHub-verified signed annotated tag and rechecks its target before draft creation
+and public promotion. Issue #65 remains a browser-process environment limitation: after 45
+uninterrupted visible failure seconds, the loaded shell offers retry and force-stop/reopen help
+without a third-party probe or a claim that JavaScript repaired Chrome.
 
 The protected 28,800-second default-relay result may transfer only while relay host/client,
 collab-web, and wire bytes remain identical. A bounded real relay smoke still runs for the exact

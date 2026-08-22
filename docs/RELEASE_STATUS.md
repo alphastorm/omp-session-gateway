@@ -11,6 +11,7 @@ candidate/runtime-byte comparison are independently verified.
 ### Stable 0.1 preparation — decision pending
 
 **Target tag:** v0.1.0, published as a non-prerelease and GitHub Latest only after GO.<br>
+**Machine gate:** STABLE_RELEASE.lock.json is pending and prevents stable publication.<br>
 **Planned candidate:** v0.1.0-prealpha.21; not yet published or qualified.<br>
 **Support boundary:** the existing Debian 13 x86-64, retained macOS Mac14,3, physical Pixel,
 TUN-mode Tailscale Serve, and exact patched OMP v17.4.1 matrix. Windows, background Push
@@ -21,8 +22,9 @@ signed provenance and secret-sink verification, Debian lifecycle/identity/cleanu
 install → upgrade/rollback → doctor → reboot persistence → patched-OMP publication/revocation →
 uninstall cleanup, and physical-Pixel View/Control/lifecycle/leak/recovery-guidance acceptance.
 Issue #65 is a recorded Chrome process environment limitation, not a passing reconnect result: the
-PWA now supplies bounded retries and local force-stop/reopen guidance without a third-party probe.
-The current beta evidence below remains authoritative until those candidate results are recorded.
+PWA supplies bounded retries and an in-shell force-stop/reopen panel only after uninterrupted visible
+failure, without a third-party probe. The current beta evidence below remains authoritative until
+the candidate results and machine gate are updated together.
 
 ### Beta advertised combinations
 

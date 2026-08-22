@@ -75,13 +75,6 @@ const indexHtml = indexTemplate
   .replace("<!--ASSET_SCRIPT-->", `<script type="module" src="${webScript}"></script>`);
 await writeFile(join(outputRoot, "index.html"), indexHtml);
 
-const helpTemplate = await readFile(join(webSource, "network-recovery.html"), "utf8");
-const helpRoot = join(outputRoot, "help", "network-recovery");
-await mkdir(helpRoot, { recursive: true });
-await writeFile(
-  join(helpRoot, "index.html"),
-  helpTemplate.replace("<!--ASSET_STYLES-->", '<link rel="stylesheet" href="' + stylesheet + '" />'),
-);
 
 
 await copyFile(join(webSource, "manifest.webmanifest"), join(outputRoot, "manifest.webmanifest"));

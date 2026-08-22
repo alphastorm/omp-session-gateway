@@ -247,9 +247,6 @@ h1 {
   color: var(--body);
 }
 
-.status-link {
-  text-decoration: none;
-}
 
 .status::before {
   content: "";
@@ -1119,41 +1116,21 @@ body.collab-shell-active {
   }
 }
 
-.help-page {
-  width: min(100% - 2rem, 42rem);
-}
-
-.help-card {
-  margin-top: 1rem;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.65rem;
-  background: var(--surface);
+.recovery-help {
   color: var(--body);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
-.help-card h2 {
-  color: var(--ink);
-  font-size: 1.1rem;
-}
-
-.help-card ol {
+.recovery-help ol {
   padding-left: 1.35rem;
 }
 
-.help-card li + li {
+.recovery-help li + li {
   margin-top: 0.55rem;
 }
 
-.help-return {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  margin-top: 1rem;
-  padding: 0.55rem 0.8rem;
-  border: 1px solid var(--control-border);
-  border-radius: 0.45rem;
-  color: var(--control);
-  font-weight: 600;
+.recovery-help-note {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
