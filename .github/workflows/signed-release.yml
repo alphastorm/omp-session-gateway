@@ -197,8 +197,7 @@ jobs:
 
           ### Known environment limitation
 
-          Android Chrome can wedge its process-wide network state after a lock/Doze/radio transition even while Android itself remains online. The PWA retries, reports the unreachable path honestly, and after an uninterrupted prolonged visible outage opens force-stop/reopen help already carried by the loaded shell. The release does not claim that page JavaScript can repair a failed browser process.
-
+          Exact candidate .23 recovered the same loaded page automatically after secure lock, an Airplane outage, and forced Doze, without a reload. Android Chrome can still wedge its process-wide network state outside those proven transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
           Windows remains unadvertised. Background Web Push delivery remains best-effort and is not part of the stable core support claim.
 
           ### Install or upgrade
