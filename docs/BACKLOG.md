@@ -31,12 +31,12 @@
       production probe at runtime.
       Deferred as performance debt: Windows remains unadvertised pending signed-byte qualification,
       and a native rewrite touches a token-privacy boundary despite the new persistent-host evidence.
-- [ ] Qualify the exact `v17.4.1` / `9350b7990` development pin before advertising beta.
+- [x] Qualify the exact v17.4.1 / 9350b7990 development pin before advertising beta; repeat the applicable matrix for stable.
   - [x] Exact patch acquisition, `git am` tree assertion, upstream source build, versioned
         `omp-gateway-patched` activation/config verification, and rollback are documented as the
-        supported beta prerequisite. Upstreaming and paired packaging are not blockers.
-  - [ ] Build the signed gateway beta candidate and repeat the advertised Debian, macOS, and
-        physical-Android lanes against sessions launched from that exact patched tree.
+        supported beta and narrow stable 0.1 prerequisite. Upstreaming and paired packaging are not blockers.
+- [x] Build and qualify the signed gateway beta candidate against advertised Debian, macOS, and physical-Android lanes.
+- [ ] Build and qualify the signed stable successor candidate against those exact advertised lanes.
 - [x] Re-run the native, Tailscale, relay, Android, browser, and signed-artifact qualification at
       the `v17.3.8` alpha pin. Closed 2026-08-21; retained below as historical evidence rather than
       a current beta gate.

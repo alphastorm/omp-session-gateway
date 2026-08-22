@@ -89,11 +89,11 @@ status, optional read-only health probes, and duplicate response acknowledgement
 focused tests, the complete coding-agent test buckets, `bun run ci:check:full`, and the applicable
 platform lanes against the exact pin before release qualification.
 
-## Supported beta prerequisite route (Linux and macOS)
+## Supported 0.1 prerequisite route (Linux and macOS)
 
 Stock OMP v17.4.1 is not sufficient. Until the controller/publication seam lands upstream, every
 OMP process expected to appear automatically must run a binary built from the exact source and
-mbox above. The supported beta route is versioned and deliberately does not overwrite the user's
+mbox above. The supported 0.1 route is versioned and deliberately does not overwrite the user's
 ordinary `omp` command:
 
 ```sh
@@ -128,7 +128,7 @@ test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125
       native_file=pi_natives.linux-x64-baseline.node
       ;;
     *)
-      echo "unsupported beta build host: $(uname -s)-$(uname -m)" >&2
+      echo "unsupported 0.1 build host: $(uname -s)-$(uname -m)" >&2
       exit 1
       ;;
   esac

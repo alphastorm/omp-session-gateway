@@ -8,6 +8,44 @@
 tag, six assets, checksums, attestations, Cosign bundles, immutable-release record, metadata, and
 candidate/runtime-byte comparison are independently verified.
 
+### Stable 0.1 preparation — decision pending
+
+**Target tag:** v0.1.0, published as a non-prerelease and GitHub Latest only after GO.<br>
+**Machine gate:** STABLE_RELEASE.lock.json is pending inside the signed tag source and prevents stable publication.<br>
+**Planned candidate:** v0.1.0-prealpha.21; not yet published or qualified.<br>
+**Support boundary:** the existing Debian 13 x86-64, retained macOS Mac14,3, physical Pixel,
+TUN-mode Tailscale Serve, and exact patched OMP v17.4.1 matrix. Windows, background Push
+qualification, Portal Tunnel, userspace networking, and self-hosted/proxied relays remain excluded.
+
+The stable decision is **PENDING**. Before GO, the exact candidate must pass repository checks,
+signed provenance and secret-sink verification, Debian lifecycle/identity/cleanup, retained-Mac
+install → upgrade/rollback → doctor → reboot persistence → patched-OMP publication/revocation →
+uninstall cleanup, and physical-Pixel View/Control/lifecycle/leak/recovery-guidance acceptance.
+Issue #65 is a recorded Chrome process environment limitation, not a passing reconnect result: the
+PWA supplies bounded retries and an in-shell force-stop/reopen panel only after uninterrupted visible
+failure, without a third-party probe. The current beta evidence below remains authoritative until
+the candidate results and machine gate are updated together.
+
+**GitHub publication rehearsal:** gh 2.97.0 exercised the exact six-asset draft and publish flags in
+private repository alphastorm/chariot-shadow-workspace on 2026-08-22. The prerelease stayed
+prerelease/not-Latest before and after publication; the stable-shaped release stayed non-prerelease,
+became Latest only on publication, and resolved through the latest-release API. Both synthetic
+releases and tags were removed. Named evidence:
+~/.local/share/omp-session-gateway/test/v0.1.0/stable-release-rehearsal.json.
+The same private host then verified failure compensation separately: a complete draft became
+non-prerelease Latest, exact release-state validation passed, the release was deleted, the synthetic
+tag was deleted, and neither resource remained. The named evidence record includes this row. The
+production workflow additionally compares all six GitHub digests with the exact local signed files
+and retries API observation on bounded 0/2/4/8-second delays before deleting a failed draft/release.
+The private host also passed exact local-to-GitHub digest comparison in both draft and published
+states for all six synthetic assets, then removed the release and tag; the same evidence record
+contains the digestBinding row.
+
+
+**Workflow cutover:** GitHub workflow ID 316404456 at .github/workflows/release.yml is
+disabled_manually. The signed-release.yml replacement must be active on main before the candidate
+tag is created.
+
 ### Beta advertised combinations
 
 | role | exact candidate combination | evidence |

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alphastorm/omp-session-gateway/schemas/stable-release.schema.json",
+  "title": "OMP Session Gateway stable release qualification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "version",
+    "releaseTag",
+    "status",
+    "candidateTag",
+    "candidateSourceCommit",
+    "candidateArchiveSha256",
+    "runtimeByteComparison",
+    "evidence",
+    "approvedAt"
+  ],
+  "properties": {
+    "$schema": { "const": "./schemas/stable-release.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "version": { "const": "0.1.0" },
+    "releaseTag": { "const": "v0.1.0" },
+    "status": { "enum": ["pending", "qualified"] },
+    "candidateTag": { "pattern": "^v0\\.1\\.0-prealpha\\.[1-9][0-9]*$" },
+    "candidateSourceCommit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "candidateArchiveSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "runtimeByteComparison": { "enum": ["pending", "passed"] },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["debian", "macos", "android", "ompPublication", "provenance", "secretSinks"],
+      "properties": {
+        "debian": { "enum": ["pending", "passed"] },
+        "macos": { "enum": ["pending", "passed"] },
+        "android": { "enum": ["pending", "passed"] },
+        "ompPublication": { "enum": ["pending", "passed"] },
+        "provenance": { "enum": ["pending", "passed"] },
+        "secretSinks": { "enum": ["pending", "passed"] }
+      }
+    },
+    "approvedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

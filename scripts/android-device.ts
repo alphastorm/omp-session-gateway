@@ -16,23 +16,78 @@
  *  - `Target.createTarget`'s `url` is ignored on Android. The tab opens blank regardless, so the
  *    caller must `Page.navigate` explicitly.
  */
-const DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
-const CHROME_PACKAGE = "com.android.chrome";
-const CHROME_ACTIVITY = `${CHROME_PACKAGE}/com.google.android.apps.chrome.Main`;
+const DEFAULT_BROWSER_PACKAGE = "com.android.chrome";
+const DEFAULT_DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
+const ANDROID_PACKAGE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/u;
+const ANDROID_CLASS_PATTERN = /^\.?[A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_.]*)*$/u;
+const DEVTOOLS_SOCKET_PATTERN = /^localabstract:[A-Za-z0-9_.-]+$/u;
 const DEFAULT_FORWARD_PORT = 9222;
 const CALL_TIMEOUT_MS = 25_000;
 const OPEN_TIMEOUT_MS = 10_000;
 const LOAD_POLL_MS = 500;
 const LOAD_ATTEMPTS = 60;
 
+export interface AndroidBrowserTarget {
+  readonly packageName: string;
+  readonly activity: string;
+  readonly devtoolsSocket: string;
+}
+
+function environmentOverride(
+  environment: Readonly<Record<string, string | undefined>>,
+  name: string,
+): string | undefined {
+  const value = environment[name];
+  if (value === undefined) return undefined;
+  if (value.trim().length === 0) throw new Error(name + " must not be empty");
+  return value.trim();
+}
+
+/** Browser process selected for physical-device evidence. Every endpoint is independently overrideable. */
+export function resolveAndroidBrowserTarget(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): AndroidBrowserTarget {
+  const packageName = environmentOverride(environment, "OMP_ANDROID_BROWSER_PACKAGE") ?? DEFAULT_BROWSER_PACKAGE;
+  if (!ANDROID_PACKAGE_PATTERN.test(packageName)) {
+    throw new Error("OMP_ANDROID_BROWSER_PACKAGE must be an Android package name");
+  }
+
+  const activity =
+    environmentOverride(environment, "OMP_ANDROID_BROWSER_ACTIVITY") ??
+    packageName + "/com.google.android.apps.chrome.Main";
+  const [activityPackage, activityClass, extraActivityPart] = activity.split("/");
+  if (
+    extraActivityPart !== undefined ||
+    activityPackage !== packageName ||
+    activityClass === undefined ||
+    !ANDROID_CLASS_PATTERN.test(activityClass)
+  ) {
+    throw new Error("OMP_ANDROID_BROWSER_ACTIVITY must be a component in the selected package");
+  }
+
+  const socketOverride = environmentOverride(environment, "OMP_ANDROID_DEVTOOLS_SOCKET");
+  if (packageName !== DEFAULT_BROWSER_PACKAGE && socketOverride === undefined) {
+    throw new Error("OMP_ANDROID_DEVTOOLS_SOCKET is required for an alternate browser package");
+  }
+  const devtoolsSocket = socketOverride ?? DEFAULT_DEVTOOLS_SOCKET;
+  if (!DEVTOOLS_SOCKET_PATTERN.test(devtoolsSocket)) {
+    throw new Error("OMP_ANDROID_DEVTOOLS_SOCKET must be a localabstract socket name");
+  }
+  return { packageName, activity, devtoolsSocket };
+}
+
 export interface AndroidChromeDriver {
   /** Serial of the attached device, for evidence records. */
   readonly serial: string;
-  /** `Browser.getVersion`, which carries the exact Chrome build. */
+  readonly packageName: string;
+  readonly androidPackageVersion: string;
+  readonly browserActivity: string;
+  readonly devtoolsSocket: string;
+  /** Browser.getVersion, which carries the exact Chrome build and Chromium revision. */
   version(): Promise<Record<string, unknown>>;
   /** Opens a tab this process owns, so a run never disturbs the user's existing tabs. */
   openTab(): Promise<void>;
-  /** Navigates the owned tab and waits for `document.readyState === "complete"`. */
+  /** Navigates the owned tab and waits for document.readyState to become complete. */
   navigate(url: string): Promise<string>;
   /** Evaluates an expression in the owned tab and returns its value. */
   evaluate<T>(expression: string): Promise<T>;
@@ -49,6 +104,66 @@ async function adb(serial: string | undefined, ...args: readonly string[]): Prom
   ]);
   if ((await subprocess.exited) !== 0) throw new Error(`${argv.join(" ")} failed: ${stderr.trim()}`);
   return stdout;
+}
+
+export function parseAndroidPackageVersion(dumpsys: string): string {
+  const version = dumpsys.match(/^\s*versionName=(.+)$/mu)?.[1]?.trim();
+  if (version === undefined || version.length === 0) {
+    throw new Error("Android package metadata is missing versionName");
+  }
+  return version;
+}
+
+export function assertBrowserVersionMatchesPackage(
+  packageName: string,
+  androidPackageVersion: string,
+  browserVersion: Readonly<Record<string, unknown>>,
+): void {
+  const product = browserVersion.product;
+  const cdpVersion = typeof product === "string" ? product.match(/^Chrome\/(.+)$/u)?.[1] : undefined;
+  if (cdpVersion !== androidPackageVersion) {
+    throw new Error(
+      "DevTools browser version does not match " + packageName + ": " +
+        JSON.stringify(product) + " != " + JSON.stringify(androidPackageVersion),
+    );
+  }
+}
+
+export function assertDevtoolsEndpointMatchesPackage(
+  packageName: string,
+  androidPackageVersion: string,
+  metadata: unknown,
+  expectedPort: number,
+): string {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    throw new Error("DevTools endpoint metadata is invalid");
+  }
+  const endpoint = metadata as Record<string, unknown>;
+  if (endpoint["Android-Package"] !== packageName) {
+    throw new Error("DevTools socket is not owned by " + packageName);
+  }
+  const product = endpoint.Browser;
+  const endpointVersion = typeof product === "string" ? product.match(/^Chrome\/(.+)$/u)?.[1] : undefined;
+  if (endpointVersion !== androidPackageVersion) {
+    throw new Error("DevTools endpoint version does not match " + packageName);
+  }
+  if (typeof endpoint.webSocketDebuggerUrl !== "string") {
+    throw new Error("DevTools endpoint has no browser WebSocket URL");
+  }
+  const debuggerUrl = new URL(endpoint.webSocketDebuggerUrl);
+  if (
+    debuggerUrl.protocol !== "ws:" ||
+    debuggerUrl.hostname !== "127.0.0.1" ||
+    debuggerUrl.port !== String(expectedPort) ||
+    !debuggerUrl.pathname.startsWith("/devtools/browser")
+  ) {
+    throw new Error("DevTools endpoint WebSocket escaped the local ADB forward");
+  }
+  return debuggerUrl.href;
+}
+
+async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
+  return parseAndroidPackageVersion(await adb(serial, "shell", "dumpsys", "package", packageName));
 }
 
 /** The single attached device, or a clear error naming what was found instead. */
@@ -70,12 +185,19 @@ export async function requireSingleDevice(): Promise<string> {
  * Starts Chrome and waits for it to leave a cached process state. A cached Chrome accepts the
  * DevTools socket and never answers, so skipping this turns every later call into a timeout.
  */
-async function wakeChrome(serial: string): Promise<void> {
-  await adb(serial, "shell", "am", "start", "-W", "-n", CHROME_ACTIVITY, "-a", "android.intent.action.MAIN");
+async function wakeChrome(serial: string, target: AndroidBrowserTarget): Promise<void> {
+  await adb(serial, "shell", "am", "start", "-W", "-n", target.activity, "-a", "android.intent.action.MAIN");
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const state = await adb(serial, "shell", "dumpsys", "activity", "processes", "|", "grep", CHROME_PACKAGE).catch(
-      () => "",
-    );
+    const state = await adb(
+      serial,
+      "shell",
+      "dumpsys",
+      "activity",
+      "processes",
+      "|",
+      "grep",
+      target.packageName,
+    ).catch(() => "");
     if (!state.includes("CACHED_EMPTY")) return;
     await Bun.sleep(250);
   }
@@ -90,11 +212,27 @@ export async function withAndroidChrome<T>(
   options: { readonly port?: number } = {},
 ): Promise<T> {
   const port = options.port ?? DEFAULT_FORWARD_PORT;
+  const target = resolveAndroidBrowserTarget();
   const serial = await requireSingleDevice();
-  await wakeChrome(serial);
-  await adb(serial, "forward", `tcp:${port}`, DEVTOOLS_SOCKET);
+  const packageVersion = await androidPackageVersion(serial, target.packageName);
+  await wakeChrome(serial, target);
+  await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
 
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/devtools/browser`);
+  let webSocketDebuggerUrl: string;
+  try {
+    const endpointResponse = await fetch("http://127.0.0.1:" + port + "/json/version");
+    if (!endpointResponse.ok) throw new Error("DevTools endpoint metadata request failed");
+    webSocketDebuggerUrl = assertDevtoolsEndpointMatchesPackage(
+      target.packageName,
+      packageVersion,
+      await endpointResponse.json(),
+      port,
+    );
+  } catch (error) {
+    await adb(serial, "forward", "--remove", "tcp:" + port).catch(() => {});
+    throw error;
+  }
+  const socket = new WebSocket(webSocketDebuggerUrl);
   const pending = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: Error): void }>();
   let nextId = 0;
   let sessionId: string | undefined;
@@ -133,9 +271,16 @@ export async function withAndroidChrome<T>(
       setTimeout(() => reject(new Error("DevTools WebSocket open timeout")), OPEN_TIMEOUT_MS);
     });
 
+    const browserVersion = await send("Browser.getVersion", {}, false);
+    assertBrowserVersionMatchesPackage(target.packageName, packageVersion, browserVersion);
+
     const driver: AndroidChromeDriver = {
       serial,
-      version: () => send("Browser.getVersion", {}, false),
+      packageName: target.packageName,
+      androidPackageVersion: packageVersion,
+      browserActivity: target.activity,
+      devtoolsSocket: target.devtoolsSocket,
+      version: () => Promise.resolve(browserVersion),
       async openTab() {
         const created = await send("Target.createTarget", { url: "about:blank" }, false);
         targetId = String(created.targetId);
@@ -174,7 +319,7 @@ export async function withAndroidChrome<T>(
   }
 }
 
-/** Device and browser identity for an evidence record. */
+/** Device identity for an evidence record. */
 export async function deviceIdentity(serial: string): Promise<Record<string, string>> {
   const property = async (name: string) => (await adb(serial, "shell", "getprop", name)).trim();
   return {

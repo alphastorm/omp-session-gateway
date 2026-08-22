@@ -178,6 +178,7 @@ h1 {
 
 .status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.65rem;
   margin: 1rem 0 0;
@@ -225,6 +226,27 @@ h1 {
   font-weight: 600;
   cursor: pointer;
 }
+
+.status-actions {
+  display: flex;
+  width: 100%;
+  gap: 0.5rem;
+  padding-left: calc(7px + 0.65rem);
+}
+
+.status-actions .status-action {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.status-guidance {
+  margin-top: 0.35rem;
+  color: var(--body);
+}
+
 
 .status::before {
   content: "";
@@ -1092,4 +1114,23 @@ body.collab-shell-active {
   .conn-chip {
     padding-inline: 0.35rem;
   }
+}
+
+.recovery-help {
+  color: var(--body);
+  line-height: 1.55;
+}
+
+.recovery-help ol {
+  padding-left: 1.35rem;
+}
+
+.recovery-help li + li {
+  margin-top: 0.55rem;
+}
+
+.recovery-help-note {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }

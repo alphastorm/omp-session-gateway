@@ -42,15 +42,14 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Qualified beta — not stable or production-qualified.**
-> [`v0.1.0-beta.1`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0-beta.1)
-> is independently qualified against exact signed candidate `v0.1.0-prealpha.20`. Advertised
-> combinations only: Debian 13 (trixie) x86-64 or macOS 26.6.1 arm64 hosts with Chrome
-> `151.0.7922.171` on Android 17, behind Tailscale Serve with the **TUN-mode** client and Funnel
-> disabled. Everything else — including Windows, Portal Tunnel, and self-hosted/proxied relays — is
-> unadvertised. Background Web Push is implemented but not beta-qualified. Do not treat any excluded
-> path as working. Details and known limitations:
-> [Compatibility and beta status](#compatibility-and-beta-status) ·
+> **Qualified beta; stable 0.1 qualification is in progress.**
+> [v0.1.0-beta.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0-beta.1)
+> remains the current published release. A bare v0.1.0 will become GitHub Latest only after one
+> signed candidate repeats the exact Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 / Android
+> 17 Pixel matrix. Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP
+> v17.4.1 remain mandatory. Windows, background Push qualification, Portal Tunnel, userspace
+> networking, and self-hosted/proxied relays stay outside the stable core claim. Details:
+> [Compatibility and release status](#compatibility-and-release-status) ·
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
@@ -139,23 +138,24 @@ After installation and tailnet configuration:
 never redacts.</sub>
 </div>
 
-## Compatibility and beta status
+## Compatibility and release status
 
-The beta is qualified for exact combinations, not platform families. Anything not named below is
-unsupported and must not be treated as a working deployment path.
+Support is qualified for exact combinations, not platform families. The current publication is the
+beta below; stable v0.1.0 is a target until its signed candidate completes the same matrix.
 
 | | Current claim |
 |---|---|
-| Release | `v0.1.0-beta.1`, independently qualified against signed candidate `v0.1.0-prealpha.20` |
+| Current release | v0.1.0-beta.1, independently qualified against signed candidate v0.1.0-prealpha.20 |
+| Stable target | v0.1.0; not released until an exact signed successor candidate passes |
 | Hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |
 | Client | Chrome `151.0.7922.171` on Android 17 (Pixel 10 Pro) |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | OMP baseline | Exact `v17.4.1` plus the repository's pinned patch and versioned `omp-gateway-patched` route |
 
-**Upstream baseline.** Beta targets exact OMP `v17.4.1` at
+**Upstream baseline.** Beta and the stable target use exact OMP v17.4.1 at
 `9350b7990d26ebf69a604edc82d8558ef04adf30`, observed and qualified on **2026-08-21**.
 Stock OMP is insufficient; the required versioned build/activation route is
-[`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos).
+[patches/oh-my-pi/README.md](patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
 The published alpha remains immutable at its recorded v17.3.8 commit. Exact package and source
 metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json).
 
@@ -166,12 +166,14 @@ Known limits are part of the claim — read them before installing:
   an identity header ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). See
   [Build and run](#build-and-run) for the `doctor` signal.
 - **Never enable Tailscale Funnel.** There is no supported public-Internet path.
-- **Android radio transitions are unproven.** Chrome for Android can wedge its process-wide network
-  stack after an abrupt radio change while the device stays healthy; recovery may require
-  force-stopping Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
-- **Background Web Push is not beta-qualified.** Repository and desktop Chromium coverage exists,
-  but the exact physical closed-PWA, lock-screen, tap-to-Control, stale-generation, force-stop,
-  network-change, and forbidden-sink matrix has not passed.
+- **Android radio transitions have a browser-process limitation.** Chrome for Android can wedge its
+  process-wide network stack after a radio change while Android remains healthy. The PWA retries
+  and, after 45 seconds of uninterrupted visible failure, opens force-stop/reopen help already
+  loaded in the PWA shell; it does not
+  claim page JavaScript can repair Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+- **Background Web Push is outside the stable core claim.** Repository and desktop Chromium
+  coverage exists, but the exact physical closed-PWA, lock-screen, tap-to-Control,
+  stale-generation, force-stop, network-change, and forbidden-sink matrix has not passed.
 - **Preview notification detail currently falls back to Session detail** — the OMP publisher
   carries no bounded preview field yet.
 - **Windows source acceptance passes, but Windows is not advertised.** A persistent Server 2025 VM
@@ -226,7 +228,7 @@ look at first.
 
 Never enable Tailscale Funnel. Stock OMP is insufficient: build and launch participating sessions
 with the exact versioned v17.4.1 patch route in
-[`patches/oh-my-pi/README.md`](patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos),
+[patches/oh-my-pi/README.md](patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos),
 then set `collab.autoStart` to `view` or `control`; see
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
@@ -314,7 +316,7 @@ maintainers, and OMP itself may grow first-party enrollment and session listing
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
 | Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
-| Install maturity and support | **Qualified beta, not stable**: signed artifacts and a per-release evidence ledger for exact host/client combinations; requires the pinned six-commit OMP patch and versioned binary route; everything else unsupported | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP support is an open, unmerged PR ([#1143](https://github.com/siteboon/claudecodeui/pull/1143)) as of 2026-08-21** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), **fork-only and dormant since 2026-07** with no upstream merge path |
+| Install maturity and support | **Qualified beta; narrow stable 0.1 candidate in progress**: signed artifacts and a per-release evidence ledger for exact host/client combinations; requires the pinned six-commit OMP patch and versioned binary route; everything else unsupported | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP support is an open, unmerged PR ([#1143](https://github.com/siteboon/claudecodeui/pull/1143)) as of 2026-08-21** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), **fork-only and dormant since 2026-07** with no upstream merge path |
 | Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |
 
 Where each one shines:

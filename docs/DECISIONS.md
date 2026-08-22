@@ -473,3 +473,57 @@ auto-published View/Control, validated no-store launches, and revoked on process
 exact alpha/beta builds also passed symlink/version/config reversal. This proves the documented
 manual primitive; it does not create a coupled gateway/OMP updater or weaken the paired-packaging
 deferral.
+
+## ADR-025 — Publish stable 0.1 against a narrow matrix and bound browser-process failure
+
+**Status:** Accepted
+
+**Context:** GitHub excludes every prerelease from its Latest release surface. The qualified beta
+already proves the gateway's core security, host, lifecycle, View/Control, and physical-Android
+paths for two exact hosts and one exact client, but the release workflow intentionally rejects a
+bare tag. Issue #65 separately proves a failure below the PWA: Android retained a healthy default
+route while Chrome failed both the gateway and unrelated public traffic, stopped answering on its
+DevTools socket, and recovered only after its process was force-stopped. A newly landed Chromium
+NetworkChangeNotifier self-heal is relevant but not yet proven to resolve that failure.
+
+**Decision:** Add one fail-closed stable channel selected only by the exact bare v0.1.0 tag. The
+stable claim remains limited to the Debian, macOS, physical Pixel, TUN-mode Tailscale Serve, and
+exact patched-OMP combinations recorded at the tag's source commit. Every pre-alpha, alpha, beta,
+provenance, unknown, and cross-version tag stays a prerelease or fails before artifact creation.
+Publish the bare tag as GitHub Latest only after a signed candidate repeats the applicable matrix.
+The stable workflow must also refuse the bare tag until the exact signed tag's tree contains a fully
+passed STABLE_RELEASE.lock.json candidate matrix and runtime-byte comparison. It must require a
+GitHub-verified signed annotated tag, assert checked-out HEAD equals the event SHA, bind the
+candidate tag/source/archive digest, and revalidate tag targets before provenance, draft creation,
+and public promotion.
+The non-prerelease and Latest flags must be rehearsed against GitHub in a private repository before
+the real tag; syntax-only or mock evidence is insufficient for that external state transition.
+The hardened workflow moves to signed-release.yml. The superseded release.yml workflow must be
+disabled in GitHub before another tag is created; otherwise an old commit can select its historical
+workflow definition and bypass controls that did not exist there.
+**Control-plane update (2026-08-22):** GitHub workflow ID 316404456 for release.yml now reports
+disabled_manually. No new tag may be created until signed-release.yml is active on main.
+Draft and published release state must be read back through the GitHub API, including six uploaded
+asset digests compared with the exact local signed files and Latest status. Observation receives
+bounded 0/2/4/8-second retries. A persistently failed draft or post-publication observation attempts
+release deletion; public attestation/Rekor evidence may remain as failed-attempt provenance.
+
+Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
+case and not as a reason to add another transport workaround. After 45 uninterrupted seconds of
+failure while visibly foregrounded, the PWA must offer a clean retry and an in-shell
+force-stop/reopen help panel; it must reset that clock while offline or hidden, remove guidance on
+recovery, and make no third-party connectivity probe.
+The physical-device driver must validate package, activity, and socket selectors before ADB,
+require an explicit socket for alternate packages, and reject evidence when the CDP product version
+does not match the selected Android package version. Canary evidence may narrow or retire the
+limitation later; v0.1.0 does not claim the upstream fix is proven.
+
+ADR-024's exact patched-OMP prerequisite and paired-packaging deferral extend to this narrow 0.1
+release. Windows, background Push qualification, Portal Tunnel, userspace-networking Tailscale,
+and self-hosted/proxied relays remain outside the stable core support claim.
+
+**Consequences:** stable means supported inside one exact, evidence-backed matrix; it does not
+mean universal platform support or that page JavaScript can repair a failed browser process. The
+project can publish an honest GitHub Latest release without waiting for a speculative Chromium
+backport, while every correction still requires a new immutable tag. Operators retain a manual
+patched-OMP prerequisite until upstreaming or paired packaging is separately accepted.

@@ -45,6 +45,8 @@ function requiredElement<ElementType extends Element>(selector: string): Element
 const sessionList = requiredElement<HTMLElement>("#session-list");
 const emptyState = requiredElement<HTMLElement>("#empty-state");
 const statusBanner = requiredElement<HTMLElement>("#status-banner");
+const networkRecoveryHelp = requiredElement<HTMLDialogElement>("#network-recovery-help");
+const networkRecoveryHelpClose = requiredElement<HTMLButtonElement>("#network-recovery-help-close");
 const notificationButton = requiredElement<HTMLButtonElement>("#notify");
 const notificationDisclosure = requiredElement<HTMLElement>("#notify-note");
 const directoryTitle = requiredElement<HTMLElement>("#directory-title");
@@ -62,6 +64,9 @@ const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 4_000;
 const CONNECTION_EXTENDED_MS = 3_000;
 const CONNECTION_RECOVERED_MS = 1_800;
+const TRANSPORT_GUIDANCE_DELAY_MS = 45_000;
+
+type TransportFailureKind = "offline" | "tailnet" | "desktop" | "gateway";
 
 const sessions = new Map<string, SessionMetadata>();
 let events: EventSource | undefined;
@@ -76,6 +81,9 @@ let eventStreamStale = false;
 let reconnectTimeout: number | undefined;
 let lastFreshAt: number | undefined;
 let reconnectAttempt = 0;
+let transportFailureSince: number | undefined;
+let transportFailureKind: TransportFailureKind | undefined;
+let transportGuidanceTimeout: number | undefined;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 let applicationServerKey: string | undefined;
 let launchInProgress = false;
@@ -416,7 +424,9 @@ let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "gateway" | "unauthorized" | "expired" | "loading";
 
 function setStatus(kind: StatusKind, message: string): void {
+  if (kind === "ready" || kind === "unauthorized" || kind === "expired") clearTransportFailureTracking();
   statusBanner.dataset.kind = kind;
+  statusBanner.replaceChildren();
   statusBanner.textContent = message;
   statusBanner.hidden = kind === "ready";
 }
@@ -441,17 +451,53 @@ function parseDirectoryHistoryState(value: unknown): DirectoryHistoryState | und
   return { order: [...record.order], scrollY: record.scrollY };
 }
 
-function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "gateway"): void {
+function clearTransportFailureTracking(): void {
+  if (transportGuidanceTimeout !== undefined) {
+    window.clearTimeout(transportGuidanceTimeout);
+    transportGuidanceTimeout = undefined;
+  }
+  transportFailureSince = undefined;
+  if (networkRecoveryHelp.open) networkRecoveryHelp.close();
+  transportFailureKind = undefined;
+}
+
+function transportGuidanceVisible(kind: TransportFailureKind): boolean {
+  return (
+    kind !== "offline" &&
+    transportFailureSince !== undefined &&
+    Date.now() - transportFailureSince >= TRANSPORT_GUIDANCE_DELAY_MS &&
+    document.visibilityState === "visible"
+  );
+}
+
+function scheduleTransportGuidance(): void {
+  if (transportFailureSince === undefined || transportGuidanceTimeout !== undefined) return;
+  const remaining = TRANSPORT_GUIDANCE_DELAY_MS - (Date.now() - transportFailureSince);
+  if (remaining <= 0) return;
+  transportGuidanceTimeout = window.setTimeout(() => {
+    transportGuidanceTimeout = undefined;
+    const kind = transportFailureKind;
+    if (kind !== undefined && document.visibilityState === "visible") showTransportFailure(kind);
+  }, remaining);
+}
+function showTransportFailure(kind: TransportFailureKind): void {
+  const tracksVisibleFailure = kind !== "offline" && document.visibilityState === "visible";
+  if (tracksVisibleFailure) {
+    if (transportFailureSince === undefined) transportFailureSince = Date.now();
+    transportFailureKind = kind;
+  } else {
+    clearTransportFailureTracking();
+  }
   directoryRevision = -1;
   render();
   const asOf =
     lastFreshAt === undefined
       ? "before the last successful connection"
       : new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(lastFreshAt);
-  const copy: Record<typeof kind, readonly [string, string]> = {
+  const copy: Record<TransportFailureKind, readonly [string, string]> = {
     offline: [
       "You're offline",
-      `This phone has no connection. Showing the list as of ${asOf} — retries automatically.`,
+      "This phone has no connection. Showing the list as of " + asOf + " — retries automatically.",
     ],
     tailnet: [
       "Tailnet unreachable",
@@ -459,11 +505,11 @@ function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "gateway
     ],
     desktop: [
       "Desktop unreachable",
-      `Tailnet looks fine, but the desktop isn't answering — asleep, or the gateway stopped. Last seen ${asOf}.`,
+      "Tailnet looks fine, but the desktop isn't answering — asleep, or the gateway stopped. Last seen " + asOf + ".",
     ],
     gateway: [
       "Gateway unavailable",
-      `Live updates paused; showing the list as of ${asOf}. Reconnects automatically.`,
+      "Live updates paused; showing the list as of " + asOf + ". Reconnects automatically.",
     ],
   };
   const [title, body] = copy[kind];
@@ -474,19 +520,43 @@ function showTransportFailure(kind: "offline" | "tailnet" | "desktop" | "gateway
     createTextElement("span", "status-detail", body),
   );
   if (kind === "tailnet") {
-    text.append(createTextElement("span", "status-freshness", `Last seen ${asOf}.`));
+    text.append(createTextElement("span", "status-freshness", "Last seen " + asOf + "."));
   }
+
+  const extended = transportGuidanceVisible(kind);
+  if (extended) {
+    text.append(
+      createTextElement(
+        "span",
+        "status-guidance",
+        "Still unreachable? Android Chrome may be stuck after a network change. Force stop the browser hosting OMP Sessions in Android Settings, then reopen OMP Sessions.",
+      ),
+    );
+  }
+
   statusBanner.dataset.kind = kind;
   statusBanner.replaceChildren(text);
-  if (kind === "desktop") {
+  if (kind === "desktop" || extended) {
+    const actions = document.createElement("span");
+    actions.className = "status-actions";
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "status-action";
-    retry.textContent = "Retry";
+    retry.textContent = "Try again";
     retry.addEventListener("click", () => void refreshAndConnect());
-    statusBanner.append(retry);
+    actions.append(retry);
+    if (extended) {
+      const troubleshooting = document.createElement("button");
+      troubleshooting.type = "button";
+      troubleshooting.className = "status-action";
+      troubleshooting.textContent = "Troubleshooting";
+      troubleshooting.addEventListener("click", () => networkRecoveryHelp.showModal());
+      actions.append(troubleshooting);
+    }
+    statusBanner.append(actions);
   }
   statusBanner.hidden = false;
+  if (tracksVisibleFailure) scheduleTransportGuidance();
 }
 
 function clearEventLiveness(): void {
@@ -1435,6 +1505,7 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
 notificationDisable.addEventListener("click", () => void disableBackgroundNotifications());
+networkRecoveryHelpClose.addEventListener("click", () => networkRecoveryHelp.close());
 for (const input of notificationDetailInputs) {
   input.addEventListener("change", () => {
     if (!input.checked || notificationRegistration === undefined) return;
@@ -1488,8 +1559,11 @@ window.addEventListener("offline", () => {
  * a timer that was frozen with it.
  */
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || authorizationDenied) return;
-  if (directoryStreamIsLive()) return;
+  if (document.visibilityState !== "visible") {
+    clearTransportFailureTracking();
+    return;
+  }
+  if (authorizationDenied || directoryStreamIsLive()) return;
   void refreshAndConnect();
 });
 

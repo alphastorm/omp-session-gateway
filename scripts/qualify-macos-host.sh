@@ -89,12 +89,16 @@ readonly RECORD_DIR="${OMP_MAC_RECORD_DIR:-$HOME/.local/share/omp-session-gatewa
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes)
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
-
-# Every remote block runs through one function so the sudo password is passed as an environment
-# variable to a single `bash -s` rather than interpolated into a command line, where it would land in
-# the remote process table.
+# Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
+# and stay as unexported variables in the one static remote shell that evaluates the supplied block.
 remote() {
-  ssh "${SSH_OPTS[@]}" -q "$HOST" "PW='${OMP_MAC_SUDO_PW:-}' PORT='$GATEWAY_PORT' LOGIN='$LOGIN' bash -s"
+  local script bootstrap
+  script="$(cat)"
+  printf -v bootstrap 'bash -c %q' \
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+  {
+    printf '%s\0' "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$script"
+  } | ssh "${SSH_OPTS[@]}" -q "$HOST" "$bootstrap"
 }
 
 need_command() {
@@ -172,7 +176,7 @@ lane_artifact() {
   done
   measure "github attestations" "verified"
   if command -v cosign >/dev/null 2>&1; then
-    local identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}"
+    local identity="https://github.com/${REPO_SLUG}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
     cosign verify-blob --bundle "$dir/${archive}.sigstore.json" --certificate-identity "$identity" \
       --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$dir/$archive" >/dev/null 2>&1 ||
       die "cosign verify-blob failed for $archive at $TAG."

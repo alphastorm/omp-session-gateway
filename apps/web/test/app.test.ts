@@ -229,6 +229,7 @@ interface BrowserHarness {
     readonly notificationButton: FakeElement;
     readonly notificationDisclosure: FakeElement;
     readonly notificationSettings: FakeElement;
+    readonly networkRecoveryHelp: FakeElement;
     readonly notificationDisable: FakeElement;
     readonly notificationDetailInputs: readonly FakeElement[];
     readonly statusBanner: FakeElement;
@@ -313,6 +314,8 @@ async function bootApp(options: {
   notificationButton.disabled = true;
   const notificationDisclosure = new FakeElement("p");
   const notificationSettings = new FakeElement("dialog");
+  const networkRecoveryHelp = new FakeElement("dialog");
+  const networkRecoveryHelpClose = new FakeElement("button");
   const notificationSettingsClose = new FakeElement("button");
   const notificationDisable = new FakeElement("button");
   const notificationDetailInputs = (["private", "session", "preview"] as const).map(value => {
@@ -337,6 +340,8 @@ async function bootApp(options: {
     "#notification-settings": notificationSettings,
     "#notification-settings-close": notificationSettingsClose,
     "#notification-disable": notificationDisable,
+    "#network-recovery-help": networkRecoveryHelp,
+    "#network-recovery-help-close": networkRecoveryHelpClose,
   };
   const document = new FakeDocument(bySelector, notificationDetailInputs);
   const window = new FakeWindow();
@@ -512,6 +517,7 @@ async function bootApp(options: {
       notificationButton,
       notificationDisclosure,
       notificationSettings,
+      networkRecoveryHelp,
       notificationDisable,
       notificationDetailInputs,
       directoryTitle,
@@ -745,6 +751,47 @@ describe("dashboard attention and notifications", () => {
     );
     expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
   });
+
+  test("offers local browser recovery help only after a prolonged visible outage", async () => {
+    const base = session("prolonged-outage-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "prolonged-outage",
+      initialSessions: [base],
+    });
+
+    harness.failNextListRequest();
+    harness.disconnectEvents();
+    harness.runTimers();
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+
+    harness.setVisibility("hidden");
+    harness.advanceClock(45_000);
+    harness.failNextListRequest();
+    harness.setVisibility("visible");
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+
+    harness.advanceClock(45_000);
+    harness.failNextListRequest();
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.querySelector(".status-guidance") !== null);
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")?.textContent).toContain(
+      "Android Chrome may be stuck after a network change",
+    );
+    const troubleshooting = harness.elements.statusBanner
+      .querySelectorAll(".status-action")
+      .find(element => element.tagName === "button" && element.textContent === "Troubleshooting");
+    troubleshooting?.dispatchEvent(new Event("click"));
+    expect(harness.elements.networkRecoveryHelp.open).toBeTrue();
+
+    harness.setList(2, [base]);
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.hidden);
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+    expect(harness.elements.networkRecoveryHelp.open).toBeFalse();
+  });
   test("times out a hung snapshot and keeps retrying automatically", async () => {
     const base = session("snapshot-timeout-001");
     const harness = await bootApp({
@@ -940,5 +987,23 @@ describe("dashboard attention and notifications", () => {
     await settleUntil(() => FakeEventSource.instances.length === 2);
     expect(harness.elements.statusBanner.hidden).toBeTrue();
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
+
+  test("does not count offline time toward browser recovery guidance", async () => {
+    const base = session("offline-guidance-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "offline-guidance",
+      initialSessions: [base],
+    });
+
+    harness.setOnline(false);
+    harness.window.dispatchEvent(new Event("offline"));
+    harness.advanceClock(60_000);
+    harness.setOnline(true);
+    harness.failNextListRequest();
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
   });
 });

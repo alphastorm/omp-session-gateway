@@ -76,6 +76,7 @@ const indexHtml = indexTemplate
 await writeFile(join(outputRoot, "index.html"), indexHtml);
 
 
+
 await copyFile(join(webSource, "manifest.webmanifest"), join(outputRoot, "manifest.webmanifest"));
 await copyFile(join(webSource, "icon.svg"), join(outputRoot, "icon.svg"));
 for (const asset of [

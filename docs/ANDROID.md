@@ -39,6 +39,32 @@ lock-screen text, tap-to-Control, stale/resolved notifications, browser force-st
 revocation, lock/resume, battery policy, and Wi-Fi/cellular transitions. Desktop smoke evidence
 does not establish Android support.
 
+## Browser-process recovery and physical qualification
+
+Issue [#65](https://github.com/alphastorm/omp-session-gateway/issues/65) establishes a failure
+outside the PWA: Android retained a working default route while Chrome failed the gateway and an
+unrelated public origin, then stopped answering through its own DevTools socket. Force-stopping and
+reopening Chrome restored networking. The dashboard therefore keeps bounded retries and accurate
+path status, then opens recovery guidance already present in the loaded shell after 45 uninterrupted
+seconds of visible failure. It does not add a public connectivity probe, reload loop, cache-busting
+URL, extra EventSource, or outage-time navigation; none can restart Chrome's network service.
+
+The physical-device driver defaults to stable Chrome. Alternate channels require explicit package,
+activity, and DevTools socket selection:
+
+    OMP_ANDROID_BROWSER_PACKAGE=com.chrome.canary \
+    OMP_ANDROID_BROWSER_ACTIVITY=com.chrome.canary/com.google.android.apps.chrome.Main \
+    OMP_ANDROID_DEVTOOLS_SOCKET=localabstract:chrome_devtools_remote \
+    bun scripts/android-acceptance.ts "$ORIGIN" "$DISPOSABLE_SESSION_LABEL"
+
+Every acceptance record includes the package name, Android package version, complete
+Browser.getVersion result, launch activity, and DevTools socket. Before recording evidence, the
+driver reads the forwarded endpoint's Android-Package, Browser, and loopback WebSocket URL and
+requires package, version, host, and port to match the selected browser and local ADB forward;
+Browser.getVersion must agree again after CDP connects. A Canary result applies only to that exact
+build and socket. Do not claim #65 resolved until the Stable control reproduces and the selected
+Canary completes the recorded cycle gate.
+
 ## Launch UX
 
 Recommended card behavior:

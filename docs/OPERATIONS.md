@@ -3,7 +3,7 @@
 ## 1. One-time prerequisites
 
 - the exact OMP v17.4.1 gateway patch built and activated through the
-  [versioned prerequisite route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos);
+  [versioned prerequisite route](../patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos);
 - Tailscale installed and signed into the same tailnet on the desktop and Android phone;
 - tailnet HTTPS/DNS enabled as required by Tailscale Serve;
 - a tailnet policy restricting the gateway host's HTTPS service to the intended user/device posture;
@@ -238,7 +238,7 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 The compatibility check validates the gateway distribution's pinned integration artifacts. It does
 not inspect or claim that a separately installed OMP executable contains the patch; installation
 and qualification must run the source-tree, symlink, version, and config assertions in the
-[versioned patch route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos).
+[versioned patch route](../patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
 Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.

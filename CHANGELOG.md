@@ -6,6 +6,40 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Add a fail-closed stable release policy: only the exact bare v0.1.0 tag selects the stable
+  archive claim and GitHub Latest publication; every engineering, alpha, and beta tag remains a
+  prerelease, and unknown or cross-version shapes fail before artifact creation.
+- Require a signed-tag-bound stable qualification manifest plus a GitHub-verified annotated tag
+  before stable publication; recheck checkout HEAD and tag target before provenance, draft creation,
+  and public promotion. Move future signatures to signed-release.yml so the superseded historical
+  tag workflow can be disabled.
+- Disable historical GitHub workflow ID 316404456 for release.yml before merging the hardened
+  signed-release.yml replacement, preventing old commits from selecting pre-remediation tag logic.
+- Rehearse the exact six-asset GitHub draft/publish commands with gh 2.97.0 in a private repository:
+  prerelease remained not-Latest, stable became non-prerelease Latest only when published, the
+  latest-release API resolved to stable, and all synthetic releases/tags were removed.
+- Validate draft and published release state through the GitHub API, including uploaded asset
+  digests and Latest status; on a failed post-publication check, delete the release. A private live
+  rehearsal verified draft, publication, deletion compensation, tag cleanup, and no residual release.
+- Compare every GitHub asset digest to the exact locally signed file, retry draft/published state
+  observation on bounded 0/2/4/8-second delays, and delete either a failed draft or an unverified
+  public release. Move macOS sudo and Linux GitHub credentials from SSH argv/environment prefixes
+  to a NUL-framed stdin bootstrap.
+- Make physical Android acceptance browser-selectable and record the exact package, installed
+  package version, Browser.getVersion revision, activity, and DevTools socket in evidence.
+- Add prolonged-outage recovery guidance in a help panel carried by the loaded PWA shell. The PWA
+  keeps its bounded retry path, suggests force-stop/reopen only after 45 uninterrupted seconds of
+  visible failure, removes the guidance on recovery, and makes no third-party probe.
+
+### Changed
+
+- Define stable 0.1 as support for the exact qualified Debian/macOS/Pixel/Tailscale/OMP matrix,
+  not unnamed platforms or a promise that JavaScript can repair Chrome's process-wide network
+  wedge. Windows, background Push qualification, Portal Tunnel, userspace networking, alternate
+  relays, and paired OMP packaging remain explicitly outside this release.
+
 ### Fixed
 
 - Make browser recovery failure tests wait for and assert an active replacement SSE stream before

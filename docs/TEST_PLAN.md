@@ -112,7 +112,8 @@ and visible notification text only for `session`/`preview`, never in persisted p
 1. Open a live session.
 2. Lock phone briefly, unlock, and resume.
 3. Client reconnects automatically without leaving or reopening the session.
-4. Switch Wi-Fi/mobile network while Tailscale remains connected; dashboard and active Control/View recover without Refresh or another user action.
+4. Switch Wi-Fi/mobile network while Tailscale remains connected. If the browser process remains responsive, the dashboard and active Control/View recover without Refresh or another user action.
+   - If Android has a healthy route but Chrome simultaneously fails the gateway, an unrelated origin, and browser-control probes, record the run as a browser-environment failure rather than a PWA pass. The visible directory must keep retrying, name the unreachable path, and open help already carried by the loaded shell only after 45–60 uninterrupted visible failure seconds; offline or hidden time does not count, and no page-level workaround may be claimed to repair the browser process.
 5. Android back returns safely without a reusable secret-bearing history entry.
 6. Explicitly enable background alerts; page load never prompts. Choose each detail level and verify the gateway builds exactly the permitted title/body while the private state stores no session text.
 7. Tap the notification; `/collab/:instanceId?request=:requestId` contains routing metadata only, exact current attention is revalidated, and one tap opens Control only for that request.

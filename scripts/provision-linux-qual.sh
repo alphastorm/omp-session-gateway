@@ -232,19 +232,21 @@ init_ssh_options() {
     SSH_OPTS+=(-i "$OMP_QUAL_SSH_IDENTITY" -o IdentitiesOnly=yes)
   fi
 }
-
-# Runs the script on stdin as $1 on the droplet. Remaining arguments are NAME=VALUE pairs exported for
-# that script; they are shell-quoted here so no caller has to think about spacing.
+# Runs one script with NAME=VALUE inputs delivered over SSH stdin. The remote bootstrap validates
+# names, keeps values unexported, and evaluates the script in the same static shell. Credentials
+# therefore appear in neither workstation ssh argv nor remote process argv/environment.
 remote() {
-  local user="$1"
+  local user="$1" script bootstrap
   shift
-  local assignments="" pair
-  for pair in "$@"; do assignments="$assignments $(printf '%q' "$pair")"; done
-  # shellcheck disable=SC2029  # client-side expansion is the design: values are quoted with %q here
-  # so the remote `env` prefix is exact, and no caller has to reason about remote word splitting.
-  ssh "${SSH_OPTS[@]}" "${user}@${DROPLET_IP}" "env${assignments} bash -s -e -u -o pipefail"
+  script="$(cat)"
+  printf -v bootstrap 'bash -c %q' \
+    'IFS= read -r -d "" COUNT || exit; INDEX=0; while [ "$INDEX" -lt "$COUNT" ]; do IFS= read -r -d "" PAIR || exit; NAME=${PAIR%%=*}; VALUE=${PAIR#*=}; case "$NAME" in ""|[0-9]*|*[!A-Za-z0-9_]*) exit 64 ;; esac; printf -v "$NAME" %s "$VALUE"; INDEX=$((INDEX + 1)); done; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+  {
+    printf '%s\0' "$#"
+    printf '%s\0' "$@"
+    printf '%s\0' "$script"
+  } | ssh "${SSH_OPTS[@]}" "${user}@${DROPLET_IP}" "$bootstrap"
 }
-
 remote_root() { remote root "$@"; }
 remote_user() { remote "$QUAL_USER" "$@"; }
 
@@ -906,7 +908,7 @@ show "gh binary sha256" "$(sha256sum ~/tools/gh | awk '{print $1}')"
 show "sha256sum --check" "$(sha256sum --check SHA256SUMS | tr '\n' ' ')"
 show "archive digest on droplet" "$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 
-identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}"
+identity="https://github.com/${REPO_SLUG}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
 show "expected certificate identity" "$identity"
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
   ~/tools/cosign verify-blob \
@@ -920,12 +922,12 @@ done
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
   if [ "$ATTESTATION_MODE" = "online" ]; then
     GH_TOKEN="$SUPPLIED_GH_TOKEN" ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/release.yml" \
+      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
       --source-ref "refs/tags/${TAG}" >/dev/null
   else
     ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
       --bundle "${artifact}.attestation.jsonl" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/release.yml" \
+      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
       --source-ref "refs/tags/${TAG}" >/dev/null
   fi
   show "gh attestation verify" "$artifact verified ($ATTESTATION_MODE)"

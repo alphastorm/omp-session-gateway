@@ -252,6 +252,7 @@ if (!eligibility.eligible) {
 
 const summary = await withAndroidChrome(async driver => {
   serial = driver.serial;
+  const browserVersion = await driver.version();
   await wake();
   await driver.openTab();
   await driver.navigate(`${origin}/`);
@@ -306,6 +307,11 @@ const summary = await withAndroidChrome(async driver => {
 
   return {
     serial: driver.serial,
+    packageName: driver.packageName,
+    androidPackageVersion: driver.androidPackageVersion,
+    browserVersion,
+    devtoolsSocket: driver.devtoolsSocket,
+    browserActivity: driver.browserActivity,
     authorization,
     unlockMs,
     outageBanner,

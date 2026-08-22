@@ -143,10 +143,14 @@ independent verifications run **on the droplet**, not on the workstation:
 
 1. `sha256sum --check SHA256SUMS`, with the measured archive digest printed;
 2. `cosign verify-blob` against each published `.sigstore.json` bundle, pinned to the exact
-   certificate identity `https://github.com/<repo>/.github/workflows/release.yml@refs/tags/<tag>`
+   certificate identity https://github.com/<repo>/.github/workflows/signed-release.yml@refs/tags/<tag>
    and the GitHub Actions OIDC issuer;
 3. `gh attestation verify` for the archive, SBOM, and `SHA256SUMS`, pinned to `--signer-workflow` and
    `--source-ref refs/tags/<tag>`.
+
+Qualification inputs, including GitHub tokens and macOS sudo credentials, travel inside an
+NUL-framed SSH stdin bootstrap. They must never appear in workstation SSH argv, remote process
+argv, or exported remote environment.
 
 `gh attestation verify` needs GitHub API access. If `GH_TOKEN` is exported the droplet verifies
 online; otherwise the script uses the already-authenticated workstation `gh` to

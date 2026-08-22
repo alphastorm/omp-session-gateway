@@ -2,24 +2,26 @@
 
 ## Current claim
 
-**Current release:** qualified beta `v0.1.0-beta.1`; not stable or production-qualified.<br>
-**Rollback predecessor:** qualified alpha `v0.1.0-alpha.1`.<br>
-**Qualification predecessor:** signed candidate `v0.1.0-prealpha.20`.<br>
+**Current release:** qualified beta v0.1.0-beta.1; not stable or production-qualified.<br>
+**Stable target:** v0.1.0; its signed successor candidate has not yet completed qualification.<br>
+**Rollback predecessor:** qualified beta v0.1.0-beta.1 for the stable target.<br>
+**Qualification predecessor:** signed beta candidate v0.1.0-prealpha.20.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
-`151.0.7922.171` on Android 17 (Pixel 10 Pro). Nothing else is advertised.
+151.0.7922.171 on Android 17 (Pixel 10 Pro). Nothing else is advertised.
 
 Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
-and Tailscale must run its **TUN-mode** client; userspace-networking `tailscaled` does not establish
-the required loopback/identity boundary and is refused
+and Tailscale must run its TUN-mode client; userspace-networking tailscaled does not establish the
+required loopback/identity boundary and is refused
 ([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The published alpha requires
-exact OMP `v17.3.8` at `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` plus its recorded patch.
-The qualified beta candidate requires exact OMP `v17.4.1` at
-`9350b7990d26ebf69a604edc82d8558ef04adf30`, patch tree
-`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`, and the versioned
-`omp-gateway-patched` activation route. Stock OMP is unsupported; upstreaming and paired packaging
-are not beta gates.
+exact OMP v17.3.8 at 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55 plus its recorded patch. Beta and
+the narrow stable target require exact OMP v17.4.1 at
+9350b7990d26ebf69a604edc82d8558ef04adf30, patch tree
+a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7, and the versioned omp-gateway-patched activation
+route. Stock OMP is unsupported. Upstreaming and paired packaging are not gates for this exact
+matrix under ADR-024 and ADR-025.
 
-The successor's support claim comes from exact signed-candidate evidence, not row counts:
+The current beta support claim comes from exact signed-candidate evidence, not row counts. Stable
+promotion must repeat every applicable candidate-bound lane rather than inheriting the label:
 
 - Debian [gateway run `32530180990`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32530180990)
   passed the complete candidate lifecycle with `107/107` rollback invariants and both lingering
@@ -36,15 +38,16 @@ The successor's support claim comes from exact signed-candidate evidence, not ro
   evidence transfers because the relay host/client implementation, collab-web, and wire bytes are
   identical across the two exact patched OMP trees; only package metadata and an out-of-path
   session-close ordering changed.
-- Windows source/lifecycle checks passed, but Windows remains unadvertised and is outside beta.
+- Windows source/lifecycle checks passed, but Windows remains unadvertised and is outside beta and the stable target.
 
-Known limits remain part of the claim. Chrome-for-Android can wedge its process-wide network stack
-after an abrupt radio transition while the device itself remains healthy, so network-change and
-reconnect are not proven ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
-Preview notification detail currently falls back to Session detail. Background Web Push remains
-implemented but unqualified. Portal Tunnel, self-hosted/proxied relays, Funnel, userspace-networking
-Tailscale, shared mutually untrusted local accounts, and every unnamed platform/browser/version
-remain unsupported.
+Known limits remain part of the claim. Chrome for Android can wedge its process-wide network state
+after an abrupt transition while Android remains healthy. The PWA retries and, after 45 uninterrupted
+seconds of visible failure, opens force-stop/reopen help already carried by the loaded shell; it
+does not claim to repair Chrome
+([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)). Preview detail currently falls
+back to Session detail. Background Web Push remains outside the stable core claim. Portal Tunnel,
+self-hosted/proxied relays, Funnel, userspace networking, shared mutually untrusted local accounts,
+and every unnamed platform/browser/version remain unsupported.
 
 A signed artifact proves origin, not fitness. Candidate history for this point release is explicit:
 
@@ -81,10 +84,11 @@ Published releases and unreleased development targets use separate immutable ups
 |---|---|---|---|---|---:|---|
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 | `0.1.0`, published as `v0.1.0-beta.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit beta qualification through the versioned patched-binary route |
+| 0.1.0, stable target v0.1.0 | can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30 | v17.4.1 | coding-agent 17.4.1; wire 17.4.1 | collab-web 16.3.6 from the same source commit | 1 | Pending exact signed-candidate qualification; same versioned patched-binary prerequisite as beta |
 
-`v17.3.8` remains the immutable alpha baseline. `v17.4.1` is independently qualified for beta
-only through the exact patch/tree and versioned executable route above. No other OMP release,
-commit, fork, or loose semver range is supported.
+v17.3.8 remains the immutable alpha baseline. v17.4.1 is independently qualified for beta through
+the exact patch/tree and versioned executable route and is the unchanged stable target. No other
+OMP release, commit, fork, or loose semver range is supported.
 
 **Pin refreshed 2026-08-21, from `v17.3.8` to `v17.4.1`.** The maintained
 `gateway-collaboration` series already targeted the new exact base. The carried health-probe commit
