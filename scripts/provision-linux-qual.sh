@@ -135,7 +135,21 @@ sha256_of() {
   fi
 }
 
-# `doctl compute droplet create --image` accepts either a distribution slug or a numeric image id.
+identify_version_by_release_info() {
+  local archive_root="$1" versions_root="$2" wanted directory found="" matches=0
+  [ -f "$archive_root/release-info.json" ] || return 1
+  wanted="$(sha256_of "$archive_root/release-info.json")" || return 1
+  while IFS= read -r directory; do
+    [ -f "$directory/release-info.json" ] || continue
+    if [ "$(sha256_of "$directory/release-info.json")" = "$wanted" ]; then
+      found="${directory##*/}"
+      matches=$((matches + 1))
+    fi
+  done < <(find "$versions_root" -maxdepth 1 -mindepth 1 -type d -print | sort)
+  [ "$matches" -eq 1 ] || return 1
+  printf '%s' "$found"
+}
+
 # Imported custom images are only ever addressable by id — DigitalOcean assigns them no slug — so the
 # value's own shape decides which catalog to validate against, and an operator cannot desynchronise a
 # "kind" flag from the value it describes.
@@ -1606,11 +1620,12 @@ REMOTE
 # and stages nothing, so the archives it measures are exactly the ones lane 4 verified by checksum
 # and Cosign bundle. It needs the same two candidate tags lane 4 needs and has no knob of its own.
 #
-# WHICH STAGED DIRECTORY IS WHICH ARTIFACT. Answered by digest, not by `current.json` and not by the
-# activation history: the installer copies a `.js` CLI into the staged runtime verbatim, in both
-# artifacts, so a staged version directory whose `apps/gateway/src/cli.js` matches an archive's byte
-# for byte was staged from that archive. Every "it went back to the predecessor" claim below is
-# anchored to that, so none of them can be satisfied by a pointer that merely changed.
+# WHICH STAGED DIRECTORY IS WHICH ARTIFACT. Answered by the exact release-info.json bytes, not by
+# current.json, activation history, or the CLI alone. Adjacent releases can intentionally carry
+# identical CLI source while differing elsewhere in the installed payload. The installer copies
+# release-info.json verbatim, and that generated file binds the release source identity. The matcher
+# requires exactly one installed directory with those bytes, so a pointer that merely changed cannot
+# satisfy a predecessor or candidate claim.
 #
 # WHY THE WALK STARTS WITH A REFUSAL, THEN `--to`. A bare `rollback` resolves its target from the
 # activation history, and the history is written only by the CLI that performs an activation. A
@@ -1622,13 +1637,15 @@ REMOTE
 # they leave a history whose predecessor is known. Only then is the bare command run, twice, so the
 # documented oscillation between two versions is measured rather than assumed.
 lane_rollback() {
-  local dns_name
+  local dns_name version_matcher
   step "Lane 8: the rollback command, its --to form, and induced divergence"
   dns_name="$(require_dns_name)"
+  version_matcher="$(declare -f sha256_of identify_version_by_release_info)"
 
-  remote_user DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
+  remote_user VERSION_MATCHER="$version_matcher" DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
     GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
 set -euo pipefail
+eval "$VERSION_MATCHER"
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 bun=~/.bun/bin/bun
 state_dir="$HOME/.local/state/omp-session-gateway"
@@ -1783,20 +1800,14 @@ systemctl --user is-active omp-session-gateway.service >/dev/null || {
   exit 1
 }
 
-version_for_archive() {
-  local want dir
-  want="$(digest_of "$1/apps/gateway/src/cli.js")"
-  while read -r dir; do
-    [ -f "$versions/$dir/apps/gateway/src/cli.js" ] || continue
-    if [ "$(digest_of "$versions/$dir/apps/gateway/src/cli.js")" = "$want" ]; then
-      printf '%s' "$dir"
-      return 0
-    fi
-  done < <(version_dirs)
-  printf 'none'
+prev_version="$(identify_version_by_release_info "$prev_root" "$versions")" || {
+  echo "the predecessor archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
+  exit 1
 }
-prev_version="$(version_for_archive "$prev_root")"
-next_version="$(version_for_archive "$next_root")"
+next_version="$(identify_version_by_release_info "$next_root" "$versions")" || {
+  echo "the candidate archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
+  exit 1
+}
 
 show "predecessor archive root" "$(basename "$prev_root")"
 show "candidate archive root" "$(basename "$next_root")"
@@ -1809,8 +1820,12 @@ show "unit file / loaded version" "$(unit_version) / $(loaded_exec_version)"
 show "unit file shape" "$(unit_shape)"
 show "unit enabled (lane 4 asserts this)" "$(unit_enabled)"
 
-[ "$prev_version" != none ] && [ "$next_version" != none ] || {
-  echo "one of the two archives has no staged version directory whose CLI matches it byte for byte, so this droplet was not left by lane 'migration'. Run 'qualify migration' immediately before this lane." >&2
+cmp -s "$prev_root/release-info.json" "$versions/$prev_version/release-info.json" || {
+  echo "the predecessor runtime identity changed after matching" >&2
+  exit 1
+}
+cmp -s "$next_root/release-info.json" "$versions/$next_version/release-info.json" || {
+  echo "the candidate runtime identity changed after matching" >&2
   exit 1
 }
 [ "$prev_version" != "$next_version" ] || {

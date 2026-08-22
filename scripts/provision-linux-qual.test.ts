@@ -113,3 +113,62 @@ REMOTE
     stderr: "",
   });
 });
+
+test.skipIf(process.platform === "win32")(
+  "release metadata distinguishes installed runtimes with identical CLIs",
+  async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-runtime-identity-test-"));
+    const predecessorRoot = join(temporaryRoot, "predecessor");
+    const candidateRoot = join(temporaryRoot, "candidate");
+    const versionsRoot = join(temporaryRoot, "versions");
+    const predecessorVersion = join(versionsRoot, "0.1.0-predecessor");
+    const candidateVersion = join(versionsRoot, "0.1.0-candidate");
+    const predecessorInfo = '{"sourceCommit":"predecessor"}\n';
+    const candidateInfo = '{"sourceCommit":"candidate"}\n';
+    const cliRelative = join("apps", "gateway", "src", "cli.js");
+    for (const directory of [predecessorRoot, candidateRoot, predecessorVersion, candidateVersion]) {
+      await mkdir(join(directory, "apps", "gateway", "src"), { recursive: true });
+      await writeFile(join(directory, cliRelative), "identical-cli-bytes");
+    }
+    await Promise.all([
+      writeFile(join(predecessorRoot, "release-info.json"), predecessorInfo),
+      writeFile(join(predecessorVersion, "release-info.json"), predecessorInfo),
+      writeFile(join(candidateRoot, "release-info.json"), candidateInfo),
+      writeFile(join(candidateVersion, "release-info.json"), candidateInfo),
+    ]);
+    const run = async (archiveRoot: string) => {
+      const child = Bun.spawn(
+        [
+          "/bin/bash",
+          "-c",
+          'source "$1"; identify_version_by_release_info "$2" "$3"',
+          "test",
+          join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh"),
+          archiveRoot,
+          versionsRoot,
+        ],
+        { cwd: REPOSITORY_ROOT, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+      );
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { exitCode, stdout, stderr };
+    };
+    try {
+      expect(await run(predecessorRoot)).toEqual({
+        exitCode: 0,
+        stdout: "0.1.0-predecessor",
+        stderr: "",
+      });
+      expect(await run(candidateRoot)).toEqual({
+        exitCode: 0,
+        stdout: "0.1.0-candidate",
+        stderr: "",
+      });
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
