@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
+import fc, { type AsyncCommand } from "fast-check";
 
 const GLOBAL_NAMES = [
   "window",
@@ -710,6 +711,30 @@ describe("dashboard attention and notifications", () => {
     await settleUntil(() => FakeEventSource.instances.length === 2);
     expect(harness.elements.statusBanner.hidden).toBe(true);
   });
+  test("recovers through the native event stream when browser timers are lost", async () => {
+    const base = session("native-reconnect-0001");
+    const recovered = session("native-reconnect-0001", { title: "Recovered natively" });
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "native-eventsource-reconnect",
+      initialSessions: [base],
+    });
+    const source = FakeEventSource.instances[0];
+    if (source === undefined) throw new Error("missing initial event stream");
+
+    harness.disconnectEvents();
+    expect(source.closed).toBeFalse();
+
+    source.onopen?.();
+    source.emit("snapshot", { type: "snapshot", revision: 2, sessions: [recovered] });
+    await settleUntil(() => harness.elements.statusBanner.hidden);
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(harness.elements.sessionList.querySelector(".row-title")?.textContent).toBe(
+      "Recovered natively",
+    );
+  });
+
 
 
   test("keeps the last directory while distinguishing phone and tailnet outages", async () => {
@@ -1034,5 +1059,318 @@ describe("dashboard attention and notifications", () => {
     harness.window.dispatchEvent(new Event("online"));
     await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
     expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+  });
+});
+
+interface RecoveryModel {
+  revision: number;
+  title: string;
+  interrupted: boolean;
+  online: boolean;
+}
+
+interface RecoveryReal {
+  readonly harness: BrowserHarness;
+  readonly instanceId: string;
+  readonly capabilityCanary: string;
+}
+
+type RecoveryCommand = AsyncCommand<RecoveryModel, RecoveryReal>;
+
+function activeModelStreams(): FakeEventSource[] {
+  return FakeEventSource.instances.filter(source => !source.closed);
+}
+
+async function assertRecoveryInvariants(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+  await Promise.resolve();
+  expect(activeModelStreams()).toHaveLength(1);
+
+  const retryDelays = real.harness.pendingDelays().filter(delay => delay <= 30_000);
+  expect(retryDelays.length).toBeLessThanOrEqual(1);
+  expect(retryDelays.every(delay => delay >= 0 && delay <= 30_000)).toBeTrue();
+  expect(real.harness.reloads.count).toBe(0);
+
+  const observableSinks = JSON.stringify({
+    fetchPaths: real.harness.fetchPaths,
+    opened: real.harness.window.opened,
+    replacedPaths: real.harness.replacedPaths,
+    rowTitle: real.harness.elements.sessionList.querySelector(".row-title")?.textContent,
+    status: real.harness.elements.statusBanner.textContent,
+    workerMessages: real.harness.workerMessages,
+  });
+  expect(observableSinks).not.toContain(real.capabilityCanary);
+
+  if (!model.interrupted) {
+    expect(real.harness.elements.statusBanner.hidden).toBeTrue();
+    expect(real.harness.elements.sessionList.querySelector(".row-title")?.textContent).toBe(
+      model.title,
+    );
+  }
+}
+
+class InterruptStreamCommand implements RecoveryCommand {
+  constructor(private readonly reportedOnline: boolean) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return !model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    real.harness.setOnline(this.reportedOnline);
+    real.harness.disconnectEvents();
+    model.interrupted = true;
+    model.online = this.reportedOnline;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `SSE error (navigator.onLine=${String(this.reportedOnline)}, no online event)`;
+  }
+}
+
+class RepeatStreamFailureCommand implements RecoveryCommand {
+  constructor(private readonly repetitions: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const source = activeModelStreams()[0];
+    if (source === undefined) throw new Error("missing interrupted native stream");
+    for (let index = 0; index < this.repetitions; index += 1) source.onerror?.();
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `repeat SSE error x${String(this.repetitions)}`;
+  }
+}
+
+class LoseTimersCommand implements RecoveryCommand {
+  constructor(private readonly elapsedMs: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    real.harness.advanceClock(this.elapsedMs);
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `freeze timers for ${String(this.elapsedMs)}ms`;
+  }
+}
+
+class SetReportedOnlineWithoutEventCommand implements RecoveryCommand {
+  constructor(private readonly online: boolean) {}
+
+  check(): boolean {
+    return true;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    real.harness.setOnline(this.online);
+    model.online = this.online;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `set navigator.onLine=${String(this.online)} without event`;
+  }
+}
+
+class NativeReopenCommand implements RecoveryCommand {
+  constructor(private readonly titleId: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const source = activeModelStreams()[0];
+    if (source === undefined) throw new Error("missing native stream to reopen");
+    const revision = model.revision + 1;
+    const title = `native-reopen-${String(this.titleId)}-r${String(revision)}`;
+    source.onopen?.();
+    source.emit("snapshot", {
+      type: "snapshot",
+      revision,
+      sessions: [session(real.instanceId, { title })],
+    });
+    await settleUntil(() => real.harness.elements.statusBanner.hidden);
+    model.revision = revision;
+    model.title = title;
+    model.interrupted = false;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `native SSE reopen ${String(this.titleId)}`;
+  }
+}
+
+class SnapshotFallbackCommand implements RecoveryCommand {
+  constructor(private readonly titleId: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const revision = model.revision + 1;
+    const title = `snapshot-fallback-${String(this.titleId)}-r${String(revision)}`;
+    const fetchesBefore = real.harness.fetchPaths.length;
+    real.harness.setList(revision, [session(real.instanceId, { title })]);
+    real.harness.runTimers();
+    await settleUntil(() => real.harness.fetchPaths.length > fetchesBefore);
+    await settleUntil(() => activeModelStreams().length === 1);
+    model.revision = revision;
+    model.title = title;
+    model.interrupted = false;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `snapshot retry ${String(this.titleId)}`;
+  }
+}
+
+class HideResumeCommand implements RecoveryCommand {
+  constructor(private readonly titleId: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const revision = model.revision + 1;
+    const title = `resume-${String(this.titleId)}-r${String(revision)}`;
+    const fetchesBefore = real.harness.fetchPaths.length;
+    real.harness.setList(revision, [session(real.instanceId, { title })]);
+    real.harness.setVisibility("hidden");
+    real.harness.advanceClock(45_000);
+    real.harness.setVisibility("visible");
+    await settleUntil(() => real.harness.fetchPaths.length > fetchesBefore);
+    await settleUntil(() => activeModelStreams().length === 1);
+    model.revision = revision;
+    model.title = title;
+    model.interrupted = false;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `hide/resume ${String(this.titleId)}`;
+  }
+}
+
+class FreshStreamSnapshotCommand implements RecoveryCommand {
+  constructor(private readonly titleId: number) {}
+
+  check(model: Readonly<RecoveryModel>): boolean {
+    return !model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const revision = model.revision + 1;
+    const title = `fresh-stream-${String(this.titleId)}-r${String(revision)}`;
+    const source = activeModelStreams()[0];
+    if (source === undefined) throw new Error("missing live stream");
+    source.emit("snapshot", {
+      type: "snapshot",
+      revision,
+      sessions: [session(real.instanceId, { title })],
+    });
+    model.revision = revision;
+    model.title = title;
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return `fresh stream snapshot ${String(this.titleId)}`;
+  }
+}
+
+class StaleStreamSnapshotCommand implements RecoveryCommand {
+  check(model: Readonly<RecoveryModel>): boolean {
+    return !model.interrupted;
+  }
+
+  async run(model: RecoveryModel, real: RecoveryReal): Promise<void> {
+    const source = activeModelStreams()[0];
+    if (source === undefined) throw new Error("missing live stream");
+    source.emit("snapshot", {
+      type: "snapshot",
+      revision: Math.max(0, model.revision - 1),
+      sessions: [session(real.instanceId, { title: "stale-snapshot-must-not-win" })],
+    });
+    await assertRecoveryInvariants(model, real);
+  }
+
+  toString(): string {
+    return "stale stream snapshot";
+  }
+}
+
+describe("stateful directory recovery model", () => {
+  test("preserves recovery invariants across generated browser lifecycle sequences", async () => {
+    let modelRun = 0;
+    const setup = async (): Promise<{ model: RecoveryModel; real: RecoveryReal }> => {
+      modelRun += 1;
+      const instanceId = `recovery-model-${String(modelRun).padStart(4, "0")}`;
+      const title = "model-initial-r1";
+      const harness = await bootApp({
+        permission: "denied",
+        suffix: `recovery-model-${String(modelRun)}`,
+        initialSessions: [session(instanceId, { title })],
+      });
+      const model = { revision: 1, title, interrupted: false, online: true };
+      const real = {
+        harness,
+        instanceId,
+        capabilityCanary: "MODEL_CAPABILITY_CANARY_8f6b10c2",
+      };
+      await assertRecoveryInvariants(model, real);
+      return { model, real };
+    };
+
+    await fc.asyncModelRun(setup, [
+      new InterruptStreamCommand(false),
+      new LoseTimersCommand(120_000),
+      new SetReportedOnlineWithoutEventCommand(true),
+      new NativeReopenCommand(1),
+      new FreshStreamSnapshotCommand(2),
+      new StaleStreamSnapshotCommand(),
+    ]);
+
+    await fc.asyncModelRun(setup, [
+      new InterruptStreamCommand(true),
+      new RepeatStreamFailureCommand(4),
+      new HideResumeCommand(3),
+      new InterruptStreamCommand(true),
+      new RepeatStreamFailureCommand(2),
+      new SnapshotFallbackCommand(4),
+    ]);
+
+    const commandArbitraries: fc.Arbitrary<RecoveryCommand>[] = [
+      fc.boolean().map(online => new InterruptStreamCommand(online)),
+      fc.integer({ min: 1, max: 5 }).map(count => new RepeatStreamFailureCommand(count)),
+      fc.integer({ min: 1_000, max: 180_000 }).map(elapsed => new LoseTimersCommand(elapsed)),
+      fc.boolean().map(online => new SetReportedOnlineWithoutEventCommand(online)),
+      fc.integer({ min: 1, max: 1_000 }).map(id => new NativeReopenCommand(id)),
+      fc.integer({ min: 1, max: 1_000 }).map(id => new SnapshotFallbackCommand(id)),
+      fc.integer({ min: 1, max: 1_000 }).map(id => new HideResumeCommand(id)),
+      fc.integer({ min: 1, max: 1_000 }).map(id => new FreshStreamSnapshotCommand(id)),
+      fc.constant(new StaleStreamSnapshotCommand()),
+    ];
+
+    await fc.assert(
+      fc.asyncProperty(fc.commands(commandArbitraries, { maxCommands: 30 }), async commands => {
+        await fc.asyncModelRun(setup, commands);
+      }),
+      { numRuns: 50 },
+    );
   });
 });

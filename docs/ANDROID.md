@@ -57,6 +57,20 @@ activity, and DevTools socket selection:
     OMP_ANDROID_DEVTOOLS_SOCKET=localabstract:chrome_devtools_remote \
     bun scripts/android-acceptance.ts "$ORIGIN" "$DISPOSABLE_SESSION_LABEL"
 
+Lock/resume qualification uses a dedicated numeric device PIN from macOS Keychain. Store it under
+the attached device's ADB serial; keep `-w` last so `security` prompts instead of placing the PIN in
+shell history or argv:
+
+    security add-generic-password -a '<adb-serial>' -s 'omp-session-gateway.android-qualification-pin' -U -w
+
+The value must contain 4–16 decimal digits. The harness reads it directly into process memory,
+reveals the primary PIN bouncer with one bounded non-secret swipe, and writes digit keyevents to one
+interactive `adb shell` stdin stream. It authenticates once, requires
+`isKeyguardShowing=false`, and redacts every credential-path failure. Never pass the PIN through an
+environment variable, command argument, file, log, receipt, or CI secret. Pattern unlock is not a
+supported qualification setup: ADB's single swipe command cannot reproduce arbitrary multi-segment
+patterns without weakening the physical lock/resume gate.
+
 Every acceptance record includes the package name, Android package version, complete
 Browser.getVersion result, launch activity, and DevTools socket. Before recording evidence, the
 driver reads the forwarded endpoint's Android-Package, Browser, and loopback WebSocket URL and

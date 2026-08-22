@@ -43,6 +43,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ### Fixed
 
+- Keep Android Chrome's native EventSource reconnection alive after transport errors while retaining
+  the bounded snapshot fallback, so a lost JavaScript timer cannot strand a long-lived PWA after
+  Airplane mode or Doze. Physical qualification now reads rendered state without competing fetches
+  and fails on any page reload.
 - Make browser recovery failure tests wait for and assert an active replacement SSE stream before
   disconnecting it, eliminating a race where the snapshot hid the banner just before EventSource
   installation and the fixture's disconnect became a silent no-op.
