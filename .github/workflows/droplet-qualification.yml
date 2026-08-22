@@ -25,6 +25,7 @@
 # returns ever stops matching the key we generated, this job stops before a droplet exists.
 
 name: Droplet Linux qualification
+run-name: Stable qualification ${{ inputs.qualification_id || github.run_id }}
 
 on:
   # Manual first. The candidate tag is an input with an explicit default rather than a lookup of "the
@@ -32,6 +33,10 @@ on:
   # newest tag would change what the evidence is about without anybody choosing that.
   workflow_dispatch:
     inputs:
+      qualification_id:
+        description: Opaque resume identifier supplied by the stable qualification orchestrator
+        required: false
+        default: ""
       release_tag:
         description: Signed candidate tag to qualify
         required: false
@@ -76,6 +81,7 @@ concurrency:
 
 jobs:
   droplet-qualification:
+    name: Qualify on disposable droplet
     runs-on: ubuntu-24.04
     # The gateway-only sequence is about twenty-five minutes. The exact OMP source suite/build has an
     # independent 25-minute hard deadline and is faster on the optional two-vCPU dispatch size. Fifty

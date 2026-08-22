@@ -46,6 +46,13 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Make browser recovery failure tests wait for and assert an active replacement SSE stream before
   disconnecting it, eliminating a race where the snapshot hid the banner just before EventSource
   installation and the fixture's disconnect became a silent no-op.
+- Let Android network recovery snapshots run for 20 seconds once a directory is loaded, and back
+  repeated failures off with equal jitter to a 30-second ceiling instead of aborting and retrying
+  every four seconds. This prevents reconnect churn from keeping a long-lived Chrome tab wedged
+  after the phone's tailnet route returns.
+- Harden stable qualification with durable Debian dispatch identity, same-commit receipts, restart-safe
+  Mac cleanup, NUL-framed sudo transport, exact candidate/native-byte pins, workstation-staged rollback
+  assets, bounded session paths, generic persisted failures, and zero-listener teardown evidence.
 
 ## [v0.1.0-beta.1] — 2026-08-21
 

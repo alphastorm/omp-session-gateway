@@ -252,7 +252,7 @@ cd /path/to/omp-session-gateway
 ```
 
 `provision` is idempotent: it reuses an existing droplet named `omp-gateway-qual` rather than creating
-a second one, and it skips `tailscale up` if the node is already online. Re-running it after a failed
+a second one, and it skips `tailscale login` if the node is already online. Re-running it after a failed
 attempt is safe and cheap.
 
 `qualify` accepts a lane list, so a single observation can be repeated without paying for the whole
@@ -446,8 +446,9 @@ before `droplet delete`, which is the one failure mode teardown must never have.
 - The Tailscale auth key is **not** in cloud-init user data. User data is readable from the droplet's
   own metadata service and from the DigitalOcean API, so it carries only package installation, the
   qualified user, and the Tailscale installer. The key is streamed over SSH stdin under a fixed argv
-  into a mode-0600 file, consumed by `tailscale up --auth-key file:…`, and removed on both the success
-  and failure path.
+  into a mode-0600 file, consumed by bounded `tailscale login --auth-key=file:…`, and removed on
+  both paths. `login` is deliberate: a fresh daemon can already hold a machine key while still in
+  `NeedsLogin`, and `up` does not force that state through reauthentication.
 - The publisher token is never printed. The lifecycle lane reads it only to search the diagnostics
   bundle for it, and reports the byte count and mode rather than the value.
 - The service's one-time readiness nonce is redacted where `ExecStart` is printed.
@@ -518,6 +519,8 @@ this same script on a hosted runner: `workflow_dispatch` at any time, plus a wee
 11:17 UTC on Mondays. It runs nowhere else. In particular it never runs on `pull_request`, because the
 job spends money and a fork's pull request has no access to the secrets below — and because an
 arbitrary edit of this script must never execute against these credentials.
+
+Stable qualification supplies an opaque `qualification_id` and the workflow uses it in the run name. The orchestrator persists that identifier before dispatch, then locates exactly one run by run name and orchestrator commit through the Actions API; it does not parse `gh workflow run` stdout. If GitHub accepted the request but the run is not yet discoverable, resume fails closed instead of issuing a second paid workflow. The workflow-wide `droplet-linux-qualification` concurrency group remains serialized with `cancel-in-progress: false`.
 
 Nothing about the workflow changes what the lanes measure. It exists so the Linux evidence stops
 depending on somebody remembering to run it, and so a regression like

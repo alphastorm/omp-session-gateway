@@ -60,8 +60,9 @@ const notificationDetailInputs = [
 
 const EVENT_LIVENESS_TIMEOUT_MS = 12_000;
 const SNAPSHOT_TIMEOUT_MS = 4_000;
+const RECOVERY_SNAPSHOT_TIMEOUT_MS = 20_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 4_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 const CONNECTION_EXTENDED_MS = 3_000;
 const CONNECTION_RECOVERED_MS = 1_800;
 const TRANSPORT_GUIDANCE_DELAY_MS = 45_000;
@@ -586,10 +587,11 @@ function directoryStreamIsLive(): boolean {
 
 function scheduleReconnect(): void {
   if (authorizationDenied || reconnectTimeout !== undefined) return;
-  const exponent = Math.min(reconnectAttempt, 2);
+  const exponent = Math.min(reconnectAttempt, 5);
   const cap = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
-  const delay = Math.floor(Math.random() * cap);
-  reconnectAttempt = Math.min(reconnectAttempt + 1, 2);
+  const floor = Math.floor(cap / 2);
+  const delay = floor + Math.floor(Math.random() * (cap - floor));
+  reconnectAttempt = Math.min(reconnectAttempt + 1, 5);
   reconnectTimeout = window.setTimeout(() => {
     reconnectTimeout = undefined;
     void refreshAndConnect(false);
@@ -1392,10 +1394,14 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
   snapshotController = controller;
   let timedOut = false;
   let responseReceived = false;
+  const timeoutMs =
+    directoryLoaded || transportFailureSince !== undefined || navigator.onLine === false
+      ? RECOVERY_SNAPSHOT_TIMEOUT_MS
+      : SNAPSHOT_TIMEOUT_MS;
   const timeout = window.setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, SNAPSHOT_TIMEOUT_MS);
+  }, timeoutMs);
   if (!directoryLoaded) setStatus("loading", "Loading sessions…");
   try {
     const response = await fetch("/api/v1/sessions", {

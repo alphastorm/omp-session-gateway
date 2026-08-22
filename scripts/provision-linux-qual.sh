@@ -36,7 +36,7 @@
 # Secrets. The DigitalOcean token and the Tailscale auth key are read from the environment and never
 # appear in argv, in cloud-init user data (which is readable from the droplet's own metadata service
 # and from the DigitalOcean API), or in any printed line. The auth key is streamed over stdin into a
-# mode-0600 file that a remote EXIT trap removes, and `tailscale up` reads it with the documented
+# mode-0600 file that a remote EXIT trap removes, and `tailscale login` reads it with the documented
 # `file:` form. The service's one-time readiness nonce is redacted where ExecStart is printed.
 #
 # The image is a parameter. OMP_QUAL_IMAGE defaults to the same `debian-13-x64` slug this lane has
@@ -71,6 +71,12 @@
 #
 set -euo pipefail
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly SCRIPT_ROOT
+readonly OMP_PIN_PATH="$SCRIPT_ROOT/patches/oh-my-pi/qualification.env"
+[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP qualification pin: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
+# shellcheck source=../patches/oh-my-pi/qualification.env
+. "$OMP_PIN_PATH"
 readonly REPO_SLUG="alphastorm/omp-session-gateway"
 readonly TAILNET_TAG="${OMP_QUAL_TAG:-tag:omp-session-gateway}"
 readonly DROPLET_NAME="${OMP_QUAL_NAME:-omp-gateway-qual}"
@@ -79,13 +85,13 @@ readonly DROPLET_SIZE="${OMP_QUAL_SIZE:-s-1vcpu-2gb}"
 readonly DROPLET_IMAGE="${OMP_QUAL_IMAGE:-debian-13-x64}"
 readonly SSH_KEY_ID="${OMP_QUAL_SSH_KEY_ID:-11924832}"
 readonly QUAL_USER="${OMP_QUAL_USER:-ompqual}"
-readonly BUN_VERSION="${OMP_QUAL_BUN_VERSION:-1.3.14}"
+readonly BUN_VERSION="${OMP_QUAL_BUN_VERSION:-$OMP_PIN_BUN_VERSION}"
 readonly GH_CLI_VERSION="${OMP_QUAL_GH_VERSION:-2.97.0}"
 readonly COSIGN_VERSION="${OMP_QUAL_COSIGN_VERSION:-3.1.3}"
 readonly GATEWAY_PORT="${OMP_QUAL_PORT:-4317}"
-readonly OMP_SOURCE_COMMIT="9350b7990d26ebf69a604edc82d8558ef04adf30"
-readonly OMP_PATCHED_TREE="a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7"
-readonly OMP_VERSION="17.4.1"
+readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
+readonly OMP_PATCHED_TREE="$OMP_PIN_PATCHED_TREE"
+readonly OMP_VERSION="$OMP_PIN_VERSION"
 
 # Which init system the droplet is expected to run. `systemd` is the historical and only supported
 # shape; `openrc` provisions a non-systemd box so the installer's refusal can be observed. Validated
@@ -129,7 +135,21 @@ sha256_of() {
   fi
 }
 
-# `doctl compute droplet create --image` accepts either a distribution slug or a numeric image id.
+identify_version_by_release_info() {
+  local archive_root="$1" versions_root="$2" wanted directory found="" matches=0
+  [ -f "$archive_root/release-info.json" ] || return 1
+  wanted="$(sha256_of "$archive_root/release-info.json")" || return 1
+  while IFS= read -r directory; do
+    [ -f "$directory/release-info.json" ] || continue
+    if [ "$(sha256_of "$directory/release-info.json")" = "$wanted" ]; then
+      found="${directory##*/}"
+      matches=$((matches + 1))
+    fi
+  done < <(find "$versions_root" -maxdepth 1 -mindepth 1 -type d -print | sort)
+  [ "$matches" -eq 1 ] || return 1
+  printf '%s' "$found"
+}
+
 # Imported custom images are only ever addressable by id — DigitalOcean assigns them no slug — so the
 # value's own shape decides which catalog to validate against, and an operator cannot desynchronise a
 # "kind" flag from the value it describes.
@@ -236,14 +256,16 @@ init_ssh_options() {
 # names, keeps values unexported, and evaluates the script in the same static shell. Credentials
 # therefore appear in neither workstation ssh argv nor remote process argv/environment.
 remote() {
-  local user="$1" script bootstrap
+  local user="$1" script bootstrap pair
   shift
   script="$(cat)"
   printf -v bootstrap 'bash -c %q' \
     'IFS= read -r -d "" COUNT || exit; INDEX=0; while [ "$INDEX" -lt "$COUNT" ]; do IFS= read -r -d "" PAIR || exit; NAME=${PAIR%%=*}; VALUE=${PAIR#*=}; case "$NAME" in ""|[0-9]*|*[!A-Za-z0-9_]*) exit 64 ;; esac; printf -v "$NAME" %s "$VALUE"; INDEX=$((INDEX + 1)); done; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
   {
     printf '%s\0' "$#"
-    printf '%s\0' "$@"
+    for pair in "$@"; do
+      printf '%s\0' "$pair"
+    done
     printf '%s\0' "$script"
   } | ssh "${SSH_OPTS[@]}" "${user}@${DROPLET_IP}" "$bootstrap"
 }
@@ -251,11 +273,13 @@ remote_root() { remote root "$@"; }
 remote_user() { remote "$QUAL_USER" "$@"; }
 
 # ---------------------------------------------------------------------------- bounded waits
+WAIT_LAST_OBSERVATION=""
 
 wait_for() {
   local label="$1" attempts="$2" delay="$3"
   shift 3
   local index started elapsed
+  WAIT_LAST_OBSERVATION=""
   started="$(date -u +%s)"
   for ((index = 1; index <= attempts; index++)); do
     if "$@" >/dev/null 2>&1; then
@@ -265,6 +289,7 @@ wait_for() {
     fi
     sleep "$delay"
   done
+  [ -z "$WAIT_LAST_OBSERVATION" ] || measure "$label last observation" "$WAIT_LAST_OBSERVATION"
   die "$label did not become ready within $((attempts * delay))s. The droplet is still running; inspect it with '$0 status'."
 }
 
@@ -278,10 +303,11 @@ ssh_is_up() { ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" true; }
 cloud_init_done() { ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" "test -f /run/cloud-init/result.json"; }
 
 tailscale_is_online() {
-  local state
-  state="$(ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" \
-    "tailscale status --json 2>/dev/null | jq -r '(.BackendState // \"\") + \":\" + ((.Self.Online // false) | tostring)'" 2>/dev/null || true)"
-  [ "$state" = "Running:true" ]
+  local raw state
+  raw="$(ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'tailscale status --json 2>/dev/null' 2>/dev/null || true)"
+  state="$(printf '%s' "$raw" | jq -c '{backendState:(.BackendState // ""),online:(.Self.Online? // false),health:(.Health // [])}' 2>/dev/null || true)"
+  WAIT_LAST_OBSERVATION="${state:-unavailable}"
+  [ "$(printf '%s' "$state" | jq -r '[.backendState, (.online | tostring)] | join(":")' 2>/dev/null || true)" = "Running:true" ]
 }
 
 # ---------------------------------------------------------------------------- preflight
@@ -485,13 +511,18 @@ join_tailnet() {
   ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'umask 077; cat > /root/.ts-authkey' <"$key_file"
   rm -f "$key_file"
   remote_root <<'REMOTE' && joined=1
+set -euo pipefail
 trap 'rm -f /root/.ts-authkey' EXIT
 test -s /root/.ts-authkey
-tailscale up --auth-key "file:/root/.ts-authkey" --hostname "$(hostname -s)" --accept-dns=true --ssh=false
+# A freshly started daemon can already have a machine key while still being in NeedsLogin. `up`
+# then supplies AuthKey without starting the login flow; it can return while WantRunning remains
+# false. `login` always starts reauthentication, and its bound makes that transition the gate.
+tailscale login --auth-key="file:/root/.ts-authkey" --hostname="$(hostname -s)" \
+  --accept-dns=true --ssh=false --timeout=120s
 REMOTE
   ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'rm -f /root/.ts-authkey' || true
   [ "$joined" -eq 1 ] ||
-    die "'tailscale up' failed on the droplet. The auth key file was removed; check that the key is still valid, preauthorized, and carries $TAILNET_TAG."
+    die "'tailscale login' failed on the droplet. The auth key file was removed; check that the key is still valid, preauthorized, and carries $TAILNET_TAG."
 }
 
 # Extracted from cmd_provision unchanged so the OpenRC path can skip it as a unit. Everything here is
@@ -1589,11 +1620,12 @@ REMOTE
 # and stages nothing, so the archives it measures are exactly the ones lane 4 verified by checksum
 # and Cosign bundle. It needs the same two candidate tags lane 4 needs and has no knob of its own.
 #
-# WHICH STAGED DIRECTORY IS WHICH ARTIFACT. Answered by digest, not by `current.json` and not by the
-# activation history: the installer copies a `.js` CLI into the staged runtime verbatim, in both
-# artifacts, so a staged version directory whose `apps/gateway/src/cli.js` matches an archive's byte
-# for byte was staged from that archive. Every "it went back to the predecessor" claim below is
-# anchored to that, so none of them can be satisfied by a pointer that merely changed.
+# WHICH STAGED DIRECTORY IS WHICH ARTIFACT. Answered by the exact release-info.json bytes, not by
+# current.json, activation history, or the CLI alone. Adjacent releases can intentionally carry
+# identical CLI source while differing elsewhere in the installed payload. The installer copies
+# release-info.json verbatim, and that generated file binds the release source identity. The matcher
+# requires exactly one installed directory with those bytes, so a pointer that merely changed cannot
+# satisfy a predecessor or candidate claim.
 #
 # WHY THE WALK STARTS WITH A REFUSAL, THEN `--to`. A bare `rollback` resolves its target from the
 # activation history, and the history is written only by the CLI that performs an activation. A
@@ -1605,13 +1637,15 @@ REMOTE
 # they leave a history whose predecessor is known. Only then is the bare command run, twice, so the
 # documented oscillation between two versions is measured rather than assumed.
 lane_rollback() {
-  local dns_name
+  local dns_name version_matcher
   step "Lane 8: the rollback command, its --to form, and induced divergence"
   dns_name="$(require_dns_name)"
+  version_matcher="$(declare -f sha256_of identify_version_by_release_info)"
 
-  remote_user DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
+  remote_user VERSION_MATCHER="$version_matcher" DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
     GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
 set -euo pipefail
+eval "$VERSION_MATCHER"
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 bun=~/.bun/bin/bun
 state_dir="$HOME/.local/state/omp-session-gateway"
@@ -1766,20 +1800,14 @@ systemctl --user is-active omp-session-gateway.service >/dev/null || {
   exit 1
 }
 
-version_for_archive() {
-  local want dir
-  want="$(digest_of "$1/apps/gateway/src/cli.js")"
-  while read -r dir; do
-    [ -f "$versions/$dir/apps/gateway/src/cli.js" ] || continue
-    if [ "$(digest_of "$versions/$dir/apps/gateway/src/cli.js")" = "$want" ]; then
-      printf '%s' "$dir"
-      return 0
-    fi
-  done < <(version_dirs)
-  printf 'none'
+prev_version="$(identify_version_by_release_info "$prev_root" "$versions")" || {
+  echo "the predecessor archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
+  exit 1
 }
-prev_version="$(version_for_archive "$prev_root")"
-next_version="$(version_for_archive "$next_root")"
+next_version="$(identify_version_by_release_info "$next_root" "$versions")" || {
+  echo "the candidate archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
+  exit 1
+}
 
 show "predecessor archive root" "$(basename "$prev_root")"
 show "candidate archive root" "$(basename "$next_root")"
@@ -1792,8 +1820,12 @@ show "unit file / loaded version" "$(unit_version) / $(loaded_exec_version)"
 show "unit file shape" "$(unit_shape)"
 show "unit enabled (lane 4 asserts this)" "$(unit_enabled)"
 
-[ "$prev_version" != none ] && [ "$next_version" != none ] || {
-  echo "one of the two archives has no staged version directory whose CLI matches it byte for byte, so this droplet was not left by lane 'migration'. Run 'qualify migration' immediately before this lane." >&2
+cmp -s "$prev_root/release-info.json" "$versions/$prev_version/release-info.json" || {
+  echo "the predecessor runtime identity changed after matching" >&2
+  exit 1
+}
+cmp -s "$next_root/release-info.json" "$versions/$next_version/release-info.json" || {
+  echo "the candidate runtime identity changed after matching" >&2
   exit 1
 }
 [ "$prev_version" != "$next_version" ] || {
@@ -2378,4 +2410,6 @@ main() {
   esac
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

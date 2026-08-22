@@ -54,7 +54,8 @@ NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.1.0-prealpha.20}"
 ARCHIVE="omp-session-gateway-0.1.0-bun.tar"
 ARCHIVE_ROOT="omp-session-gateway-0.1.0-bun"
 LABEL="omp-session-gateway"
-QUAL_BASE="/tmp/omp-rollback-qual"
+QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
+ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"
 
 # Deliberately not 4317. The installer probes its own configured loopback port for a live listener;
 # reusing the production port would aim that probe at the live daemon.
@@ -139,13 +140,13 @@ print_rows() {
 # The program path launchd currently has loaded for our label, or empty. Always the real launchctl:
 # the gate must never be able to answer a safety question about itself.
 loaded_program_path() {
-  /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null |
+  { /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null || true; } |
     sed -n 's|^[[:space:]]*\(/[^[:space:]]*/installation/versions/[^[:space:]]*cli\.js\)$|\1|p' |
     head -1
 }
 
 loaded_pid() {
-  /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null |
+  { /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null || true; } |
     sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -1
 }
 
@@ -278,9 +279,14 @@ preflight() {
   [ "$(id -u)" != "0" ] || die "refusing to run as root"
   [ -x /bin/launchctl ] || die "/bin/launchctl is missing"
   local tool
-  for tool in bun gh cosign tar shasum; do
+  for tool in bun cosign tar shasum; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required and was not found on PATH"
   done
+  if [ -z "$ARTIFACT_ROOT" ]; then
+    command -v gh >/dev/null 2>&1 || die "gh is required when rollback artifacts are not preloaded"
+  else
+    [ -d "$ARTIFACT_ROOT" ] || die "preloaded rollback artifact root is missing: $ARTIFACT_ROOT"
+  fi
   REAL_PATH="$PATH"
   REAL_HOME="$HOME"
   REAL_USER="$(id -un)"
@@ -369,28 +375,34 @@ step_isolation_gate() {
 }
 
 fetch_tag() { # tag destination
-  local tag="$1" dest="$2"
+  local tag="$1" dest="$2" source asset workflow verified
   mkdir -p "$dest"
   (
     cd "$dest"
-    local workflow="release.yml"
-    case "$tag" in
-      v0.1.0-prealpha.21 | v0.1.0) workflow="signed-release.yml" ;;
-    esac
-    gh release download "$tag" -R "$REPO" -D . --clobber \
-      -p "$ARCHIVE" -p "$ARCHIVE.sigstore.json" -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null
+    if [ -n "$ARTIFACT_ROOT" ]; then
+      source="$ARTIFACT_ROOT/$tag"
+      for asset in "$ARCHIVE" "$ARCHIVE.sigstore.json" SHA256SUMS SHA256SUMS.sigstore.json; do
+        [ -f "$source/$asset" ] || { printf 'preloaded rollback asset missing: %s/%s\n' "$source" "$asset" >&2; exit 1; }
+        cp "$source/$asset" .
+      done
+    else
+      gh release download "$tag" -R "$REPO" -D . --clobber \
+        -p "$ARCHIVE" -p "$ARCHIVE.sigstore.json" -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null
+    fi
     shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null
-    local asset
     for asset in "$ARCHIVE" SHA256SUMS; do
-      cosign verify-blob \
-        --bundle "$asset.sigstore.json" \
-        --certificate-identity "https://github.com/$REPO/.github/workflows/$workflow@refs/tags/$tag" \
-        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-        "$asset" >/dev/null 2>&1 ||
-        {
-          printf 'cosign verify-blob failed for %s at %s\n' "$asset" "$tag" >&2
-          exit 1
-        }
+      verified=0
+      for workflow in signed-release.yml release.yml; do
+        if cosign verify-blob \
+          --bundle "$asset.sigstore.json" \
+          --certificate-identity "https://github.com/$REPO/.github/workflows/$workflow@refs/tags/$tag" \
+          --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+          "$asset" >/dev/null 2>&1; then
+          verified=1
+          break
+        fi
+      done
+      [ "$verified" -eq 1 ] || { printf 'cosign verify-blob failed for %s at %s\n' "$asset" "$tag" >&2; exit 1; }
     done
     mkdir -p extract
     tar -xf "$ARCHIVE" -C extract
@@ -631,11 +643,15 @@ clean() {
   fact "$QUAL_BASE" "removed"
 }
 
-case "${1:-}" in
-  run) run ;;
-  clean) clean ;;
-  *)
-    printf 'usage: %s run|clean\n' "$0" >&2
-    exit 64
-    ;;
-esac
+main() {
+  case "${1:-}" in
+    run) run ;;
+    clean) clean ;;
+    *)
+      printf 'usage: %s run|clean\n' "$0" >&2
+      return 64
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

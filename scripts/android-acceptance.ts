@@ -17,11 +17,9 @@
  *
  * Usage: `bun scripts/android-acceptance.ts <origin> <session-cwd-label>`
  */
-import { withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
+import { wakeAndroidDisplay, withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 
-const WAKE = "224";
-const MENU = "82";
 const POWER = "26";
 
 let serial = "";
@@ -49,14 +47,7 @@ async function sleep(milliseconds: number): Promise<void> {
  * of attributing the timeout to the application.
  */
 async function wake(): Promise<string> {
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    await adb("shell", "input", "keyevent", WAKE);
-    await adb("shell", "input", "keyevent", MENU);
-    await sleep(1200);
-    const wakefulness = (await adb("shell", "dumpsys power | grep -m1 mWakefulness=")).split("=")[1]?.trim() ?? "";
-    if (wakefulness === "Awake") return wakefulness;
-  }
-  return (await adb("shell", "dumpsys power | grep -m1 mWakefulness=")).split("=")[1]?.trim() ?? "unknown";
+  return wakeAndroidDisplay((...args) => adb(...args), sleep);
 }
 
 /**
