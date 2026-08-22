@@ -419,7 +419,7 @@ if (location.pathname === "/update/" || location.pathname === "/client/") {
   history.replaceState(null, "", "/");
 }
 
-const pendingAttentionLaunch = readPendingAttentionLaunch();
+let pendingAttentionLaunch = readPendingAttentionLaunch();
 let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
 type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "gateway" | "unauthorized" | "expired" | "loading";
@@ -1496,6 +1496,23 @@ function connectEvents(epoch: number): void {
   };
 }
 
+async function resolvePendingAttentionRoute(): Promise<void> {
+  const pending = pendingAttentionLaunch;
+  if (pending === undefined) return;
+  pendingAttentionLaunch = undefined;
+  const session = sessions.get(pending.instanceId);
+  if (
+    session !== undefined &&
+    session.ask?.requestId === pending.requestId &&
+    session.inputRequired &&
+    session.canControl
+  ) {
+    await launch(session, "control", undefined, pending.requestId);
+  } else {
+    setStatus("expired", "That attention request was already resolved or the session changed.");
+  }
+}
+
 async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
   if (resetBackoff) reconnectAttempt = 0;
   clearReconnectTimeout();
@@ -1512,6 +1529,7 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
   if (loaded && epoch === directoryEpoch) {
     reconnectAttempt = 0;
     connectEvents(epoch);
+    await resolvePendingAttentionRoute();
     return true;
   }
   if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
@@ -1584,18 +1602,4 @@ document.addEventListener("visibilitychange", () => {
 
 const applicationWorkerRegistration = initializeApplicationWorker();
 void initializeNotifications(applicationWorkerRegistration);
-if (await refreshAndConnect()) {
-  if (pendingAttentionLaunch !== undefined) {
-    const session = sessions.get(pendingAttentionLaunch.instanceId);
-    if (
-      session !== undefined &&
-      session.ask?.requestId === pendingAttentionLaunch.requestId &&
-      session.inputRequired &&
-      session.canControl
-    ) {
-      await launch(session, "control", undefined, pendingAttentionLaunch.requestId);
-    } else {
-      setStatus("expired", "That attention request was already resolved or the session changed.");
-    }
-  }
-}
+await refreshAndConnect();
