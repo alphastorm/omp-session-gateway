@@ -8,8 +8,9 @@ const androidUserAgent =
 
 // The browser lane was benchmarked at 1, 2 and 4 workers through a `workflow_dispatch` input.
 // Two workers is the fastest stable width, so an unset variable or an empty workflow `env:` value
-// selects 2. Anything else is a wiring mistake and fails loudly here, because silently falling back
-// would attribute a run to a width it never used.
+// selects 2. Three is accepted for a bounded qualification campaign and is not yet qualified.
+// Anything else is a wiring mistake and fails loudly here, because silently falling back would
+// attribute a run to a width it never used.
 function playwrightWorkers(): number {
   const requested = process.env.PLAYWRIGHT_WORKERS;
   switch (requested) {
@@ -19,10 +20,14 @@ function playwrightWorkers(): number {
       return 2;
     case "1":
       return 1;
+    case "3":
+      return 3;
     case "4":
       return 4;
     default:
-      throw new Error(`PLAYWRIGHT_WORKERS must be "1", "2" or "4" when set, not ${JSON.stringify(requested)}`);
+      throw new Error(
+        `PLAYWRIGHT_WORKERS must be "1", "2", "3" or "4" when set, not ${JSON.stringify(requested)}`,
+      );
   }
 }
 
