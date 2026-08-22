@@ -24,7 +24,7 @@ require_value OMP_PIN_BUN_VERSION "$bun_version"
 require_value OMP_PIN_NATIVE_TARBALL_SHA256 "$native_tarball_sha256"
 require_value OMP_PIN_NATIVE_BINARY_SHA256 "$native_binary_sha256"
 case "$session_label" in
-  *[!A-Za-z0-9._-]* | "" | . | ..) fail "OMP_QUAL_SESSION_LABEL must be a safe single path component" ;;
+  "" | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) fail "OMP_QUAL_SESSION_LABEL must be a safe single path component" ;;
 esac
 [ "${#session_label}" -le 128 ] || fail "OMP_QUAL_SESSION_LABEL must not exceed 128 characters"
 

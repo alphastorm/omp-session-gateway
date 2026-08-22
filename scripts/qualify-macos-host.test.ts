@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 const POSIX = process.platform !== "win32";
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const scriptPath = join(repositoryRoot, "scripts/qualify-macos-host.sh");
+const ompScriptPath = join(repositoryRoot, "scripts/qualify-macos-omp.sh");
 const sudoPassword = "mac-sudo-'argv-canary";
 
 function sha256(value: string): string {
@@ -72,6 +73,97 @@ issue_reboot
     expect(argv).not.toContain("shutdown -r now");
     expect(stdin.indexOf(Buffer.from(sudoPassword))).toBeGreaterThanOrEqual(0);
     expect(stdin.indexOf(Buffer.from("shutdown -r now"))).toBeGreaterThanOrEqual(0);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+test.skipIf(!POSIX)("bundle scan keeps publisher token bytes out of subprocess argv", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-bundle-argv-"));
+  const fakeBin = join(temporaryRoot, "bin");
+  const fakePython = join(fakeBin, "python3");
+  const tokenPath = join(temporaryRoot, "publisher-token");
+  const bundlePath = join(temporaryRoot, "doctor.tar");
+  const argvPath = join(temporaryRoot, "python-argv");
+  const token = "publisher-token-'quote-argv-canary";
+  const resolution = Bun.spawnSync(["python3", "-c", "import sys; print(sys.executable)"], { stdout: "pipe" });
+  if (resolution.exitCode !== 0) throw new Error("python3 is required for this regression");
+  const realPython = Buffer.from(resolution.stdout).toString("utf8").trim();
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(tokenPath, token);
+  await writeFile(bundlePath, `prefix:${token}:suffix`);
+  await writeFile(
+    fakePython,
+    "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" >\"$ARGV_CAPTURE\"\nexec \"$REAL_PYTHON\" \"$@\"\n",
+  );
+  await chmod(fakePython, 0o755);
+  try {
+    const result = await runHarness('source "$1"; count_file_occurrences "$2" "$3"', [tokenPath, bundlePath], {
+      ...environment("a".repeat(64)),
+      ARGV_CAPTURE: argvPath,
+      REAL_PYTHON: realPython,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    });
+    expect(result).toEqual({ exitCode: 0, stdout: "1\n", stderr: "" });
+    const argv = await readFile(argvPath, "utf8");
+    expect(argv).not.toContain(token);
+    expect(argv).toContain(tokenPath);
+    expect(argv).toContain(bundlePath);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!POSIX)("Mac OMP cleanup forwards and removes a custom safe session directory", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-custom-session-"));
+  const stdinPath = join(temporaryRoot, "stdin");
+  const sessionLabel = "stable-custom-session.21";
+  const customSession = join(temporaryRoot, sessionLabel);
+  await mkdir(customSession, { recursive: true });
+  await writeFile(join(customSession, "session-state"), "synthetic");
+  const forwardingHarness = `
+set -euo pipefail
+source "$1"
+scp() { :; }
+ssh() { cat >"$STDIN_CAPTURE"; }
+lane_omp_clean
+`;
+  try {
+    const forwarded = await runHarness(forwardingHarness, [], {
+      ...environment("a".repeat(64)),
+      OMP_MAC_SESSION_LABEL: sessionLabel,
+      STDIN_CAPTURE: stdinPath,
+    });
+    expect(forwarded.exitCode).toBe(0);
+    const framed = (await readFile(stdinPath)).toString("utf8").split("\0");
+    expect(framed[11]).toBe(sessionLabel);
+    expect(framed[12]).toContain('OMP_QUAL_SESSION_LABEL="$SESSION_LABEL"');
+    expect(framed[12]).toContain('qualify-macos-omp.sh" clean');
+
+    const cleanup = Bun.spawn(["/bin/bash", ompScriptPath, "clean"], {
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        HOME: temporaryRoot,
+        OMP_QUAL_GATEWAY_ROOT: join(temporaryRoot, "gateway"),
+        OMP_QUAL_SESSION_LABEL: sessionLabel,
+        OMP_PIN_SOURCE_COMMIT: "source",
+        OMP_PIN_PATCHED_TREE: "tree",
+        OMP_PIN_VERSION: "17.4.1",
+        OMP_PIN_BUN_VERSION: "1.3.14",
+        OMP_PIN_NATIVE_TARBALL_SHA256: "tarball",
+        OMP_PIN_NATIVE_BINARY_SHA256: "binary",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      cleanup.exited,
+      new Response(cleanup.stdout).text(),
+      new Response(cleanup.stderr).text(),
+    ]);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain('\"patchedOmpProcessCount\":0');
+    expect(await Bun.file(join(customSession, "session-state")).exists()).toBe(false);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

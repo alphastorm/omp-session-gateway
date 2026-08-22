@@ -90,6 +90,7 @@ readonly TAG="${OMP_MAC_TAG:-}"
 readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.1.0-beta.1}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly EXPECTED_ARCHIVE_SHA256="${OMP_MAC_ARCHIVE_SHA256:-}"
+readonly SESSION_LABEL="${OMP_MAC_SESSION_LABEL:-omp-stable-pixel-qualification}"
 readonly REPO_SLUG="${OMP_MAC_REPO:-alphastorm/omp-session-gateway}"
 readonly GATEWAY_PORT="${OMP_MAC_PORT:-4317}"
 readonly RECORD_DIR="${OMP_MAC_RECORD_DIR:-$HOME/.local/share/omp-session-gateway/test}"
@@ -107,23 +108,51 @@ case "$EXPECTED_ARCHIVE_SHA256" in
   *[!0-9a-f]* | "" ) die "OMP_MAC_ARCHIVE_SHA256 must be the exact lowercase 64-hex candidate archive digest" ;;
 esac
 [ "${#EXPECTED_ARCHIVE_SHA256}" -eq 64 ] || die "OMP_MAC_ARCHIVE_SHA256 must be exactly 64 hex characters"
+case "$SESSION_LABEL" in
+  "" | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) die "OMP_MAC_SESSION_LABEL must be a safe single path component" ;;
+esac
+[ "${#SESSION_LABEL}" -le 128 ] || die "OMP_MAC_SESSION_LABEL must not exceed 128 characters"
 case "$TAG:$PREVIOUS_TAG" in
   *[!A-Za-z0-9._:-]*) die "OMP_MAC_TAG and OMP_MAC_PREVIOUS_TAG must be plain release tags" ;;
 esac
+count_file_occurrences() {
+  python3 - "$1" "$2" <<'PY'
+from pathlib import Path
+import sys
+
+needle = Path(sys.argv[1]).read_bytes()
+haystack = Path(sys.argv[2]).read_bytes()
+print(haystack.count(needle) if needle else 0)
+PY
+}
+
+count_environment_occurrences() {
+  NEEDLE="$1" python3 - "$2" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+needle = os.environ["NEEDLE"].encode()
+haystack = Path(sys.argv[1]).read_bytes()
+print(haystack.count(needle) if needle else 0)
+PY
+}
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes)
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
 # Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
 # and stay as unexported variables in the one static remote shell that evaluates the supplied block.
 remote() {
-  local script bootstrap
-  script="$(cat)"
+  local script bootstrap helpers
+  helpers="$(declare -f count_file_occurrences count_environment_occurrences)"
+  script="${helpers}"$'\n'"$(cat)"
   printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_PATCHED_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_PATCHED_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
   {
-    printf '%s\0' "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" \
-      "$OMP_SOURCE_COMMIT" "$OMP_PATCHED_TREE" "$OMP_VERSION" "$BUN_VERSION" \
-      "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$script"
+    local value
+    for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_PATCHED_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
+      printf '%s\0' "$value"
+    done
   } | ssh "${SSH_OPTS[@]}" -q "$HOST" "$bootstrap"
 }
 
@@ -299,9 +328,11 @@ show "token rotation pid" "\$before -> \$after"
 show "token digest" "\$digest_before -> \$digest_after"
 
 bun "\$CLI" doctor --bundle /tmp/omp-bundle.tar >/dev/null 2>&1
-tok="\$(cat ~/.config/omp-session-gateway/publisher-token)"
-show "token bytes in bundle" "\$(grep -c -- "\$tok" /tmp/omp-bundle.tar 2>/dev/null || echo 0)"
-show "login in bundle" "\$(grep -c -- "\$LOGIN" /tmp/omp-bundle.tar 2>/dev/null || echo 0)"
+token_count="\$(count_file_occurrences ~/.config/omp-session-gateway/publisher-token /tmp/omp-bundle.tar)"
+login_count="\$(count_environment_occurrences "\$LOGIN" /tmp/omp-bundle.tar)"
+show "token bytes in bundle" "\$token_count"
+show "login in bundle" "\$login_count"
+[ "\$token_count:\$login_count" = "0:0" ] || exit 1
 REMOTE
 }
 
@@ -325,7 +356,10 @@ REMOTE
   measure "cache-control" "$(curl -sS -D - -o /dev/null --max-time 30 "https://$DNS_NAME/api/v1/sessions" 2>/dev/null | awk 'tolower($1)=="cache-control:"{sub(/^[^ ]+ /,"");print}' | tr -d '\r')"
   measure "PWA shell" "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "https://$DNS_NAME/" 2>/dev/null || echo request-failed)"
   # The forged value must be ignored rather than honoured: Serve owns the header, not the caller.
-  measure "forged header, real login allowed" "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -H 'Tailscale-User-Login: nobody@example.invalid' "https://$DNS_NAME/api/v1/sessions" 2>/dev/null || echo request-failed)"
+  local forged_status
+  forged_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -H 'Tailscale-User-Login: nobody@example.invalid' "https://$DNS_NAME/api/v1/sessions" 2>/dev/null || echo request-failed)"
+  measure "forged header, real login allowed" "$forged_status"
+  [ "$forged_status" = "200" ] || die "Tailscale Serve did not replace the caller-supplied identity header"
 
   note "The two probes below must be refused. Any HTTP status means the backend is tailnet-reachable,"
   note "which is #98 and is a release blocker, not a warning."
@@ -495,6 +529,7 @@ OMP_PIN_VERSION="$OMP_VERSION" \
 OMP_PIN_BUN_VERSION="$BUN_VERSION" \
 OMP_PIN_NATIVE_TARBALL_SHA256="$OMP_NATIVE_TARBALL_SHA256" \
 OMP_PIN_NATIVE_BINARY_SHA256="$OMP_NATIVE_BINARY_SHA256" \
+OMP_QUAL_SESSION_LABEL="$SESSION_LABEL" \
   bash "$HOME/qual-tools/qualify-macos-omp.sh" build
 REMOTE
 }
@@ -513,6 +548,7 @@ OMP_PIN_VERSION="$OMP_VERSION" \
 OMP_PIN_BUN_VERSION="$BUN_VERSION" \
 OMP_PIN_NATIVE_TARBALL_SHA256="$OMP_NATIVE_TARBALL_SHA256" \
 OMP_PIN_NATIVE_BINARY_SHA256="$OMP_NATIVE_BINARY_SHA256" \
+OMP_QUAL_SESSION_LABEL="$SESSION_LABEL" \
   bash "$HOME/qual-tools/qualify-macos-omp.sh" clean
 REMOTE
 }

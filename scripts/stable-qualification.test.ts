@@ -259,33 +259,35 @@ test.skipIf(process.platform === "win32")("patched OMP helper refuses missing pi
   expect(stderr).toContain("OMP_QUAL_GATEWAY_ROOT is required");
 });
 
-test.skipIf(process.platform === "win32")("patched OMP helper rejects dot-dot before cleanup", async () => {
-  const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "clean"], {
-    cwd: REPOSITORY_ROOT,
-    env: {
-      PATH: process.env.PATH,
-      HOME: "/tmp/omp-path-guard-never-used",
-      OMP_QUAL_GATEWAY_ROOT: "/tmp/omp-candidate-never-used",
-      OMP_PIN_SOURCE_COMMIT: "1".repeat(40),
-      OMP_PIN_PATCHED_TREE: "2".repeat(40),
-      OMP_PIN_VERSION: "17.4.1",
-      OMP_PIN_BUN_VERSION: "1.3.14",
-      OMP_PIN_NATIVE_TARBALL_SHA256: "3".repeat(64),
-      OMP_PIN_NATIVE_BINARY_SHA256: "4".repeat(64),
-      OMP_QUAL_SESSION_LABEL: "..",
-    },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  expect(exitCode).toBe(1);
-  expect(stdout).toBe("");
-  expect(stderr).toContain("safe single path component");
+test.skipIf(process.platform === "win32")("patched OMP helper rejects path-special labels before cleanup", async () => {
+  for (const sessionLabel of ["..", ".ssh"]) {
+    const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "clean"], {
+      cwd: REPOSITORY_ROOT,
+      env: {
+        PATH: process.env.PATH,
+        HOME: "/tmp/omp-path-guard-never-used",
+        OMP_QUAL_GATEWAY_ROOT: "/tmp/omp-candidate-never-used",
+        OMP_PIN_SOURCE_COMMIT: "1".repeat(40),
+        OMP_PIN_PATCHED_TREE: "2".repeat(40),
+        OMP_PIN_VERSION: "17.4.1",
+        OMP_PIN_BUN_VERSION: "1.3.14",
+        OMP_PIN_NATIVE_TARBALL_SHA256: "3".repeat(64),
+        OMP_PIN_NATIVE_BINARY_SHA256: "4".repeat(64),
+        OMP_QUAL_SESSION_LABEL: sessionLabel,
+      },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("safe single path component");
+  }
 });
 
 test("protected release state guard detects implicit ledger promotion", async () => {

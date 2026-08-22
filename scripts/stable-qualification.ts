@@ -751,6 +751,7 @@ function macEnvironment(
     OMP_MAC_LOGIN: options.macLogin,
     OMP_MAC_SUDO_PW: target.sudoPassword,
     OMP_MAC_ARCHIVE_SHA256: candidate.archiveSha256,
+    OMP_MAC_SESSION_LABEL: options.sessionLabel,
   };
 }
 
@@ -761,6 +762,9 @@ function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, 
     "hardware:                              Mac14,3",
     "doctor                                 17/17 true",
     "doctor false checks                    (none)",
+    "token bytes in bundle:                 0",
+    "login in bundle:                       0",
+    "forged header, real login allowed:     200",
     "backend at tailnet address:            refused",
     "backend at ssh address:                refused",
     "gateway returned after:",
