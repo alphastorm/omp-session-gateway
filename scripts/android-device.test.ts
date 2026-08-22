@@ -4,6 +4,7 @@ import {
   assertBrowserVersionMatchesPackage,
   parseAndroidPackageVersion,
   resolveAndroidBrowserTarget,
+  wakeAndroidChrome,
 } from "./android-device.ts";
 
 describe("Android browser target", () => {
@@ -54,6 +55,61 @@ describe("Android browser target", () => {
     expect(() =>
       resolveAndroidBrowserTarget({ OMP_ANDROID_DEVTOOLS_SOCKET: "localabstract:chrome;id" }),
     ).toThrow("OMP_ANDROID_DEVTOOLS_SOCKET must be a localabstract socket name");
+  });
+});
+describe("Android display bootstrap", () => {
+  const target = {
+    packageName: "com.android.chrome",
+    activity: "com.android.chrome/com.google.android.apps.chrome.Main",
+    devtoolsSocket: "localabstract:chrome_devtools_remote",
+  };
+
+  test("wakes a dreaming display before the blocking Chrome Activity launch", async () => {
+    const calls: string[][] = [];
+    const wakefulness = ["Dreaming", "Awake"];
+    await wakeAndroidChrome(
+      "serial",
+      target,
+      async (...args) => {
+        calls.push(args);
+        if (args[1] === "dumpsys" && args[2] === "power") {
+          return `mWakefulness=${wakefulness.shift() ?? "Awake"}`;
+        }
+        return "";
+      },
+      async () => {},
+    );
+
+    const launchIndex = calls.findIndex(args => args[1] === "am" && args[2] === "start");
+    const awakeIndex = calls.findIndex(args => args.join(" ") === "shell dumpsys power" && calls.indexOf(args) > 2);
+    expect(launchIndex).toBeGreaterThan(awakeIndex);
+    expect(calls.slice(0, launchIndex)).toEqual([
+      ["shell", "input", "keyevent", "224"],
+      ["shell", "input", "keyevent", "82"],
+      ["shell", "dumpsys", "power"],
+      ["shell", "input", "keyevent", "224"],
+      ["shell", "input", "keyevent", "82"],
+      ["shell", "dumpsys", "power"],
+    ]);
+  });
+
+  test("refuses to launch Chrome when the display never wakes", async () => {
+    const calls: string[][] = [];
+    const failure: unknown = await wakeAndroidChrome(
+      "serial",
+      target,
+      async (...args) => {
+        calls.push(args);
+        return args[1] === "dumpsys" && args[2] === "power" ? "mWakefulness=Dreaming" : "";
+      },
+      async () => {},
+    ).then(
+      () => undefined,
+      error => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("Android display did not wake (observed Dreaming)");
+    expect(calls.some(args => args[1] === "am" && args[2] === "start")).toBe(false);
   });
 });
 

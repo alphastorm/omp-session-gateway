@@ -12,7 +12,7 @@
  *
  *  - Chrome must be awake. A cached Chrome (`curProcState=19 CACHED_EMPTY`) still accepts TCP on
  *    `@chrome_devtools_remote` and then never replies, which reads exactly like a protocol bug.
- *    {@link wakeChrome} starts it before any socket is opened.
+ *    {@link wakeAndroidChrome} wakes the display and starts Chrome before opening any socket.
  *  - `Target.createTarget`'s `url` is ignored on Android. The tab opens blank regardless, so the
  *    caller must `Page.navigate` explicitly.
  */
@@ -114,6 +114,27 @@ export function parseAndroidPackageVersion(dumpsys: string): string {
   return version;
 }
 
+export type AndroidAdbCommand = (...args: string[]) => Promise<string>;
+
+function parseWakefulness(output: string): string {
+  return output.match(/mWakefulness=(\w+)/u)?.[1] ?? "unknown";
+}
+
+/** Wakes and unlocks the display before an Activity launch that may otherwise wait forever. */
+export async function wakeAndroidDisplay(
+  command: AndroidAdbCommand,
+  pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+): Promise<string> {
+  let wakefulness = "unknown";
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await command("shell", "input", "keyevent", "224");
+    await command("shell", "input", "keyevent", "82");
+    await pause(1_200);
+    wakefulness = parseWakefulness(await command("shell", "dumpsys", "power"));
+    if (wakefulness === "Awake") return wakefulness;
+  }
+  return wakefulness;
+}
 export function assertBrowserVersionMatchesPackage(
   packageName: string,
   androidPackageVersion: string,
@@ -185,11 +206,17 @@ export async function requireSingleDevice(): Promise<string> {
  * Starts Chrome and waits for it to leave a cached process state. A cached Chrome accepts the
  * DevTools socket and never answers, so skipping this turns every later call into a timeout.
  */
-async function wakeChrome(serial: string, target: AndroidBrowserTarget): Promise<void> {
-  await adb(serial, "shell", "am", "start", "-W", "-n", target.activity, "-a", "android.intent.action.MAIN");
+export async function wakeAndroidChrome(
+  serial: string,
+  target: AndroidBrowserTarget,
+  command: AndroidAdbCommand = (...args) => adb(serial, ...args),
+  pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+): Promise<void> {
+  const wakefulness = await wakeAndroidDisplay(command, pause);
+  if (wakefulness !== "Awake") throw new Error(`Android display did not wake (observed ${wakefulness})`);
+  await command("shell", "am", "start", "-W", "-n", target.activity, "-a", "android.intent.action.MAIN");
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const state = await adb(
-      serial,
+    const state = await command(
       "shell",
       "dumpsys",
       "activity",
@@ -199,7 +226,7 @@ async function wakeChrome(serial: string, target: AndroidBrowserTarget): Promise
       target.packageName,
     ).catch(() => "");
     if (!state.includes("CACHED_EMPTY")) return;
-    await Bun.sleep(250);
+    await pause(250);
   }
 }
 
@@ -215,7 +242,7 @@ export async function withAndroidChrome<T>(
   const target = resolveAndroidBrowserTarget();
   const serial = await requireSingleDevice();
   const packageVersion = await androidPackageVersion(serial, target.packageName);
-  await wakeChrome(serial, target);
+  await wakeAndroidChrome(serial, target);
   await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
 
   let webSocketDebuggerUrl: string;
