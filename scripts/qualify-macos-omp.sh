@@ -12,6 +12,7 @@ bun_version="${OMP_PIN_BUN_VERSION:-}"
 native_tarball_sha256="${OMP_PIN_NATIVE_TARBALL_SHA256:-}"
 native_binary_sha256="${OMP_PIN_NATIVE_BINARY_SHA256:-}"
 session_label="${OMP_QUAL_SESSION_LABEL:-omp-stable-pixel-qualification}"
+bun_executable="${OMP_PIN_BUN_EXECUTABLE:-${HOME:-}/.bun/bin/bun}"
 
 fail() { printf 'FAILED: %s\n' "$*" >&2; exit 1; }
 require_value() { [ -n "$2" ] || fail "$1 is required"; }
@@ -33,8 +34,8 @@ omp_root="$HOME/src/oh-my-pi-gateway-v${omp_version}"
 version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${omp_version}-${patched_tree:0:8}"
 binary="$version_dir/omp"
 symlink="$HOME/.local/bin/omp-gateway-patched"
-fixture="$HOME/omp-native-fixture"
-build_log="/tmp/omp-stable-patched-build.log"
+fixture="${OMP_QUAL_NATIVE_FIXTURE:-$HOME/omp-native-fixture}"
+build_log="${OMP_QUAL_BUILD_LOG:-/tmp/omp-stable-patched-build.log}"
 qualification_cwd="$HOME/$session_label"
 patch="$gateway_root/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
 native_path="$omp_root/packages/natives/native/pi_natives.darwin-arm64.node"
@@ -43,10 +44,11 @@ native_tarball_url="https://registry.npmjs.org/@oh-my-pi/pi-natives-darwin-arm64
 validate_host() {
   [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] || fail "patched OMP stable qualification requires Darwin-arm64"
   local tool
-  for tool in bun git python3 curl shasum tar; do
+  for tool in git python3 curl shasum tar; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is missing"
   done
-  [ "$(bun --version)" = "$bun_version" ] || fail "bun version does not match the qualification pin"
+  [ -x "$bun_executable" ] || fail "pinned bun executable is missing"
+  [ "$("$bun_executable" --version)" = "$bun_version" ] || fail "bun version does not match the qualification pin"
   [ -f "$patch" ] || fail "candidate artifact is missing the OMP patch"
 }
 
@@ -75,7 +77,7 @@ prepare_source() {
   [ "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$patched_tree" ] || fail "patched tree does not match the pin"
   (
     cd "$omp_root"
-    bun install --frozen-lockfile >"$build_log" 2>&1
+    "$bun_executable" install --frozen-lockfile >"$build_log" 2>&1
   )
   rm -rf "$fixture"
   mkdir -p "$fixture/unpack"
@@ -94,9 +96,9 @@ build() {
   validate_host
   prepare_source
   : >"$build_log"
-  (cd "$omp_root" && bun install --frozen-lockfile) >>"$build_log" 2>&1 || { tail -100 "$build_log" >&2; fail "bun install failed"; }
+  (cd "$omp_root" && "$bun_executable" install --frozen-lockfile) >>"$build_log" 2>&1 || { tail -100 "$build_log" >&2; fail "bun install failed"; }
   set +e
-  python3 - "$HOME/.bun/bin/bun" "$omp_root" "$build_log" <<'PY'
+  python3 - "$bun_executable" "$omp_root" "$build_log" <<'PY'
 import subprocess
 import sys
 bun, root, log = sys.argv[1:]
@@ -116,7 +118,7 @@ PY
     tail -100 "$build_log" >&2
     exit "$check_exit"
   fi
-  (cd "$omp_root" && bun --cwd=packages/coding-agent run build) >>"$build_log" 2>&1
+  (cd "$omp_root" && "$bun_executable" --cwd=packages/coding-agent run build) >>"$build_log" 2>&1
   [ "$("$omp_root/packages/coding-agent/dist/omp" --version)" = "omp/$omp_version" ] || fail "built OMP version is wrong"
 
   mkdir -p "$version_dir" "$HOME/.local/bin"

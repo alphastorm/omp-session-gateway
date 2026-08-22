@@ -17,6 +17,7 @@
  * Usage: `bun scripts/android-leak-sweep.ts <origin> <session-cwd-label>`
  */
 import { withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
+import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 
 /** Sinks the sweep inspects. The control must be able to plant and detect every one. */
 const SINKS = [
@@ -225,10 +226,22 @@ function extract<T>(evaluation: Record<string, unknown>): T {
 
 const origin = process.argv[2];
 const label = process.argv[3];
-if (!origin || !label) {
-  console.error("usage: bun scripts/android-leak-sweep.ts <origin> <session-cwd-label>");
+const allowDisposableTarget = process.argv[4] === "--disposable-target";
+if (!origin || !label || process.argv.length > 5 || (process.argv[4] !== undefined && !allowDisposableTarget)) {
+  console.error("usage: bun scripts/android-leak-sweep.ts <origin> <session-cwd-label> [--disposable-target]");
   process.exit(2);
 }
+if (isProtectedLabel(label)) throw new Error("refusing protected or soak target label");
+const targetResponse = await fetch(origin + "/api/v1/sessions", { cache: "no-store", credentials: "omit" });
+if (!targetResponse.ok) throw new Error("session-list preflight failed with HTTP " + targetResponse.status);
+const targetPayload = (await targetResponse.json()) as {
+  sessions?: Array<{ cwdLabel: string; startedAt?: string; canView: boolean }>;
+};
+const targetMatches = (targetPayload.sessions ?? []).filter(session => session.cwdLabel === label);
+if (targetMatches.length !== 1) throw new Error("expected exactly one disposable target; found " + targetMatches.length);
+if (targetMatches[0]!.canView !== true) throw new Error("disposable target lacks View capability");
+const eligibility = targetEligibility(label, targetMatches[0]!.startedAt, Date.now(), allowDisposableTarget);
+if (!eligibility.eligible) throw new Error(eligibility.reason ?? "disposable target is ineligible");
 
 const { control, sweep, serial, browser } = await withAndroidChrome(async driver => {
   const browserVersion = await driver.version();

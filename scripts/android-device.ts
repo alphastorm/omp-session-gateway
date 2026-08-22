@@ -147,7 +147,7 @@ export function captureAndroidDirectorySurface(
         .map(entry => entry.name)
         .find(name => /\/assets\/app[.][0-9a-f]+[.]js$/u.test(name)) ?? null,
     pageTimeOrigin: pagePerformance.timeOrigin,
-    directoryReady: pageDocument.visibilityState === "visible" && statusHidden && sessionCount === 1,
+    directoryReady: pageDocument.visibilityState === "visible" && statusHidden && sessionCount >= 1,
     outageVisible:
       !statusHidden && ["offline", "tailnet", "desktop", "gateway"].includes(statusKind ?? ""),
   };

@@ -19,6 +19,7 @@
     "check:identifier-leaks": "bun scripts/check-identifier-leaks.ts",
     "release:build": "bun scripts/build-release.ts",
     "qualify:stable": "bun scripts/stable-qualification.ts",
+    "smoke:release": "bun scripts/post-release-smoke.ts",
     "qualify:relay-soak": "bun scripts/relay-soak.ts",
     "test:browser": "bun run build && bun scripts/test-browser.ts",
     "media:capture": "bun run build && bun scripts/media/capture-readme-media.ts",
