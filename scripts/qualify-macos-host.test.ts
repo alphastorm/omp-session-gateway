@@ -112,6 +112,45 @@ test.skipIf(!POSIX)("bundle scan keeps publisher token bytes out of subprocess a
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+test.skipIf(!POSIX)("Mac doctor bundle helper passes an explicit output option", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-doctor-bundle-"));
+  const fakeBin = join(temporaryRoot, "bin");
+  const fakeBun = join(fakeBin, "bun");
+  const argvPath = join(temporaryRoot, "bun-argv");
+  const bundlePath = join(temporaryRoot, "doctor.tar");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(
+    fakeBun,
+    `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" >"$ARGV_CAPTURE"
+[ "$1" = synthetic-cli ]
+[ "$2" = doctor ]
+[ "$3" = --bundle ]
+[ "$4" = --output ]
+printf synthetic-bundle >"$5"
+`,
+  );
+  await chmod(fakeBun, 0o755);
+  try {
+    const result = await runHarness('source "$1"; create_doctor_bundle "$2" "$3"', ["synthetic-cli", bundlePath], {
+      ...environment("a".repeat(64)),
+      ARGV_CAPTURE: argvPath,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    });
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect((await readFile(argvPath, "utf8")).trim().split("\n")).toEqual([
+      "synthetic-cli",
+      "doctor",
+      "--bundle",
+      "--output",
+      bundlePath,
+    ]);
+    expect(await Bun.file(bundlePath).text()).toBe("synthetic-bundle");
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
 
 test.skipIf(!POSIX)("Mac OMP cleanup forwards and removes a custom safe session directory", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-custom-session-"));

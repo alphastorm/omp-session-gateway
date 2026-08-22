@@ -138,13 +138,19 @@ print(haystack.count(needle) if needle else 0)
 PY
 }
 
+create_doctor_bundle() {
+  local cli="$1" destination="$2"
+  rm -f "$destination"
+  bun "$cli" doctor --bundle --output "$destination" >/dev/null 2>&1
+  [ -s "$destination" ]
+}
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes)
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
 # Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
 # and stay as unexported variables in the one static remote shell that evaluates the supplied block.
 remote() {
   local script bootstrap helpers
-  helpers="$(declare -f count_file_occurrences count_environment_occurrences)"
+  helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
   script="${helpers}"$'\n'"$(cat)"
   printf -v bootstrap 'bash -c %q' \
     'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_PATCHED_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
@@ -327,7 +333,7 @@ digest_after="\$(shasum -a 256 ~/.config/omp-session-gateway/publisher-token | c
 show "token rotation pid" "\$before -> \$after"
 show "token digest" "\$digest_before -> \$digest_after"
 
-bun "\$CLI" doctor --bundle /tmp/omp-bundle.tar >/dev/null 2>&1
+create_doctor_bundle "\$CLI" /tmp/omp-bundle.tar || exit 1
 token_count="\$(count_file_occurrences ~/.config/omp-session-gateway/publisher-token /tmp/omp-bundle.tar)"
 login_count="\$(count_environment_occurrences "\$LOGIN" /tmp/omp-bundle.tar)"
 show "token bytes in bundle" "\$token_count"
