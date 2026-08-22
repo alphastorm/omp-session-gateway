@@ -26,6 +26,13 @@ PWA supplies bounded retries and an in-shell force-stop/reopen panel only after 
 failure, without a third-party probe. The current beta evidence below remains authoritative until
 the candidate results and machine gate are updated together.
 
+**GitHub publication rehearsal:** gh 2.97.0 exercised the exact six-asset draft and publish flags in
+private repository alphastorm/chariot-shadow-workspace on 2026-08-22. The prerelease stayed
+prerelease/not-Latest before and after publication; the stable-shaped release stayed non-prerelease,
+became Latest only on publication, and resolved through the latest-release API. Both synthetic
+releases and tags were removed. Named evidence:
+~/.local/share/omp-session-gateway/test/v0.1.0/stable-release-rehearsal.json.
+
 ### Beta advertised combinations
 
 | role | exact candidate combination | evidence |

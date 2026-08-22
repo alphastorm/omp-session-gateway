@@ -495,6 +495,8 @@ The stable workflow must also refuse the bare tag until STABLE_RELEASE.lock.json
 passed candidate matrix and runtime-byte comparison to the exact release commit. It must require a
 GitHub-verified signed annotated tag and revalidate that tag's target before draft creation and
 public promotion.
+The non-prerelease and Latest flags must be rehearsed against GitHub in a private repository before
+the real tag; syntax-only or mock evidence is insufficient for that external state transition.
 
 Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
 case and not as a reason to add another transport workaround. After 45 uninterrupted seconds of

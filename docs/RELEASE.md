@@ -49,6 +49,11 @@ and public promotion. Issue #65 remains a browser-process environment limitation
 uninterrupted visible failure seconds, the loaded shell offers retry and force-stop/reopen help
 without a third-party probe or a claim that JavaScript repaired Chrome.
 
+Before the real stable tag, rehearse the exact gh create/edit flags in a private repository. Require
+six assets in the draft and published states, prerelease/not-Latest for the prerelease control,
+non-prerelease/Latest for the stable case, a matching latest-release API result, and complete
+release/tag cleanup. Record the gh version and resulting JSON in the release ledger.
+
 The protected 28,800-second default-relay result may transfer only while relay host/client,
 collab-web, and wire bytes remain identical. A bounded real relay smoke still runs for the exact
 candidate. Windows and every other excluded mode are not stable blockers because they are not

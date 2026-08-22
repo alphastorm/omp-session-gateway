@@ -13,6 +13,9 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   prerelease, and unknown or cross-version shapes fail before artifact creation.
 - Require a commit-bound stable qualification manifest plus a GitHub-verified signed annotated tag
   before stable publication; recheck the tag target before draft creation and public promotion.
+- Rehearse the exact six-asset GitHub draft/publish commands with gh 2.97.0 in a private repository:
+  prerelease remained not-Latest, stable became non-prerelease Latest only when published, the
+  latest-release API resolved to stable, and all synthetic releases/tags were removed.
 - Make physical Android acceptance browser-selectable and record the exact package, installed
   package version, Browser.getVersion revision, activity, and DevTools socket in evidence.
 - Add prolonged-outage recovery guidance in a help panel carried by the loaded PWA shell. The PWA
