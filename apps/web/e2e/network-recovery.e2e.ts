@@ -132,3 +132,33 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await fixture.stop();
   }
 });
+
+test("a prolonged visible outage offers local browser recovery help", async ({ page }) => {
+  const active = session();
+  const fixture = await startDashboardFixture([active]);
+
+  try {
+    await page.clock.install();
+    await page.goto(fixture.origin);
+    await expect(page.locator(".working-row")).toHaveCount(1);
+    await page.route("**/api/v1/sessions", route => route.abort("connectionrefused"));
+    expect(fixture.disconnectEvents()).toBeGreaterThan(0);
+    await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "tailnet", { timeout: 6_000 });
+    await expect(page.locator("#status-banner .status-guidance")).toHaveCount(0);
+
+    await page.clock.fastForward(45_100);
+    await expect(page.locator("#status-banner .status-guidance")).toContainText(
+      "Android Chrome may be stuck after a network change",
+    );
+    const troubleshooting = page.getByRole("link", { name: "Troubleshooting" });
+    await expect(troubleshooting).toHaveAttribute("href", "/help/network-recovery/");
+    await troubleshooting.click();
+
+    await expect(page).toHaveURL(fixture.origin + "/help/network-recovery/");
+    await expect(page.getByRole("heading", { name: "Still unreachable?" })).toBeVisible();
+    await expect(page.getByText("Force stop", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Return to Sessions" })).toHaveAttribute("href", "/");
+  } finally {
+    await fixture.stop();
+  }
+});

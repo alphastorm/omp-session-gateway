@@ -473,3 +473,39 @@ auto-published View/Control, validated no-store launches, and revoked on process
 exact alpha/beta builds also passed symlink/version/config reversal. This proves the documented
 manual primitive; it does not create a coupled gateway/OMP updater or weaken the paired-packaging
 deferral.
+
+## ADR-025 — Publish stable 0.1 against a narrow matrix and bound browser-process failure
+
+**Status:** Accepted
+
+**Context:** GitHub excludes every prerelease from its Latest release surface. The qualified beta
+already proves the gateway's core security, host, lifecycle, View/Control, and physical-Android
+paths for two exact hosts and one exact client, but the release workflow intentionally rejects a
+bare tag. Issue #65 separately proves a failure below the PWA: Android retained a healthy default
+route while Chrome failed both the gateway and unrelated public traffic, stopped answering on its
+DevTools socket, and recovered only after its process was force-stopped. A newly landed Chromium
+NetworkChangeNotifier self-heal is relevant but not yet proven to resolve that failure.
+
+**Decision:** Add one fail-closed stable channel selected only by the exact bare v0.1.0 tag. The
+stable claim remains limited to the Debian, macOS, physical Pixel, TUN-mode Tailscale Serve, and
+exact patched-OMP combinations recorded at the tag's source commit. Every pre-alpha, alpha, beta,
+provenance, unknown, and cross-version tag stays a prerelease or fails before artifact creation.
+Publish the bare tag as GitHub Latest only after a signed candidate repeats the applicable matrix.
+
+Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
+case and not as a reason to add another transport workaround. After 45 seconds of repeated failure
+while visibly foregrounded, the PWA must offer a clean retry and same-origin force-stop/reopen
+guidance; it must remove that guidance immediately after recovery and must make no third-party
+connectivity probe. The physical-device driver must allow package, activity, and DevTools-socket
+selection independently and record the exact Android package and browser revision. Canary evidence
+may narrow or retire the limitation later; v0.1.0 does not claim the upstream fix is proven.
+
+ADR-024's exact patched-OMP prerequisite and paired-packaging deferral extend to this narrow 0.1
+release. Windows, background Push qualification, Portal Tunnel, userspace-networking Tailscale,
+and self-hosted/proxied relays remain outside the stable core support claim.
+
+**Consequences:** stable means supported inside one exact, evidence-backed matrix; it does not
+mean universal platform support or that page JavaScript can repair a failed browser process. The
+project can publish an honest GitHub Latest release without waiting for a speculative Chromium
+backport, while every correction still requires a new immutable tag. Operators retain a manual
+patched-OMP prerequisite until upstreaming or paired packaging is separately accepted.

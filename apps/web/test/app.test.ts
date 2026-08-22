@@ -745,6 +745,42 @@ describe("dashboard attention and notifications", () => {
     );
     expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
   });
+
+  test("offers browser recovery guidance only after a prolonged visible outage", async () => {
+    const base = session("prolonged-outage-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "prolonged-outage",
+      initialSessions: [base],
+    });
+
+    harness.failNextListRequest();
+    harness.disconnectEvents();
+    harness.runTimers();
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+
+    harness.setVisibility("hidden");
+    harness.advanceClock(45_000);
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+
+    harness.failNextListRequest();
+    harness.setVisibility("visible");
+    await settleUntil(() => harness.elements.statusBanner.querySelector(".status-guidance") !== null);
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")?.textContent).toContain(
+      "Android Chrome may be stuck after a network change",
+    );
+    const troubleshooting = harness.elements.statusBanner
+      .querySelectorAll(".status-action")
+      .find(element => element.tagName === "a");
+    expect(troubleshooting?.textContent).toBe("Troubleshooting");
+    expect(troubleshooting?.getAttribute("href")).toBe("/help/network-recovery/");
+
+    harness.setList(2, [base]);
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.hidden);
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+  });
   test("times out a hung snapshot and keeps retrying automatically", async () => {
     const base = session("snapshot-timeout-001");
     const harness = await bootApp({

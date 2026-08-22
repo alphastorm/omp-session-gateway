@@ -1,57 +1,57 @@
 # Release process
 
-## Pre-alpha, alpha, and beta artifacts
+## Pre-alpha, alpha, beta, and stable artifacts
 
-The repository can produce working Bun-runtime pre-alpha archives, advertised alpha releases, and
-advertised beta releases. `v0.1.0-beta.1` is the current qualified beta, promoted from exact signed
-candidate `v0.1.0-prealpha.20`; `v0.1.0-alpha.1` is its gateway rollback predecessor. Neither may
-be described as stable or production-qualified, and repository commits remain preferred outside
-the exact platform and Android combinations recorded in the release ledger.
+The repository can produce working Bun-runtime engineering candidates and advertised alpha, beta,
+and stable releases. v0.1.0-beta.1 remains the current qualified publication while the exact stable
+candidate is prepared. A bare v0.1.0 is the only stable tag shape and becomes GitHub Latest only
+after the release ledger records a GO decision for its signed predecessor.
 
-`beta` is a closed release channel, not a stability grade. A beta tag advertises the boundary the
-ledger already records at its source commit; the tag promotes nothing by itself, and the same
-prohibition carries over unchanged: never describe a beta build as stable or production-qualified.
-A beta install is supported only against the exact patched OMP baseline pinned in
-`UPSTREAM.lock.json` — stock OMP is not sufficient at any version, and paired OMP packaging is not
-provided.
-The supported beta procedure is the
-[versioned `omp-gateway-patched` route](../patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos);
-upstreaming and paired packaging are not release gates.
+Stable 0.1 is a bounded support claim, not an expansion to platform families. It covers only the
+hosts, Android client, TUN-mode Tailscale Serve path, and exact patched OMP baseline recorded in
+COMPATIBILITY.md at the release commit. Windows, background Push qualification, Portal Tunnel,
+userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every unnamed combination
+remain unsupported.
 
-Gateway rollback does not roll OMP back. Stop every participating OMP process, restore the exact
-alpha v17.3.8 patched binary/symlink and its source/tree/version/config assertions, then restore the
-alpha.1 gateway archive before restarting sessions. Gateway rollback-by-reinstall passed on Debian
-and macOS; the manual OMP symlink/config reversal passed in isolation. No coupled or paired
-gateway/OMP rollback command is implemented or claimed.
+The supported OMP procedure is the
+[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
+Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Every participating OMP
+process must use the exact verified binary; the gateway release alone cannot add the missing stock
+OMP controller/publication seam.
 
-## Alpha and beta release gates
+Gateway rollback does not implicitly switch OMP. A stable-to-beta rollback retains the same exact
+v17.4.1 patched OMP prerequisite; use managed gateway rollback when the beta archive remains in
+installation history, otherwise reinstall v0.1.0-beta.1. Any change to the active OMP binary or
+symlink remains the separate documented manual operation.
 
-The current release decision, evidence, and open gates are maintained in
-[`RELEASE_STATUS.md`](RELEASE_STATUS.md). Exact OMP, protocol, platform, browser, and deployment
-claims are maintained separately in [`COMPATIBILITY.md`](COMPATIBILITY.md). A generated archive
-does not change either status.
+## Release gates
 
-Before publishing an alpha binary:
+The current decision and exact evidence live in RELEASE_STATUS.md; compatibility claims live in
+COMPATIBILITY.md. Generated or signed artifacts do not promote themselves.
 
-- private vulnerability reporting is enabled;
-- `UPSTREAM.lock.json` contains an exact tested OMP commit;
-- all automated unit/integration/E2E/security tests pass;
-- advertised OS installers have been qualified;
-- capability-leak scans cover logs, files, browser stores, caches, history, diagnostics, and CI artifacts;
-- the default listener is proven loopback-only;
-- Tailscale identity and Origin protections have negative tests;
-- all vendored collab-web assets have provenance and license notices;
-- configuration and upgrade behavior are documented;
-- known limitations are listed prominently.
+Every advertised release requires:
 
-Before publishing a beta binary, every gate above still applies, and additionally:
+- private vulnerability reporting and repository security controls enabled;
+- an exact OMP commit, reviewed patch, collab-web provenance, and license inventory;
+- all automated unit, integration, browser, type, build, and secret/identifier-leak checks green;
+- advertised host installers qualified against the exact signed candidate;
+- loopback-only exposure plus positive and negative Tailscale identity/Origin evidence;
+- exact physical-client View/Control, stale-generation, lifecycle, and forbidden-sink evidence;
+- documented configuration, upgrade, rollback, cleanup, compatibility, and limitations; and
+- complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
+  verification.
 
-- the advertised host and client combinations in [`COMPATIBILITY.md`](COMPATIBILITY.md) are
-  unchanged, or re-qualified against the exact bytes being tagged;
-- the exact tested OMP commit and the repository patch are recorded and stated in the release notes
-  as a required installation precondition; and
-- Windows remains unadvertised, and the Android network-change limitation and the unsupported
-  self-hosted or proxied relay modes remain disclosed.
+Stable v0.1.0 additionally requires that the exact Debian, retained Mac14,3, and physical Pixel
+candidate lanes pass, that prerelease tags remain excluded from GitHub Latest, and that final
+runtime bytes are compared with the candidate. Issue #65 is accepted only as a browser-process
+environment limitation: the PWA must keep bounded retries, identify the unreachable path, show
+same-origin force-stop/reopen guidance after a prolonged visible failure, make no third-party
+probe, and never claim the browser process recovered when it did not.
+
+The protected 28,800-second default-relay result may transfer only while relay host/client,
+collab-web, and wire bytes remain identical. A bounded real relay smoke still runs for the exact
+candidate. Windows and every other excluded mode are not stable blockers because they are not
+advertised; they must remain explicit exclusions.
 
 ## Default-relay soak qualification
 
@@ -75,21 +75,21 @@ required before claiming bounded memory growth.
 
 ## Build and keyless provenance
 
-The release workflow accepts only tags matching the current `package.json` version:
+The release workflow accepts only tags matching the current package.json version:
 
-- `v<version>-prealpha.<n>` for an internal pre-alpha artifact;
-- `v<version>-alpha[.<n>]` for the advertised alpha shape;
-- `v<version>-beta[.<n>]` for the advertised beta shape; and
-- `provenance-test-v<version>.<n>` for a provenance exercise.
-- `<n>` must be a positive decimal integer.
+- v<version>-prealpha.<n> for an internal engineering artifact;
+- v<version>-alpha[.<n>] for the advertised alpha shape;
+- v<version>-beta[.<n>] for the advertised beta shape;
+- the exact bare v<version> for the stable GitHub Latest shape; and
+- provenance-test-v<version>.<n> for a provenance exercise.
 
-`release-candidate` and stable tags are intentionally rejected while the platform, Android, and
-security gates remain open. The tagged commit must be reachable from `main`.
+The integer n must be positive. Release-candidate, rc, stable-suffixed, zero-indexed, cross-version,
+and all unknown shapes fail before artifact creation. The tagged commit must be reachable from main.
 
-The validated tag shape is also the only thing that selects the qualification recorded in the
-archive's `release-info.json`: `-beta[.<n>]` exports `OMP_RELEASE_CHANNEL=beta`, `-alpha[.<n>]`
-exports `alpha`, and `-prealpha.<n>` and `provenance-test-v…` stay `pre-alpha`. A tag can select a
-recorded claim but never write one, and any channel outside that closed set fails the build.
+scripts/release-policy.ts is the sole tag classifier. It maps only the bare version to stable,
+non-prerelease, and Latest; alpha, beta, pre-alpha, and provenance shapes remain prereleases and
+not-Latest. The validated channel selects release-info.json qualification; it cannot author or
+widen the claim, and every unknown OMP_RELEASE_CHANNEL fails the build.
 
 `.github/workflows/release.yml` runs `bun run check`, builds the deterministic archive,
 checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance systems:
@@ -99,7 +99,7 @@ checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance
 - Cosign signs all three files keylessly and writes a Sigstore bundle beside each one; and
 - no repository signing key or long-lived signing secret exists.
 
-The workflow creates a draft, uploads the complete asset set, and publishes exactly once:
+The workflow creates one complete draft, uploads every asset, then publishes once. Stable is published as a non-prerelease and explicitly marked Latest; every other channel is published as a prerelease with Latest disabled:
 
 - `omp-session-gateway-<version>-bun.tar`;
 - `omp-session-gateway-<version>.spdx.json`;
@@ -123,11 +123,10 @@ the release as final at publication; publish a new tag to correct it.
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
 emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
 inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
-For a byte-exact rebuild of an alpha or beta tag, set `OMP_RELEASE_CHANNEL` to that tag's channel;
-valid values are `pre-alpha` (default), `alpha`, and `beta`, and any other value fails the build.
-The channel moves `release-info.json` and nothing else: every other archive member, and the SBOM,
-stay byte-identical across channels.
-This runtime-neutral Bun archive is not a substitute for qualified platform installers.
+For a byte-exact rebuild of an advertised tag, set OMP_RELEASE_CHANNEL to that tag's channel. Valid
+values are pre-alpha (default), alpha, beta, and stable; every other value fails. The channel moves
+release-info.json and nothing else: every other archive member and the SBOM stay byte-identical
+across channels. This runtime-neutral Bun archive is not a substitute for qualified host operation.
 
 Do not upload source maps, logs, test recordings, or diagnostics that might contain
 fixture capabilities unless the leak scanner has verified them.

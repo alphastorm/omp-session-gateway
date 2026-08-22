@@ -16,23 +16,57 @@
  *  - `Target.createTarget`'s `url` is ignored on Android. The tab opens blank regardless, so the
  *    caller must `Page.navigate` explicitly.
  */
-const DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
-const CHROME_PACKAGE = "com.android.chrome";
-const CHROME_ACTIVITY = `${CHROME_PACKAGE}/com.google.android.apps.chrome.Main`;
+const DEFAULT_BROWSER_PACKAGE = "com.android.chrome";
+const DEFAULT_DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
 const DEFAULT_FORWARD_PORT = 9222;
 const CALL_TIMEOUT_MS = 25_000;
 const OPEN_TIMEOUT_MS = 10_000;
 const LOAD_POLL_MS = 500;
 const LOAD_ATTEMPTS = 60;
 
+export interface AndroidBrowserTarget {
+  readonly packageName: string;
+  readonly activity: string;
+  readonly devtoolsSocket: string;
+}
+
+function environmentOverride(
+  environment: Readonly<Record<string, string | undefined>>,
+  name: string,
+): string | undefined {
+  const value = environment[name];
+  if (value === undefined) return undefined;
+  if (value.trim().length === 0) throw new Error(name + " must not be empty");
+  return value.trim();
+}
+
+/** Browser process selected for physical-device evidence. Every endpoint is independently overrideable. */
+export function resolveAndroidBrowserTarget(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): AndroidBrowserTarget {
+  const packageName = environmentOverride(environment, "OMP_ANDROID_BROWSER_PACKAGE") ?? DEFAULT_BROWSER_PACKAGE;
+  return {
+    packageName,
+    activity:
+      environmentOverride(environment, "OMP_ANDROID_BROWSER_ACTIVITY") ??
+      packageName + "/com.google.android.apps.chrome.Main",
+    devtoolsSocket:
+      environmentOverride(environment, "OMP_ANDROID_DEVTOOLS_SOCKET") ?? DEFAULT_DEVTOOLS_SOCKET,
+  };
+}
+
 export interface AndroidChromeDriver {
   /** Serial of the attached device, for evidence records. */
   readonly serial: string;
-  /** `Browser.getVersion`, which carries the exact Chrome build. */
+  readonly packageName: string;
+  readonly androidPackageVersion: string;
+  readonly browserActivity: string;
+  readonly devtoolsSocket: string;
+  /** Browser.getVersion, which carries the exact Chrome build and Chromium revision. */
   version(): Promise<Record<string, unknown>>;
   /** Opens a tab this process owns, so a run never disturbs the user's existing tabs. */
   openTab(): Promise<void>;
-  /** Navigates the owned tab and waits for `document.readyState === "complete"`. */
+  /** Navigates the owned tab and waits for document.readyState to become complete. */
   navigate(url: string): Promise<string>;
   /** Evaluates an expression in the owned tab and returns its value. */
   evaluate<T>(expression: string): Promise<T>;
@@ -49,6 +83,18 @@ async function adb(serial: string | undefined, ...args: readonly string[]): Prom
   ]);
   if ((await subprocess.exited) !== 0) throw new Error(`${argv.join(" ")} failed: ${stderr.trim()}`);
   return stdout;
+}
+
+export function parseAndroidPackageVersion(dumpsys: string): string {
+  const version = dumpsys.match(/^\s*versionName=(.+)$/mu)?.[1]?.trim();
+  if (version === undefined || version.length === 0) {
+    throw new Error("Android package metadata is missing versionName");
+  }
+  return version;
+}
+
+async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
+  return parseAndroidPackageVersion(await adb(serial, "shell", "dumpsys", "package", packageName));
 }
 
 /** The single attached device, or a clear error naming what was found instead. */
@@ -70,12 +116,19 @@ export async function requireSingleDevice(): Promise<string> {
  * Starts Chrome and waits for it to leave a cached process state. A cached Chrome accepts the
  * DevTools socket and never answers, so skipping this turns every later call into a timeout.
  */
-async function wakeChrome(serial: string): Promise<void> {
-  await adb(serial, "shell", "am", "start", "-W", "-n", CHROME_ACTIVITY, "-a", "android.intent.action.MAIN");
+async function wakeChrome(serial: string, target: AndroidBrowserTarget): Promise<void> {
+  await adb(serial, "shell", "am", "start", "-W", "-n", target.activity, "-a", "android.intent.action.MAIN");
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const state = await adb(serial, "shell", "dumpsys", "activity", "processes", "|", "grep", CHROME_PACKAGE).catch(
-      () => "",
-    );
+    const state = await adb(
+      serial,
+      "shell",
+      "dumpsys",
+      "activity",
+      "processes",
+      "|",
+      "grep",
+      target.packageName,
+    ).catch(() => "");
     if (!state.includes("CACHED_EMPTY")) return;
     await Bun.sleep(250);
   }
@@ -90,9 +143,11 @@ export async function withAndroidChrome<T>(
   options: { readonly port?: number } = {},
 ): Promise<T> {
   const port = options.port ?? DEFAULT_FORWARD_PORT;
+  const target = resolveAndroidBrowserTarget();
   const serial = await requireSingleDevice();
-  await wakeChrome(serial);
-  await adb(serial, "forward", `tcp:${port}`, DEVTOOLS_SOCKET);
+  const packageVersion = await androidPackageVersion(serial, target.packageName);
+  await wakeChrome(serial, target);
+  await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
 
   const socket = new WebSocket(`ws://127.0.0.1:${port}/devtools/browser`);
   const pending = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: Error): void }>();
@@ -135,6 +190,10 @@ export async function withAndroidChrome<T>(
 
     const driver: AndroidChromeDriver = {
       serial,
+      packageName: target.packageName,
+      androidPackageVersion: packageVersion,
+      browserActivity: target.activity,
+      devtoolsSocket: target.devtoolsSocket,
       version: () => send("Browser.getVersion", {}, false),
       async openTab() {
         const created = await send("Target.createTarget", { url: "about:blank" }, false);
@@ -174,7 +233,7 @@ export async function withAndroidChrome<T>(
   }
 }
 
-/** Device and browser identity for an evidence record. */
+/** Device identity for an evidence record. */
 export async function deviceIdentity(serial: string): Promise<Record<string, string>> {
   const property = async (name: string) => (await adb(serial, "shell", "getprop", name)).trim();
   return {

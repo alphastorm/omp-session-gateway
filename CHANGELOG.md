@@ -6,6 +6,24 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Add a fail-closed stable release policy: only the exact bare v0.1.0 tag selects the stable
+  archive claim and GitHub Latest publication; every engineering, alpha, and beta tag remains a
+  prerelease, and unknown or cross-version shapes fail before artifact creation.
+- Make physical Android acceptance browser-selectable and record the exact package, installed
+  package version, Browser.getVersion revision, activity, and DevTools socket in evidence.
+- Add prolonged-outage recovery guidance and a same-origin troubleshooting page. The PWA keeps its
+  bounded retry path, suggests force-stop/reopen only after 45 seconds of visible failure, removes
+  the guidance on recovery, and makes no third-party probe.
+
+### Changed
+
+- Define stable 0.1 as support for the exact qualified Debian/macOS/Pixel/Tailscale/OMP matrix,
+  not unnamed platforms or a promise that JavaScript can repair Chrome's process-wide network
+  wedge. Windows, background Push qualification, Portal Tunnel, userspace networking, alternate
+  relays, and paired OMP packaging remain explicitly outside this release.
+
 ### Fixed
 
 - Make browser recovery failure tests wait for and assert an active replacement SSE stream before

@@ -39,6 +39,29 @@ lock-screen text, tap-to-Control, stale/resolved notifications, browser force-st
 revocation, lock/resume, battery policy, and Wi-Fi/cellular transitions. Desktop smoke evidence
 does not establish Android support.
 
+## Browser-process recovery and physical qualification
+
+Issue [#65](https://github.com/alphastorm/omp-session-gateway/issues/65) establishes a failure
+outside the PWA: Android retained a working default route while Chrome failed the gateway and an
+unrelated public origin, then stopped answering through its own DevTools socket. Force-stopping and
+reopening Chrome restored networking. The dashboard therefore keeps bounded retries and accurate
+path status, then shows same-origin recovery guidance after 45 seconds of repeated visible failure.
+It does not add a public connectivity probe, reload loop, cache-busting URL, or extra EventSource;
+none can restart Chrome's process-wide network service.
+
+The physical-device driver defaults to stable Chrome. Alternate channels are selected without code
+changes, and every override is independent:
+
+    OMP_ANDROID_BROWSER_PACKAGE=com.chrome.canary \
+    OMP_ANDROID_BROWSER_ACTIVITY=com.chrome.canary/com.google.android.apps.chrome.Main \
+    OMP_ANDROID_DEVTOOLS_SOCKET=localabstract:chrome_devtools_remote \
+    bun scripts/android-acceptance.ts "$ORIGIN" "$DISPOSABLE_SESSION_LABEL"
+
+Every acceptance record includes the package name, Android package version, complete
+Browser.getVersion result, launch activity, and DevTools socket. A Canary run is evidence only for
+that exact build. Do not claim #65 resolved until the Stable control reproduces and the selected
+Canary completes the separately recorded focused cycle gate without a wedge.
+
 ## Launch UX
 
 Recommended card behavior:

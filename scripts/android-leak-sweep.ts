@@ -230,15 +230,22 @@ if (!origin || !label) {
   process.exit(2);
 }
 
-const { control, sweep, serial, version } = await withAndroidChrome(async driver => {
+const { control, sweep, serial, browser } = await withAndroidChrome(async driver => {
+  const browserVersion = await driver.version();
   await driver.openTab();
-  await driver.navigate(`${origin}/`);
+  await driver.navigate(origin + "/");
   const settle = Promise.withResolvers<void>();
   setTimeout(settle.resolve, 6000);
   await settle.promise;
   return {
     serial: driver.serial,
-    version: (await driver.version()).product,
+    browser: {
+      packageName: driver.packageName,
+      androidPackageVersion: driver.androidPackageVersion,
+      browserVersion,
+      devtoolsSocket: driver.devtoolsSocket,
+      browserActivity: driver.browserActivity,
+    },
     control: await runControl(driver),
     sweep: await runSweep(driver, label),
   };
@@ -249,7 +256,8 @@ const residualPlants = Object.entries(control.residual).filter(
   ([key, value]) => (key === "cookie" && value === true) || (key === "hash" && value !== "") || (key !== "cookie" && key !== "hash" && key !== "caches" && value !== null),
 );
 
-console.log(`device        ${serial} (${version})`);
+console.log("device        " + serial);
+console.log("browser       " + JSON.stringify(browser));
 console.log(`origin        ${origin}`);
 console.log(`control       planted ${control.plantedUnique.length}, detected ${control.detectedUnique.length}`);
 if (missed.length > 0) {

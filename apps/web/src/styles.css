@@ -178,6 +178,7 @@ h1 {
 
 .status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.65rem;
   margin: 1rem 0 0;
@@ -224,6 +225,30 @@ h1 {
   background: none;
   font-weight: 600;
   cursor: pointer;
+}
+
+.status-actions {
+  display: flex;
+  width: 100%;
+  gap: 0.5rem;
+  padding-left: calc(7px + 0.65rem);
+}
+
+.status-actions .status-action {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.status-guidance {
+  margin-top: 0.35rem;
+  color: var(--body);
+}
+
+.status-link {
+  text-decoration: none;
 }
 
 .status::before {
@@ -1092,4 +1117,43 @@ body.collab-shell-active {
   .conn-chip {
     padding-inline: 0.35rem;
   }
+}
+
+.help-page {
+  width: min(100% - 2rem, 42rem);
+}
+
+.help-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+  color: var(--body);
+  line-height: 1.6;
+}
+
+.help-card h2 {
+  color: var(--ink);
+  font-size: 1.1rem;
+}
+
+.help-card ol {
+  padding-left: 1.35rem;
+}
+
+.help-card li + li {
+  margin-top: 0.55rem;
+}
+
+.help-return {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.45rem;
+  color: var(--control);
+  font-weight: 600;
 }

@@ -377,17 +377,13 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
 }
 
 /**
- * The qualification recorded in `release-info.json`, keyed by release channel.
+ * The qualification recorded in release-info.json, keyed by the validated release channel.
  *
- * `release.yml` validates the tag shape and exports exactly one of these keys as
- * `OMP_RELEASE_CHANNEL`; the claims themselves live here so that a tag can select a claim but
- * never write one. `pre-alpha` covers both the `-prealpha.<n>` candidates and the
- * `provenance-test-v…` exercises, which are unadvertised engineering artifacts. `alpha` names the
- * support boundary rather than restating it, because that boundary moves per tag and this file
- * does not. `beta` is that same shape of claim one step further along; it additionally names the
- * exact patched OMP baseline, because a beta install is supported only against those bytes. There
- * is deliberately no `release-candidate` or `stable` entry while those gates are open; adding one
- * requires accepting its tag shape in `release.yml` first.
+ * release.yml delegates exact tag classification to release-policy.ts and exports one of these
+ * keys as OMP_RELEASE_CHANNEL. A tag selects a claim but never writes one. Pre-alpha covers both
+ * engineering candidates and provenance exercises; alpha and beta retain their deliberately
+ * bounded claims; stable names the supported 0.1 matrix without widening it to stock OMP,
+ * unadvertised platforms, alternate relays, or browser-process failures outside the PWA.
  */
 export const RELEASE_QUALIFICATIONS = {
   "pre-alpha": "pre-alpha; cross-OS and real Android acceptance not yet completed",
@@ -395,6 +391,8 @@ export const RELEASE_QUALIFICATIONS = {
     "qualified alpha; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit; not beta, stable, or production-qualified",
   beta:
     "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
+  stable:
+    "qualified stable 0.1; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;

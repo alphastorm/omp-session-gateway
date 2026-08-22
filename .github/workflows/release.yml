@@ -3,6 +3,7 @@ name: Keyless release
 on:
   push:
     tags:
+      - "v*.*.*"
       - "v*-prealpha.*"
       - "v*-alpha"
       - "v*-alpha.*"
@@ -41,43 +42,19 @@ jobs:
         run: |
           set -euo pipefail
           version="$(bun -e 'process.stdout.write((await Bun.file("package.json").json()).version)')"
-          escaped_version="${version//./\\.}"
-          # Four tag shapes, deliberately narrow. `-prealpha.<n>` and `provenance-test-v…` are
-          # unadvertised engineering artifacts; `-alpha` is the first advertised shape and `-beta` the
-          # second, and each is accepted only because both host lanes and the client have evidence
-          # against a candidate built from this code. Anything else — `-rc`, a bare `v<version>`, or a
-          # shape naming a different version — is refused rather than guessed at.
-          allowed="^(v${escaped_version}-prealpha\.[1-9][0-9]*|v${escaped_version}-alpha(\.[1-9][0-9]*)?|v${escaped_version}-beta(\.[1-9][0-9]*)?|provenance-test-v${escaped_version}\.[1-9][0-9]*)$"
-          if [[ ! "$GITHUB_REF_NAME" =~ $allowed ]]; then
-            echo "Tag must be v${version}-prealpha.<n>, v${version}-alpha[.<n>], v${version}-beta[.<n>], or provenance-test-v${version}.<n> (n >= 1)." >&2
-            exit 1
-          fi
+          bun scripts/release-policy.ts "$GITHUB_REF_NAME" "$version" >> "$GITHUB_ENV"
           if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
             echo "Tagged commit must be reachable from origin/main." >&2
             exit 1
           fi
-          # The validated tag shape is the only thing that may promote an archive's recorded
-          # qualification. `-alpha[.<n>]` and `-beta[.<n>]` are the advertised shapes; `-prealpha.<n>`
-          # and `provenance-test-v…` are unadvertised engineering artifacts and stay pre-alpha. Both
-          # comparisons are anchored on the whole validated tag rather than a loose `*-beta*` glob.
-          # The builder accepts only these three tokens and fails closed on anything else, so a
-          # future tag shape has to be mapped here deliberately instead of inheriting a claim.
-          if [[ "$GITHUB_REF_NAME" == "v${version}-beta" || "$GITHUB_REF_NAME" == "v${version}-beta."* ]]; then
-            release_channel=beta
-          elif [[ "$GITHUB_REF_NAME" == "v${version}-alpha" || "$GITHUB_REF_NAME" == "v${version}-alpha."* ]]; then
-            release_channel=alpha
-          else
-            release_channel=pre-alpha
-          fi
-          archive="dist/release/omp-session-gateway-${version}-bun.tar"
+          archive="dist/release/omp-session-gateway-$version-bun.tar"
           checksums="dist/release/SHA256SUMS"
-          sbom="dist/release/omp-session-gateway-${version}.spdx.json"
+          sbom="dist/release/omp-session-gateway-$version.spdx.json"
           {
             echo "PACKAGE_VERSION=$version"
             echo "ARCHIVE_PATH=$archive"
             echo "SBOM_PATH=$sbom"
             echo "CHECKSUM_PATH=$checksums"
-            echo "OMP_RELEASE_CHANNEL=$release_channel"
           } >> "$GITHUB_ENV"
 
 
@@ -164,6 +141,46 @@ jobs:
           - Registry protocol: 1
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
+          elif [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
+            cat > "$notes" <<EOF
+          ## v0.1.0 — narrowly supported stable release
+
+          This is the first non-prerelease OMP Session Gateway release. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+
+          ### Advertised combinations
+
+          | role | combination |
+          |---|---|
+          | host | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 |
+          | host | macOS 26.6.1 arm64 (Mac14,3) |
+          | client | Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro) |
+
+          Per-lane evidence and the qualifying candidate are recorded in docs/RELEASE_STATUS.md and docs/COMPATIBILITY.md at this source commit.
+
+          ### Required deployment preconditions
+
+          - Run OMP $upstream_tag at $upstream_commit with the patch included in this archive. Stock OMP is not sufficient at any version. Paired OMP packaging is not provided; use the documented versioned omp-gateway-patched route.
+          - Run Tailscale's TUN-mode client and Tailscale Serve over tailnet HTTPS. Userspace networking, Funnel, Portal Tunnel, and self-hosted or proxied relays are not supported.
+
+          ### Known environment limitation
+
+          Android Chrome can wedge its process-wide network state after a lock/Doze/radio transition even while Android itself remains online. The PWA retries, reports the unreachable path honestly, and after a prolonged visible outage links to local force-stop/reopen guidance. The release does not claim that page JavaScript can repair a failed browser process.
+
+          Windows remains unadvertised. Background Web Push delivery remains best-effort and is not part of the stable core support claim.
+
+          ### Install or upgrade
+
+          Extract omp-session-gateway-$PACKAGE_VERSION-bun.tar, then run bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com with the deployment's real values. Repeat --allow for additional identities. Active reinstall preserves configuration and the publisher token.
+
+          ### Rollback
+
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0-beta.1 archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+
+          - Source commit: $GITHUB_SHA
+          - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
+          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
+          - Verification: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md
+          EOF
           elif [[ "$GITHUB_REF_NAME" == *-beta* ]]; then
             cat > "$notes" <<EOF
           ## Beta release, qualified for two hosts and one client
@@ -184,12 +201,12 @@ jobs:
 
           ### Required deployment preconditions
 
-          - Run OMP $upstream_tag at \`$upstream_commit\` **with the patch included in this archive**. Stock OMP is not sufficient at any version: the patch carries the collaboration controller, autostart, and registry publication seam the gateway depends on, and an unpatched or differently pinned OMP is unsupported. Paired OMP packaging is not provided; build and activate the versioned \`omp-gateway-patched\` executable using [the exact prerequisite route](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos).
+          - Run OMP $upstream_tag at $upstream_commit with the patch included in this archive. Stock OMP is not sufficient at any version: the patch carries the collaboration controller, autostart, and registry publication seam the gateway depends on, and an unpatched or differently pinned OMP is unsupported. Paired OMP packaging is not provided; build and activate the versioned omp-gateway-patched executable using [the exact prerequisite route](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
           - Run Tailscale's **TUN-mode** client. Userspace-networking mode does not establish the listener-identity trust boundary and is refused. Never enable Tailscale Funnel.
 
           ### Known limitations
 
-          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are not proven.
+          - Android Chrome may require force-stop/reopen after a browser-process network wedge; the PWA keeps bounded retries and offers local guidance, but network-change recovery is not claimed.
           - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
           - Windows is implemented and tested but **not advertised**.
           - Self-hosted or proxied relay modes remain unsupported; Tailscale Serve over tailnet HTTPS is the only supported remote path.
@@ -256,59 +273,59 @@ jobs:
           EOF
           else
             cat > "$notes" <<EOF
-          ## Pre-release qualification candidate
+          ## Stable qualification candidate
 
-          This is a signed engineering candidate for the next advertised release. It is not an advertised alpha or beta, and it is not stable or production-qualified. Promotion requires the exact host/client evidence recorded at this source commit.
+          This is a signed engineering candidate for v0.1.0. It is not advertised or stable until the exact Debian, macOS, physical-Android, provenance, and secret-sink evidence is recorded at its source commit.
 
           ### Changes under qualification
 
-          - Exact OMP v17.4.1 source, patch, pi-wire, provenance, and license cutover.
-          - Closed beta tag/channel metadata that fails before artifact creation on unknown or stable channels.
-          - Windows-only bounded readiness correction while Windows remains unadvertised.
-          - Deterministic public media and documentation; no capability transport or persistence boundary changes.
-
-          ### Security
-
-          Collaboration capabilities remain absent from list/SSE responses, push state and payloads, URLs, browser storage, service-worker caches, logs, diagnostics, screenshots, and release fixtures. Release qualification is selected only from a validated tag shape.
+          - A fail-closed bare v0.1.0 tag maps to the stable archive claim and a non-prerelease Latest publication; every prerelease shape remains excluded from Latest.
+          - Prolonged visible Android outages offer local force-stop/reopen guidance without adding third-party probes or pretending JavaScript can repair Chrome's process.
+          - Physical-device evidence records the selected browser package, Android package version, Browser.getVersion result, activity, and DevTools socket; alternate Chrome channels are independently selectable.
 
           ### Required OMP prerequisite
 
-          Run OMP $upstream_tag at \`$upstream_commit\` with the exact patch included in this archive. Stock OMP is not sufficient. Use [the versioned \`omp-gateway-patched\` route](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/patches/oh-my-pi/README.md#supported-beta-prerequisite-route-linux-and-macos); upstreaming and paired packaging are not promotion gates.
+          Run OMP $upstream_tag at $upstream_commit with the exact patch included in this archive. Stock OMP is not sufficient. Use the versioned omp-gateway-patched route; paired packaging remains deferred.
 
-          ### Install or upgrade
+          ### Qualification boundary
 
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
-
-          ### Compatibility and open qualification
-
-          - Source commit: \`$GITHUB_SHA\`
-          - Exact release baseline: OMP $upstream_tag at \`$upstream_commit\` with the included patch.
+          - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.3.14; registry protocol 1; Push API 2.
-          - Advertised Debian, macOS, and physical Pixel lanes must pass against these exact signed bytes before beta promotion.
-          - Android network-change/reconnect remains a disclosed limitation; Windows and self-hosted/proxied relay modes remain unadvertised.
+          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), and Chrome on the physical Pixel must pass against these exact signed bytes before stable promotion.
+          - The Chrome process-wide network wedge remains a disclosed environment limitation; Windows, background Push qualification, Portal Tunnel, and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha.1\` archive with the deployment's existing origin and allowlist.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0-beta.1 archive with the deployment's existing origin and allowlist.
 
-          Verification instructions: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md).
+          Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF
           fi
-          gh release create "$GITHUB_REF_NAME" \
-            "$ARCHIVE_PATH" \
-            "$SBOM_PATH" \
-            "$CHECKSUM_PATH" \
-            "${ARCHIVE_PATH}.sigstore.json" \
-            "${SBOM_PATH}.sigstore.json" \
-            "${CHECKSUM_PATH}.sigstore.json" \
-            --draft \
-            --prerelease \
-            --latest=false \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file "$notes" \
-            --verify-tag
+          create_release() {
+            gh release create "$GITHUB_REF_NAME" \
+              "$ARCHIVE_PATH" \
+              "$SBOM_PATH" \
+              "$CHECKSUM_PATH" \
+              "$ARCHIVE_PATH.sigstore.json" \
+              "$SBOM_PATH.sigstore.json" \
+              "$CHECKSUM_PATH.sigstore.json" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$notes" \
+              --verify-tag \
+              "$@"
+          }
+          if [[ "$RELEASE_IS_PRERELEASE" == "true" ]]; then
+            create_release --draft --prerelease --latest=false
+          else
+            create_release --draft --latest=false
+          fi
 
       - name: Publish release once
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
+        run: |
+          if [[ "$RELEASE_IS_LATEST" == "true" ]]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
+          fi
