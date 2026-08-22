@@ -20,6 +20,9 @@
 #     in `apps/web/e2e`, which Bun does not instrument, so its line coverage here reflects only what
 #     the unit tests load. It is kept in the report rather than ignored, because excluding production
 #     code to improve a number is exactly the move this file exists to discourage.
+# Coverage runs in one Bun test worker. Bun 1.3.14 produced different app.ts line/source-map totals
+# across identical multi-worker runs, moving the project status by more than its regression budget;
+# two consecutive single-worker runs produced identical per-file totals without increasing runtime.
 
 coverage:
   status:
@@ -53,4 +56,10 @@ ignore:
   # known-bad source map into the project line regression.
   - "scripts/android-device.ts"
   - "scripts/android-acceptance.ts"
+  # Published-byte post-release and View/Control harnesses are also external-effect physical lanes.
+  # Their owned-target, redaction, identity-binding, and cleanup contracts have focused unit tests,
+  # while the complete host/device transition is exercised as a release gate. Counting the unmocked
+  # orchestration body as unit-test debt would make the project gate measure hardware availability.
+  - "scripts/android-collab-smoke.ts"
+  - "scripts/post-release-smoke.ts"
   - "apps/web/e2e/**"

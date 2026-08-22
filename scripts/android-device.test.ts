@@ -13,7 +13,7 @@ import {
   wakeAndroidChrome,
 } from "./android-device.ts";
 describe("Android directory recovery observation", () => {
-  test("reads rendered recovery state without issuing a competing fetch", () => {
+  test("accepts a rendered target alongside unrelated sessions without issuing a competing fetch", () => {
     let fetchCalls = 0;
     const evaluate = new Function(
       "document",
@@ -36,7 +36,7 @@ describe("Android directory recovery observation", () => {
       {
         visibilityState: "visible",
         querySelector: () => status,
-        querySelectorAll: () => ({ length: 1 }),
+        querySelectorAll: () => ({ length: 3 }),
       },
       { onLine: false },
       { timeOrigin: 123_456, getEntriesByType: () => [{ name: "https://sessions.example/assets/app.abc123.js" }] },
@@ -52,7 +52,7 @@ describe("Android directory recovery observation", () => {
       visibility: "visible",
       statusHidden: true,
       statusKind: "ready",
-      sessionCount: 1,
+      sessionCount: 3,
       appAsset: "https://sessions.example/assets/app.abc123.js",
       pageTimeOrigin: 123_456,
       directoryReady: true,

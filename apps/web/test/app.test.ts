@@ -287,8 +287,8 @@ function session(
   };
 }
 
-async function settleUntil(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+async function settleUntil(predicate: () => boolean, attempts = 20): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) return;
     await Promise.resolve();
   }
@@ -510,6 +510,9 @@ async function bootApp(options: {
   await import(`../src/app.ts?${options.suffix}`);
   await settleUntil(() => notificationButton.textContent !== "Checking background alerts…");
   await settleUntil(() => FakeEventSource.instances.length === 1);
+  if (options.pathname?.startsWith("/collab/") === true) {
+    await settleUntil(() => statusBanner.dataset.kind === "expired", 100);
+  }
 
   return {
     elements: {

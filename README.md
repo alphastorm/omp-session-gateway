@@ -42,13 +42,14 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Qualified beta; stable 0.1 qualification is in progress.**
-> [v0.1.0-beta.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0-beta.1)
-> remains the current published release. A bare v0.1.0 will become GitHub Latest only after one
-> signed candidate repeats the exact Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 / Android
-> 17 Pixel matrix. Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP
-> v17.4.1 remain mandatory. Windows, background Push qualification, Portal Tunnel, userspace
-> networking, and self-hosted/proxied relays stay outside the stable core claim. Details:
+> **Qualified stable v0.1.0.**
+> [v0.1.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0) is the
+> current GitHub Latest release. It was promoted from exact signed candidate
+> `v0.1.0-prealpha.23` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
+> Android 17 Pixel matrix passed and candidate-to-stable runtime equivalence was verified.
+> Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP v17.4.1 remain
+> mandatory. Windows, background Push qualification, Portal Tunnel, userspace networking, and
+> self-hosted/proxied relays stay outside the stable support claim. Details:
 > [Compatibility and release status](#compatibility-and-release-status) ·
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 
@@ -141,22 +142,22 @@ never redacts.</sub>
 ## Compatibility and release status
 
 Support is qualified for exact combinations, not platform families. The current publication is the
-beta below; stable v0.1.0 is a target until its signed candidate completes the same matrix.
+stable release below; its support boundary remains deliberately narrow.
 
 | | Current claim |
 |---|---|
-| Current release | v0.1.0-beta.1, independently qualified against signed candidate v0.1.0-prealpha.20 |
-| Stable target | v0.1.0; not released until an exact signed successor candidate passes |
+| Current release | [`v0.1.0`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0), GitHub Latest |
+| Qualification | Runtime-equivalent to independently qualified signed candidate `v0.1.0-prealpha.23` |
 | Hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |
 | Client | Chrome `151.0.7922.171` on Android 17 (Pixel 10 Pro) |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | OMP baseline | Exact `v17.4.1` plus the repository's pinned patch and versioned `omp-gateway-patched` route |
 
-**Upstream baseline.** Beta and the stable target use exact OMP v17.4.1 at
+**Upstream baseline.** Stable v0.1.0 uses exact OMP v17.4.1 at
 `9350b7990d26ebf69a604edc82d8558ef04adf30`, observed and qualified on **2026-08-21**.
 Stock OMP is insufficient; the required versioned build/activation route is
 [patches/oh-my-pi/README.md](patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
-The published alpha remains immutable at its recorded v17.3.8 commit. Exact package and source
+Earlier published prereleases remain immutable at their recorded baselines. Exact package and source
 metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json).
 
 Known limits are part of the claim — read them before installing:
@@ -310,13 +311,13 @@ maintainers, and OMP itself may grow first-party enrollment and session listing
 |---|---|---|---|---|---|
 | Workflow boundary | Private directory, attention queue, and just-in-time View/Control broker for already-running terminal OMP sessions; not a second client | Web cockpit hosting its own OMP SDK sessions plus kanban, plan mode, inbox, knowledge base, routines, and messaging bridges | Skills plugin that exposes an agent from the phone — web chat, real terminal, sharing, notify — for OMP, Claude Code, Codex, Gemini CLI, and opencode | Web/desktop/mobile UI for Claude Code, Cursor CLI, and Codex with chat, shell, file and git explorers | Browser dashboard to spawn, mirror, and drive [`pi`](https://github.com/badlogic/pi-mono) agents; its README states Oh My Pi is **not** supported |
 | Zero-touch discovery of live terminal sessions | Yes — every live interactive OMP process registers through authenticated local IPC; no per-session command | No terminal attach; the deck creates and hosts its own sessions in-process | Per-surface setup through skills; its `omp-collab` skill shares one OMP session over OMP's own path | Discovers existing session files automatically; live terminal mirroring for OMP is proposed in the open PR below | For `pi` only, via a bridge extension loaded into every session |
-| Mobile surface | Android-first installable PWA qualified on physical Pixel hardware for directory/View/Control/lock-resume/capability isolation; opt-in Web Push is implemented but not beta-qualified | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
+| Mobile surface | Android-first installable PWA qualified on physical Pixel hardware for directory/View/Control/lock-resume/capability isolation; opt-in Web Push is implemented but outside the stable support boundary | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
 | Exact OMP collab client reuse | Yes — View/Control opens OMP's own encrypted `collab-web` client from pinned upstream source; no second chat surface | No — own chat surface over the embedded OMP SDK (`@oh-my-pi/*` 15.1.7) | No — own web chat over OMP RPC; `omp-collab` reuses OMP collab links separately | No — own transcript UI over ACP stdio | No — own WebSocket mirror protocol, `pi` only |
 | Attention triage | Metadata-only FIFO **Needs you** queue; the oldest ask is promoted to **Open request**; **All clear** otherwise | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session queue described | Interactive `ask_user` prompts inside a session view |
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
 | Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
-| Install maturity and support | **Qualified beta; narrow stable 0.1 candidate in progress**: signed artifacts and a per-release evidence ledger for exact host/client combinations; requires the pinned six-commit OMP patch and versioned binary route; everything else unsupported | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP support is an open, unmerged PR ([#1143](https://github.com/siteboon/claudecodeui/pull/1143)) as of 2026-08-21** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), **fork-only and dormant since 2026-07** with no upstream merge path |
+| Install maturity and support | **Qualified stable v0.1.0 with a narrow support boundary**: signed artifacts and a per-release evidence ledger for exact host/client combinations; requires the pinned six-commit OMP patch and versioned binary route; everything else unsupported | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP support is an open, unmerged PR ([#1143](https://github.com/siteboon/claudecodeui/pull/1143)) as of 2026-08-21** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
 | Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |
 
 Where each one shines:
@@ -354,6 +355,7 @@ knowledge base, or messaging hub; reusing `collab-web` is the point.
 | `patches/oh-my-pi` | Apply-ready controller, auto-start, and publisher patch for pinned OMP |
 | `scripts/build-web.ts` | Reproducible hashed PWA/client asset build |
 | `scripts/build-release.ts` | Deterministic Bun-runtime release archive and SHA-256 manifest |
+| `scripts/post-release-smoke.ts` | Published-byte local Mac/physical-Android smoke with owned-fixture cleanup |
 | `docs/media` | Canonical README media plus its seeded-fixture capture provenance |
 | `docs/` | Architecture, protocol, security, operations, compatibility, and acceptance plans |
 | `UPSTREAM.lock.json` | Exact OMP source and package baseline |

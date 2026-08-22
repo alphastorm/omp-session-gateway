@@ -11,7 +11,7 @@
 
 The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login, gateway installation, and OMP configuration happen once.
 
-Stock OMP does not provide automatic startup or authenticated registry publication. Beta operators
+Stock OMP does not provide automatic startup or authenticated registry publication. Stable operators
 must launch participating sessions with the versioned `omp-gateway-patched` executable; the route
 keeps the user's ordinary `omp` installation untouched and includes explicit provenance and
 rollback checks.

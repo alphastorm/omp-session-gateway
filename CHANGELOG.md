@@ -33,6 +33,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Add prolonged-outage recovery guidance in a help panel carried by the loaded PWA shell. The PWA
   keeps its bounded retry path, suggests force-stop/reopen only after 45 uninterrupted seconds of
   visible failure, removes the guidance on recovery, and makes no third-party probe.
+- Add a bounded post-release smoke command that verifies published stable provenance, upgrades or
+  verifies the configured local Mac without changing config/token or unrelated Serve mappings,
+  exercises exact patched OMP through an owned tmux fixture, and drives physical Android
+  View/Control, forbidden-sink, same-page recovery, and installed-WebAPK checks before scoped cleanup.
 
 ### Changed
 
@@ -57,6 +61,13 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Harden stable qualification with durable Debian dispatch identity, same-commit receipts, restart-safe
   Mac cleanup, NUL-framed sudo transport, exact candidate/native-byte pins, workstation-staged rollback
   assets, bounded session paths, generic persisted failures, and zero-listener teardown evidence.
+- Treat a ready Android directory with the owned target plus unrelated live sessions as recovered,
+  and require disposable-target eligibility in the standalone capability leak sweep. The prior
+  exactly-one-row probe falsely failed local post-release smoke while preserving unrelated sessions.
+- Let the macOS patched-OMP helper consume an explicit pinned Bun executable and private build/native
+  staging paths, so release smoke does not need to replace the user's global Bun runtime.
+- Refuse a missing, unauthorized, or ambiguous adb device before post-release download, host
+  mutation, or fixture startup instead of failing after an otherwise valid release setup.
 
 ## [v0.1.0-beta.1] — 2026-08-21
 

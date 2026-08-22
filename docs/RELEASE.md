@@ -2,10 +2,10 @@
 
 ## Pre-alpha, alpha, beta, and stable artifacts
 
-The repository can produce working Bun-runtime engineering candidates and advertised alpha, beta,
-and stable releases. v0.1.0-beta.1 remains the current qualified publication while the exact stable
-candidate is prepared. A bare v0.1.0 is the only stable tag shape and becomes GitHub Latest only
-after the release ledger records a GO decision for its signed predecessor.
+The repository produces working Bun-runtime engineering candidates and advertised alpha, beta,
+and stable releases. v0.1.0 is the current stable publication and GitHub Latest. Its support claim
+is bound to the signed predecessor and exact evidence in `STABLE_RELEASE.lock.json` and
+`RELEASE_STATUS.md`; generated artifacts never promote themselves.
 
 Stable 0.1 is a bounded support claim, not an expansion to platform families. It covers only the
 hosts, Android client, TUN-mode Tailscale Serve path, and exact patched OMP baseline recorded in
@@ -70,6 +70,55 @@ Mac qualification receives the archive SHA-256 already verified by the orchestra
 Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`; `--previous-tag` changes the exact rollback predecessor.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
+
+## Post-release local installation smoke
+
+After a stable release is public, run its published bytes on the configured local Darwin-arm64 Mac
+and the attached physical Android client. This is a post-publication install/upgrade smoke, not a
+second stable qualification run and not a substitute for `qualify:stable`.
+
+Prerequisites are Bun 1.3.14, `gh`, `cosign`, `git`, `shasum`, `tar`, `plutil`, `tailscale`, `tmux`,
+and `adb`; an attached supported Pixel; an existing private gateway config and publisher token; the
+configured Tailscale Serve origin; and the **OMP Sessions** WebAPK already installed for that exact
+origin. The Android qualification PIN stays in the documented macOS Keychain service.
+
+Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
+fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
+
+For v0.1.0, run:
+
+```sh
+bunx bun@1.3.14 run smoke:release -- \
+  --tag v0.1.0 \
+  --archive-sha256 925957ab636eb611649bafb3b6bac85061eefd3127dd756a9377123333eda262
+```
+
+The command verifies the annotated tag, GitHub Latest state, all six release asset digests,
+`SHA256SUMS`, three GitHub attestations, three Sigstore bundles, archive source metadata, the hashed
+PWA asset, and the exact OMP/Bun pins. It then installs or verifies the stable gateway through the
+persistent pinned Bun runtime, proves the config and publisher token remained byte-identical,
+creates only the configured Serve mapping while comparing every unrelated mapping, and requires all
+`doctor` checks to pass.
+
+The OMP lane reuses an already exact source/runtime or builds the archived patch and pins without
+deleting a changed checkout. It starts one uniquely named `omp-post-release-*` tmux fixture carrying
+only the synthetic qualification credential, then runs physical View-to-Control prompt/interrupt,
+forbidden-sink, lock/Airplane/Doze same-page recovery, and installed-WebAPK launch checks. Target
+eligibility is checked before touching the device; protected, soak, old, missing, ambiguous, or
+non-Control fixtures fail closed.
+
+Normal success and failure kill only that tmux session, wait for registry revocation, remove the
+fixture only when its per-run ownership marker still matches, and delete private staging. The stable
+gateway, config/token, Bun runtime, exact patched OMP source/binary/symlink, Serve configuration, and
+WebAPK remain installed. `--force-reinstall` retests an already active stable gateway;
+`--rebuild-omp` rebuilds only an already exact source/runtime. `--plan` prints the bounded effects
+without network, service, Tailscale, OMP, or Android changes.
+
+If the orchestrator is killed before its `finally` cleanup runs, inspect tmux for the single
+`omp-post-release-*` name and require the matching
+`~/<label>/.omp-session-gateway-post-release-smoke` marker before killing or removing anything.
+Never wildcard-delete fixture directories or touch unrelated tmux sessions or Serve mappings.
+
 
 Before the real stable tag, rehearse the exact gh create/edit flags in a private repository. Require
 six assets in the draft and published states, prerelease/not-Latest for the prerelease control,
