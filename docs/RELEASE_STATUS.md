@@ -1,12 +1,12 @@
 # Release status
 
-**Updated:** 2026-08-21<br>
+**Updated:** 2026-08-22<br>
 **Repository version:** `0.1.0`, released as **`v0.1.0-beta.1`**<br>
 **Qualification predecessor:** **`v0.1.0-prealpha.20`**, independently verified<br>
 **Classification:** qualified beta; not stable or production-qualified<br>
-**Beta decision:** **GO, completed**, for the combinations named below and nothing else. Final-tag
-checksums, attestations, Cosign bundles, and candidate-byte comparison are reverified immediately
-after publication and appended to this ledger.
+**Beta decision:** **GO, completed**, for the combinations named below and nothing else. The final
+tag, six assets, checksums, attestations, Cosign bundles, immutable-release record, metadata, and
+candidate/runtime-byte comparison are independently verified.
 
 ### Beta advertised combinations
 
@@ -25,6 +25,32 @@ SHA-256 values `ba789f7a7f6799a53dab205e26cf6f3ebbaa39c2e26655315c1a809075b09ed2
 `f30fbc8b3a4c276eccd202fcff3765c8ad4d9575f3439c442bf2f443e3f42671`.
 `SHA256SUMS`, all three GitHub attestations, all three Cosign bundles, and the signed tag verified;
 a clean exact-tag rebuild reproduced all three files byte-for-byte.
+
+**Final release provenance.** `v0.1.0-beta.1` records source
+`678887a67e85b14c14afb008cf100391a56aa933`; archive/SBOM/checksum-manifest SHA-256 values are
+`2d77c1b23c37d7ee524faa3afd100bcaddc03010a87192b6e313fbcefa0a63c6`,
+`4012cd6c8e09d770469498785c58b3a4c1d86ec9a5b4b4944653f29ab4dbffeb`, and
+`4e959b394396fea2a56c40dbb9ae8722e2d28ce6c8c4548328712b7620324fa3`. The signed tag resolves
+to that source commit; release [run `32539462210`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32539462210)
+passed; `gh release verify`, `SHA256SUMS`, all three exact-tag GitHub attestations, and all three
+exact-workflow Cosign bundles verified. Published `release-info.json` names the exact source,
+v17.4.1 upstream commit, lock digest, and qualified-beta/not-stable boundary.
+
+Candidate and final archives contain the same 48 files. **45 are byte-identical**, including every
+runtime executable, gateway module, PWA/collab asset, protocol, dependency lock, license, OMP patch,
+and integration metadata file. The only differences are expected and reviewed:
+`release-info.json` changes source/timestamp/channel qualification; `SBOM.spdx.json` changes only
+source-bound namespace/timestamp/sourceInfo; and `patches/oh-my-pi/README.md` carries the
+fresh-host native-addon/Git-identity instructions, exact Linux evidence, and manual rollback prose
+that candidate qualification itself proved.
+
+The first post-tag hosted main run exposed a test-fixture race, not a release-byte failure: a
+snapshot could hide the banner immediately before replacement EventSource installation, making a
+disconnect injection a no-op. The exact scenario passed 10/10 after stream synchronization, the
+complete browser suite passed 22/22, private JIT appliance run
+[`32540339219`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32540339219) passed,
+and post-fix main run [`32540626681`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32540626681)
+is green. The fix changes tests only and does not alter the immutable beta artifact.
 
 **Required OMP route.** Stock OMP is insufficient. On both advertised host architectures, the exact
 v17.4.1 mbox applied to a pristine checkout, reproduced the pinned tree, passed source checks, and
