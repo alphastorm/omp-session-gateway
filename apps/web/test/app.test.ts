@@ -805,7 +805,9 @@ describe("dashboard attention and notifications", () => {
     harness.runTimers();
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 2);
 
+    expect(harness.pendingDelays()).toContain(20_000);
     harness.runTimers();
+
     await settleUntil(() => harness.elements.statusBanner.dataset.kind === "desktop");
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
     expect(harness.elements.statusBanner.querySelector(".status-title")?.textContent).toBe(
@@ -817,6 +819,33 @@ describe("dashboard attention and notifications", () => {
     await settleUntil(() => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length === 3);
     await settleUntil(() => harness.elements.sessionList.querySelectorAll(".working-row").length === 1);
     expect(harness.elements.statusBanner.hidden).toBe(true);
+  });
+  test("backs off repeated visible network failures instead of churning connections", async () => {
+    const nativeRandom = Math.random;
+    Math.random = () => 0.999;
+    try {
+      const base = session("network-backoff-0001");
+      const harness = await bootApp({
+        permission: "denied",
+        suffix: "network-backoff",
+        initialSessions: [base],
+      });
+      const snapshots = (): number => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length;
+      const retryDelays: number[] = [];
+
+      harness.disconnectEvents();
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await settleUntil(() => harness.pendingDelays().some(delay => delay < 45_000));
+        retryDelays.push(Math.min(...harness.pendingDelays().filter(delay => delay < 45_000)));
+        harness.failNextListRequest();
+        harness.runTimers();
+        await settleUntil(() => snapshots() === attempt + 2);
+      }
+
+      expect(retryDelays).toEqual([999, 1_999, 3_998, 7_996, 15_992]);
+    } finally {
+      Math.random = nativeRandom;
+    }
   });
 
   test("creates and removes a persistent push subscription only after explicit user actions", async () => {
