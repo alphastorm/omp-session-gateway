@@ -82,3 +82,34 @@ grep -q -- '--timeout=120s' "$TEST_ARGS"
     }
   },
 );
+
+test.skipIf(process.platform === "win32")("zero-input remote framing executes the supplied script", async () => {
+  const harness = `
+set -euo pipefail
+source "$1"
+DROPLET_IP=synthetic
+SSH_OPTS=(-o synthetic)
+ssh() {
+  local command="" argument
+  for argument in "$@"; do command="$argument"; done
+  eval "$command"
+}
+remote_root <<'REMOTE'
+printf zero-input-script-ran
+REMOTE
+`;
+  const child = Bun.spawn(
+    ["/bin/bash", "-c", harness, "test", join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh")],
+    { cwd: REPOSITORY_ROOT, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+  );
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect({ exitCode, stdout, stderr }).toEqual({
+    exitCode: 0,
+    stdout: "zero-input-script-ran",
+    stderr: "",
+  });
+});

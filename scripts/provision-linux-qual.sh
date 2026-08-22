@@ -242,14 +242,16 @@ init_ssh_options() {
 # names, keeps values unexported, and evaluates the script in the same static shell. Credentials
 # therefore appear in neither workstation ssh argv nor remote process argv/environment.
 remote() {
-  local user="$1" script bootstrap
+  local user="$1" script bootstrap pair
   shift
   script="$(cat)"
   printf -v bootstrap 'bash -c %q' \
     'IFS= read -r -d "" COUNT || exit; INDEX=0; while [ "$INDEX" -lt "$COUNT" ]; do IFS= read -r -d "" PAIR || exit; NAME=${PAIR%%=*}; VALUE=${PAIR#*=}; case "$NAME" in ""|[0-9]*|*[!A-Za-z0-9_]*) exit 64 ;; esac; printf -v "$NAME" %s "$VALUE"; INDEX=$((INDEX + 1)); done; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
   {
     printf '%s\0' "$#"
-    printf '%s\0' "$@"
+    for pair in "$@"; do
+      printf '%s\0' "$pair"
+    done
     printf '%s\0' "$script"
   } | ssh "${SSH_OPTS[@]}" "${user}@${DROPLET_IP}" "$bootstrap"
 }
