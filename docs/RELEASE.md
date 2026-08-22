@@ -54,7 +54,7 @@ Chrome.
 Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
 
 ```sh
-bun run qualify:stable --tag v0.1.0-prealpha.21
+bun run qualify:stable --tag v0.1.0-prealpha.22
 ```
 
 The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, beta-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
