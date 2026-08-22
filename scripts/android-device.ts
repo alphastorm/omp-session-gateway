@@ -94,6 +94,68 @@ export interface AndroidChromeDriver {
   /** Raw escape hatch for protocol domains this helper does not wrap. */
   send(method: string, parameters?: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
+export interface AndroidDirectorySurface {
+  readonly online: boolean;
+  readonly visibility: string;
+  readonly statusHidden: boolean;
+  readonly statusKind: string | null;
+  readonly statusTitle: string;
+  readonly sessionCount: number;
+  readonly appAsset: string | null;
+  readonly pageTimeOrigin: number;
+  readonly directoryReady: boolean;
+  readonly outageVisible: boolean;
+}
+
+interface DirectoryStatusElement {
+  readonly dataset?: { readonly kind?: string };
+  hasAttribute(name: string): boolean;
+  querySelector(selector: string): { readonly textContent?: string | null } | null;
+}
+
+interface DirectorySurfaceDocument {
+  readonly visibilityState: string;
+  querySelector(selector: string): DirectoryStatusElement | null;
+  querySelectorAll(selector: string): { readonly length: number };
+}
+
+interface DirectorySurfacePerformance {
+  readonly timeOrigin: number;
+  getEntriesByType(type: string): readonly { readonly name: string }[];
+}
+
+/** Reads the rendered directory only. Recovery probes must not compete with the PWA's own fetches. */
+export function captureAndroidDirectorySurface(
+  pageDocument: DirectorySurfaceDocument,
+  pageNavigator: { readonly onLine: boolean },
+  pagePerformance: DirectorySurfacePerformance,
+): AndroidDirectorySurface {
+  const status = pageDocument.querySelector("#status-banner");
+  const statusHidden = status?.hasAttribute("hidden") ?? false;
+  const statusKind = status?.dataset?.kind ?? null;
+  const sessionCount = pageDocument.querySelectorAll(".working-row, .queue-row").length;
+  return {
+    online: pageNavigator.onLine,
+    visibility: pageDocument.visibilityState,
+    statusHidden,
+    statusKind,
+    statusTitle: status?.querySelector(".status-title")?.textContent?.trim() ?? "",
+    sessionCount,
+    appAsset:
+      pagePerformance
+        .getEntriesByType("resource")
+        .map(entry => entry.name)
+        .find(name => /\/assets\/app[.][0-9a-f]+[.]js$/u.test(name)) ?? null,
+    pageTimeOrigin: pagePerformance.timeOrigin,
+    directoryReady: pageDocument.visibilityState === "visible" && statusHidden && sessionCount === 1,
+    outageVisible:
+      !statusHidden && ["offline", "tailnet", "desktop", "gateway"].includes(statusKind ?? ""),
+  };
+}
+
+export const ANDROID_DIRECTORY_SURFACE_EXPRESSION =
+  `(${captureAndroidDirectorySurface.toString()})(document, navigator, performance)`;
+
 
 async function adb(serial: string | undefined, ...args: readonly string[]): Promise<string> {
   const argv = serial === undefined ? ["adb", ...args] : ["adb", "-s", serial, ...args];
@@ -116,24 +178,184 @@ export function parseAndroidPackageVersion(dumpsys: string): string {
 
 export type AndroidAdbCommand = (...args: string[]) => Promise<string>;
 
+export const ANDROID_QUALIFICATION_PIN_KEYCHAIN_SERVICE =
+  "omp-session-gateway.android-qualification-pin";
+const ANDROID_PIN_MIN_LENGTH = 4;
+const ANDROID_PIN_MAX_LENGTH = 16;
+const ANDROID_KEYGUARD_FAILURE = "Android keyguard authentication failed";
+
+type AndroidKeychainReader = (account: string, service: string) => Promise<Uint8Array>;
+export type AndroidInteractiveAdbShell = (serial: string, input: Uint8Array) => Promise<number>;
+export type AndroidKeyguardUnlock = () => Promise<void>;
+
+async function readMacOsKeychainItem(account: string, service: string): Promise<Uint8Array> {
+  if (process.platform !== "darwin") throw new Error(ANDROID_KEYGUARD_FAILURE);
+  const child = Bun.spawn(
+    ["security", "find-generic-password", "-a", account, "-s", service, "-w"],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+  );
+  const [stdoutBuffer, stderrBuffer, exitCode] = await Promise.all([
+    new Response(child.stdout).arrayBuffer(),
+    new Response(child.stderr).arrayBuffer(),
+    child.exited,
+  ]);
+  const stdout = new Uint8Array(stdoutBuffer);
+  const stderr = new Uint8Array(stderrBuffer);
+  stderr.fill(0);
+  if (exitCode !== 0) {
+    stdout.fill(0);
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  return stdout;
+}
+
+/** Reads the device-scoped qualification PIN without placing it in argv, env, or logs. */
+export async function readAndroidQualificationPin(
+  serial: string,
+  readKeychain: AndroidKeychainReader = readMacOsKeychainItem,
+): Promise<Uint8Array> {
+  if (!/^[A-Za-z0-9._:-]{1,128}$/u.test(serial)) throw new Error(ANDROID_KEYGUARD_FAILURE);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readKeychain(serial, ANDROID_QUALIFICATION_PIN_KEYCHAIN_SERVICE);
+  } catch {
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  let length = bytes.length;
+  while (length > 0 && (bytes[length - 1] === 10 || bytes[length - 1] === 13)) length -= 1;
+  const valid =
+    length >= ANDROID_PIN_MIN_LENGTH &&
+    length <= ANDROID_PIN_MAX_LENGTH &&
+    bytes.subarray(0, length).every(value => value >= 48 && value <= 57);
+  if (!valid) {
+    bytes.fill(0);
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  const pin = bytes.slice(0, length);
+  bytes.fill(0);
+  return pin;
+}
+
+function androidPinKeyeventStream(pin: Uint8Array): Uint8Array {
+  if (
+    pin.length < ANDROID_PIN_MIN_LENGTH ||
+    pin.length > ANDROID_PIN_MAX_LENGTH ||
+    !pin.every(value => value >= 48 && value <= 57)
+  ) {
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  const commands = Array.from(
+    pin,
+    value => `input keyevent KEYCODE_${String.fromCharCode(value)}\n`,
+  );
+  commands.push("input keyevent KEYCODE_ENTER\nexit\n");
+  return new TextEncoder().encode(commands.join(""));
+}
+
+async function runAndroidInteractiveAdbShell(serial: string, input: Uint8Array): Promise<number> {
+  const child = Bun.spawn(["adb", "-s", serial, "shell"], {
+    stdin: "pipe",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  child.stdin.write(input);
+  await child.stdin.end();
+  return child.exited;
+}
+
+/** Authenticates once through one interactive adb shell; every failure is deliberately redacted. */
+export async function unlockAndroidKeyguard(
+  serial: string,
+  readPin: (serial: string) => Promise<Uint8Array> = readAndroidQualificationPin,
+  runShell: AndroidInteractiveAdbShell = runAndroidInteractiveAdbShell,
+): Promise<void> {
+  let pin: Uint8Array;
+  try {
+    pin = await readPin(serial);
+  } catch {
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  try {
+    const input = androidPinKeyeventStream(pin);
+    try {
+      if ((await runShell(serial, input)) !== 0) throw new Error(ANDROID_KEYGUARD_FAILURE);
+    } catch {
+      throw new Error(ANDROID_KEYGUARD_FAILURE);
+    } finally {
+      input.fill(0);
+    }
+  } finally {
+    pin.fill(0);
+  }
+}
+
 function parseWakefulness(output: string): string {
   return output.match(/mWakefulness=(\w+)/u)?.[1] ?? "unknown";
 }
+
+export function parseKeyguardShowing(output: string): boolean {
+  const value = output.match(/^\s*isKeyguardShowing=(true|false)$/mu)?.[1];
+  if (value === undefined) throw new Error("Android window state is missing isKeyguardShowing");
+  return value === "true";
+}
+function parseAndroidDisplaySize(output: string): { readonly width: number; readonly height: number } {
+  const match = [...output.matchAll(/(\d{3,5})x(\d{3,5})/gu)].at(-1);
+  const width = Number(match?.[1]);
+  const height = Number(match?.[2]);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 320 || height < 640 || width >= height) {
+    throw new Error(ANDROID_KEYGUARD_FAILURE);
+  }
+  return { width, height };
+}
+
 
 /** Wakes and unlocks the display before an Activity launch that may otherwise wait forever. */
 export async function wakeAndroidDisplay(
   command: AndroidAdbCommand,
   pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+  unlockKeyguard?: AndroidKeyguardUnlock,
 ): Promise<string> {
   let wakefulness = "unknown";
+  let keyguardShowing = true;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await command("shell", "input", "keyevent", "224");
     await command("shell", "input", "keyevent", "82");
+    await command("shell", "wm", "dismiss-keyguard");
     await pause(1_200);
     wakefulness = parseWakefulness(await command("shell", "dumpsys", "power"));
-    if (wakefulness === "Awake") return wakefulness;
+    if (wakefulness !== "Awake") continue;
+    keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
+    if (!keyguardShowing) return wakefulness;
+    if (unlockKeyguard !== undefined) {
+      try {
+        const { width, height } = parseAndroidDisplaySize(await command("shell", "wm", "size"));
+        const centerX = Math.floor(width / 2);
+        await command(
+          "shell",
+          "input",
+          "swipe",
+          String(centerX),
+          String(Math.floor((height * 91) / 100)),
+          String(centerX),
+          String(Math.floor(height / 4)),
+          "600",
+        );
+      } catch {
+        throw new Error(ANDROID_KEYGUARD_FAILURE);
+      }
+      await pause(1_200);
+      await unlockKeyguard();
+      // Pixel SystemUI can accept the credential several seconds before window state drops the
+      // secure bouncer. Poll without injecting another keyevent or a second credential attempt.
+      for (let dismissalAttempt = 0; dismissalAttempt < 40; dismissalAttempt += 1) {
+        await pause(500);
+        keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
+        if (!keyguardShowing) return wakefulness;
+      }
+      return "Keyguard";
+    }
   }
-  return wakefulness;
+  return wakefulness === "Awake" && keyguardShowing ? "Keyguard" : wakefulness;
 }
 export function assertBrowserVersionMatchesPackage(
   packageName: string,
@@ -211,8 +433,9 @@ export async function wakeAndroidChrome(
   target: AndroidBrowserTarget,
   command: AndroidAdbCommand = (...args) => adb(serial, ...args),
   pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+  unlockKeyguard: AndroidKeyguardUnlock = () => unlockAndroidKeyguard(serial),
 ): Promise<void> {
-  const wakefulness = await wakeAndroidDisplay(command, pause);
+  const wakefulness = await wakeAndroidDisplay(command, pause, unlockKeyguard);
   if (wakefulness !== "Awake") throw new Error(`Android display did not wake (observed ${wakefulness})`);
   await command("shell", "am", "start", "-W", "-n", target.activity, "-a", "android.intent.action.MAIN");
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -260,7 +483,10 @@ export async function withAndroidChrome<T>(
     throw error;
   }
   const socket = new WebSocket(webSocketDebuggerUrl);
-  const pending = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: Error): void }>();
+  const pending = new Map<
+    number,
+    { readonly method: string; resolve(value: Record<string, unknown>): void; reject(error: Error): void }
+  >();
   let nextId = 0;
   let sessionId: string | undefined;
   let targetId: string | undefined;
@@ -275,14 +501,14 @@ export async function withAndroidChrome<T>(
     const entry = pending.get(message.id);
     if (entry === undefined) return;
     pending.delete(message.id);
-    if (message.error) entry.reject(new Error(message.error.message));
+    if (message.error) entry.reject(new Error(`CDP ${entry.method}: ${message.error.message}`));
     else entry.resolve(message.result ?? {});
   };
 
   const send = (method: string, parameters: Record<string, unknown> = {}, useSession = true) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
       const id = (nextId += 1);
-      pending.set(id, { resolve, reject });
+      pending.set(id, { method, resolve, reject });
       const frame: Record<string, unknown> = { id, method, params: parameters };
       if (useSession && sessionId !== undefined) frame.sessionId = sessionId;
       socket.send(JSON.stringify(frame));
@@ -309,15 +535,45 @@ export async function withAndroidChrome<T>(
       devtoolsSocket: target.devtoolsSocket,
       version: () => Promise.resolve(browserVersion),
       async openTab() {
-        const created = await send("Target.createTarget", { url: "about:blank" }, false);
-        targetId = String(created.targetId);
-        const attached = await send("Target.attachToTarget", { targetId, flatten: true }, false);
-        sessionId = String(attached.sessionId);
-        await send("Page.enable");
-        await send("Runtime.enable");
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          const created = await send("Target.createTarget", { url: "about:blank" }, false);
+          if (typeof created.targetId !== "string" || created.targetId === "") {
+            throw new Error("CDP Target.createTarget returned no target id");
+          }
+          targetId = created.targetId;
+          try {
+            const attached = await send("Target.attachToTarget", { targetId, flatten: true }, false);
+            if (typeof attached.sessionId !== "string" || attached.sessionId === "") {
+              throw new Error("CDP Target.attachToTarget returned no session id");
+            }
+            sessionId = attached.sessionId;
+            await send("Page.enable");
+            await send("Runtime.enable");
+            return;
+          } catch (error) {
+            lastError = error;
+            const failedTarget = targetId;
+            sessionId = undefined;
+            targetId = undefined;
+            await send("Target.closeTarget", { targetId: failedTarget }, false).catch(() => {});
+            const retryable =
+              error instanceof Error && error.message.includes("Session with given id not found");
+            if (!retryable || attempt === 3) throw error;
+            await Bun.sleep(250);
+          }
+        }
+        throw lastError instanceof Error ? lastError : new Error("could not attach to Android Chrome tab");
       },
       async navigate(url: string) {
-        const result = await send("Page.navigate", { url });
+        let result: Record<string, unknown> = {};
+        try {
+          result = await send("Page.navigate", { url });
+        } catch (error) {
+          // Chrome can execute a navigation and lose only the CDP response while its network process
+          // is recovering. The document-ready poll below distinguishes that from a failed navigation.
+          if (!(error instanceof Error) || error.message !== "CDP timeout: Page.navigate") throw error;
+        }
         if (typeof result.errorText === "string") throw new Error(`navigation failed: ${result.errorText}`);
         for (let attempt = 0; attempt < LOAD_ATTEMPTS; attempt += 1) {
           await Bun.sleep(LOAD_POLL_MS);

@@ -597,15 +597,19 @@ function scheduleReconnect(): void {
     void refreshAndConnect(false);
   }, delay);
 }
-
-function failEventStream(source: EventSource, epoch: number): void {
-  if (events !== source || epoch !== directoryEpoch) return;
-  source.close();
-  events = undefined;
+function markEventStreamInterrupted(source: EventSource, epoch: number): boolean {
+  if (events !== source || epoch !== directoryEpoch) return false;
   clearEventLiveness();
   eventStreamStale = true;
   showTransportFailure(navigator.onLine === false ? "offline" : "gateway");
   scheduleReconnect();
+  return true;
+}
+
+function failEventStream(source: EventSource, epoch: number): void {
+  if (!markEventStreamInterrupted(source, epoch)) return;
+  source.close();
+  events = undefined;
 }
 
 function armEventLiveness(source: EventSource, epoch: number): void {
@@ -1452,6 +1456,8 @@ function connectEvents(epoch: number): void {
     if (events !== source || epoch !== directoryEpoch) return;
     if (opened) directoryRevision = -1;
     opened = true;
+    clearReconnectTimeout();
+    reconnectAttempt = 0;
     eventStreamStale = false;
     armEventLiveness(source, epoch);
   };
@@ -1483,7 +1489,10 @@ function connectEvents(epoch: number): void {
     if (!attentionRouteStatusLocked) setStatus("ready", "");
   });
   source.onerror = () => {
-    failEventStream(source, epoch);
+    // Native EventSource reconnects on network restoration even when Android Chrome loses a
+    // scheduled JavaScript timer. Keep that browser-owned recovery path alive; the snapshot retry
+    // remains a bounded fallback and will close this source if it fires first.
+    markEventStreamInterrupted(source, epoch);
   };
 }
 

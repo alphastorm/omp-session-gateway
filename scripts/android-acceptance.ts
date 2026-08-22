@@ -7,17 +7,22 @@
  * Chrome freezes the renderer while the display is off, so `Runtime.evaluate` never resolves on a
  * locked device. Lock/resume is therefore measured after waking, never during.
  *
- * A bounded in-page fetch cannot distinguish "no route" from "slow recovery" if the bound is tight.
- * An early version used 8 seconds and reported a clean recovery as a network failure. Each attempt
- * now gets 20 seconds and records the error name, so `TimeoutError` and `TypeError` stay separable,
- * and recovery is polled and timed rather than asserted at a single arbitrary instant.
+ * Recovery polling observes the rendered directory and never issues its own fetch. Competing probe
+ * requests previously changed the browser connection workload and could consume the first restored
+ * request while the PWA remained stale. Device-shell reachability remains an independent signal.
  *
  * Radio state is restored in a finally block. Callers should still restore afterwards: a killed
  * process runs no finally.
  *
  * Usage: `bun scripts/android-acceptance.ts <origin> <session-cwd-label>`
  */
-import { wakeAndroidDisplay, withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
+import {
+  ANDROID_DIRECTORY_SURFACE_EXPRESSION,
+  unlockAndroidKeyguard,
+  wakeAndroidDisplay,
+  withAndroidChrome,
+  type AndroidChromeDriver,
+} from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 
 const POWER = "26";
@@ -47,7 +52,7 @@ async function sleep(milliseconds: number): Promise<void> {
  * of attributing the timeout to the application.
  */
 async function wake(): Promise<string> {
-  return wakeAndroidDisplay((...args) => adb(...args), sleep);
+  return wakeAndroidDisplay((...args) => adb(...args), sleep, () => unlockAndroidKeyguard(serial));
 }
 
 /**
@@ -79,25 +84,8 @@ async function ensureVisible(driver: AndroidChromeDriver): Promise<string> {
   return "not-visible";
 }
 
-/** One reachability attempt plus the app's own rendered state, generously bounded. */
-const ATTEMPT = `(async () => {
-  const started = performance.now();
-  const out = { online: navigator.onLine, visibility: document.visibilityState };
-  try {
-    const response = await fetch("/api/v1/sessions", { cache: "no-store", signal: AbortSignal.timeout(20000) });
-    const payload = await response.json();
-    out.status = response.status;
-    out.count = payload.sessions.length;
-    out.revision = payload.revision;
-  } catch (error) {
-    out.status = "failed";
-    out.failure = error && error.name ? error.name : "unknown";
-  }
-  out.elapsedMs = Math.round(performance.now() - started);
-  const text = document.body.innerText.replace(/\\s+/g, " ").trim();
-  out.unreachableBanner = text.includes("unreachable");
-  return out;
-})()`;
+/** Rendered PWA state only: the recovery tracer must not become another network client. */
+const ATTEMPT = ANDROID_DIRECTORY_SURFACE_EXPRESSION;
 
 function readValue(evaluation: Record<string, unknown>): Record<string, unknown> | undefined {
   const { result } = evaluation;
@@ -123,6 +111,22 @@ function record(entry: Record<string, unknown>): void {
   console.error(`  ${JSON.stringify(entry)}`);
 }
 
+interface PageContinuity {
+  reloaded: boolean;
+}
+
+function isSamePage(
+  probe: Readonly<Record<string, unknown>>,
+  expectedTimeOrigin: number,
+  continuity: PageContinuity,
+): boolean {
+  const observed = probe.pageTimeOrigin;
+  if (typeof observed !== "number" || !Number.isFinite(observed)) return false;
+  const same = Object.is(observed, expectedTimeOrigin);
+  if (!same && Number.isFinite(expectedTimeOrigin)) continuity.reloaded = true;
+  return same;
+}
+
 /** True when the phone itself can reach the host, independent of anything Chrome is doing. */
 async function deviceReachesHost(host: string): Promise<boolean> {
   const output = await adb("shell", "ping", "-c", "1", "-W", "2", host);
@@ -141,22 +145,44 @@ async function awaitRecovery(
   since: number,
   attempts: number,
   host: string,
+  expectedTimeOrigin: number,
+  continuity: PageContinuity,
+  delayMs = 8_000,
 ): Promise<{ recoveredMs: number | null; deviceReachableFirstMs: number | null }> {
   let deviceReachableFirstMs: number | null = null;
   for (let index = 1; index <= attempts; index++) {
-    await sleep(8000);
+    await sleep(delayMs);
     // The app's resume path is driven by visibilityState, so a probe against a hidden or frozen page
     // measures nothing. Record the presentation state alongside the result so an unmeasurable run is
     // visibly unmeasurable rather than looking like an application stall.
     const presentation = await ensureVisible(driver);
     const deviceReachable = await deviceReachesHost(host);
     const probe = await attempt(driver, `${label}-${index}`);
+    const samePage = isSamePage(probe, expectedTimeOrigin, continuity);
     const sinceMs = Math.round(performance.now() - since);
     if (deviceReachable && deviceReachableFirstMs === null) deviceReachableFirstMs = sinceMs;
-    record({ ...probe, presentation, deviceReachable, sinceMs });
-    if (probe.status === 200) return { recoveredMs: sinceMs, deviceReachableFirstMs };
+    record({ ...probe, samePage, presentation, deviceReachable, sinceMs });
+    if (probe.directoryReady === true && samePage) return { recoveredMs: sinceMs, deviceReachableFirstMs };
   }
   return { recoveredMs: null, deviceReachableFirstMs };
+}
+async function awaitOutage(
+  driver: AndroidChromeDriver,
+  since: number,
+  host: string,
+  expectedTimeOrigin: number,
+  continuity: PageContinuity,
+): Promise<boolean> {
+  for (let index = 1; index <= 12; index++) {
+    await sleep(5_000);
+    const presentation = await ensureVisible(driver);
+    const deviceReachable = await deviceReachesHost(host);
+    const probe = await attempt(driver, `airplane-outage-${index}`);
+    const samePage = isSamePage(probe, expectedTimeOrigin, continuity);
+    record({ ...probe, samePage, presentation, deviceReachable, sinceMs: Math.round(performance.now() - since) });
+    if (probe.outageVisible === true && samePage) return true;
+  }
+  return false;
 }
 
 /** Discovery plus the full launch-authorization matrix, evaluated from the device. */
@@ -251,43 +277,51 @@ const summary = await withAndroidChrome(async driver => {
 
   const authorization = await authorizationMatrix(driver, label);
   console.error(`  authorization: ${JSON.stringify(authorization)}`);
-  record(await attempt(driver, "baseline"));
+  const baseline = await attempt(driver, "baseline");
+  record(baseline);
+  const baselineTimeOrigin =
+    typeof baseline.pageTimeOrigin === "number" && Number.isFinite(baseline.pageTimeOrigin)
+      ? baseline.pageTimeOrigin
+      : Number.NaN;
+  const continuity: PageContinuity = { reloaded: false };
 
   let unlockMs: number | null = null;
   let airplane: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
   let doze: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
-  let outageBanner: unknown = null;
+  let outageBanner = false;
 
   try {
-    // Lock and resume.
+    // Lock and resume. Poll the PWA's rendered state instead of failing at one arbitrary instant.
     await adb("shell", "input", "keyevent", POWER);
-    await sleep(20000);
+    await sleep(20_000);
     const wokeAt = performance.now();
     const wakefulness = await wake();
     const presentation = await ensureVisible(driver);
-    await sleep(3000);
-    const unlocked: Record<string, unknown> = { ...(await attempt(driver, "after-unlock")), wakefulness, presentation };
-    unlockMs = Math.round(performance.now() - wokeAt);
-    record({ ...unlocked, sinceMs: unlockMs });
-    if (unlocked.status !== 200) unlockMs = null;
+    const lock = await awaitRecovery(driver, "lock-resume", wokeAt, 12, host, baselineTimeOrigin, continuity, 3_000);
+    unlockMs = lock.recoveredMs;
+    record({ step: "lock-resume-summary", wakefulness, presentation, recoveredMs: unlockMs });
 
-    // Total network loss and automatic recovery, with no reload.
+    // Total network loss and automatic same-page recovery, with no reload and no competing fetch.
     await adb("shell", "cmd", "connectivity", "airplane-mode", "enable");
-    await sleep(15000);
-    const during = await attempt(driver, "airplane-on");
-    outageBanner = during.unreachableBanner;
-    record(during);
+    outageBanner = await awaitOutage(driver, performance.now(), host, baselineTimeOrigin, continuity);
     await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
-    airplane = await awaitRecovery(driver, "airplane-recovery", performance.now(), 20, host);
+    airplane = await awaitRecovery(driver, "airplane-recovery", performance.now(), 20, host, baselineTimeOrigin, continuity);
+    if (airplane.recoveredMs !== null) {
+      await sleep(10_000);
+      const settled = await attempt(driver, "airplane-settled");
+      const samePage = isSamePage(settled, baselineTimeOrigin, continuity);
+      record({ ...settled, samePage });
+      if (settled.directoryReady !== true || !samePage) airplane = { ...airplane, recoveredMs: null };
+    }
 
     // Forced deep Doze.
     await adb("shell", "dumpsys", "battery", "unplug");
     await adb("shell", "dumpsys", "deviceidle", "force-idle");
-    await sleep(20000);
+    await sleep(20_000);
     record({ step: "doze-state", idle: await adb("shell", "dumpsys", "deviceidle", "get", "deep") });
     await adb("shell", "dumpsys", "deviceidle", "unforce");
     await adb("shell", "dumpsys", "battery", "reset");
-    doze = await awaitRecovery(driver, "doze-recovery", performance.now(), 6, host);
+    doze = await awaitRecovery(driver, "doze-recovery", performance.now(), 6, host, baselineTimeOrigin, continuity);
   } finally {
     await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
     await adb("shell", "svc", "wifi", "enable");
@@ -304,6 +338,9 @@ const summary = await withAndroidChrome(async driver => {
     devtoolsSocket: driver.devtoolsSocket,
     browserActivity: driver.browserActivity,
     authorization,
+    baselineReady: baseline.directoryReady === true && Number.isFinite(baselineTimeOrigin),
+    appAsset: typeof baseline.appAsset === "string" ? baseline.appAsset : null,
+    samePage: Number.isFinite(baselineTimeOrigin) && !continuity.reloaded,
     unlockMs,
     outageBanner,
     airplaneRecoveredMs: airplane.recoveredMs,
@@ -328,6 +365,8 @@ expect("control launch", status("control"), 200);
 expect("stale view rejected", status("staleView"), 409);
 expect("stale control rejected", status("staleControl"), 409);
 expect("unknown session rejected", status("unknownSession"), 404);
+if (!summary.baselineReady) failures.push("baseline directory was not rendered ready");
+if (!summary.samePage) failures.push("PWA reloaded during recovery");
 if (summary.unlockMs === null) failures.push("lock/resume did not recover");
 // A tailnet that is still down is not an application failure, so attribute before failing.
 if (summary.airplaneRecoveredMs === null) {
@@ -338,7 +377,7 @@ if (summary.airplaneRecoveredMs === null) {
   );
 }
 if (summary.dozeRecoveredMs === null) failures.push("Doze did not recover within the polling window");
-if (summary.outageBanner !== true) failures.push("no unreachable banner during the outage");
+if (summary.outageBanner !== true) failures.push("no recovery status during the outage");
 
 if (failures.length > 0) {
   console.error(`FAILED:\n  ${failures.join("\n  ")}`);
