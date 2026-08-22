@@ -7,6 +7,16 @@ const EXPECTED_ASSETS = [
   "omp-session-gateway-0.1.0.spdx.json.sigstore.json",
 ] as const;
 
+export async function releaseAssetDigests(root: string): Promise<Record<string, string>> {
+  const digests: Record<string, string> = {};
+  for (const name of EXPECTED_ASSETS) {
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(await Bun.file(root + "/" + name).arrayBuffer());
+    digests[name] = "sha256:" + hasher.digest("hex");
+  }
+  return digests;
+}
+
 function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(label + " must be an object");
@@ -22,6 +32,7 @@ export function assertReleaseState(
     readonly draft: boolean;
     readonly prerelease: boolean;
     readonly latest: boolean;
+    readonly assetDigests: Readonly<Record<string, string>>;
   },
 ): void {
   const release = record(value, "GitHub release");
@@ -47,11 +58,17 @@ export function assertReleaseState(
     ) {
       throw new Error("GitHub release contains an incomplete asset");
     }
+    if (asset.digest !== expected.assetDigests[asset.name]) {
+      throw new Error("GitHub release asset digest does not match the signed local file");
+    }
     names.push(asset.name);
   }
   names.sort();
   if (names.some((name, index) => name !== EXPECTED_ASSETS[index])) {
     throw new Error("GitHub release asset names do not match the stable contract");
+  }
+  if (Object.keys(expected.assetDigests).sort().some((name, index) => name !== EXPECTED_ASSETS[index])) {
+    throw new Error("Expected release asset digests do not match the stable contract");
   }
 }
 
@@ -69,7 +86,7 @@ async function githubJson(url: string, token: string, allowNotFound = false): Pr
 }
 
 if (import.meta.main) {
-  const [repository, tag, draft, prerelease, latest] = Bun.argv.slice(2);
+  const [repository, tag, draft, prerelease, latest, assetRoot] = Bun.argv.slice(2);
   const token = process.env.GH_TOKEN;
   if (
     repository === undefined ||
@@ -77,10 +94,11 @@ if (import.meta.main) {
     !["true", "false"].includes(draft ?? "") ||
     !["true", "false"].includes(prerelease ?? "") ||
     !["true", "false"].includes(latest ?? "") ||
+    assetRoot === undefined ||
     token === undefined
   ) {
     console.error(
-      "usage: GH_TOKEN=... bun scripts/release-state.ts <owner/repo> <tag> <draft> <prerelease> <latest>",
+      "usage: GH_TOKEN=... bun scripts/release-state.ts <owner/repo> <tag> <draft> <prerelease> <latest> <asset-root>",
     );
     process.exit(2);
   }
@@ -97,6 +115,7 @@ if (import.meta.main) {
       draft: draft === "true",
       prerelease: prerelease === "true",
       latest: latest === "true",
+      assetDigests: await releaseAssetDigests(assetRoot),
     });
     console.log("verified release state for " + tag);
   } catch (error) {

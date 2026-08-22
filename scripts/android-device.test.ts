@@ -98,14 +98,25 @@ describe("Android DevTools endpoint ownership", () => {
   };
 
   test("accepts endpoint metadata owned by the selected package and version", () => {
-    expect(assertDevtoolsEndpointMatchesPackage("com.chrome.canary", "154.0.8015.0", metadata)).toBe(
+    expect(assertDevtoolsEndpointMatchesPackage("com.chrome.canary", "154.0.8015.0", metadata, 9222)).toBe(
       metadata.webSocketDebuggerUrl,
     );
   });
 
   test("rejects another package even when both packages share a Chrome version", () => {
     expect(() =>
-      assertDevtoolsEndpointMatchesPackage("com.android.chrome", "154.0.8015.0", metadata),
+      assertDevtoolsEndpointMatchesPackage("com.android.chrome", "154.0.8015.0", metadata, 9222),
     ).toThrow("DevTools socket is not owned by com.android.chrome");
+  });
+
+  test("rejects a WebSocket URL outside the exact local ADB forward", () => {
+    expect(() =>
+      assertDevtoolsEndpointMatchesPackage(
+        "com.chrome.canary",
+        "154.0.8015.0",
+        { ...metadata, webSocketDebuggerUrl: "ws://example.invalid/devtools/browser" },
+        9222,
+      ),
+    ).toThrow("DevTools endpoint WebSocket escaped the local ADB forward");
   });
 });

@@ -352,12 +352,25 @@ jobs:
           else
             create_release --draft --latest=false
           fi
-          bun scripts/release-state.ts \
-            "$GITHUB_REPOSITORY" \
-            "$GITHUB_REF_NAME" \
-            true \
-            "$RELEASE_IS_PRERELEASE" \
-            false
+          draft_verified=false
+          for delay in 0 2 4 8; do
+            ((delay == 0)) || sleep "$delay"
+            if bun scripts/release-state.ts \
+              "$GITHUB_REPOSITORY" \
+              "$GITHUB_REF_NAME" \
+              true \
+              "$RELEASE_IS_PRERELEASE" \
+              false \
+              dist/release; then
+              draft_verified=true
+              break
+            fi
+          done
+          if [[ "$draft_verified" != "true" ]]; then
+            gh release delete "$GITHUB_REF_NAME" --yes || true
+            echo "Draft release verification failed; attempted to remove the draft." >&2
+            exit 1
+          fi
 
       - name: Publish release once
         env:
@@ -370,15 +383,22 @@ jobs:
           else
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
           fi
-          if ! {
-            bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA" &&
-            bun scripts/release-state.ts \
-              "$GITHUB_REPOSITORY" \
-              "$GITHUB_REF_NAME" \
-              false \
-              "$RELEASE_IS_PRERELEASE" \
-              "$RELEASE_IS_LATEST"
-          }; then
+          published_verified=false
+          for delay in 0 2 4 8; do
+            ((delay == 0)) || sleep "$delay"
+            if bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA" &&
+              bun scripts/release-state.ts \
+                "$GITHUB_REPOSITORY" \
+                "$GITHUB_REF_NAME" \
+                false \
+                "$RELEASE_IS_PRERELEASE" \
+                "$RELEASE_IS_LATEST" \
+                dist/release; then
+              published_verified=true
+              break
+            fi
+          done
+          if [[ "$published_verified" != "true" ]]; then
             gh release delete "$GITHUB_REF_NAME" --yes || true
             echo "Published release verification failed; attempted to remove the release." >&2
             exit 1

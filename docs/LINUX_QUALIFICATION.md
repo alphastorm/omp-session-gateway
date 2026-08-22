@@ -148,6 +148,10 @@ independent verifications run **on the droplet**, not on the workstation:
 3. `gh attestation verify` for the archive, SBOM, and `SHA256SUMS`, pinned to `--signer-workflow` and
    `--source-ref refs/tags/<tag>`.
 
+Qualification inputs, including GitHub tokens and macOS sudo credentials, travel inside an
+NUL-framed SSH stdin bootstrap. They must never appear in workstation SSH argv, remote process
+argv, or exported remote environment.
+
 `gh attestation verify` needs GitHub API access. If `GH_TOKEN` is exported the droplet verifies
 online; otherwise the script uses the already-authenticated workstation `gh` to
 `gh attestation download` the bundles, uploads them, and the droplet verifies offline with

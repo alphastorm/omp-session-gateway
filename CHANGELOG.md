@@ -21,6 +21,10 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Validate draft and published release state through the GitHub API, including uploaded asset
   digests and Latest status; on a failed post-publication check, delete the release. A private live
   rehearsal verified draft, publication, deletion compensation, tag cleanup, and no residual release.
+- Compare every GitHub asset digest to the exact locally signed file, retry draft/published state
+  observation on bounded 0/2/4/8-second delays, and delete either a failed draft or an unverified
+  public release. Move macOS sudo and Linux GitHub credentials from SSH argv/environment prefixes
+  to a NUL-framed stdin bootstrap.
 - Make physical Android acceptance browser-selectable and record the exact package, installed
   package version, Browser.getVersion revision, activity, and DevTools socket in evidence.
 - Add prolonged-outage recovery guidance in a help panel carried by the loaded PWA shell. The PWA

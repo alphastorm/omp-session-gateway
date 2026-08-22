@@ -33,8 +33,13 @@ became Latest only on publication, and resolved through the latest-release API. 
 releases and tags were removed. Named evidence:
 ~/.local/share/omp-session-gateway/test/v0.1.0/stable-release-rehearsal.json.
 The same private host then verified failure compensation separately: a complete draft became
-non-prerelease Latest, release-state validation passed, the release was deleted, the synthetic tag
-was deleted, and neither resource remained. The named evidence record includes this compensation row.
+non-prerelease Latest, exact release-state validation passed, the release was deleted, the synthetic
+tag was deleted, and neither resource remained. The named evidence record includes this row. The
+production workflow additionally compares all six GitHub digests with the exact local signed files
+and retries API observation on bounded 0/2/4/8-second delays before deleting a failed draft/release.
+The private host also passed exact local-to-GitHub digest comparison in both draft and published
+states for all six synthetic assets, then removed the release and tag; the same evidence record
+contains the digestBinding row.
 
 
 **Workflow cutover pending:** .github/workflows/signed-release.yml must merge and the superseded

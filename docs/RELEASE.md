@@ -66,10 +66,12 @@ in GitHub Actions. Historical tags retain release.yml in their certificate ident
 signed-release.yml. A run that fails after attestation or Cosign signing may leave public GitHub
 attestations or Rekor entries even when no release is published; those records are failed-attempt
 provenance, not an advertised release.
-The workflow validates API-observed draft and published flags plus six uploaded asset digests. If a
-post-publication tag or release-state check fails, it attempts to delete the release before failing;
-the signed tag remains for operator diagnosis. This deletion compensation passed in the private
-rehearsal and does not remove already-public attestation or Rekor records.
+The workflow validates API-observed draft and published flags plus six uploaded asset digests
+against the exact local signed files. It retries state observation after 0/2/4/8 seconds. If draft
+validation still fails, it deletes the draft; if post-publication tag or release-state validation
+still fails, it deletes the release. The signed tag remains for operator diagnosis. Private live
+rehearsal proved publication/deletion compensation. Already-public attestation or Rekor records are
+not removed and remain failed-attempt provenance.
 
 ## Default-relay soak qualification
 

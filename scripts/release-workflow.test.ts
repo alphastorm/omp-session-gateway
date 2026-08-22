@@ -49,15 +49,30 @@ describe("release workflow trust ordering", () => {
     expect(runStep("Revalidate signed tag before public provenance")).toContain("bun scripts/release-tag-state.ts");
   });
 
-  test("checks not-Latest and uploaded asset state on the complete draft", () => {
+  test("retries complete draft observation before deleting a failed draft", () => {
     const run = runStep("Create complete draft release");
-    ordered(run, "bun scripts/release-tag-state.ts", "gh release create", "bun scripts/release-state.ts");
+    ordered(
+      run,
+      "bun scripts/release-tag-state.ts",
+      "gh release create",
+      "for delay in 0 2 4 8",
+      "bun scripts/release-state.ts",
+      "dist/release",
+      "gh release delete",
+    );
     expect(run).not.toContain("--json assets,isDraft,isLatest");
   });
 
-  test("revalidates after publishing and compensates a failed observation", () => {
+  test("revalidates after publishing and retries before deletion compensation", () => {
     const run = runStep("Publish release once");
     expect(run.match(/bun scripts\/release-tag-state\.ts/gu)).toHaveLength(2);
-    ordered(run, "gh release edit", "bun scripts/release-state.ts", "gh release delete");
+    ordered(
+      run,
+      "gh release edit",
+      "for delay in 0 2 4 8",
+      "bun scripts/release-state.ts",
+      "dist/release",
+      "gh release delete",
+    );
   });
 });

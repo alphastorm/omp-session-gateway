@@ -21,63 +21,44 @@ const release = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+function expectedState(draft: boolean, prerelease: boolean, latest: boolean) {
+  const assetDigests = Object.fromEntries(assets().map(asset => [asset.name, asset.digest]));
+  return { tag: TAG, draft, prerelease, latest, assetDigests };
+}
+
 describe("GitHub release state", () => {
   test("accepts a complete not-Latest stable draft and a published Latest release", () => {
-    expect(() =>
-      assertReleaseState(release(), null, { tag: TAG, draft: true, prerelease: false, latest: false }),
-    ).not.toThrow();
-    expect(() =>
-      assertReleaseState(release({ draft: false }), TAG, {
-        tag: TAG,
-        draft: false,
-        prerelease: false,
-        latest: true,
-      }),
-    ).not.toThrow();
+    expect(() => assertReleaseState(release(), null, expectedState(true, false, false))).not.toThrow();
+    expect(() => assertReleaseState(release({ draft: false }), TAG, expectedState(false, false, true))).not.toThrow();
   });
 
   test("rejects wrong flags, premature Latest, and missing assets", () => {
+    expect(() => assertReleaseState(release(), TAG, expectedState(true, false, false))).toThrow(
+      "GitHub release flags do not match the validated policy",
+    );
     expect(() =>
-      assertReleaseState(release(), TAG, { tag: TAG, draft: true, prerelease: false, latest: false }),
+      assertReleaseState(release({ prerelease: true }), null, expectedState(true, false, false)),
     ).toThrow("GitHub release flags do not match the validated policy");
     expect(() =>
-      assertReleaseState(release({ prerelease: true }), null, {
-        tag: TAG,
-        draft: true,
-        prerelease: false,
-        latest: false,
-      }),
-    ).toThrow("GitHub release flags do not match the validated policy");
-    expect(() =>
-      assertReleaseState(release({ assets: assets().slice(1) }), null, {
-        tag: TAG,
-        draft: true,
-        prerelease: false,
-        latest: false,
-      }),
+      assertReleaseState(release({ assets: assets().slice(1) }), null, expectedState(true, false, false)),
     ).toThrow("GitHub release does not contain exactly six assets");
   });
 
-  test("rejects processing assets and unexpected names", () => {
+  test("rejects processing assets, unexpected names, and changed bytes", () => {
     const processing = assets();
     processing[0] = { ...processing[0]!, state: "new" };
     expect(() =>
-      assertReleaseState(release({ assets: processing }), null, {
-        tag: TAG,
-        draft: true,
-        prerelease: false,
-        latest: false,
-      }),
+      assertReleaseState(release({ assets: processing }), null, expectedState(true, false, false)),
     ).toThrow("GitHub release contains an incomplete asset");
     const renamed = assets();
     renamed[0] = { ...renamed[0]!, name: "unexpected" };
     expect(() =>
-      assertReleaseState(release({ assets: renamed }), null, {
-        tag: TAG,
-        draft: true,
-        prerelease: false,
-        latest: false,
-      }),
-    ).toThrow("GitHub release asset names do not match the stable contract");
+      assertReleaseState(release({ assets: renamed }), null, expectedState(true, false, false)),
+    ).toThrow("GitHub release asset digest does not match the signed local file");
+    const changed = assets();
+    changed[0] = { ...changed[0]!, digest: "sha256:" + "f".repeat(64) };
+    expect(() =>
+      assertReleaseState(release({ assets: changed }), null, expectedState(true, false, false)),
+    ).toThrow("GitHub release asset digest does not match the signed local file");
   });
 });

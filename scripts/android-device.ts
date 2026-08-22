@@ -133,6 +133,7 @@ export function assertDevtoolsEndpointMatchesPackage(
   packageName: string,
   androidPackageVersion: string,
   metadata: unknown,
+  expectedPort: number,
 ): string {
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
     throw new Error("DevTools endpoint metadata is invalid");
@@ -149,7 +150,16 @@ export function assertDevtoolsEndpointMatchesPackage(
   if (typeof endpoint.webSocketDebuggerUrl !== "string") {
     throw new Error("DevTools endpoint has no browser WebSocket URL");
   }
-  return endpoint.webSocketDebuggerUrl;
+  const debuggerUrl = new URL(endpoint.webSocketDebuggerUrl);
+  if (
+    debuggerUrl.protocol !== "ws:" ||
+    debuggerUrl.hostname !== "127.0.0.1" ||
+    debuggerUrl.port !== String(expectedPort) ||
+    !debuggerUrl.pathname.startsWith("/devtools/browser")
+  ) {
+    throw new Error("DevTools endpoint WebSocket escaped the local ADB forward");
+  }
+  return debuggerUrl.href;
 }
 
 async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
@@ -216,6 +226,7 @@ export async function withAndroidChrome<T>(
       target.packageName,
       packageVersion,
       await endpointResponse.json(),
+      port,
     );
   } catch (error) {
     await adb(serial, "forward", "--remove", "tcp:" + port).catch(() => {});

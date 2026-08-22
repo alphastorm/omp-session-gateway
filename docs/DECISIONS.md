@@ -502,8 +502,9 @@ The hardened workflow moves to signed-release.yml. The superseded release.yml wo
 disabled in GitHub before another tag is created; otherwise an old commit can select its historical
 workflow definition and bypass controls that did not exist there.
 Draft and published release state must be read back through the GitHub API, including six uploaded
-asset digests and Latest status. A failed post-publication observation must attempt release deletion;
-public attestation/Rekor evidence may remain and is treated as failed-attempt provenance.
+asset digests compared with the exact local signed files and Latest status. Observation receives
+bounded 0/2/4/8-second retries. A persistently failed draft or post-publication observation attempts
+release deletion; public attestation/Rekor evidence may remain as failed-attempt provenance.
 
 Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
 case and not as a reason to add another transport workaround. After 45 uninterrupted seconds of
