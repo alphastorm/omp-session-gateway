@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import {
   assertProtectedFilesUnchanged,
+  createReceiptPersister,
   createStableQualificationReceipt,
   executeReceiptLane,
   markMacCleanupRequired,
@@ -129,6 +130,21 @@ describe("resumable receipt lanes", () => {
       attempts: 1,
       error: "lane execution failed; inspect the qualification process output",
     });
+  });
+  test("serializes concurrent Android and relay receipt checkpoints", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-stable-receipt-concurrency-"));
+    const receiptPath = join(temporaryRoot, "stable-qualification.json");
+    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const persist = createReceiptPersister(receiptPath, receipt);
+    try {
+      await Promise.all(Array.from({ length: 32 }, () => persist()));
+      const persisted = JSON.parse(await readFile(receiptPath, "utf8"));
+      expect(validateStableQualificationReceipt(persisted, TAG, COMMIT)).toEqual(persisted);
+      expect((await stat(receiptPath)).mode & 0o777).toBe(0o600);
+      expect(await readdir(temporaryRoot)).toEqual(["stable-qualification.json"]);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
   });
 });
 

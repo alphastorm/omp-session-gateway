@@ -281,6 +281,18 @@ async function saveReceipt(path: string, receipt: StableQualificationReceipt): P
   await chmod(temporary, 0o600);
   await rename(temporary, path);
 }
+/** Serializes writes because Android and relay lanes checkpoint the same receipt concurrently. */
+export function createReceiptPersister(
+  path: string,
+  receipt: StableQualificationReceipt,
+): () => Promise<void> {
+  let tail = Promise.resolve();
+  return () => {
+    const operation = tail.then(() => saveReceipt(path, receipt));
+    tail = operation.catch(() => {});
+    return operation;
+  };
+}
 
 async function loadReceipt(path: string, tag: string, commit: string): Promise<StableQualificationReceipt> {
   if (!(await Bun.file(path).exists())) return createStableQualificationReceipt(tag, commit);
@@ -1211,7 +1223,7 @@ async function main(): Promise<void> {
   delete receipt.error;
   const ompPins = await loadQualificationPins();
   const protectedFiles = await captureProtectedFiles();
-  const persist = () => saveReceipt(receiptPath, receipt);
+  const persist = createReceiptPersister(receiptPath, receipt);
   await persist();
 
   let target: MacTarget | undefined;
