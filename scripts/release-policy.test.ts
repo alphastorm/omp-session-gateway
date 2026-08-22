@@ -86,11 +86,16 @@ describe("release tag policy", () => {
     );
   });
 
-  test("repository manifest keeps the bare stable tag disabled before qualification", async () => {
-    const pending: unknown = await Bun.file(new URL("../STABLE_RELEASE.lock.json", import.meta.url)).json();
-    expect(() => assertStableReleaseQualification(pending, "v0.1.0", VERSION)).toThrow(
-      "stable release qualification is pending",
-    );
+  test("repository manifest enables only the exact qualified stable candidate", async () => {
+    const manifest: unknown = await Bun.file(new URL("../STABLE_RELEASE.lock.json", import.meta.url)).json();
+    expect(() => assertStableReleaseQualification(manifest, "v0.1.0", VERSION)).not.toThrow();
+    expect(manifest).toMatchObject({
+      status: "qualified",
+      candidateTag: "v0.1.0-prealpha.23",
+      candidateSourceCommit: "434cddc443335d6da6476b43564db8230365e6fc",
+      candidateArchiveSha256: "f98bad0ce2ae20d3892e560069b2fbfc4ab6d084a403b6aa57e41c628c25ce98",
+      runtimeByteComparison: "passed",
+    });
   });
 
   test("CLI emits stable GitHub environment values only with a qualified manifest", async () => {

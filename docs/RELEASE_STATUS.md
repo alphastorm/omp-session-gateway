@@ -1,30 +1,74 @@
 # Release status
 
 **Updated:** 2026-08-22<br>
-**Repository version:** `0.1.0`, released as **`v0.1.0-beta.1`**<br>
-**Qualification predecessor:** **`v0.1.0-prealpha.20`**, independently verified<br>
-**Classification:** qualified beta; not stable or production-qualified<br>
-**Beta decision:** **GO, completed**, for the combinations named below and nothing else. The final
-tag, six assets, checksums, attestations, Cosign bundles, immutable-release record, metadata, and
-candidate/runtime-byte comparison are independently verified.
+**Repository version:** `0.1.0`; stable publication source for **`v0.1.0`**<br>
+**Qualification predecessor:** **`v0.1.0-prealpha.23`**, independently verified<br>
+**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
+**Stable decision:** **GO, approved**, for the named support boundary and nothing else.
 
-### Stable 0.1 preparation — decision pending
+### Stable 0.1 — GO
 
-**Target tag:** v0.1.0, published as a non-prerelease and GitHub Latest only after GO.<br>
-**Machine gate:** STABLE_RELEASE.lock.json is pending inside the signed tag source and prevents stable publication.<br>
-**Planned candidate:** v0.1.0-prealpha.21; not yet published or qualified.<br>
-**Support boundary:** the existing Debian 13 x86-64, retained macOS Mac14,3, physical Pixel,
-TUN-mode Tailscale Serve, and exact patched OMP v17.4.1 matrix. Windows, background Push
-qualification, Portal Tunnel, userspace networking, and self-hosted/proxied relays remain excluded.
+**Target tag:** `v0.1.0`, published as a non-prerelease and GitHub Latest.<br>
+**Machine gate:** `STABLE_RELEASE.lock.json` is qualified for candidate `v0.1.0-prealpha.23`.<br>
+**Candidate source:** `434cddc443335d6da6476b43564db8230365e6fc`.<br>
+**Candidate archive SHA-256:** `f98bad0ce2ae20d3892e560069b2fbfc4ab6d084a403b6aa57e41c628c25ce98`.<br>
+**Support boundary:** Debian 13 x86-64, macOS 26.6.1 arm64 on `Mac14,3`, Chrome
+`151.0.7922.171` on Android 17 / Pixel 10 Pro, TUN-mode Tailscale Serve, and exact patched OMP
+v17.4.1 source `9350b7990d26ebf69a604edc82d8558ef04adf30` with patched tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`. Windows, stock OMP, background Push, Funnel,
+Portal Tunnel, userspace networking, alternate/self-hosted relays, and paired OMP packaging remain
+unsupported.
 
-The stable decision is **PENDING**. Before GO, the exact candidate must pass repository checks,
-signed provenance and secret-sink verification, Debian lifecycle/identity/cleanup, retained-Mac
-install → upgrade/rollback → doctor → reboot persistence → patched-OMP publication/revocation →
-uninstall cleanup, and physical-Pixel View/Control/lifecycle/leak/recovery-guidance acceptance.
-Issue #65 is a recorded Chrome process environment limitation, not a passing reconnect result: the
-PWA supplies bounded retries and an in-shell force-stop/reopen panel only after uninterrupted visible
-failure, without a third-party probe. The current beta evidence below remains authoritative until
-the candidate results and machine gate are updated together.
+One orchestrator process ran from published branch `qual/stable-prealpha-23-434cddc` and wrote the
+mode-`0600` receipt
+`~/.local/share/omp-session-gateway/qualification/v0.1.0-prealpha.23/stable-qualification.json`.
+It completed `passed` at `2026-08-22T17:16:42.545Z`; every lane ran exactly once:
+
+- release run [`32586209795`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32586209795)
+  published six prerelease/not-Latest assets; the signed tag, checksums, all six GitHub asset
+  digests, three GitHub attestations, three Cosign bundles, and a clean byte-exact rebuild passed;
+- Debian run [`32586459902`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32586459902)
+  passed the full disposable-host lifecycle and destroyed its droplet and ephemeral SSH key;
+- retained `Mac14,3` passed `doctor` 17/17, rollback 20/20, persistence, exact archive/native
+  checks, patched-OMP build, publication/revocation, uninstall, and Serve/source cleanup;
+- the exact patched OMP published generation-1 View and Control, returned `200 no-store`, and
+  revoked before cleanup;
+- the Pixel rendered the same page throughout (`performance.timeOrigin` unchanged): lock/resume
+  recovered in 8,972 ms, a visible Airplane outage recovered in 8,998 ms and stayed settled for
+  ten seconds, and forced Doze recovered in 8,291 ms; the seven-sink capability sweep was clean;
+- the default relay stayed live for 60 seconds with two transitions; and
+- final cleanup measured zero gateway processes/listeners and zero patched-OMP processes. Independent
+  checks found no qualification-owned DigitalOcean droplet or SSH key, no Mac Serve mapping, and
+  restored Pixel radio/Doze state.
+
+A clean stable-channel build and the downloaded `.23` archive contain the same 51 members. All 48
+runtime members are byte- and mode-identical with canonical digest
+`0673123a1c19a416fb5e6b3000d11ac122d043e9e769b1714cd34f521b4f3535`. The only differences are
+the approved `STABLE_RELEASE.lock.json`, source/channel-bound `release-info.json`, and source-bound
+`SBOM.spdx.json`; no executable, gateway module, PWA/collab asset, protocol, patch, dependency lock,
+license, or integration byte differs.
+
+
+Two signed predecessors were explicitly rejected rather than promoted:
+
+- `.21` source `a98c526c40a335df49cb679448f51ac631ffc3f2`, archive
+  `cb7da13531875b879c3ab1c2451b58683199263877a74475f539258dfdcba33c`, and Debian run
+  `32565941928` passed artifact, Debian, macOS, and relay lanes, but its physical Android lane
+  failed; cleanup still passed. Its final receipt is archived as
+  `v0.1.0-prealpha.21.failed-32565941928-187994c`.
+- `.22` source `489b58e4b862d54f13779ecf361b68634f31594b`, archive
+  `194958b5b7affce27163145ca90b5cc14c6952ebb0bbf15b43878c351c6c69db`, and Debian run
+  [`32579748768`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32579748768)
+  passed artifact, Debian, macOS, and relay lanes, but lock/resume never became ready, Airplane
+  recovered only after 170,210 ms, Doze never recovered, and no outage status rendered; cleanup
+  passed. Its receipt is archived as `v0.1.0-prealpha.22.failed-32579748768-489b58e`.
+
+The `.23` product fix preserves native EventSource reconnection when Android loses a JavaScript
+timer while retaining the bounded snapshot fallback. The physical gate observes rendered state
+without competing fetches and rejects a page reload. Issue #65 remains a documented Chrome
+process-wide limitation outside the proven transitions; the loaded shell still offers bounded
+recovery guidance rather than claiming JavaScript can restart Chrome's network service.
+
 
 **GitHub publication rehearsal:** gh 2.97.0 exercised the exact six-asset draft and publish flags in
 private repository alphastorm/chariot-shadow-workspace on 2026-08-22. The prerelease stayed
@@ -46,7 +90,7 @@ contains the digestBinding row.
 state deleted; .github/workflows/signed-release.yml is active on main as workflow ID 339848215.
 The candidate tag may use only the active replacement.
 
-### Beta advertised combinations
+### Published beta advertised combinations
 
 | role | exact candidate combination | evidence |
 | --- | --- | --- |
@@ -245,14 +289,14 @@ This ledger is the source of truth for the current release decision. Compatibili
 | **BLOCKED** | A known prerequisite prevents completion or publication. |
 | **N/A** | Deliberately excluded from this release and not advertised. |
 
-An advertised alpha or beta requires every applicable release-blocking row below to be **PASS**.
+An advertised alpha, beta, or stable release requires every applicable release-blocking row below to be **PASS**.
 Automated tests, mocks, a desktop mobile viewport, or generated service definitions do not
 substitute for native OS, real Tailscale, real relay, or Android qualification.
 
 ## Recorded implementation evidence
 
-The table retains historical evidence across pre-alpha and alpha qualification. The current beta
-decision and its exact successor evidence are the bounded record at the top of this document.
+The table retains historical evidence across pre-alpha, alpha, and beta qualification. The stable
+decision and its exact candidate evidence are the bounded record at the top of this document.
 
 | Scope | Status | Recorded evidence |
 |---|---|---|
