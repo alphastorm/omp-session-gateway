@@ -61,9 +61,10 @@ collab-web, and wire bytes remain identical. A bounded real relay smoke still ru
 candidate. Windows and every other excluded mode are not stable blockers because they are not
 advertised; they must remain explicit exclusions.
 
-Before any new release tag, merge signed-release.yml and disable the superseded release.yml workflow
-in GitHub Actions. Historical tags retain release.yml in their certificate identity; new tags use
-signed-release.yml. A run that fails after attestation or Cosign signing may leave public GitHub
+The superseded release.yml workflow (GitHub workflow ID 316404456) is disabled_manually. Before any
+new tag, merge signed-release.yml and verify that replacement is active. Historical tags retain
+release.yml in their certificate identity; new tags use signed-release.yml. A run that fails after
+attestation or Cosign signing may leave public GitHub
 attestations or Rekor entries even when no release is published; those records are failed-attempt
 provenance, not an advertised release.
 The workflow validates API-observed draft and published flags plus six uploaded asset digests

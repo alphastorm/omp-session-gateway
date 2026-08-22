@@ -42,8 +42,9 @@ states for all six synthetic assets, then removed the release and tag; the same 
 contains the digestBinding row.
 
 
-**Workflow cutover pending:** .github/workflows/signed-release.yml must merge and the superseded
-release.yml workflow must be disabled in GitHub Actions before the candidate tag is created.
+**Workflow cutover:** GitHub workflow ID 316404456 at .github/workflows/release.yml is
+disabled_manually. The signed-release.yml replacement must be active on main before the candidate
+tag is created.
 
 ### Beta advertised combinations
 

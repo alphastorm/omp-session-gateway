@@ -501,6 +501,8 @@ the real tag; syntax-only or mock evidence is insufficient for that external sta
 The hardened workflow moves to signed-release.yml. The superseded release.yml workflow must be
 disabled in GitHub before another tag is created; otherwise an old commit can select its historical
 workflow definition and bypass controls that did not exist there.
+**Control-plane update (2026-08-22):** GitHub workflow ID 316404456 for release.yml now reports
+disabled_manually. No new tag may be created until signed-release.yml is active on main.
 Draft and published release state must be read back through the GitHub API, including six uploaded
 asset digests compared with the exact local signed files and Latest status. Observation receives
 bounded 0/2/4/8-second retries. A persistently failed draft or post-publication observation attempts
