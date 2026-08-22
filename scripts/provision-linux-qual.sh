@@ -251,11 +251,13 @@ remote_root() { remote root "$@"; }
 remote_user() { remote "$QUAL_USER" "$@"; }
 
 # ---------------------------------------------------------------------------- bounded waits
+WAIT_LAST_OBSERVATION=""
 
 wait_for() {
   local label="$1" attempts="$2" delay="$3"
   shift 3
   local index started elapsed
+  WAIT_LAST_OBSERVATION=""
   started="$(date -u +%s)"
   for ((index = 1; index <= attempts; index++)); do
     if "$@" >/dev/null 2>&1; then
@@ -265,6 +267,7 @@ wait_for() {
     fi
     sleep "$delay"
   done
+  [ -z "$WAIT_LAST_OBSERVATION" ] || measure "$label last observation" "$WAIT_LAST_OBSERVATION"
   die "$label did not become ready within $((attempts * delay))s. The droplet is still running; inspect it with '$0 status'."
 }
 
@@ -280,8 +283,9 @@ cloud_init_done() { ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" "test -f /run/clou
 tailscale_is_online() {
   local state
   state="$(ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" \
-    "tailscale status --json 2>/dev/null | jq -r '(.BackendState // \"\") + \":\" + ((.Self.Online // false) | tostring)'" 2>/dev/null || true)"
-  [ "$state" = "Running:true" ]
+    "tailscale status --json 2>/dev/null | jq -c '{backendState:(.BackendState // ""),online:(.Self.Online // false),health:(.Health // [])}'" 2>/dev/null || true)"
+  WAIT_LAST_OBSERVATION="${state:-unavailable}"
+  [ "$(printf '%s' "$state" | jq -r '[.backendState, (.online | tostring)] | join(":")' 2>/dev/null || true)" = "Running:true" ]
 }
 
 # ---------------------------------------------------------------------------- preflight

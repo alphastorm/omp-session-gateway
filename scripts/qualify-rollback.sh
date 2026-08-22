@@ -54,7 +54,7 @@ NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.1.0-prealpha.20}"
 ARCHIVE="omp-session-gateway-0.1.0-bun.tar"
 ARCHIVE_ROOT="omp-session-gateway-0.1.0-bun"
 LABEL="omp-session-gateway"
-QUAL_BASE="/tmp/omp-rollback-qual"
+QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 
 # Deliberately not 4317. The installer probes its own configured loopback port for a live listener;
 # reusing the production port would aim that probe at the live daemon.
@@ -139,13 +139,13 @@ print_rows() {
 # The program path launchd currently has loaded for our label, or empty. Always the real launchctl:
 # the gate must never be able to answer a safety question about itself.
 loaded_program_path() {
-  /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null |
+  { /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null || true; } |
     sed -n 's|^[[:space:]]*\(/[^[:space:]]*/installation/versions/[^[:space:]]*cli\.js\)$|\1|p' |
     head -1
 }
 
 loaded_pid() {
-  /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null |
+  { /bin/launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null || true; } |
     sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -1
 }
 
