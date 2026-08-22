@@ -15,8 +15,9 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
   before stable publication; recheck checkout HEAD and tag target before provenance, draft creation,
   and public promotion. Move future signatures to signed-release.yml so the superseded historical
   tag workflow can be disabled.
-- Disable historical GitHub workflow ID 316404456 for release.yml before merging the hardened
-  signed-release.yml replacement, preventing old commits from selecting pre-remediation tag logic.
+- Retire historical GitHub workflow ID 316404456 with state deleted and activate hardened
+  signed-release.yml as workflow ID 339848215, preventing old commits from selecting
+  pre-remediation tag logic.
 - Rehearse the exact six-asset GitHub draft/publish commands with gh 2.97.0 in a private repository:
   prerelease remained not-Latest, stable became non-prerelease Latest only when published, the
   latest-release API resolved to stable, and all synthetic releases/tags were removed.

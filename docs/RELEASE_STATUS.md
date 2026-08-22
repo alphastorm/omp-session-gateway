@@ -42,9 +42,9 @@ states for all six synthetic assets, then removed the release and tag; the same 
 contains the digestBinding row.
 
 
-**Workflow cutover:** GitHub workflow ID 316404456 at .github/workflows/release.yml is
-disabled_manually. The signed-release.yml replacement must be active on main before the candidate
-tag is created.
+**Workflow cutover:** historical workflow ID 316404456 at .github/workflows/release.yml reports
+state deleted; .github/workflows/signed-release.yml is active on main as workflow ID 339848215.
+The candidate tag may use only the active replacement.
 
 ### Beta advertised combinations
 
