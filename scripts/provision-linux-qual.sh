@@ -281,9 +281,9 @@ ssh_is_up() { ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" true; }
 cloud_init_done() { ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" "test -f /run/cloud-init/result.json"; }
 
 tailscale_is_online() {
-  local state
-  state="$(ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" \
-    "tailscale status --json 2>/dev/null | jq -c '{backendState:(.BackendState // ""),online:(.Self.Online // false),health:(.Health // [])}'" 2>/dev/null || true)"
+  local raw state
+  raw="$(ssh "${SSH_OPTS[@]}" "root@${DROPLET_IP}" 'tailscale status --json 2>/dev/null' 2>/dev/null || true)"
+  state="$(printf '%s' "$raw" | jq -c '{backendState:(.BackendState // ""),online:(.Self.Online? // false),health:(.Health // [])}' 2>/dev/null || true)"
   WAIT_LAST_OBSERVATION="${state:-unavailable}"
   [ "$(printf '%s' "$state" | jq -r '[.backendState, (.online | tostring)] | join(":")' 2>/dev/null || true)" = "Running:true" ]
 }
