@@ -11,11 +11,16 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 - Add a fail-closed stable release policy: only the exact bare v0.1.0 tag selects the stable
   archive claim and GitHub Latest publication; every engineering, alpha, and beta tag remains a
   prerelease, and unknown or cross-version shapes fail before artifact creation.
-- Require a commit-bound stable qualification manifest plus a GitHub-verified signed annotated tag
-  before stable publication; recheck the tag target before draft creation and public promotion.
+- Require a signed-tag-bound stable qualification manifest plus a GitHub-verified annotated tag
+  before stable publication; recheck checkout HEAD and tag target before provenance, draft creation,
+  and public promotion. Move future signatures to signed-release.yml so the superseded historical
+  tag workflow can be disabled.
 - Rehearse the exact six-asset GitHub draft/publish commands with gh 2.97.0 in a private repository:
   prerelease remained not-Latest, stable became non-prerelease Latest only when published, the
   latest-release API resolved to stable, and all synthetic releases/tags were removed.
+- Validate draft and published release state through the GitHub API, including uploaded asset
+  digests and Latest status; on a failed post-publication check, delete the release. A private live
+  rehearsal verified draft, publication, deletion compensation, tag cleanup, and no residual release.
 - Make physical Android acceptance browser-selectable and record the exact package, installed
   package version, Browser.getVersion revision, activity, and DevTools socket in evidence.
 - Add prolonged-outage recovery guidance in a help panel carried by the loaded PWA shell. The PWA

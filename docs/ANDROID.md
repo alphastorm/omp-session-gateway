@@ -59,9 +59,10 @@ activity, and DevTools socket selection:
 
 Every acceptance record includes the package name, Android package version, complete
 Browser.getVersion result, launch activity, and DevTools socket. Before recording evidence, the
-driver requires the CDP product version to equal the selected package version; a mismatched socket
-fails the run. A Canary result applies only to that exact build and socket. Do not claim #65 resolved
-until the Stable control reproduces and the selected Canary completes the recorded cycle gate.
+driver reads the forwarded endpoint's Android-Package and Browser fields and requires both to match
+the selected package and installed version; Browser.getVersion must agree again after CDP connects.
+A Canary result applies only to that exact build and socket. Do not claim #65 resolved until the
+Stable control reproduces and the selected Canary completes the recorded cycle gate.
 
 ## Launch UX
 

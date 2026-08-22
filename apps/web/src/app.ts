@@ -457,6 +457,7 @@ function clearTransportFailureTracking(): void {
     transportGuidanceTimeout = undefined;
   }
   transportFailureSince = undefined;
+  if (networkRecoveryHelp.open) networkRecoveryHelp.close();
   transportFailureKind = undefined;
 }
 

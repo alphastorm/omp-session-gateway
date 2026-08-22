@@ -41,6 +41,16 @@ export function assertReleaseTagState(
   }
 }
 
+export function assertReleaseTagReferenceStable(firstValue: GitReference, secondValue: GitReference): void {
+  const first = record(firstValue, "initial GitHub tag reference");
+  const second = record(secondValue, "final GitHub tag reference");
+  const firstObject = record(first.object, "initial GitHub tag reference object");
+  const secondObject = record(second.object, "final GitHub tag reference object");
+  if (first.ref !== second.ref || firstObject.type !== secondObject.type || firstObject.sha !== secondObject.sha) {
+    throw new Error("release tag changed during verification");
+  }
+}
+
 async function githubJson(url: string, token: string): Promise<unknown> {
   const response = await fetch(url, {
     headers: {
@@ -62,15 +72,15 @@ if (import.meta.main) {
   }
   try {
     const base = "https://api.github.com/repos/" + repository;
-    const reference = (await githubJson(
-      base + "/git/ref/tags/" + encodeURIComponent(tag),
-      token,
-    )) as GitReference;
-    const referenceObject = record(reference.object, "GitHub tag reference object");
+    const referenceUrl = base + "/git/ref/tags/" + encodeURIComponent(tag);
+    const initialReference = (await githubJson(referenceUrl, token)) as GitReference;
+    const referenceObject = record(initialReference.object, "GitHub tag reference object");
     const tagObjectSha = referenceObject.sha;
     if (typeof tagObjectSha !== "string") throw new Error("GitHub tag reference has no object SHA");
     const annotatedTag = (await githubJson(base + "/git/tags/" + tagObjectSha, token)) as GitTagObject;
-    assertReleaseTagState(reference, annotatedTag, tag, expectedCommit);
+    const finalReference = (await githubJson(referenceUrl, token)) as GitReference;
+    assertReleaseTagReferenceStable(initialReference, finalReference);
+    assertReleaseTagState(finalReference, annotatedTag, tag, expectedCommit);
     console.log("verified signed release tag " + tag + " at " + expectedCommit);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

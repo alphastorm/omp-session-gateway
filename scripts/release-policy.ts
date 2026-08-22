@@ -17,7 +17,6 @@ const QUALIFICATION_KEYS = [
   "candidateSourceCommit",
   "candidateTag",
   "evidence",
-  "releaseSourceCommit",
   "releaseTag",
   "runtimeByteComparison",
   "schemaVersion",
@@ -41,12 +40,7 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
 }
 
 /** Stable tags are authorized only by a commit-bound, fully passed qualification manifest. */
-export function assertStableReleaseQualification(
-  value: unknown,
-  tag: string,
-  version: string,
-  sourceCommit: string,
-): void {
+export function assertStableReleaseQualification(value: unknown, tag: string, version: string): void {
   const qualification = record(value, "stable release qualification");
   exactKeys(qualification, QUALIFICATION_KEYS, "stable release qualification");
   if (qualification.$schema !== "./schemas/stable-release.schema.json" || qualification.schemaVersion !== 1) {
@@ -57,9 +51,6 @@ export function assertStableReleaseQualification(
   }
   if (qualification.status !== "qualified") {
     throw new Error("stable release qualification is pending");
-  }
-  if (qualification.releaseSourceCommit !== sourceCommit || !COMMIT_PATTERN.test(sourceCommit)) {
-    throw new Error("stable release qualification is not bound to GITHUB_SHA");
   }
   const candidatePattern = new RegExp(
     "^v" + version.replaceAll(".", "\\.") + "-prealpha\\." + POSITIVE_INTEGER + "$",
@@ -113,17 +104,15 @@ export function releasePolicy(tag: string, version: string): ReleasePolicy {
 }
 
 if (import.meta.main) {
-  const [tag, version, sourceCommit, qualificationPath] = Bun.argv.slice(2);
-  if (tag === undefined || version === undefined || sourceCommit === undefined || qualificationPath === undefined) {
-    console.error(
-      "usage: bun scripts/release-policy.ts <tag> <package-version> <source-commit> <qualification-manifest>",
-    );
+  const [tag, version, qualificationPath] = Bun.argv.slice(2);
+  if (tag === undefined || version === undefined || qualificationPath === undefined) {
+    console.error("usage: bun scripts/release-policy.ts <tag> <package-version> <qualification-manifest>");
     process.exit(2);
   }
   try {
     const policy = releasePolicy(tag, version);
     if (policy.channel === "stable") {
-      assertStableReleaseQualification(await Bun.file(qualificationPath).json(), tag, version, sourceCommit);
+      assertStableReleaseQualification(await Bun.file(qualificationPath).json(), tag, version);
     }
     console.log("OMP_RELEASE_CHANNEL=" + policy.channel);
     console.log("RELEASE_IS_PRERELEASE=" + String(policy.prerelease));

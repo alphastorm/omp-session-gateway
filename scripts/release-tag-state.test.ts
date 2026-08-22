@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertReleaseTagState } from "./release-tag-state.ts";
+import { assertReleaseTagReferenceStable, assertReleaseTagState } from "./release-tag-state.ts";
 
 const TAG = "v0.1.0";
 const COMMIT = "a".repeat(40);
@@ -44,5 +44,11 @@ describe("signed release tag state", () => {
     expect(() =>
       assertReleaseTagState(reference({ ref: "refs/tags/v0.1.1" }), annotatedTag(), TAG, COMMIT),
     ).toThrow("GitHub tag reference name changed");
+  });
+
+  test("rejects a tag reference that moves while its annotated object is inspected", () => {
+    expect(() =>
+      assertReleaseTagReferenceStable(reference(), reference({ object: { type: "tag", sha: "c".repeat(40) } })),
+    ).toThrow("release tag changed during verification");
   });
 });

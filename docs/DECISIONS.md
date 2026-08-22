@@ -491,12 +491,19 @@ stable claim remains limited to the Debian, macOS, physical Pixel, TUN-mode Tail
 exact patched-OMP combinations recorded at the tag's source commit. Every pre-alpha, alpha, beta,
 provenance, unknown, and cross-version tag stays a prerelease or fails before artifact creation.
 Publish the bare tag as GitHub Latest only after a signed candidate repeats the applicable matrix.
-The stable workflow must also refuse the bare tag until STABLE_RELEASE.lock.json binds a fully
-passed candidate matrix and runtime-byte comparison to the exact release commit. It must require a
-GitHub-verified signed annotated tag and revalidate that tag's target before draft creation and
-public promotion.
+The stable workflow must also refuse the bare tag until the exact signed tag's tree contains a fully
+passed STABLE_RELEASE.lock.json candidate matrix and runtime-byte comparison. It must require a
+GitHub-verified signed annotated tag, assert checked-out HEAD equals the event SHA, bind the
+candidate tag/source/archive digest, and revalidate tag targets before provenance, draft creation,
+and public promotion.
 The non-prerelease and Latest flags must be rehearsed against GitHub in a private repository before
 the real tag; syntax-only or mock evidence is insufficient for that external state transition.
+The hardened workflow moves to signed-release.yml. The superseded release.yml workflow must be
+disabled in GitHub before another tag is created; otherwise an old commit can select its historical
+workflow definition and bypass controls that did not exist there.
+Draft and published release state must be read back through the GitHub API, including six uploaded
+asset digests and Latest status. A failed post-publication observation must attempt release deletion;
+public attestation/Rekor evidence may remain and is treated as failed-attempt provenance.
 
 Treat #65 as a documented browser-process environment limitation, not as a passing PWA reconnect
 case and not as a reason to add another transport workaround. After 45 uninterrupted seconds of

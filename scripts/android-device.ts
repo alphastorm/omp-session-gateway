@@ -19,7 +19,7 @@
 const DEFAULT_BROWSER_PACKAGE = "com.android.chrome";
 const DEFAULT_DEVTOOLS_SOCKET = "localabstract:chrome_devtools_remote";
 const ANDROID_PACKAGE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/u;
-const ANDROID_CLASS_PATTERN = /^\.?[A-Za-z_][A-Za-z0-9_$.]*(?:\.[A-Za-z_][A-Za-z0-9_$.]*)*$/u;
+const ANDROID_CLASS_PATTERN = /^\.?[A-Za-z_][A-Za-z0-9_.]*(?:\.[A-Za-z_][A-Za-z0-9_.]*)*$/u;
 const DEVTOOLS_SOCKET_PATTERN = /^localabstract:[A-Za-z0-9_.-]+$/u;
 const DEFAULT_FORWARD_PORT = 9222;
 const CALL_TIMEOUT_MS = 25_000;
@@ -129,6 +129,29 @@ export function assertBrowserVersionMatchesPackage(
   }
 }
 
+export function assertDevtoolsEndpointMatchesPackage(
+  packageName: string,
+  androidPackageVersion: string,
+  metadata: unknown,
+): string {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    throw new Error("DevTools endpoint metadata is invalid");
+  }
+  const endpoint = metadata as Record<string, unknown>;
+  if (endpoint["Android-Package"] !== packageName) {
+    throw new Error("DevTools socket is not owned by " + packageName);
+  }
+  const product = endpoint.Browser;
+  const endpointVersion = typeof product === "string" ? product.match(/^Chrome\/(.+)$/u)?.[1] : undefined;
+  if (endpointVersion !== androidPackageVersion) {
+    throw new Error("DevTools endpoint version does not match " + packageName);
+  }
+  if (typeof endpoint.webSocketDebuggerUrl !== "string") {
+    throw new Error("DevTools endpoint has no browser WebSocket URL");
+  }
+  return endpoint.webSocketDebuggerUrl;
+}
+
 async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
   return parseAndroidPackageVersion(await adb(serial, "shell", "dumpsys", "package", packageName));
 }
@@ -185,7 +208,20 @@ export async function withAndroidChrome<T>(
   await wakeChrome(serial, target);
   await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
 
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/devtools/browser`);
+  let webSocketDebuggerUrl: string;
+  try {
+    const endpointResponse = await fetch("http://127.0.0.1:" + port + "/json/version");
+    if (!endpointResponse.ok) throw new Error("DevTools endpoint metadata request failed");
+    webSocketDebuggerUrl = assertDevtoolsEndpointMatchesPackage(
+      target.packageName,
+      packageVersion,
+      await endpointResponse.json(),
+    );
+  } catch (error) {
+    await adb(serial, "forward", "--remove", "tcp:" + port).catch(() => {});
+    throw error;
+  }
+  const socket = new WebSocket(webSocketDebuggerUrl);
   const pending = new Map<number, { resolve(value: Record<string, unknown>): void; reject(error: Error): void }>();
   let nextId = 0;
   let sessionId: string | undefined;

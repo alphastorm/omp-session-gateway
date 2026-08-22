@@ -41,13 +41,15 @@ Every advertised release requires:
 - complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
   verification.
 
-Stable v0.1.0 additionally requires that STABLE_RELEASE.lock.json bind the exact release commit to a
-fully passed candidate, candidate archive digest, runtime-byte comparison, Debian, retained
-Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence. The workflow
-also requires a GitHub-verified signed annotated tag and rechecks its target before draft creation
-and public promotion. Issue #65 remains a browser-process environment limitation: after 45
-uninterrupted visible failure seconds, the loaded shell offers retry and force-stop/reopen help
-without a third-party probe or a claim that JavaScript repaired Chrome.
+Stable v0.1.0 additionally requires that the exact signed tag's tree contain a fully passed
+STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
+retained Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence.
+The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
+published candidate digest, requires a GitHub-verified signed annotated tag, and rechecks tag state
+before public provenance, draft creation, and promotion. Issue #65 remains a browser-process
+environment limitation: after 45 uninterrupted visible failure seconds, the loaded shell offers
+retry and force-stop/reopen help without a third-party probe or a claim that JavaScript repaired
+Chrome.
 
 Before the real stable tag, rehearse the exact gh create/edit flags in a private repository. Require
 six assets in the draft and published states, prerelease/not-Latest for the prerelease control,
@@ -58,6 +60,16 @@ The protected 28,800-second default-relay result may transfer only while relay h
 collab-web, and wire bytes remain identical. A bounded real relay smoke still runs for the exact
 candidate. Windows and every other excluded mode are not stable blockers because they are not
 advertised; they must remain explicit exclusions.
+
+Before any new release tag, merge signed-release.yml and disable the superseded release.yml workflow
+in GitHub Actions. Historical tags retain release.yml in their certificate identity; new tags use
+signed-release.yml. A run that fails after attestation or Cosign signing may leave public GitHub
+attestations or Rekor entries even when no release is published; those records are failed-attempt
+provenance, not an advertised release.
+The workflow validates API-observed draft and published flags plus six uploaded asset digests. If a
+post-publication tag or release-state check fails, it attempts to delete the release before failing;
+the signed tag remains for operator diagnosis. This deletion compensation passed in the private
+rehearsal and does not remove already-public attestation or Rekor records.
 
 ## Default-relay soak qualification
 
@@ -97,7 +109,7 @@ non-prerelease, and Latest; alpha, beta, pre-alpha, and provenance shapes remain
 not-Latest. The validated channel selects release-info.json qualification; it cannot author or
 widen the claim, and every unknown OMP_RELEASE_CHANNEL fails the build.
 
-`.github/workflows/release.yml` runs `bun run check`, builds the deterministic archive,
+.github/workflows/signed-release.yml runs bun run check, builds the deterministic archive,
 checks its SHA-256 digest, and then uses GitHub Actions OIDC for both provenance systems:
 
 - `actions/attest-build-provenance` publishes GitHub build attestations for the archive,
@@ -145,6 +157,7 @@ directory:
 ```sh
 REPO=alphastorm/omp-session-gateway
 TAG=v0.1.0-beta.1
+WORKFLOW=$([ "$TAG" = v0.1.0-beta.1 ] && printf release.yml || printf signed-release.yml)
 ARCHIVE=omp-session-gateway-0.1.0-bun.tar
 SBOM=omp-session-gateway-0.1.0.spdx.json
 
@@ -184,7 +197,7 @@ for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   gh attestation verify "$artifact" \
     --repo "$REPO" \
-    --signer-workflow "$REPO/.github/workflows/release.yml" \
+    --signer-workflow "$REPO/.github/workflows/$WORKFLOW" \
     --source-ref "refs/tags/$TAG"
 done
 ```
@@ -193,7 +206,7 @@ Verify the independent Sigstore bundles against the GitHub Actions OIDC issuer a
 workflow-ref certificate identity:
 
 ```sh
-CERTIFICATE_IDENTITY="https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$TAG"
+CERTIFICATE_IDENTITY="https://github.com/$REPO/.github/workflows/$WORKFLOW@refs/tags/$TAG"
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   cosign verify-blob \

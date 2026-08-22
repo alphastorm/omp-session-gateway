@@ -906,7 +906,7 @@ show "gh binary sha256" "$(sha256sum ~/tools/gh | awk '{print $1}')"
 show "sha256sum --check" "$(sha256sum --check SHA256SUMS | tr '\n' ' ')"
 show "archive digest on droplet" "$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 
-identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}"
+identity="https://github.com/${REPO_SLUG}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
 show "expected certificate identity" "$identity"
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
   ~/tools/cosign verify-blob \
@@ -920,12 +920,12 @@ done
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
   if [ "$ATTESTATION_MODE" = "online" ]; then
     GH_TOKEN="$SUPPLIED_GH_TOKEN" ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/release.yml" \
+      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
       --source-ref "refs/tags/${TAG}" >/dev/null
   else
     ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
       --bundle "${artifact}.attestation.jsonl" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/release.yml" \
+      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
       --source-ref "refs/tags/${TAG}" >/dev/null
   fi
   show "gh attestation verify" "$artifact verified ($ATTESTATION_MODE)"

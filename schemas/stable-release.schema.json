@@ -13,7 +13,6 @@
     "candidateTag",
     "candidateSourceCommit",
     "candidateArchiveSha256",
-    "releaseSourceCommit",
     "runtimeByteComparison",
     "evidence",
     "approvedAt"
@@ -27,7 +26,6 @@
     "candidateTag": { "pattern": "^v0\\.1\\.0-prealpha\\.[1-9][0-9]*$" },
     "candidateSourceCommit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
     "candidateArchiveSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-    "releaseSourceCommit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
     "runtimeByteComparison": { "enum": ["pending", "passed"] },
     "evidence": {
       "type": "object",

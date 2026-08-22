@@ -11,7 +11,7 @@ candidate/runtime-byte comparison are independently verified.
 ### Stable 0.1 preparation — decision pending
 
 **Target tag:** v0.1.0, published as a non-prerelease and GitHub Latest only after GO.<br>
-**Machine gate:** STABLE_RELEASE.lock.json is pending and prevents stable publication.<br>
+**Machine gate:** STABLE_RELEASE.lock.json is pending inside the signed tag source and prevents stable publication.<br>
 **Planned candidate:** v0.1.0-prealpha.21; not yet published or qualified.<br>
 **Support boundary:** the existing Debian 13 x86-64, retained macOS Mac14,3, physical Pixel,
 TUN-mode Tailscale Serve, and exact patched OMP v17.4.1 matrix. Windows, background Push
@@ -32,6 +32,13 @@ prerelease/not-Latest before and after publication; the stable-shaped release st
 became Latest only on publication, and resolved through the latest-release API. Both synthetic
 releases and tags were removed. Named evidence:
 ~/.local/share/omp-session-gateway/test/v0.1.0/stable-release-rehearsal.json.
+The same private host then verified failure compensation separately: a complete draft became
+non-prerelease Latest, release-state validation passed, the release was deleted, the synthetic tag
+was deleted, and neither resource remained. The named evidence record includes this compensation row.
+
+
+**Workflow cutover pending:** .github/workflows/signed-release.yml must merge and the superseded
+release.yml workflow must be disabled in GitHub Actions before the candidate tag is created.
 
 ### Beta advertised combinations
 

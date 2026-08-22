@@ -5,7 +5,7 @@ interface WorkflowStep {
   readonly run?: string;
 }
 
-const workflow = Bun.YAML.parse(await Bun.file(new URL("../.github/workflows/release.yml", import.meta.url)).text()) as {
+const workflow = Bun.YAML.parse(await Bun.file(new URL("../.github/workflows/signed-release.yml", import.meta.url)).text()) as {
   jobs: { "build-attest-sign-release": { steps: WorkflowStep[] } };
 };
 const steps = workflow.jobs["build-attest-sign-release"].steps;
@@ -26,33 +26,38 @@ function ordered(run: string, ...needles: string[]): void {
 }
 
 describe("release workflow trust ordering", () => {
-  test("checks main ancestry before executing tagged repository code", () => {
+  test("uses only the hardened workflow path", async () => {
+    expect(await Bun.file(new URL("../.github/workflows/release.yml", import.meta.url)).exists()).toBe(false);
+    expect(await Bun.file(new URL("../.github/workflows/signed-release.yml", import.meta.url)).exists()).toBe(true);
+  });
+
+  test("binds checkout and candidate evidence before executing release gates", () => {
     const run = runStep("Validate signed release tag and derive its channel");
     ordered(
       run,
-      "jq -er '.version' package.json",
+      "git rev-parse HEAD",
       "git merge-base --is-ancestor",
       "bun scripts/release-tag-state.ts",
       "bun scripts/release-policy.ts",
-      "STABLE_RELEASE.lock.json",
+      "candidateSourceCommit",
+      "candidateArchiveSha256",
+      "gh release view",
     );
   });
 
-  test("revalidates signed tag state around the complete draft transition", () => {
+  test("revalidates the signed tag immediately before public provenance", () => {
+    expect(runStep("Revalidate signed tag before public provenance")).toContain("bun scripts/release-tag-state.ts");
+  });
+
+  test("checks not-Latest and uploaded asset state on the complete draft", () => {
     const run = runStep("Create complete draft release");
-    ordered(run, "bun scripts/release-tag-state.ts", "gh release create", "draft_state=", "assets.length !== 6");
+    ordered(run, "bun scripts/release-tag-state.ts", "gh release create", "bun scripts/release-state.ts");
+    expect(run).not.toContain("--json assets,isDraft,isLatest");
   });
 
-  test("revalidates tag state before publishing and checks the resulting channel flags", () => {
+  test("revalidates after publishing and compensates a failed observation", () => {
     const run = runStep("Publish release once");
-    ordered(
-      run,
-      "bun scripts/release-tag-state.ts",
-      "gh release edit",
-      "published_state=",
-      "state.isLatest",
-      "state.isPrerelease",
-      "state.assets.length !== 6",
-    );
+    expect(run.match(/bun scripts\/release-tag-state\.ts/gu)).toHaveLength(2);
+    ordered(run, "gh release edit", "bun scripts/release-state.ts", "gh release delete");
   });
 });

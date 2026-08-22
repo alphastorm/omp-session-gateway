@@ -379,7 +379,7 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
 /**
  * The qualification recorded in release-info.json, keyed by the validated release channel.
  *
- * release.yml delegates exact tag classification to release-policy.ts and exports one of these
+ * signed-release.yml delegates exact tag classification to release-policy.ts and exports one of these
  * keys as OMP_RELEASE_CHANNEL. A tag selects a claim but never writes one. Pre-alpha covers both
  * engineering candidates and provenance exercises; alpha and beta retain their deliberately
  * bounded claims; stable names the supported 0.1 matrix without widening it to stock OMP,

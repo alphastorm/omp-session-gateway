@@ -373,6 +373,10 @@ fetch_tag() { # tag destination
   mkdir -p "$dest"
   (
     cd "$dest"
+    local workflow="release.yml"
+    case "$tag" in
+      v0.1.0-prealpha.21 | v0.1.0) workflow="signed-release.yml" ;;
+    esac
     gh release download "$tag" -R "$REPO" -D . --clobber \
       -p "$ARCHIVE" -p "$ARCHIVE.sigstore.json" -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null
     shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null
@@ -380,7 +384,7 @@ fetch_tag() { # tag destination
     for asset in "$ARCHIVE" SHA256SUMS; do
       cosign verify-blob \
         --bundle "$asset.sigstore.json" \
-        --certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$tag" \
+        --certificate-identity "https://github.com/$REPO/.github/workflows/$workflow@refs/tags/$tag" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         "$asset" >/dev/null 2>&1 ||
         {

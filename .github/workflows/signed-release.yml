@@ -44,16 +44,36 @@ jobs:
         run: |
           set -euo pipefail
           version="$(jq -er '.version' package.json)"
+          actual_head="$(git rev-parse HEAD)"
+          if [[ "$actual_head" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out HEAD must equal GITHUB_SHA." >&2
+            exit 1
+          fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
             echo "Tagged commit must be reachable from origin/main." >&2
             exit 1
           fi
           bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
-          bun scripts/release-policy.ts \
-            "$GITHUB_REF_NAME" \
-            "$version" \
-            "$GITHUB_SHA" \
-            STABLE_RELEASE.lock.json >> "$GITHUB_ENV"
+          policy_file="$RUNNER_TEMP/release-policy.env"
+          bun scripts/release-policy.ts "$GITHUB_REF_NAME" "$version" STABLE_RELEASE.lock.json > "$policy_file"
+          cat "$policy_file" >> "$GITHUB_ENV"
+          source "$policy_file"
+          if [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
+            candidate_tag="$(jq -er '.candidateTag' STABLE_RELEASE.lock.json)"
+            candidate_source="$(jq -er '.candidateSourceCommit' STABLE_RELEASE.lock.json)"
+            candidate_digest="sha256:$(jq -er '.candidateArchiveSha256' STABLE_RELEASE.lock.json)"
+            if ! git merge-base --is-ancestor "$candidate_source" "$GITHUB_SHA"; then
+              echo "Qualified candidate source must be an ancestor of the stable source." >&2
+              exit 1
+            fi
+            bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$candidate_tag" "$candidate_source"
+            candidate_archive="omp-session-gateway-$version-bun.tar"
+            published_digest="$(gh release view "$candidate_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$candidate_archive\") | .digest")"
+            if [[ "$published_digest" != "$candidate_digest" ]]; then
+              echo "Qualified candidate archive digest does not match the published release." >&2
+              exit 1
+            fi
+          fi
           archive="dist/release/omp-session-gateway-$version-bun.tar"
           checksums="dist/release/SHA256SUMS"
           sbom="dist/release/omp-session-gateway-$version.spdx.json"
@@ -84,6 +104,11 @@ jobs:
           fi
           (cd dist/release && sha256sum --check SHA256SUMS)
 
+      - name: Revalidate signed tag before public provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -110,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist/release && sha256sum --check SHA256SUMS)
-          signer_workflow="$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          signer_workflow="$GITHUB_REPOSITORY/.github/workflows/signed-release.yml"
           certificate_identity="https://github.com/${signer_workflow}@${GITHUB_REF}"
           for artifact in "$ARCHIVE_PATH" "$SBOM_PATH" "$CHECKSUM_PATH"; do
             gh attestation verify "$artifact" \
@@ -327,16 +352,12 @@ jobs:
           else
             create_release --draft --latest=false
           fi
-          draft_state="$(gh release view "$GITHUB_REF_NAME" --json assets,isDraft,isPrerelease)"
-          expected_prerelease="$RELEASE_IS_PRERELEASE" bun -e '
-            const state = JSON.parse(await Bun.stdin.text());
-            if (state.isDraft !== true || state.isPrerelease !== (process.env.expected_prerelease === "true")) {
-              throw new Error("draft release flags do not match the validated policy");
-            }
-            if (!Array.isArray(state.assets) || state.assets.length !== 6) {
-              throw new Error("draft release does not contain exactly six assets");
-            }
-          ' <<< "$draft_state"
+          bun scripts/release-state.ts \
+            "$GITHUB_REPOSITORY" \
+            "$GITHUB_REF_NAME" \
+            true \
+            "$RELEASE_IS_PRERELEASE" \
+            false
 
       - name: Publish release once
         env:
@@ -349,17 +370,16 @@ jobs:
           else
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
           fi
-          published_state="$(gh release view "$GITHUB_REF_NAME" --json assets,isDraft,isLatest,isPrerelease,tagName)"
-          expected_latest="$RELEASE_IS_LATEST" expected_prerelease="$RELEASE_IS_PRERELEASE" expected_tag="$GITHUB_REF_NAME" bun -e '
-            const state = JSON.parse(await Bun.stdin.text());
-            if (
-              state.tagName !== process.env.expected_tag ||
-              state.isDraft !== false ||
-              state.isLatest !== (process.env.expected_latest === "true") ||
-              state.isPrerelease !== (process.env.expected_prerelease === "true") ||
-              !Array.isArray(state.assets) ||
-              state.assets.length !== 6
-            ) {
-              throw new Error("published release state does not match the validated policy");
-            }
-          ' <<< "$published_state"
+          if ! {
+            bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA" &&
+            bun scripts/release-state.ts \
+              "$GITHUB_REPOSITORY" \
+              "$GITHUB_REF_NAME" \
+              false \
+              "$RELEASE_IS_PRERELEASE" \
+              "$RELEASE_IS_LATEST"
+          }; then
+            gh release delete "$GITHUB_REF_NAME" --yes || true
+            echo "Published release verification failed; attempted to remove the release." >&2
+            exit 1
+          fi

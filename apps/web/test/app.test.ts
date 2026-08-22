@@ -790,6 +790,7 @@ describe("dashboard attention and notifications", () => {
     harness.window.dispatchEvent(new Event("online"));
     await settleUntil(() => harness.elements.statusBanner.hidden);
     expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+    expect(harness.elements.networkRecoveryHelp.open).toBeFalse();
   });
   test("times out a hung snapshot and keeps retrying automatically", async () => {
     const base = session("snapshot-timeout-001");
@@ -986,5 +987,23 @@ describe("dashboard attention and notifications", () => {
     await settleUntil(() => FakeEventSource.instances.length === 2);
     expect(harness.elements.statusBanner.hidden).toBeTrue();
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
+
+  test("does not count offline time toward browser recovery guidance", async () => {
+    const base = session("offline-guidance-001");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "offline-guidance",
+      initialSessions: [base],
+    });
+
+    harness.setOnline(false);
+    harness.window.dispatchEvent(new Event("offline"));
+    harness.advanceClock(60_000);
+    harness.setOnline(true);
+    harness.failNextListRequest();
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+    expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
   });
 });

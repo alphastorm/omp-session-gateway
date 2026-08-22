@@ -7,7 +7,6 @@
   "candidateTag": "v0.1.0-prealpha.21",
   "candidateSourceCommit": null,
   "candidateArchiveSha256": null,
-  "releaseSourceCommit": null,
   "runtimeByteComparison": "pending",
   "evidence": {
     "debian": "pending",

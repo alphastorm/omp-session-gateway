@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assertDevtoolsEndpointMatchesPackage,
   assertBrowserVersionMatchesPackage,
   parseAndroidPackageVersion,
   resolveAndroidBrowserTarget,
@@ -86,5 +87,25 @@ describe("Android package and DevTools binding", () => {
         product: "Chrome/151.0.7922.171",
       }),
     ).toThrow('DevTools browser version does not match com.chrome.canary: "Chrome/151.0.7922.171" != "154.0.8015.0"');
+  });
+});
+
+describe("Android DevTools endpoint ownership", () => {
+  const metadata = {
+    "Android-Package": "com.chrome.canary",
+    Browser: "Chrome/154.0.8015.0",
+    webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser",
+  };
+
+  test("accepts endpoint metadata owned by the selected package and version", () => {
+    expect(assertDevtoolsEndpointMatchesPackage("com.chrome.canary", "154.0.8015.0", metadata)).toBe(
+      metadata.webSocketDebuggerUrl,
+    );
+  });
+
+  test("rejects another package even when both packages share a Chrome version", () => {
+    expect(() =>
+      assertDevtoolsEndpointMatchesPackage("com.android.chrome", "154.0.8015.0", metadata),
+    ).toThrow("DevTools socket is not owned by com.android.chrome");
   });
 });

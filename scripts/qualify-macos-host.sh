@@ -172,7 +172,7 @@ lane_artifact() {
   done
   measure "github attestations" "verified"
   if command -v cosign >/dev/null 2>&1; then
-    local identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${TAG}"
+    local identity="https://github.com/${REPO_SLUG}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
     cosign verify-blob --bundle "$dir/${archive}.sigstore.json" --certificate-identity "$identity" \
       --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$dir/$archive" >/dev/null 2>&1 ||
       die "cosign verify-blob failed for $archive at $TAG."
