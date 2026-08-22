@@ -29,7 +29,7 @@ test("dashboard reconnects after its live transport is interrupted", async ({ pa
       () => fixture.requests.filter(request => request === "GET /api/v1/events").length,
     ).toBeGreaterThanOrEqual(1);
 
-    fixture.disconnectEvents();
+    expect(fixture.disconnectEvents()).toBeGreaterThan(0);
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "gateway", { timeout: 900 });
     await expect(page.locator("#status-banner .status-title")).toHaveText("Gateway unavailable");
     await expect(page.locator(".working-row")).toHaveCount(1);
@@ -52,6 +52,8 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
   test.setTimeout(60_000);
   const active = session();
   const fixture = await startDashboardFixture([active]);
+  const eventRequestCount = (): number =>
+    fixture.requests.filter(request => request === "GET /api/v1/events").length;
   const assertFits = async (): Promise<void> => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.locator(".working-row")).toHaveCount(1);
@@ -60,6 +62,7 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
   try {
     await page.goto(fixture.origin);
     await expect(page.locator(".working-row")).toHaveCount(1);
+    await expect.poll(eventRequestCount).toBeGreaterThanOrEqual(1);
 
     await context.setOffline(true);
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "offline");
@@ -69,11 +72,13 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     );
     await assertFits();
 
+    const eventRequestsBeforeOnline = eventRequestCount();
     await context.setOffline(false);
     await expect(page.locator("#status-banner")).toBeHidden({ timeout: 6_000 });
+    await expect.poll(eventRequestCount).toBeGreaterThan(eventRequestsBeforeOnline);
 
     await page.route("**/api/v1/sessions", route => route.abort("connectionrefused"));
-    fixture.disconnectEvents();
+    expect(fixture.disconnectEvents()).toBeGreaterThan(0);
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "tailnet", {
       timeout: 6_000,
     });
@@ -84,13 +89,15 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await expect(page.locator("#status-banner .status-freshness")).toContainText("Last seen");
     await assertFits();
 
+    const eventRequestsBeforeTailnetRecovery = eventRequestCount();
     await page.unroute("**/api/v1/sessions");
     await expect(page.locator("#status-banner")).toBeHidden({ timeout: 6_000 });
+    await expect.poll(eventRequestCount).toBeGreaterThan(eventRequestsBeforeTailnetRecovery);
 
     await page.route("**/api/v1/sessions", route =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
-    fixture.disconnectEvents();
+    expect(fixture.disconnectEvents()).toBeGreaterThan(0);
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "desktop", {
       timeout: 6_000,
     });
@@ -104,13 +111,15 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     expect(retryHeight).toBeGreaterThanOrEqual(44);
     await assertFits();
 
+    const eventRequestsBeforeDesktopRecovery = eventRequestCount();
     await page.unroute("**/api/v1/sessions");
     await expect(page.locator("#status-banner")).toBeHidden({ timeout: 6_000 });
+    await expect.poll(eventRequestCount).toBeGreaterThan(eventRequestsBeforeDesktopRecovery);
 
     // Keep replacement EventSource connections down as well as the stream that is open now. Without
     // this, the gateway banner can recover between the data-kind and copy assertions.
     await page.route("**/api/v1/events", route => route.abort("connectionrefused"));
-    fixture.disconnectEvents();
+    expect(fixture.disconnectEvents()).toBeGreaterThan(0);
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "gateway", {
       timeout: 900,
     });

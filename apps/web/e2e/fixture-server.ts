@@ -32,7 +32,7 @@ export interface DashboardFixture {
   readonly origin: string;
   readonly requests: readonly string[];
   readonly launchRequests: readonly FixtureLaunchRequest[];
-  disconnectEvents(): void;
+  disconnectEvents(): number;
   remove(instanceId: string, generation: number): void;
   setSnapshot(sessions: readonly SessionMetadata[], revision?: number): void;
   stop(): Promise<void>;
@@ -233,9 +233,11 @@ export async function startDashboardFixture(
     origin: `http://127.0.0.1:${address.port}`,
     requests,
     launchRequests,
-    disconnectEvents(): void {
+    disconnectEvents(): number {
+      const disconnected = streams.size;
       for (const stream of streams) stream.end();
       streams.clear();
+      return disconnected;
     },
     remove(instanceId, generation): void {
       const current = sessions.get(instanceId);

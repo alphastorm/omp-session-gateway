@@ -4,6 +4,14 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
 
+## [Unreleased]
+
+### Fixed
+
+- Make browser recovery failure tests wait for and assert an active replacement SSE stream before
+  disconnecting it, eliminating a race where the snapshot hid the banner just before EventSource
+  installation and the fixture's disconnect became a silent no-op.
+
 ## [v0.1.0-beta.1] — 2026-08-21
 
 ### Added
