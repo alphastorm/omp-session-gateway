@@ -59,9 +59,12 @@ jobs:
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
+          RUNNER_NAME: ${{ runner.name }}
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -102,9 +105,12 @@ jobs:
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
+          RUNNER_NAME: ${{ runner.name }}
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -154,9 +160,12 @@ jobs:
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
+          RUNNER_NAME: ${{ runner.name }}
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
