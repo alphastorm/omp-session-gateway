@@ -55,7 +55,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Validate bounded gateway dispatch
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
@@ -63,15 +63,15 @@ jobs:
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-nyc-[1-3]$ ]]
           [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' && inputs.target_sha || github.sha }}
           persist-credentials: false
       - name: Verify exact dispatch target
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -101,7 +101,7 @@ jobs:
       CODECOV_TOKEN: ${{ (github.event_name != 'workflow_dispatch' || inputs.runner != 'gateway-ci') && secrets.CODECOV_TOKEN || '' }}
     steps:
       - name: Validate bounded gateway dispatch
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
@@ -109,15 +109,15 @@ jobs:
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-nyc-[1-3]$ ]]
           [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' && inputs.target_sha || github.sha }}
           persist-credentials: false
       - name: Verify exact dispatch target
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -156,7 +156,7 @@ jobs:
       PLAYWRIGHT_WORKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.playwright_workers || '2' }}
     steps:
       - name: Validate bounded gateway dispatch
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           ROUTING_LABEL: ${{ inputs.routing_label }}
           TARGET_SHA: ${{ inputs.target_sha }}
@@ -164,15 +164,15 @@ jobs:
         run: |
           [[ "$ROUTING_LABEL" =~ ^gateway-ci-linux-x64-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
           [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$RUNNER_NAME" =~ ^gateway-ci-(nyc|sf)-[1-3]$ ]]
+          [[ "$RUNNER_NAME" =~ ^gateway-ci-nyc-[1-3]$ ]]
           [[ ! -S /var/run/docker.sock ]]
       - name: Check out exact target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' && inputs.target_sha || github.sha }}
           persist-credentials: false
       - name: Verify exact dispatch target
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && inputs.target_sha != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'gateway-ci' && startsWith(inputs.routing_label, 'gateway-ci-linux-x64-') && inputs.target_sha != '' }}
         env:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
