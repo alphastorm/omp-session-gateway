@@ -274,10 +274,10 @@ path. Passing one platform permits advertising only that exact platform/version 
 **Pin (historical alpha baseline).** OMP `v17.3.8` /
 `858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55`, refreshed 2026-08-19 and revalidated for alpha.1.
 
-This ledger is the source of truth for the current release decision. Compatibility claims live in
-[`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are defined in
-[`TEST_PLAN.md`](TEST_PLAN.md); implementation evidence is recorded in
-[`../HANDOFF_MANIFEST.md`](../HANDOFF_MANIFEST.md).
+This ledger is the source of truth for the current release decision and its implementation evidence.
+Compatibility claims live in [`COMPATIBILITY.md`](COMPATIBILITY.md); required scenarios are
+defined in [`TEST_PLAN.md`](TEST_PLAN.md).
+
 
 ## Status rules
 
