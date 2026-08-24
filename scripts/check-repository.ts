@@ -7,29 +7,25 @@ const rootPath = root.pathname;
 const required = [
   "README.md",
   "AGENTS.md",
-  "AGENT_BRIEF.md",
+  "CHANGELOG.md",
   "LICENSE",
+  "NOTICE.md",
   "SECURITY.md",
   "CONTRIBUTING.md",
-  "GOVERNANCE.md",
-  "ROADMAP.md",
   "CODE_OF_CONDUCT.md",
   "THIRD_PARTY_NOTICES.md",
-  "AGENT_BRIEF.md",
-  "HANDOFF_MANIFEST.md",
   "UPSTREAM.lock.json",
   "docs/ARCHITECTURE.md",
-  "docs/IMPLEMENTATION_AGENT_PROMPT.md",
-  "docs/OPEN_SOURCE.md",
-  "docs/OPEN_SOURCE_RELEASE.md",
-  "docs/PROJECT_POSITIONING.md",
-  "docs/SECURITY.md",
-  "docs/PROTOCOL.md",
-  "docs/OMP_INTEGRATION.md",
-  "docs/IMPLEMENTATION_PLAN.md",
-  "docs/TEST_PLAN.md",
   "docs/COMPATIBILITY.md",
-  "docs/ISSUE_PLAN.md",
+  "docs/DECISIONS.md",
+  "docs/OMP_INTEGRATION.md",
+  "docs/OPERATIONS.md",
+  "docs/PROTOCOL.md",
+  "docs/RELEASE.md",
+  "docs/RELEASE_STATUS.md",
+  "docs/SECURITY.md",
+  "docs/TEST_PLAN.md",
+  "docs/UPGRADE_ROLLBACK.md",
   "schemas/registry-message.schema.json",
   "schemas/session-list.schema.json",
   "schemas/launch-request.schema.json",
@@ -70,7 +66,7 @@ for (const rel of required) {
 
 for (const file of await walk(rootPath)) {
   const rel = relative(rootPath, file);
-  if (rel === "scripts/validate-handoff.ts") continue;
+  if (rel === "scripts/check-repository.ts") continue;
   if (!/\.(?:md|json|jsonc|hujson|ts|tsx|yml|yaml|toml)$/.test(file) && !["LICENSE", "NOTICE"].includes(rel)) {
     continue;
   }
@@ -104,10 +100,9 @@ if (packageJson.name !== "omp-session-gateway") {
 
 const canonicalChecks: Array<[string, string]> = [
   ["README.md", "# OMP Session Gateway"],
-  ["AGENTS.md", "Daemon executable/process: `omp-gatewayd`"],
-  ["AGENTS.md", "PWA home-screen name: **OMP Sessions**"],
-  ["AGENTS.md", "Default tailnet tag in examples: `tag:omp-session-gateway`"],
-  ["docs/PROJECT_POSITIONING.md", "Repository | `omp-session-gateway`"],
+  ["AGENTS.md", "Daemon: `omp-gatewayd`"],
+  ["AGENTS.md", "PWA name: **OMP Sessions**"],
+  ["AGENTS.md", "Default example tailnet tag: `tag:omp-session-gateway`"],
 ];
 for (const [rel, expected] of canonicalChecks) {
   const text = await readFile(join(rootPath, rel), "utf8");
@@ -119,4 +114,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`handoff validation passed (${(await walk(rootPath)).length} files scanned)`);
+console.log(`repository check passed (${(await walk(rootPath)).length} files scanned)`);

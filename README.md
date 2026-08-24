@@ -357,7 +357,7 @@ knowledge base, or messaging hub; reusing `collab-web` is the point.
 | `scripts/build-release.ts` | Deterministic Bun-runtime release archive and SHA-256 manifest |
 | `scripts/post-release-smoke.ts` | Published-byte local Mac/physical-Android smoke with owned-fixture cleanup |
 | `docs/media` | Canonical README media plus its seeded-fixture capture provenance |
-| `docs/` | Architecture, protocol, security, operations, compatibility, and acceptance plans |
+| `docs/` | Architecture, protocol, security, operations, compatibility, and release evidence |
 | `UPSTREAM.lock.json` | Exact OMP source and package baseline |
 
 
@@ -366,12 +366,11 @@ knowledge base, or messaging hub; reusing `collab-web` is the point.
 The project is intended to be developed in public. See:
 
 - [Contributing](CONTRIBUTING.md)
-- [Governance](GOVERNANCE.md)
-- [Roadmap](ROADMAP.md)
+- [Backlog](docs/BACKLOG.md)
+- [Release status](docs/RELEASE_STATUS.md)
 - [Security policy](SECURITY.md)
-- [Repository bootstrap](docs/REPOSITORY_BOOTSTRAP.md)
 
-No telemetry, analytics, or hosted control plane is planned for v1.
+The project has no telemetry, analytics, or hosted control plane.
 
 ## License
 

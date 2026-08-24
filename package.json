@@ -9,8 +9,8 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "bun run validate:handoff && bun run typecheck && bun run build && bun run test && bun run check:capability-leaks && bun run check:identifier-leaks",
-    "validate:handoff": "bun scripts/validate-handoff.ts",
+    "check": "bun run check:repository && bun run typecheck && bun run build && bun run test && bun run check:capability-leaks && bun run check:identifier-leaks",
+    "check:repository": "bun scripts/check-repository.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "build": "bun run --filter '@omp-session-gateway/web' build",
     "test": "bun test",

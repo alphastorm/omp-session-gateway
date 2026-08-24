@@ -8,7 +8,7 @@ Read `README.md`, `AGENTS.md`, `docs/DECISIONS.md`, and `docs/SECURITY.md` befor
 
 ## Development workflow
 
-1. Open or select a focused issue from `docs/ISSUE_PLAN.md`.
+1. Open or select a focused [GitHub issue](https://github.com/alphastorm/omp-session-gateway/issues).
 2. Create a branch from `main`.
 3. Keep the change small enough to review and test.
 4. Add tests for behavior, failure modes, and secret non-persistence.
@@ -48,13 +48,20 @@ Changes touching any of the following require threat-model review and negative t
 
 ## Coding standards
 
-The planned stack is strict TypeScript on Bun, with minimal dependencies. Prefer explicit types at trust boundaries, runtime validation for all untrusted input, bounded queues and payloads, and dependency injection for clocks, randomness, storage, and network listeners so security behavior is testable.
+The stack is strict TypeScript on Bun, with minimal dependencies. Prefer explicit types at trust boundaries, runtime validation for all untrusted input, bounded queues and payloads, and dependency injection for clocks, randomness, storage, and network listeners so security behavior is testable.
 
 Do not introduce a framework solely for convenience when a small maintained dependency or platform primitive is sufficient. Explain significant dependency additions in the pull request.
 
 ## Documentation
 
 Update the relevant architecture, protocol, operations, compatibility, and security documents in the same pull request as a behavior change. Add an ADR entry to `docs/DECISIONS.md` when changing a previously accepted decision.
+
+## Governance
+
+The repository owner is the initial maintainer and final decision maker while the contributor base
+is small. Routine changes are decided through pull-request review; security disclosures follow
+[SECURITY.md](SECURITY.md). Maintainer roles may be added when sustained review, release, or
+security-response work makes them necessary.
 
 ## Licensing
 

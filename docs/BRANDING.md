@@ -2,7 +2,7 @@
 
 Identity for `omp-session-gateway`: a sober, security-first infra tool that is
 visibly a *companion* to [oh-my-pi](https://github.com/can1357/oh-my-pi) without
-copying its mark. This file is the source of truth for the implementing agent.
+copying its mark. This file is the design source of truth.
 
 ## The mark: "The Gate"
 
@@ -127,5 +127,5 @@ both standing lines from the current app.
 ## Relationship to upstream
 
 Independent community project; not affiliated with or endorsed by the Oh My Pi
-maintainers. Respect `TRADEMARKS.md`. "OMP" appears in the name as plain
-nominative reference; do not restyle upstream's logo.
+maintainers. Respect `NOTICE.md`. "OMP" appears in the name as plain nominative
+reference; do not restyle upstream's logo.

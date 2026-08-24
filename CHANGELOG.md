@@ -2,7 +2,7 @@
 
 All notable project changes will be documented here.
 
-The format is based on Keep a Changelog, and the project intends to use Semantic Versioning once implementation releases begin.
+The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
@@ -40,6 +40,8 @@ The format is based on Keep a Changelog, and the project intends to use Semantic
 
 ### Changed
 
+- Remove the completed implementation-handoff packet and consolidate its remaining contributor,
+  attribution, backlog, and release guidance into maintained documents.
 - Define stable 0.1 as support for the exact qualified Debian/macOS/Pixel/Tailscale/OMP matrix,
   not unnamed platforms or a promise that JavaScript can repair Chrome's process-wide network
   wedge. Windows, background Push qualification, Portal Tunnel, userspace networking, alternate
