@@ -36,6 +36,19 @@
 - strict push v2 config/subscription/unsubscribe schemas, exact-origin mutation enforcement, private persistence, detail-level migration, subscription bounds, and stale-endpoint removal;
 - ordered attention/clear delivery, per-instance deduplication, exact-request clearing, pending-count badges, and generation-safe replacement;
 
+### PWA local triage
+
+- exact-ask Hold persistence, FIFO partitioning, explicit requeue, and garbage collection when the
+  authoritative ask changes or clears;
+- Hold leaves authoritative pending counts and badges unchanged and closes only the notification
+  whose instance tag and request ID match;
+- generation-scoped Dismiss, immediate local hiding, five-second Undo, persistent Show all, and
+  zero network mutation when the Undo window expires;
+- session removal, generation replacement, and later attention restore a dismissed row
+  immediately, while transport failure preserves local routing choices;
+- malformed, oversized, excess, or non-canonical local records fail closed within the documented
+  bounds, and allowed records contain identifiers and timestamps only.
+
 ### OMP patch
 
 - see `docs/OMP_INTEGRATION.md` section 8.
@@ -58,8 +71,10 @@ Add distinct prompt, option, prefill, answer, request, title, project, and capab
 option, prefill, answer, transcript, and capability canaries must remain absent from IPC logs/errors,
 list/SSE, URLs/history, browser storage/caches, screenshots/traces, diagnostics, and repository
 artifacts. Opaque synthetic request IDs are allowed only in list/SSE, encrypted push, request routes,
-and volatile DOM/history routing state. Bounded title/project canaries are allowed in encrypted push
-and visible notification text only for `session`/`preview`, never in persisted push state.
+volatile DOM/history routing state, and bounded device-local held-ask records. Bounded instance IDs,
+generations, and canonical timestamps are also allowed in the device-local Hold/Dismiss records.
+Bounded title/project canaries are allowed in encrypted push and visible notification text only for
+`session`/`preview`, never in persisted push or local triage state.
 - scan private push state, intercepted encrypted-payload plaintext, visible notification title/body/data, notification tags, app badges, and request-route history against the selected detail contract;
 
 ## 3. Integration tests
@@ -122,6 +137,15 @@ and visible notification text only for `session`/`preview`, never in persisted p
 10. Verify one notification per instance, silent duplicate updates, authoritative clear, and `setAppBadge`/`clearAppBadge` pending counts.
 11. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
 12. Install a changed shell while the directory is idle; the new worker activates and loads it without Refresh. Repeat during pending/active collaboration; the capability-bearing client remains mounted until ordinary Back/Leave, then the updated directory loads automatically.
+13. Hold the oldest request from the dashboard and from an active collaboration shell. Verify the
+    next unheld ask opens in FIFO order, the held ask remains in the authoritative pending/badge
+    total, only its matching notification closes, and explicit requeue restores it.
+14. Hold every waiting request. Verify the device reports a clear couch queue without claiming the
+    gateway is all clear, then replace one exact request and verify only that stale hold disappears.
+15. Dismiss a non-attention row, exercise Undo, let a second dismissal expire, and use Show all.
+    Verify no network mutation occurs; a new generation or later attention restores visibility
+    immediately; live/working totals still include the hidden row; and the UI says OMP keeps
+    running rather than claiming Close, Exit, or completion.
 
 ### E. Authorization
 
@@ -136,6 +160,8 @@ and visible notification text only for `session`/`preview`, never in persisted p
 2. Restart browser and daemon.
 3. No previous capability is recoverable from disk/browser history/storage/cache/logs.
 4. Live OMP processes republish fresh in-memory records.
+5. Device-local Hold/Dismiss state contains only the bounded identifier, generation, and timestamp
+   fields; no title, path, model, prompt, transcript, or capability survives there.
 
 ## 5. Relay soak test
 

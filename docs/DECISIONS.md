@@ -527,3 +527,34 @@ mean universal platform support or that page JavaScript can repair a failed brow
 project can publish an honest GitHub Latest release without waiting for a speculative Chromium
 backport, while every correction still requires a new immutable tag. Operators retain a manual
 patched-OMP prerequisite until upstreaming or paired packaging is separately accepted.
+
+## ADR-026 — Keep couch triage device-local without inventing session lifecycle
+
+**Status:** Accepted
+
+**Context:** The directory can identify one current input request, but its metadata has no
+completed/activity signal and the PWA has no OMP-side command path that can gracefully exit or
+deregister a process. A couch workflow still needs to defer a request that requires the desk and
+hide an ordinary row that is not useful on one device. Calling that second action Close would claim
+an effect the PWA cannot perform.
+
+**Decision:** Implement both choices only in the PWA. **Hold for desk** records the exact
+`(instanceId, requestId, heldAt)` ask and removes it from this device's couch rotation while the
+gateway's authoritative attention state, pending count, and badge remain unchanged. **Dismiss
+here** records `(instanceId, generation, dismissedAt)` only for a non-attention row, immediately
+hides it on this device, offers five-second Undo plus persistent Show all, and performs no network
+mutation. An authoritative ask change clears its exact hold; removal, generation replacement, or
+later attention clears a dismissal. Transport failures clear neither. Both record sets are bounded
+and may contain no labels, paths, models, prompts, transcripts, or collaboration capabilities. An
+active-shell Hold is committed only after the next launch succeeds; a failed advance keeps the
+current ask queued and the capability-bearing shell mounted. Live/working totals continue to count
+rows hidden by dismissal.
+
+Do not change the gateway/IPC protocol or OMP patch for these presentation choices. Do not call a
+non-attention row Completed, and do not label local dismissal Close or Exit. A real graceful remote
+close requires a separately threat-modeled OMP command path and protocol decision.
+
+**Consequences:** A held ask still needs input and remains visible to other devices. A dismissed
+session keeps running and consuming its ordinary resources until OMP itself stops; only this
+device's row is hidden. Exact ask/generation scoping makes later work visible automatically, and
+the permanent restore surface prevents local state from becoming irrecoverable.

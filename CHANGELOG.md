@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Added
 
+- Add device-local couch triage to the PWA: exact-ask **Hold for desk** preserves authoritative
+  attention while advancing to the next request, and reversible **Dismiss here** hides a
+  non-attention row on one device without stopping OMP.
 - Add a fail-closed stable release policy: only the exact bare v0.1.0 tag selects the stable
   archive claim and GitHub Latest publication; every engineering, alpha, and beta tag remains a
   prerelease, and unknown or cross-version shapes fail before artifact creation.

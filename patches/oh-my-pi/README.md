@@ -195,7 +195,7 @@ Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab se
 
 | Piece | Upstream state |
 | --- | --- |
-| Bounded pending host UI retention (`0002` lineage) | Submitted as [PR #9031](https://github.com/can1357/oh-my-pi/pull/9031) from `alphastorm:contrib/collab-retain-pending-ui`. Isolated from the controller/registry stack: three files, no wire-protocol change. |
+| Bounded pending host UI retention (`0002` lineage) | Submitted as [PR #9031](https://github.com/can1357/oh-my-pi/pull/9031) from `alphastorm:contrib/collab-retain-pending-ui`. Published head `c8779270beec79caee25136971f6dfc5d0132fa9` became dirty when upstream advanced. A clean two-commit replacement from exact base `969a94c1eeccb1b7528cd5621934bca1908ab622` is prepared locally at source `a07a2c3f2192bebb2e1c51baae00029188da9f6b` and tip `c80cc9c07c089ae6fe593ddc50085b54a910362a`, pending exact publication authority. The source patch remains behavior-identical; unchanged relevant base files preserve the 4-failure reproduction, while the branch passes 23/23 focused tests, typecheck, Biome, changelog, and whitespace checks. |
 | Controller, auto-start, and registry publisher | Not submitted. It is a new subsystem spanning several packages, which upstream `CONTRIBUTING.md` requires be discussed in Discord *before* implementation; it also overlaps [#6354](https://github.com/can1357/oh-my-pi/pull/6354) and [#6171](https://github.com/can1357/oh-my-pi/issues/6171). |
 | Optional encrypted `gateway-health` probes (commit five) | Not submitted; no upstream seam exists at `v17.4.1`. Flagged in the discussion because it fails inert rather than loudly. |
 | Gateway daemon, PWA, Tailscale identity, capability broker | Out of scope for upstream by design. |

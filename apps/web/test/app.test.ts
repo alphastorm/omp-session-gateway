@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { SessionMetadata } from "@omp-session-gateway/protocol";
+import { MAX_SESSIONS, type SessionMetadata } from "@omp-session-gateway/protocol";
 import fc, { type AsyncCommand } from "fast-check";
 
 const GLOBAL_NAMES = [
@@ -13,7 +13,7 @@ const GLOBAL_NAMES = [
   "history",
   "EventSource",
   "fetch",
-  "isSecureContext",
+  "localStorage",
   "HTMLElement",
 ] as const;
 const nativeGlobals = Object.fromEntries(
@@ -24,7 +24,35 @@ const nativeGlobals = Object.fromEntries(
 // advance independently of the fake timers.
 const nativeNow = Date.now;
 let clockOffset = 0;
+
 Date.now = (): number => nativeNow() + clockOffset;
+class FakeStorage implements Storage {
+  readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+}
 
 class FakeElement extends EventTarget {
   readonly attributes = new Map<string, string>();
@@ -152,7 +180,14 @@ class FakeWindow extends EventTarget {
     for (const timer of pending) timer.callback();
   }
 
-  /** Delays of every timer still waiting, so a test can bound a scheduled retry. */
+  runTimersWithDelay(delay: number): void {
+    for (const [handle, timer] of [...this.timers]) {
+      if (timer.delay !== delay) continue;
+      this.timers.delete(handle);
+      timer.callback();
+    }
+  }
+
   pendingDelays(): number[] {
     return [...this.timers.values()].map(timer => timer.delay);
   }
@@ -223,6 +258,18 @@ class FakeEventSource extends EventTarget {
   }
 }
 
+class FakeBrowserNotification {
+  closed = false;
+
+  constructor(
+    readonly tag: string,
+    readonly data: unknown,
+  ) {}
+
+  close(): void {
+    this.closed = true;
+  }
+}
 
 interface BrowserHarness {
   readonly elements: {
@@ -236,10 +283,14 @@ interface BrowserHarness {
     readonly statusBanner: FakeElement;
     readonly directoryTitle: FakeElement;
     readonly directoryCount: FakeElement;
+    readonly localActionToast: FakeElement;
+    readonly localActionToastCopy: FakeElement;
+    readonly localActionToastUndo: FakeElement;
   };
   disconnectEvents(): void;
   expireEventLiveness(): void;
   runTimers(): void;
+  runUndoTimer(): void;
   pendingDelays(): number[];
   setVisibility(state: "visible" | "hidden"): void;
   advanceClock(milliseconds: number): void;
@@ -256,6 +307,9 @@ interface BrowserHarness {
   readonly workerMessages: unknown[];
   readonly replacedPaths: readonly string[];
   readonly window: FakeWindow;
+  readonly localStorage: FakeStorage;
+  readonly notifications: readonly FakeBrowserNotification[];
+  addNotification(tag: string, data: unknown): FakeBrowserNotification;
   emit(type: "snapshot" | "session_upsert" | "session_remove" | "keepalive", payload: unknown): void;
   setList(revision: number, sessions: readonly SessionMetadata[], status?: number): void;
 }
@@ -303,6 +357,7 @@ async function bootApp(options: {
   readonly existingSubscription?: boolean;
   readonly pathname?: string;
   readonly search?: string;
+  readonly storage?: FakeStorage;
   readonly suffix: string;
 }): Promise<BrowserHarness> {
   FakeEventSource.instances.length = 0;
@@ -319,6 +374,10 @@ async function bootApp(options: {
   const networkRecoveryHelpClose = new FakeElement("button");
   const notificationSettingsClose = new FakeElement("button");
   const notificationDisable = new FakeElement("button");
+  const localActionToast = new FakeElement("aside");
+  localActionToast.hidden = true;
+  const localActionToastCopy = new FakeElement("span");
+  const localActionToastUndo = new FakeElement("button");
   const notificationDetailInputs = (["private", "session", "preview"] as const).map(value => {
     const input = new FakeElement("input");
     input.type = "radio";
@@ -338,6 +397,9 @@ async function bootApp(options: {
     "#notify-note": notificationDisclosure,
     "#directory-title": directoryTitle,
     "#directory-count": directoryCount,
+    "#local-action-toast": localActionToast,
+    "#local-action-toast-copy": localActionToastCopy,
+    "#local-action-toast-undo": localActionToastUndo,
     "#notification-settings": notificationSettings,
     "#notification-settings-close": notificationSettingsClose,
     "#notification-disable": notificationDisable,
@@ -346,6 +408,7 @@ async function bootApp(options: {
   };
   const document = new FakeDocument(bySelector, notificationDetailInputs);
   const window = new FakeWindow();
+  const localStorage = options.storage ?? new FakeStorage();
   const reloads = { count: 0 };
   const location = {
     origin: "https://sessions.example",
@@ -426,6 +489,7 @@ async function bootApp(options: {
       return currentSubscription;
     },
   };
+  const notifications: FakeBrowserNotification[] = [];
   const registration = {
     active: {
       postMessage(message: unknown, transfer: readonly MessagePort[]): void {
@@ -438,6 +502,11 @@ async function bootApp(options: {
       },
     },
     pushManager,
+    async getNotifications(options: { readonly tag?: string } = {}): Promise<FakeBrowserNotification[]> {
+      return notifications.filter(notification =>
+        !notification.closed && (options.tag === undefined || notification.tag === options.tag),
+      );
+    },
     async showNotification(): Promise<void> {},
   };
   const serviceWorker = new EventTarget() as EventTarget & {
@@ -497,6 +566,7 @@ async function bootApp(options: {
     location: { configurable: true, value: location },
     history: { configurable: true, value: history },
     navigator: { configurable: true, value: navigator },
+    localStorage: { configurable: true, value: localStorage },
     Notification: { configurable: true, value: notificationApi },
     PushManager: { configurable: true, value: class {} },
     MessageChannel: { configurable: true, value: FakeMessageChannel },
@@ -526,6 +596,9 @@ async function bootApp(options: {
       notificationDetailInputs,
       directoryTitle,
       directoryCount,
+      localActionToast,
+      localActionToastCopy,
+      localActionToastUndo,
     },
     fetchPaths,
     permissionRequests,
@@ -536,6 +609,13 @@ async function bootApp(options: {
     replacedPaths: history.replaced,
     reloads,
     window,
+    localStorage,
+    notifications,
+    addNotification(tag, data): FakeBrowserNotification {
+      const notification = new FakeBrowserNotification(tag, data);
+      notifications.push(notification);
+      return notification;
+    },
     emit(type, payload): void {
       const source = FakeEventSource.instances.at(-1);
       if (source === undefined) throw new Error("missing event source");
@@ -551,6 +631,9 @@ async function bootApp(options: {
     },
     runTimers(): void {
       window.runTimers();
+    },
+    runUndoTimer(): void {
+      window.runTimersWithDelay(5_000);
     },
     pendingDelays(): number[] {
       return window.pendingDelays();
@@ -614,7 +697,10 @@ describe("dashboard attention and notifications", () => {
     expect(hero?.querySelector("h2")?.textContent).toBe("attention-control-0001");
     expect(hero?.querySelector(".ask-preview")?.textContent).toBe("Waiting for your input");
     expect(hero?.querySelector(".action-request")?.textContent).toBe("Open request");
-    expect(hero?.querySelector(".hero-alt")?.textContent).toBe("View transcript instead");
+    expect(hero?.querySelectorAll(".hero-alt").map(action => action.textContent)).toEqual([
+      "Hold for desk",
+      "Transcript",
+    ]);
     const waitingRows = harness.elements.sessionList.querySelectorAll(".queue-row");
     expect(waitingRows.map(row => row.querySelector(".row-title")?.textContent)).toEqual([
       "attention-viewonly-002",
@@ -1062,6 +1148,348 @@ describe("dashboard attention and notifications", () => {
     harness.window.dispatchEvent(new Event("online"));
     await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
     expect(harness.elements.statusBanner.querySelector(".status-guidance")).toBeNull();
+  });
+
+  test("holds an ask locally, closes only its notification, and preserves FIFO across reload", async () => {
+    const storage = new FakeStorage();
+    const first = session("hold-first-session-0001", {
+      inputRequired: true,
+      ask: {
+        requestId: "hold-first-request-0001",
+        since: "2026-07-21T10:00:00.000Z",
+      },
+    });
+    const second = session("hold-second-session-002", {
+      inputRequired: true,
+      ask: {
+        requestId: "hold-second-request-002",
+        since: "2026-07-21T10:01:00.000Z",
+      },
+    });
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "hold-local",
+      storage,
+      initialSessions: [second, first],
+    });
+    const tag = `omp-attention-${first.instanceId}`;
+    const matching = harness.addNotification(tag, { requestId: first.ask?.requestId });
+    const unrelatedRequest = harness.addNotification(tag, { requestId: second.ask?.requestId });
+    const unrelatedTag = harness.addNotification("omp-attention-unrelated-session", {
+      requestId: first.ask?.requestId,
+    });
+
+    harness.elements.sessionList.querySelector(".hero-hold")?.dispatchEvent(new Event("click"));
+    await settleUntil(() => matching.closed);
+
+    expect(unrelatedRequest.closed).toBeFalse();
+    expect(unrelatedTag.closed).toBeFalse();
+    expect(harness.elements.directoryCount.textContent).toBe("2 waiting · 1 held");
+    expect(harness.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      second.instanceId,
+    );
+    expect(harness.elements.sessionList.querySelector(".held-row")?.dataset.instanceId).toBe(
+      first.instanceId,
+    );
+    const stored = JSON.parse(storage.getItem("omp.sessions.held-asks.v1") ?? "null") as unknown;
+    expect(stored).toEqual([
+      {
+        instanceId: first.instanceId,
+        requestId: first.ask?.requestId,
+        heldAt: expect.any(String),
+      },
+    ]);
+    expect(Object.keys((stored as Record<string, unknown>[])[0] ?? {}).sort()).toEqual([
+      "heldAt",
+      "instanceId",
+      "requestId",
+    ]);
+
+    const reloaded = await bootApp({
+      permission: "denied",
+      suffix: "hold-local-reload",
+      storage,
+      initialSessions: [first, second],
+    });
+    expect(reloaded.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      second.instanceId,
+    );
+    reloaded.elements.sessionList.querySelector(".held-requeue")?.dispatchEvent(new Event("click"));
+    expect(reloaded.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      first.instanceId,
+    );
+    expect(storage.getItem("omp.sessions.held-asks.v1")).toBe("[]");
+  });
+
+  test("shows an all-held queue and forgets a hold when the exact ask changes", async () => {
+    const first = session("all-held-session-0001", {
+      inputRequired: true,
+      ask: {
+        requestId: "all-held-request-0001",
+        since: "2026-07-21T10:00:00.000Z",
+      },
+    });
+    const second = session("all-held-session-0002", {
+      inputRequired: true,
+      ask: {
+        requestId: "all-held-request-0002",
+        since: "2026-07-21T10:01:00.000Z",
+      },
+    });
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "all-held-local",
+      initialSessions: [first, second],
+    });
+
+    const staleFirstHold = harness.elements.sessionList.querySelector(".hero-hold");
+    harness.elements.sessionList.querySelector(".hero-hold")?.dispatchEvent(new Event("click"));
+    harness.elements.sessionList.querySelector(".hero-hold")?.dispatchEvent(new Event("click"));
+    expect(harness.elements.directoryCount.textContent).toBe("2 waiting · 2 held");
+    expect(harness.elements.sessionList.querySelector(".queue-hero")).toBeNull();
+    expect(harness.elements.sessionList.querySelector(".all-held-summary")?.querySelector("strong")?.textContent).toBe(
+      "Queue clear · 2 on hold — handle at desk",
+    );
+    expect(harness.elements.sessionList.querySelectorAll(".held-row")).toHaveLength(2);
+
+    const replacement = session(first.instanceId, {
+      generation: first.generation,
+      inputRequired: true,
+      ask: {
+        requestId: "replacement-request-0001",
+        since: "2026-07-21T10:00:30.000Z",
+      },
+    });
+    harness.emit("session_upsert", {
+      type: "session_upsert",
+      revision: 2,
+      session: replacement,
+    });
+
+    expect(harness.elements.directoryCount.textContent).toBe("2 waiting · 1 held");
+    expect(harness.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      first.instanceId,
+    );
+    expect(JSON.parse(harness.localStorage.getItem("omp.sessions.held-asks.v1") ?? "null")).toEqual([
+      expect.objectContaining({
+        instanceId: second.instanceId,
+        requestId: second.ask?.requestId,
+      }),
+    ]);
+    expect(staleFirstHold).not.toBeNull();
+    staleFirstHold?.dispatchEvent(new Event("click"));
+    expect(harness.elements.directoryCount.textContent).toBe("2 waiting · 1 held");
+    expect(harness.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      first.instanceId,
+    );
+  });
+
+  test("dismisses only on this device with undo, expiry, and an explicit restore surface", async () => {
+    const first = session("dismiss-session-00001", { title: "Dismiss One" });
+    const second = session("dismiss-session-00002", { title: "Keep Two" });
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "dismiss-local",
+      initialSessions: [first, second],
+    });
+    const networkCalls = harness.fetchPaths.length;
+
+    harness.elements.sessionList.querySelectorAll(".dismiss-session")[0]?.dispatchEvent(new Event("click"));
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+    expect(harness.elements.directoryCount.textContent).toBe("Live · 2 · 1 dismissed here");
+    expect(harness.elements.localActionToast.hidden).toBeFalse();
+    expect(harness.elements.localActionToastCopy.textContent).toContain("on this device");
+    const stored = JSON.parse(
+      harness.localStorage.getItem("omp.sessions.dismissed.v1") ?? "null",
+    ) as Record<string, unknown>[];
+    expect(stored).toEqual([
+      {
+        instanceId: first.instanceId,
+        generation: first.generation,
+        dismissedAt: expect.any(String),
+      },
+    ]);
+    expect(Object.keys(stored[0] ?? {}).sort()).toEqual([
+      "dismissedAt",
+      "generation",
+      "instanceId",
+    ]);
+
+    harness.elements.localActionToastUndo.dispatchEvent(new Event("click"));
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(2);
+    expect(harness.localStorage.getItem("omp.sessions.dismissed.v1")).toBe("[]");
+
+    harness.elements.sessionList.querySelectorAll(".dismiss-session")[0]?.dispatchEvent(new Event("click"));
+    harness.runUndoTimer();
+    expect(harness.elements.localActionToast.hidden).toBeTrue();
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+    expect(harness.fetchPaths).toHaveLength(networkCalls);
+    const restore = harness.elements.sessionList
+      .querySelector(".dismissed-control")
+      ?.querySelector("button");
+    expect(restore?.textContent).toBe("Show all");
+    restore?.dispatchEvent(new Event("click"));
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(2);
+    expect(harness.localStorage.getItem("omp.sessions.dismissed.v1")).toBe("[]");
+  });
+
+  test("scopes dismissals to one generation and never hides a later attention request", async () => {
+    const storage = new FakeStorage();
+    const initial = session("generation-dismiss-001", { title: "Generation one" });
+    const firstPage = await bootApp({
+      permission: "denied",
+      suffix: "dismiss-generation-first",
+      storage,
+      initialSessions: [initial],
+    });
+    firstPage.elements.sessionList.querySelector(".dismiss-session")?.dispatchEvent(new Event("click"));
+    firstPage.runUndoTimer();
+
+    const reloaded = await bootApp({
+      permission: "denied",
+      suffix: "dismiss-generation-reload",
+      storage,
+      initialSessions: [initial],
+    });
+    expect(reloaded.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(0);
+    expect(reloaded.elements.sessionList.querySelector(".dismissed-control")).not.toBeNull();
+
+    const replacement = session(initial.instanceId, {
+      generation: 2,
+      title: "Generation two",
+    });
+    reloaded.emit("session_upsert", {
+      type: "session_upsert",
+      revision: 2,
+      session: replacement,
+    });
+    expect(reloaded.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+    expect(storage.getItem("omp.sessions.dismissed.v1")).toBe("[]");
+
+    reloaded.elements.sessionList.querySelector(".dismiss-session")?.dispatchEvent(new Event("click"));
+    const attention = session(initial.instanceId, {
+      generation: 2,
+      inputRequired: true,
+      ask: {
+        requestId: "attention-after-dismiss-0001",
+        since: "2026-07-21T11:00:00.000Z",
+      },
+    });
+    reloaded.emit("session_upsert", {
+      type: "session_upsert",
+      revision: 3,
+      session: attention,
+    });
+    expect(reloaded.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      initial.instanceId,
+    );
+    expect(reloaded.elements.localActionToast.hidden).toBeTrue();
+    expect(storage.getItem("omp.sessions.dismissed.v1")).toBe("[]");
+  });
+
+  test("sanitizes malformed, oversized, and excess local routing records", async () => {
+    const heldSession = session("sanitized-hold-session-001", {
+      inputRequired: true,
+      ask: {
+        requestId: "sanitized-hold-request-001",
+        since: "2026-07-21T10:00:00.000Z",
+      },
+    });
+    const dismissedSession = session("sanitized-dismiss-session-01");
+    const heldRecord = {
+      instanceId: heldSession.instanceId,
+      requestId: heldSession.ask?.requestId,
+      heldAt: "2026-07-21T10:01:00.000Z",
+    };
+    const dismissedRecord = {
+      instanceId: dismissedSession.instanceId,
+      generation: dismissedSession.generation,
+      dismissedAt: "2026-07-21T10:01:00.000Z",
+    };
+    const sanitizedStorage = new FakeStorage();
+    sanitizedStorage.setItem(
+      "omp.sessions.held-asks.v1",
+      JSON.stringify([
+        heldRecord,
+        { ...heldRecord, title: "LOCAL_STORAGE_TITLE_CANARY" },
+        { ...heldRecord, heldAt: "not-canonical" },
+      ]),
+    );
+    sanitizedStorage.setItem(
+      "omp.sessions.dismissed.v1",
+      JSON.stringify([dismissedRecord, { ...dismissedRecord, generation: 0 }]),
+    );
+
+    const sanitized = await bootApp({
+      permission: "denied",
+      suffix: "sanitize-local-records",
+      storage: sanitizedStorage,
+      initialSessions: [heldSession, dismissedSession],
+    });
+    expect(sanitized.elements.sessionList.querySelectorAll(".held-row")).toHaveLength(1);
+    expect(sanitized.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(0);
+    expect(JSON.parse(sanitizedStorage.getItem("omp.sessions.held-asks.v1") ?? "null")).toEqual([
+      heldRecord,
+    ]);
+    expect(JSON.parse(sanitizedStorage.getItem("omp.sessions.dismissed.v1") ?? "null")).toEqual([
+      dismissedRecord,
+    ]);
+
+    const oversizedStorage = new FakeStorage();
+    oversizedStorage.setItem("omp.sessions.held-asks.v1", "x".repeat(512_001));
+    const oversized = await bootApp({
+      permission: "denied",
+      suffix: "oversized-local-records",
+      storage: oversizedStorage,
+      initialSessions: [heldSession],
+    });
+    expect(oversizedStorage.getItem("omp.sessions.held-asks.v1")).toBeNull();
+    expect(oversized.elements.sessionList.querySelector(".queue-hero")?.dataset.instanceId).toBe(
+      heldSession.instanceId,
+    );
+
+    const excessStorage = new FakeStorage();
+    excessStorage.setItem(
+      "omp.sessions.dismissed.v1",
+      JSON.stringify(Array.from({ length: MAX_SESSIONS + 1 }, () => dismissedRecord)),
+    );
+    const excess = await bootApp({
+      permission: "denied",
+      suffix: "excess-local-records",
+      storage: excessStorage,
+      initialSessions: [dismissedSession],
+    });
+    expect(excessStorage.getItem("omp.sessions.dismissed.v1")).toBeNull();
+    expect(excess.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
+
+  test("retains local routing choices when an authoritative refresh is unavailable", async () => {
+    const waiting = session("transport-hold-session-001", {
+      inputRequired: true,
+      ask: {
+        requestId: "transport-hold-request-001",
+        since: "2026-07-21T10:00:00.000Z",
+      },
+    });
+    const working = session("transport-dismiss-session-01");
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "transport-local-records",
+      initialSessions: [waiting, working],
+    });
+    harness.elements.sessionList.querySelector(".hero-hold")?.dispatchEvent(new Event("click"));
+    harness.elements.sessionList.querySelector(".dismiss-session")?.dispatchEvent(new Event("click"));
+    const heldBefore = harness.localStorage.getItem("omp.sessions.held-asks.v1");
+    const dismissedBefore = harness.localStorage.getItem("omp.sessions.dismissed.v1");
+
+    harness.failNextListRequest();
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "tailnet");
+
+    expect(harness.localStorage.getItem("omp.sessions.held-asks.v1")).toBe(heldBefore);
+    expect(harness.localStorage.getItem("omp.sessions.dismissed.v1")).toBe(dismissedBefore);
+    expect(harness.elements.sessionList.querySelectorAll(".held-row")).toHaveLength(1);
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(0);
   });
 });
 
