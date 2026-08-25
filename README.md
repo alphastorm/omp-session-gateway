@@ -117,11 +117,13 @@ After installation and tailnet configuration:
    its current view/control capability through authenticated local IPC.
 4. The Android PWA lists every live process within a few seconds: a FIFO **Needs you** queue when
    anything is waiting, otherwise **All clear** and the working sessions.
-5. **Open request** launches Control for the oldest ask; **View transcript instead** stays
-   read-only. The healthy gateway shell stays quiet, distinguishes gateway and relay interruptions
-   when they persist, and keeps each answer at `Sending…` until OMP acknowledges it. After an
-   authoritative answer, it offers the next ask or returns to the exact directory order and scroll
-   position.
+5. **Open request** launches Control for the oldest ask; **Hold for desk** defers that exact ask on
+   this device and advances to the next one without clearing attention; **Transcript** stays
+   read-only. **Dismiss here** can hide a non-attention row on this device with Undo and Show all,
+   but OMP keeps running. The healthy gateway shell stays quiet, distinguishes gateway and relay
+   interruptions when they persist, and keeps each answer at `Sending…` until OMP acknowledges
+   it. After an authoritative answer, it offers the next ask or returns to the exact directory
+   order and scroll position.
 6. **Experimental in this beta:** an explicit dashboard action can enable background Web Push
    alerts and choose Private, Session, or Preview detail. The no-store tap path is implemented and
    capability-free, but closed-PWA/lock-screen/force-stop/network behavior is not beta-qualified.
@@ -313,7 +315,7 @@ maintainers, and OMP itself may grow first-party enrollment and session listing
 | Zero-touch discovery of live terminal sessions | Yes — every live interactive OMP process registers through authenticated local IPC; no per-session command | No terminal attach; the deck creates and hosts its own sessions in-process | Per-surface setup through skills; its `omp-collab` skill shares one OMP session over OMP's own path | Discovers existing session files automatically; live terminal mirroring for OMP is proposed in the open PR below | For `pi` only, via a bridge extension loaded into every session |
 | Mobile surface | Android-first installable PWA qualified on physical Pixel hardware for directory/View/Control/lock-resume/capability isolation; opt-in Web Push is implemented but outside the stable support boundary | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
 | Exact OMP collab client reuse | Yes — View/Control opens OMP's own encrypted `collab-web` client from pinned upstream source; no second chat surface | No — own chat surface over the embedded OMP SDK (`@oh-my-pi/*` 15.1.7) | No — own web chat over OMP RPC; `omp-collab` reuses OMP collab links separately | No — own transcript UI over ACP stdio | No — own WebSocket mirror protocol, `pi` only |
-| Attention triage | Metadata-only FIFO **Needs you** queue; the oldest ask is promoted to **Open request**; **All clear** otherwise | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session queue described | Interactive `ask_user` prompts inside a session view |
+| Attention triage | Metadata-only FIFO **Needs you** queue with device-local exact-ask Hold; non-attention rows can be dismissed and restored on one device without stopping OMP | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session attention queue described | Interactive `ask_user` prompts inside a session view |
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
 | Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |

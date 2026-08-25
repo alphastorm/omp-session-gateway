@@ -140,7 +140,7 @@ test("installed-PWA View and Control mount in the current window without losing 
     const directoryScroll = await page.evaluate(() => window.scrollY);
     expect(directoryScroll).toBeGreaterThan(0);
 
-    await card.getByRole("button", { name: "View transcript instead" }).evaluate(
+    await card.getByRole("button", { name: "Transcript" }).evaluate(
       button => (button as HTMLButtonElement).click(),
     );
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
@@ -464,7 +464,9 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await expect(page.locator(".conn-chip")).toHaveAttribute("aria-label", "Connected");
     await expect(page.locator(".conn-chip")).toHaveAttribute("role", "status");
     await expect(page.locator(".conn-chip")).toHaveAttribute("aria-live", "polite");
-    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "hold");
+    await expect(page.locator(".triage-copy")).toHaveText("Need the desk for this one?");
+    await expect(page.locator(".triage-action")).toHaveText("Hold → next");
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".gateway-shell > .sh-composer")).toHaveCount(0);
     await expect(page.locator(".sh-header, .sh-rail, .sh-rail-backdrop")).toHaveCount(0);
@@ -484,6 +486,79 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     ).toHaveCount(0);
     await page.evaluate(() => {
       const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { transientClose(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.transientClose();
+    });
+    await expect(page.locator(".conn-chip")).toHaveText("Reconnecting…");
+    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".conn-chip")).toHaveText("Connected", { timeout: 2_500 });
+    await expect(page.locator(".triage-bar")).toBeVisible();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "hold");
+    const nextAsk = {
+      ...session(),
+      instanceId: "held-next-session-0001",
+      title: "Held flow next ask",
+      canControl: false,
+      ask: {
+        requestId: "held-next-request-0001",
+        since: "2026-07-21T10:00:02.000Z",
+      },
+    };
+    fixture.upsert(nextAsk);
+    let rejectNextAdvance = true;
+    const nextLaunchRoute = "**/api/v1/sessions/held-next-session-0001/launch";
+    await page.route(nextLaunchRoute, async route => {
+      if (rejectNextAdvance) {
+        rejectNextAdvance = false;
+        await route.fulfill({ status: 409, contentType: "application/json", body: "{}" });
+        return;
+      }
+      await route.continue();
+    });
+    await page.locator(".triage-action").click();
+    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".triage-copy")).toHaveText(
+      "Couldn't open the next request. This one is still queued.",
+    );
+    await expect(page.locator(".triage-action")).toHaveText("Try again");
+    expect(await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("omp.sessions.held-asks.v1") ?? "[]"),
+    )).toEqual([]);
+
+    await page.locator(".triage-action").click();
+    await expect(page.locator(".shell-title")).toHaveText("Held flow next ask");
+    expect(fixture.launchRequests.at(-1)).toEqual({
+      instanceId: nextAsk.instanceId,
+      generation: 1,
+      mode: "view",
+      requestId: undefined,
+    });
+    expect(await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("omp.sessions.held-asks.v1") ?? "null"),
+    )).toEqual([
+      {
+        instanceId: "standalone-launch-0001",
+        requestId: "standalone-request-0001",
+        heldAt: expect.any(String),
+      },
+    ]);
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "hold");
+    await expect(page.locator(".triage-copy")).toHaveText("Need the desk for this one?");
+    await page.unroute(nextLaunchRoute);
+    await page.goBack();
+    await expect(page).toHaveURL(fixture.origin + "/");
+    await expect(page.locator(".held-row .row-title")).toHaveText("Android standalone launch");
+    await page.locator(".held-requeue").click();
+    await expect(page.locator(".queue-hero h2")).toHaveText("Android standalone launch");
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request", exact: true }).click();
+    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".sh-ask-option").first()).toBeVisible();
+    fixture.remove(nextAsk.instanceId, nextAsk.generation);
+
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
         __askSocket?: { holdSnapshotAndClose(): void };
       }).__askSocket;
       if (socket === undefined) throw new Error("missing ask socket");
@@ -495,7 +570,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await expect(page.locator(".conn-chip")).toHaveText("Connected");
     await page.waitForTimeout(3_200);
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "connected");
-    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "hold");
     await page.evaluate(() => {
       const socket = (globalThis as typeof globalThis & {
         __askSocket?: { releaseSnapshot(): void };
@@ -526,7 +601,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       socket.allowRecovery();
     });
     await expect(page.locator(".conn-chip")).toHaveText("Connected", { timeout: 5_000 });
-    await expect(page.locator(".triage-bar")).toBeHidden();
+    await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "hold");
     await page.locator(".sh-ask-option").nth(1).click();
     await expect(page.locator(".sh-ask-option").first()).not.toHaveClass(/sh-ask-option-checked/u);
     await expect(page.locator(".sh-ask-option").nth(1)).toHaveClass(/sh-ask-option-checked/u);

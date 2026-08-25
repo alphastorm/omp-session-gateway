@@ -305,15 +305,17 @@ jobs:
           EOF
           else
             cat > "$notes" <<EOF
-          ## Stable qualification candidate
+          ## Engineering test candidate
 
-          This is a signed engineering candidate for v0.1.0. It is not advertised or stable until the exact Debian, macOS, physical-Android, provenance, and secret-sink evidence is recorded at its source commit.
+          This is a signed pre-alpha build from current development source. It is not an advertised or supported successor to v0.1.0, does not replace GitHub Latest, and does not widen the stable support matrix.
 
-          ### Changes under qualification
+          ### Changes to test
 
-          - A fail-closed bare v0.1.0 tag maps to the stable archive claim and a non-prerelease Latest publication; every prerelease shape remains excluded from Latest.
-          - Prolonged visible Android outages offer local force-stop/reopen guidance without adding third-party probes or pretending JavaScript can repair Chrome's process.
-          - Physical-device evidence records the selected browser package, Android package version, Browser.getVersion result, activity, and DevTools socket; alternate Chrome channels are independently selectable.
+          - The PWA adds device-local **Hold for desk** for an exact ask while preserving authoritative gateway attention, pending counts, and notifications on other devices.
+          - Reversible **Dismiss here** hides a non-attention row only on the current device; the OMP process keeps running and remains included in live totals.
+          - Failed in-shell advancement keeps the current ask queued, preserves the capability-bearing collaboration shell, and exposes an explicit retry.
+          - Local couch-routing records are bounded to identifiers and timestamps; capabilities, prompts, transcripts, titles, paths, and models are never persisted.
+          - Other unreleased repository changes are recorded in CHANGELOG.md at this source commit.
 
           ### Required OMP prerequisite
 

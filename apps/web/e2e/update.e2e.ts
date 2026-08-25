@@ -125,6 +125,21 @@ test("an updated PWA preserves active collaboration until the user leaves", asyn
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     expect(await loadCount(page)).toBe(1);
 
+    const failedLaunchRoute = "**/api/v1/sessions/pwa-upgrade-0001/launch";
+    await page.route(failedLaunchRoute, route =>
+      route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+    );
+    await page.locator(".shell-control").click();
+    await expect(page.locator(".triage-copy")).toHaveText(
+      "The session could not be opened. Try again.",
+    );
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => ({
+      href: location.href,
+      loads: Number.parseInt(sessionStorage.getItem("omp-e2e-loads") ?? "0", 10),
+    }))).toEqual({ href: `${fixture.origin}/client/`, loads: 1 });
+    await page.unroute(failedLaunchRoute);
+
     await page.goBack();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect.poll(() => loadCount(page)).toBe(2);

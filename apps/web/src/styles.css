@@ -650,20 +650,34 @@ main {
   background: #d7aa54;
 }
 
+.hero-alternatives {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
 .hero-alt {
   min-height: 2.75rem;
-  margin: 0.35rem auto -0.35rem;
   padding: 0.5rem;
-  border: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
   color: var(--muted);
   background: none;
-  font-size: 0.82rem;
-  font-weight: 500;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .hero-alt:hover:not(:disabled) {
+  border-color: #2a343e;
   color: var(--ink);
+}
+
+.hero-hold {
+  border-color: var(--control-border);
+  color: var(--control);
+  background: rgba(201, 155, 69, 0.04);
 }
 
 .queue-row,
@@ -697,6 +711,82 @@ main {
 .working-row:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+.working-row-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+
+.dismiss-session,
+.held-requeue {
+  min-height: 3rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dismiss-session:hover,
+.held-requeue:hover {
+  border-color: #2a343e;
+  color: var(--ink);
+}
+
+.held-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px dashed var(--control-border);
+  border-radius: 0.5rem;
+  background: rgba(201, 155, 69, 0.035);
+}
+
+.held-open {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0.65rem 0.8rem;
+  border: 0;
+  color: var(--body);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.held-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.held-requeue {
+  align-self: stretch;
+  border-width: 0 0 0 1px;
+  border-color: var(--control-border);
+  border-radius: 0;
+  color: var(--control);
+  background: rgba(201, 155, 69, 0.03);
+}
+
+.all-held-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px dashed var(--control-border);
+  border-radius: 0.5rem;
+  color: var(--control);
+  background: rgba(201, 155, 69, 0.04);
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .row-dot,
@@ -764,6 +854,72 @@ main {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.5;
+}
+.dismissed-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.dismissed-control button {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  color: var(--body);
+  background: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.row-dot-held {
+  background: var(--control);
+  box-shadow: 0 0 0 4px rgba(201, 155, 69, 0.09);
+}
+
+.local-action-toast {
+  position: fixed;
+  z-index: 50;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  left: max(0.75rem, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: min(32rem, calc(100% - 1.5rem));
+  min-height: 3.5rem;
+  margin-inline: auto;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--body);
+  background: #111619;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.55);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.local-action-toast[hidden] {
+  display: none;
+}
+
+.local-action-toast button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.45rem;
+  color: var(--control);
+  background: rgba(201, 155, 69, 0.06);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 /* Gateway chrome around the pinned collaboration client. */
@@ -920,6 +1076,14 @@ body.collab-shell-active {
 .triage-bar[data-kind="next"] .triage-copy::first-letter,
 .triage-bar[data-kind="clear"] .triage-copy::first-letter {
   color: var(--live);
+}
+.triage-bar[data-kind="hold"] {
+  border-top-color: var(--control-border);
+  background: #15140f;
+}
+
+.triage-bar[data-kind="hold"] .triage-copy {
+  color: var(--control);
 }
 
 .triage-bar[data-kind="sending"]::before,

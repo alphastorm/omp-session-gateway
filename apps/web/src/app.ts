@@ -1,4 +1,5 @@
 import {
+  MAX_SESSIONS,
   PUSH_API_VERSION,
   parseLaunchResponse,
   parsePushConfigResponse,
@@ -54,6 +55,9 @@ const directoryCount = requiredElement<HTMLElement>("#directory-count");
 const notificationSettings = requiredElement<HTMLDialogElement>("#notification-settings");
 const notificationSettingsClose = requiredElement<HTMLButtonElement>("#notification-settings-close");
 const notificationDisable = requiredElement<HTMLButtonElement>("#notification-disable");
+const localActionToast = requiredElement<HTMLElement>("#local-action-toast");
+const localActionToastCopy = requiredElement<HTMLElement>("#local-action-toast-copy");
+const localActionToastUndo = requiredElement<HTMLButtonElement>("#local-action-toast-undo");
 const notificationDetailInputs = [
   ...document.querySelectorAll<HTMLInputElement>('input[name="notification-detail"]'),
 ];
@@ -66,10 +70,35 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 const CONNECTION_EXTENDED_MS = 3_000;
 const CONNECTION_RECOVERED_MS = 1_800;
 const TRANSPORT_GUIDANCE_DELAY_MS = 45_000;
-
+const LOCAL_ACTION_UNDO_MS = 5_000;
+const HELD_ASKS_STORAGE_KEY = "omp.sessions.held-asks.v1";
+const DISMISSED_SESSIONS_STORAGE_KEY = "omp.sessions.dismissed.v1";
+const MAX_LOCAL_STORAGE_BYTES = 512_000;
+const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 type TransportFailureKind = "offline" | "tailnet" | "desktop" | "gateway";
 
+interface HeldAsk {
+  readonly instanceId: string;
+  readonly requestId: string;
+  readonly heldAt: string;
+}
+
+interface DismissedSession {
+  readonly instanceId: string;
+  readonly generation: number;
+  readonly dismissedAt: string;
+}
+
+interface PendingDismissToast {
+  readonly instanceId: string;
+  readonly generation: number;
+  readonly timeout: number;
+}
+
 const sessions = new Map<string, SessionMetadata>();
+const heldAsks = readHeldAsks();
+const dismissedSessions = readDismissedSessions();
 let events: EventSource | undefined;
 let directoryLoaded = false;
 let authorizationDenied = false;
@@ -90,7 +119,7 @@ let applicationServerKey: string | undefined;
 let launchInProgress = false;
 let workerUpdatePending = false;
 let updateReloadTimeout: number | undefined;
-
+let pendingDismissToast: PendingDismissToast | undefined;
 
 type NotificationControlState =
   | "checking"
@@ -625,10 +654,177 @@ function sessionTitle(session: SessionMetadata): string {
   return session.title || session.cwdLabel || "OMP session";
 }
 
+function localRecordKey(instanceId: string, suffix: string | number): string {
+  return `${instanceId}\0${suffix}`;
+}
+
+function isCanonicalTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = Date.parse(value);
+  return !Number.isNaN(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function exactLocalRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const actualKeys = Object.keys(record);
+  if (actualKeys.length !== keys.length || keys.some(key => !Object.hasOwn(record, key))) return undefined;
+  return record;
+}
+
+function readLocalRecordArray(key: string): readonly unknown[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const serialized = localStorage.getItem(key);
+    if (serialized === null) return [];
+    if (serialized.length > MAX_LOCAL_STORAGE_BYTES) throw new Error("local records exceed bound");
+    const value: unknown = JSON.parse(serialized);
+    if (!Array.isArray(value) || value.length > MAX_SESSIONS) throw new Error("invalid local records");
+    return value;
+  } catch {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Local routing state is optional; storage denial must not break the directory.
+    }
+    return [];
+  }
+}
+
+function writeLocalRecords(key: string, records: Iterable<HeldAsk | DismissedSession>): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify([...records]));
+  } catch {
+    // Local routing state is optional; keep the live in-memory decision for this page.
+  }
+}
+
+function readHeldAsks(): Map<string, HeldAsk> {
+  const records = new Map<string, HeldAsk>();
+  let sanitized = false;
+  for (const value of readLocalRecordArray(HELD_ASKS_STORAGE_KEY)) {
+    const record = exactLocalRecord(value, ["instanceId", "requestId", "heldAt"]);
+    if (
+      record === undefined ||
+      typeof record.instanceId !== "string" ||
+      !INSTANCE_ID_PATTERN.test(record.instanceId) ||
+      typeof record.requestId !== "string" ||
+      !REQUEST_ID_PATTERN.test(record.requestId) ||
+      !isCanonicalTimestamp(record.heldAt)
+    ) {
+      sanitized = true;
+      continue;
+    }
+    const held: HeldAsk = {
+      instanceId: record.instanceId,
+      requestId: record.requestId,
+      heldAt: record.heldAt,
+    };
+    records.set(localRecordKey(held.instanceId, held.requestId), held);
+  }
+  if (sanitized) writeLocalRecords(HELD_ASKS_STORAGE_KEY, records.values());
+  return records;
+}
+
+function readDismissedSessions(): Map<string, DismissedSession> {
+  const records = new Map<string, DismissedSession>();
+  let sanitized = false;
+  for (const value of readLocalRecordArray(DISMISSED_SESSIONS_STORAGE_KEY)) {
+    const record = exactLocalRecord(value, ["instanceId", "generation", "dismissedAt"]);
+    if (
+      record === undefined ||
+      typeof record.instanceId !== "string" ||
+      !INSTANCE_ID_PATTERN.test(record.instanceId) ||
+      !Number.isSafeInteger(record.generation) ||
+      (record.generation as number) < 1 ||
+      !isCanonicalTimestamp(record.dismissedAt)
+    ) {
+      sanitized = true;
+      continue;
+    }
+    const dismissed: DismissedSession = {
+      instanceId: record.instanceId,
+      generation: record.generation as number,
+      dismissedAt: record.dismissedAt,
+    };
+    records.set(localRecordKey(dismissed.instanceId, dismissed.generation), dismissed);
+  }
+  if (sanitized) writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, records.values());
+  return records;
+}
+
+function setBoundedLocalRecord<RecordType>(map: Map<string, RecordType>, key: string, record: RecordType): void {
+  map.delete(key);
+  map.set(key, record);
+  while (map.size > MAX_SESSIONS) {
+    const oldest = map.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+function isHeld(session: SessionMetadata): boolean {
+  return (
+    session.inputRequired &&
+    session.ask !== undefined &&
+    heldAsks.has(localRecordKey(session.instanceId, session.ask.requestId))
+  );
+}
+
+function isDismissed(session: SessionMetadata): boolean {
+  return (
+    !session.inputRequired &&
+    dismissedSessions.has(localRecordKey(session.instanceId, session.generation))
+  );
+}
+
+function cancelPendingDismissToast(): void {
+  if (pendingDismissToast !== undefined) window.clearTimeout(pendingDismissToast.timeout);
+  pendingDismissToast = undefined;
+  localActionToast.hidden = true;
+}
+
+function reconcileLocalRecords(): void {
+  let heldChanged = false;
+  for (const [key, held] of heldAsks) {
+    const session = sessions.get(held.instanceId);
+    if (!session?.inputRequired || session.ask?.requestId !== held.requestId) {
+      heldAsks.delete(key);
+      heldChanged = true;
+    }
+  }
+  let dismissedChanged = false;
+  for (const [key, dismissed] of dismissedSessions) {
+    const session = sessions.get(dismissed.instanceId);
+    if (
+      session === undefined ||
+      session.generation !== dismissed.generation ||
+      session.inputRequired
+    ) {
+      dismissedSessions.delete(key);
+      dismissedChanged = true;
+    }
+  }
+  if (heldChanged) writeLocalRecords(HELD_ASKS_STORAGE_KEY, heldAsks.values());
+  if (dismissedChanged) writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, dismissedSessions.values());
+
+  if (pendingDismissToast !== undefined) {
+    const session = sessions.get(pendingDismissToast.instanceId);
+    if (
+      session === undefined ||
+      session.generation !== pendingDismissToast.generation ||
+      session.inputRequired
+    ) {
+      cancelPendingDismissToast();
+    }
+  }
+}
 
 function replaceSessionSnapshot(nextSessions: readonly SessionMetadata[]): void {
   sessions.clear();
   for (const session of nextSessions) sessions.set(session.instanceId, session);
+  reconcileLocalRecords();
 }
 
 function elapsedLabel(startedAt: number): string {
@@ -650,27 +846,36 @@ function uptimeLabel(session: SessionMetadata): string {
   return `up ${elapsedLabel(Number.isNaN(startedAt) ? Date.now() : startedAt)}`;
 }
 
+function compareWaiting(left: SessionMetadata, right: SessionMetadata): number {
+  const leftSince = left.ask?.since ?? left.lastSeenAt;
+  const rightSince = right.ask?.since ?? right.lastSeenAt;
+  return leftSince === rightSince
+    ? left.instanceId.localeCompare(right.instanceId)
+    : leftSince.localeCompare(rightSince);
+}
+
 function orderedWaitingSessions(): SessionMetadata[] {
-  return [...sessions.values()]
-    .filter(session => session.inputRequired)
-    .sort((left, right) => {
-      const leftSince = left.ask?.since ?? left.lastSeenAt;
-      const rightSince = right.ask?.since ?? right.lastSeenAt;
-      return leftSince === rightSince
-        ? left.instanceId.localeCompare(right.instanceId)
-        : leftSince.localeCompare(rightSince);
-    });
+  return [...sessions.values()].filter(session => session.inputRequired && !isHeld(session)).sort(compareWaiting);
+}
+
+function orderedHeldSessions(): SessionMetadata[] {
+  return [...sessions.values()].filter(isHeld).sort(compareWaiting);
 }
 
 function orderedWorkingSessions(): SessionMetadata[] {
   return [...sessions.values()]
-    .filter(session => !session.inputRequired)
+    .filter(session => !session.inputRequired && !isDismissed(session))
     .sort((left, right) => {
       const started = right.startedAt.localeCompare(left.startedAt);
       return started === 0 ? left.instanceId.localeCompare(right.instanceId) : started;
     });
 }
 
+function orderedDismissedSessions(): SessionMetadata[] {
+  return [...sessions.values()].filter(isDismissed).sort((left, right) =>
+    left.instanceId.localeCompare(right.instanceId),
+  );
+}
 function createTextElement(tagName: string, className: string, text: string): HTMLElement {
   const element = document.createElement(tagName);
   element.className = className;
@@ -693,7 +898,118 @@ function createSessionSummary(session: SessionMetadata): HTMLElement {
   return createTextElement("p", "session-summary", values.join(" · ") || "Live OMP session");
 }
 
-function createWorkingRow(session: SessionMetadata): HTMLButtonElement {
+async function closeHeldAskNotification(held: HeldAsk): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const registration = notificationRegistration ?? (await navigator.serviceWorker.ready);
+    const notifications = await registration.getNotifications({
+      tag: `omp-attention-${held.instanceId}`,
+    });
+    for (const notification of notifications) {
+      const data = notification.data as { requestId?: unknown } | undefined;
+      if (data?.requestId === held.requestId) notification.close();
+    }
+  } catch {
+    // Holding remains valid when the browser cannot enumerate notifications.
+  }
+}
+
+function holdSession(session: SessionMetadata, rerender = true): boolean {
+  const current = sessions.get(session.instanceId);
+  const ask = current?.ask;
+  if (
+    current === undefined ||
+    current.generation !== session.generation ||
+    current.inputRequired === false ||
+    ask === undefined ||
+    session.ask?.requestId !== ask.requestId
+  ) {
+    return false;
+  }
+  const held: HeldAsk = {
+    instanceId: current.instanceId,
+    requestId: ask.requestId,
+    heldAt: new Date().toISOString(),
+  };
+  setBoundedLocalRecord(heldAsks, localRecordKey(held.instanceId, held.requestId), held);
+  writeLocalRecords(HELD_ASKS_STORAGE_KEY, heldAsks.values());
+  void closeHeldAskNotification(held);
+  if (rerender) render();
+  return true;
+}
+
+function requeueHeldSession(session: SessionMetadata): void {
+  if (session.ask === undefined) return;
+  heldAsks.delete(localRecordKey(session.instanceId, session.ask.requestId));
+  writeLocalRecords(HELD_ASKS_STORAGE_KEY, heldAsks.values());
+  render();
+}
+
+function showDismissToast(session: SessionMetadata): void {
+  cancelPendingDismissToast();
+  localActionToastCopy.textContent = `Dismissed “${sessionTitle(session)}” on this device · 5s`;
+  localActionToast.hidden = false;
+  const timeout = window.setTimeout(() => {
+    if (
+      pendingDismissToast?.instanceId === session.instanceId &&
+      pendingDismissToast.generation === session.generation
+    ) {
+      pendingDismissToast = undefined;
+      localActionToast.hidden = true;
+    }
+  }, LOCAL_ACTION_UNDO_MS);
+  pendingDismissToast = {
+    instanceId: session.instanceId,
+    generation: session.generation,
+    timeout,
+  };
+}
+
+function dismissSession(session: SessionMetadata): void {
+  const current = sessions.get(session.instanceId);
+  if (
+    current === undefined ||
+    current.generation !== session.generation ||
+    current.inputRequired
+  ) {
+    return;
+  }
+  const dismissed: DismissedSession = {
+    instanceId: current.instanceId,
+    generation: current.generation,
+    dismissedAt: new Date().toISOString(),
+  };
+  setBoundedLocalRecord(
+    dismissedSessions,
+    localRecordKey(dismissed.instanceId, dismissed.generation),
+    dismissed,
+  );
+  writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, dismissedSessions.values());
+  render();
+  showDismissToast(current);
+}
+
+function undoPendingDismissal(): void {
+  const pending = pendingDismissToast;
+  if (pending === undefined) return;
+  window.clearTimeout(pending.timeout);
+  pendingDismissToast = undefined;
+  dismissedSessions.delete(localRecordKey(pending.instanceId, pending.generation));
+  writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, dismissedSessions.values());
+  localActionToast.hidden = true;
+  render();
+}
+
+function restoreDismissedSessions(): void {
+  dismissedSessions.clear();
+  writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, dismissedSessions.values());
+  cancelPendingDismissToast();
+  render();
+}
+
+function createWorkingRow(session: SessionMetadata): HTMLElement {
+  const frame = document.createElement("div");
+  frame.className = "working-row-frame";
   const button = document.createElement("button");
   button.type = "button";
   button.className = "working-row";
@@ -706,7 +1022,16 @@ function createWorkingRow(session: SessionMetadata): HTMLButtonElement {
     createTextElement("span", "row-time", uptimeLabel(session)),
   );
   button.addEventListener("click", () => void launch(session, "view", button));
-  return button;
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "dismiss-session";
+  dismiss.textContent = "Dismiss here";
+  dismiss.title = "Hide on this device; the OMP process keeps running";
+  dismiss.setAttribute("aria-label", `Dismiss ${sessionTitle(session)} on this device`);
+  dismiss.addEventListener("click", () => dismissSession(session));
+  frame.append(button, dismiss);
+  return frame;
 }
 
 function createWaitingRow(session: SessionMetadata): HTMLButtonElement {
@@ -727,87 +1052,161 @@ function createWaitingRow(session: SessionMetadata): HTMLButtonElement {
     createTextElement("span", "row-chevron", "›"),
   );
   button.addEventListener("click", () =>
-    void launch(session, mode, button, mode === "control" ? session.ask?.requestId : undefined),
+    void launch(session, mode, button, session.ask?.requestId),
   );
   return button;
 }
 
-function renderAllClear(working: readonly SessionMetadata[]): void {
+function createHeldRow(session: SessionMetadata): HTMLElement {
+  const mode: LaunchMode = session.canControl ? "control" : "view";
+  const row = document.createElement("div");
+  row.className = "held-row";
+  row.dataset.instanceId = session.instanceId;
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "held-open";
+  open.disabled = mode === "control" ? !session.canControl : !session.canView;
+  open.setAttribute("aria-label", `Open held request in ${sessionTitle(session)}`);
+  open.append(
+    createTextElement("span", "row-dot row-dot-held", ""),
+    createTextElement("span", "row-title", sessionTitle(session)),
+    createTextElement("span", "row-time", waitingLabel(session)),
+  );
+  open.addEventListener("click", () =>
+    void launch(session, mode, open, session.ask?.requestId),
+  );
+
+  const requeue = document.createElement("button");
+  requeue.type = "button";
+  requeue.className = "held-requeue";
+  requeue.textContent = "↺ Queue";
+  requeue.setAttribute("aria-label", `Return ${sessionTitle(session)} to the queue`);
+  requeue.addEventListener("click", () => requeueHeldSession(session));
+  row.append(open, requeue);
+  return row;
+}
+
+function appendDismissedControl(dismissed: readonly SessionMetadata[]): void {
+  if (dismissed.length === 0) return;
+  const control = document.createElement("aside");
+  control.className = "dismissed-control";
+  control.append(createTextElement("span", "", `${dismissed.length} dismissed on this device`));
+  const restore = document.createElement("button");
+  restore.type = "button";
+  restore.textContent = "Show all";
+  restore.addEventListener("click", restoreDismissedSessions);
+  control.append(restore);
+  sessionList.append(control);
+}
+
+function renderAllClear(
+  working: readonly SessionMetadata[],
+  dismissed: readonly SessionMetadata[],
+): void {
   const summary = document.createElement("div");
   summary.className = "all-clear-summary";
+  const dismissedCopy = dismissed.length === 0 ? "" : ` · ${dismissed.length} dismissed here`;
+  const liveWorkingCount = working.length + dismissed.length;
   summary.append(
     createTextElement("span", "all-clear-dot", ""),
     createTextElement("h2", "all-clear-title", "All clear"),
     createTextElement(
       "p",
       "all-clear-copy",
-      `Nothing needs you — ${working.length} working. You'll get pinged.`,
+      `Nothing needs you — ${liveWorkingCount} working${dismissedCopy}. You'll get pinged.`,
     ),
   );
   sessionList.append(summary);
-  if (working.length === 0) return;
-  sessionList.append(createQueueKicker(`Working · ${working.length}`));
-  for (const session of working) sessionList.append(createWorkingRow(session));
+  if (working.length > 0) {
+    sessionList.append(createQueueKicker(`Working · ${working.length}`));
+    for (const session of working) sessionList.append(createWorkingRow(session));
+  }
+  appendDismissedControl(dismissed);
 }
 
 function renderWaitingQueue(
   waiting: readonly SessionMetadata[],
+  held: readonly SessionMetadata[],
   working: readonly SessionMetadata[],
+  dismissed: readonly SessionMetadata[],
 ): void {
   const [hero, ...remaining] = waiting;
-  if (hero === undefined) return;
-  sessionList.append(createQueueKicker("Up next", waitingLabel(hero)));
+  if (hero === undefined) {
+    const summary = document.createElement("div");
+    summary.className = "all-held-summary";
+    summary.append(
+      createTextElement("span", "row-dot row-dot-held", ""),
+      createTextElement("strong", "", `Queue clear · ${held.length} on hold — handle at desk`),
+    );
+    sessionList.append(summary);
+  } else {
+    sessionList.append(createQueueKicker("Up next", waitingLabel(hero)));
+    const article = document.createElement("article");
+    article.className = "queue-hero";
+    article.dataset.instanceId = hero.instanceId;
+    const askPreview = createTextElement(
+      "p",
+      "ask-preview",
+      hero.ask?.preview === undefined
+        ? hero.canControl
+          ? "Waiting for your input"
+          : "Waiting for your input — Control unavailable"
+        : `「${hero.ask.preview}」`,
+    );
+    if (hero.ask?.optionCount !== undefined) {
+      askPreview.append(createTextElement("span", "", ` · ${hero.ask.optionCount} options`));
+    }
+    article.append(
+      createTextElement("h2", "", sessionTitle(hero)),
+      createSessionSummary(hero),
+      askPreview,
+    );
 
-  const article = document.createElement("article");
-  article.className = "queue-hero";
-  article.dataset.instanceId = hero.instanceId;
-  const askPreview = createTextElement(
-    "p",
-    "ask-preview",
-    hero.ask?.preview === undefined
-      ? hero.canControl
-        ? "Waiting for your input"
-        : "Waiting for your input — Control unavailable"
-      : `「${hero.ask.preview}」`,
-  );
-  if (hero.ask?.optionCount !== undefined) {
-    askPreview.append(createTextElement("span", "", ` · ${hero.ask.optionCount} options`));
+    const primary = document.createElement("button");
+    primary.type = "button";
+    primary.className = "action action-request";
+    primary.textContent = hero.canControl ? "Open request" : "View transcript";
+    primary.disabled = hero.canControl ? false : !hero.canView;
+    primary.addEventListener("click", () => {
+      const mode: LaunchMode = hero.canControl ? "control" : "view";
+      void launch(hero, mode, primary, hero.ask?.requestId);
+    });
+    article.append(primary);
+
+    const alternatives = document.createElement("div");
+    alternatives.className = "hero-alternatives";
+    const hold = document.createElement("button");
+    hold.type = "button";
+    hold.className = "hero-alt hero-hold";
+    hold.textContent = "Hold for desk";
+    hold.addEventListener("click", () => holdSession(hero));
+    alternatives.append(hold);
+    if (hero.canControl && hero.canView) {
+      const transcript = document.createElement("button");
+      transcript.type = "button";
+      transcript.className = "hero-alt";
+      transcript.textContent = "Transcript";
+      transcript.addEventListener("click", () => void launch(hero, "view", transcript));
+      alternatives.append(transcript);
+    }
+    article.append(alternatives);
+    sessionList.append(article);
   }
-  article.append(
-    createTextElement("h2", "", sessionTitle(hero)),
-    createSessionSummary(hero),
-    askPreview,
-  );
-
-  const primary = document.createElement("button");
-  primary.type = "button";
-  primary.className = "action action-request";
-  primary.textContent = hero.canControl ? "Open request" : "View transcript";
-  primary.disabled = hero.canControl ? false : !hero.canView;
-  primary.addEventListener("click", () => {
-    const mode: LaunchMode = hero.canControl ? "control" : "view";
-    void launch(hero, mode, primary, mode === "control" ? hero.ask?.requestId : undefined);
-  });
-  article.append(primary);
-
-  if (hero.canControl && hero.canView) {
-    const alternate = document.createElement("button");
-    alternate.type = "button";
-    alternate.className = "hero-alt";
-    alternate.textContent = "View transcript instead";
-    alternate.addEventListener("click", () => void launch(hero, "view", alternate));
-    article.append(alternate);
-  }
-  sessionList.append(article);
 
   if (remaining.length > 0) {
     sessionList.append(createQueueKicker("Then"));
     for (const session of remaining) sessionList.append(createWaitingRow(session));
   }
+  if (held.length > 0) {
+    sessionList.append(createQueueKicker(`On hold · ${held.length}`));
+    for (const session of held) sessionList.append(createHeldRow(session));
+  }
   if (working.length > 0) {
     sessionList.append(createQueueKicker(`Working · ${working.length}`));
     for (const session of working) sessionList.append(createWorkingRow(session));
   }
+  appendDismissedControl(dismissed);
 }
 
 function render(): void {
@@ -821,24 +1220,34 @@ function render(): void {
   }
 
   const waiting = orderedWaitingSessions();
+  const held = orderedHeldSessions();
   const working = orderedWorkingSessions();
+  const dismissed = orderedDismissedSessions();
+  const attentionCount = waiting.length + held.length;
   directoryCount.hidden = false;
-  if (waiting.length > 0) {
+  if (attentionCount > 0) {
     directoryTitle.textContent = "Needs you";
     directoryCount.className = "count-pill count-pill-waiting";
-    directoryCount.textContent = `${waiting.length} waiting`;
+    directoryCount.textContent =
+      held.length === 0
+        ? `${attentionCount} waiting`
+        : `${attentionCount} waiting · ${held.length} held`;
     sessionList.className = "session-list queue";
     sessionList.setAttribute("aria-label", "Sessions waiting for input");
-    renderWaitingQueue(waiting, working);
+    renderWaitingQueue(waiting, held, working, dismissed);
     return;
   }
 
   directoryTitle.textContent = "Sessions";
   directoryCount.className = "count-pill count-pill-live";
-  directoryCount.textContent = `Live · ${working.length}`;
+  const liveWorkingCount = working.length + dismissed.length;
+  directoryCount.textContent =
+    dismissed.length === 0
+      ? `Live · ${liveWorkingCount}`
+      : `Live · ${liveWorkingCount} · ${dismissed.length} dismissed here`;
   sessionList.className = "session-list all-clear";
   sessionList.setAttribute("aria-label", "Live OMP sessions");
-  renderAllClear(working);
+  renderAllClear(working, dismissed);
 }
 
 function setConnectionState(
@@ -874,7 +1283,7 @@ function hideTriageBar(shell: ActiveCollabShell, rerenderConnection = true): voi
 
 function showTriageBar(
   shell: ActiveCollabShell,
-  kind: "next" | "clear" | "sending" | "reconnecting" | "ended",
+  kind: "next" | "clear" | "hold" | "sending" | "reconnecting" | "ended",
   copy: string,
   actionLabel?: string,
   action?: () => void,
@@ -886,7 +1295,10 @@ function showTriageBar(
   if (actionLabel !== undefined && action !== undefined) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = kind === "next" ? "triage-action triage-action-next" : "triage-action";
+    button.className =
+      kind === "next" || kind === "hold"
+        ? "triage-action triage-action-next"
+        : "triage-action";
     button.textContent = actionLabel;
     button.addEventListener("click", action);
     shell.triageBar.replaceChildren(message, button);
@@ -983,8 +1395,9 @@ function renderConnectionState(shell: ActiveCollabShell): void {
     const elapsed = Date.now() - shell.interruptionStartedAt;
     if (elapsed < CONNECTION_EXTENDED_MS) {
       setConnectionState(shell.connectionChip, "reconnecting", "Reconnecting…");
-      if (state.responsePending && !shell.answerTriageVisible) showTriageBar(shell, "sending", "Sending…");
-      else if (shell.triageBar.dataset.kind === "reconnecting" || shell.triageBar.dataset.kind === "sending") {
+      if (state.responsePending && !shell.answerTriageVisible) {
+        showTriageBar(shell, "sending", "Sending…");
+      } else if (!shell.answerTriageVisible && !shell.triageBar.hidden) {
         hideTriageBar(shell);
       }
       scheduleConnectionRender(shell, CONNECTION_EXTENDED_MS - elapsed, "delay");
@@ -1022,12 +1435,15 @@ function renderConnectionState(shell: ActiveCollabShell): void {
   } else if (shell.recoveredTimeout === undefined) {
     setConnectionState(shell.connectionChip, "connected");
   }
-  if (state.responsePending && !shell.answerTriageVisible) showTriageBar(shell, "sending", "Sending…");
-  else if (shell.triageBar.dataset.kind === "reconnecting" || shell.triageBar.dataset.kind === "sending") {
-    hideTriageBar(shell);
+  if (state.responsePending && !shell.answerTriageVisible) {
+    showTriageBar(shell, "sending", "Sending…");
+  } else {
+    if (shell.triageBar.dataset.kind === "reconnecting" || shell.triageBar.dataset.kind === "sending") {
+      hideTriageBar(shell);
+    }
+    reconcileActiveCollabShell();
   }
 }
-
 function returnToDirectory(historyValue?: unknown): void {
   collabShellDisposedOnPageHide = false;
   const snapshot = dashboardSnapshot;
@@ -1049,6 +1465,61 @@ function returnToDirectory(historyValue?: unknown): void {
   applyActivatedWorkerUpdate();
 }
 
+async function holdCurrentAskAndAdvance(shell: ActiveCollabShell, current: SessionMetadata): Promise<void> {
+  const currentRequestId = current.ask?.requestId;
+  const authoritativeCurrent = sessions.get(current.instanceId);
+  if (
+    currentRequestId === undefined ||
+    authoritativeCurrent?.generation !== current.generation ||
+    authoritativeCurrent.ask?.requestId !== currentRequestId
+  ) {
+    reconcileActiveCollabShell();
+    return;
+  }
+
+  const next = orderedWaitingSessions().find(
+    session => session.instanceId !== current.instanceId || session.ask?.requestId !== currentRequestId,
+  );
+  if (next !== undefined) {
+    shell.answerShown = true;
+    showTriageBar(shell, "sending", "Opening next request…");
+    const mode: LaunchMode = next.canControl ? "control" : "view";
+    const opened = await launch(next, mode, undefined, next.ask?.requestId);
+    if (opened) {
+      holdSession(current, false);
+      return;
+    }
+    if (activeCollabShell !== shell) return;
+    shell.answerShown = false;
+    const latestCurrent = sessions.get(current.instanceId);
+    if (
+      latestCurrent?.generation !== current.generation ||
+      latestCurrent.ask?.requestId !== currentRequestId
+    ) {
+      reconcileActiveCollabShell();
+      return;
+    }
+    showTriageBar(
+      shell,
+      "hold",
+      "Couldn't open the next request. This one is still queued.",
+      "Try again",
+      () => void holdCurrentAskAndAdvance(shell, current),
+    );
+    return;
+  }
+  if (!holdSession(current, false)) return;
+  shell.answerShown = true;
+  const held = orderedHeldSessions().length;
+  showTriageBar(
+    shell,
+    "clear",
+    `Queue clear · ${held} on hold — handle at desk`,
+    "Sessions",
+    returnToDirectory,
+  );
+}
+
 function reconcileActiveCollabShell(): void {
   const shell = activeCollabShell;
   if (
@@ -1067,7 +1538,20 @@ function reconcileActiveCollabShell(): void {
     showTriageBar(shell, "ended", "Mac/session ended", "Back to Sessions", returnToDirectory);
     return;
   }
-  if (shell.openedRequestId === undefined || current.ask?.requestId === shell.openedRequestId) return;
+  if (shell.openedRequestId !== undefined && current.ask?.requestId === shell.openedRequestId) {
+    if (
+      shell.latestEmbedState?.phase === "live" &&
+      current.inputRequired &&
+      isHeld(current) === false &&
+      (shell.triageBar.hidden || shell.triageBar.dataset.kind !== "hold")
+    ) {
+      showTriageBar(shell, "hold", "Need the desk for this one?", "Hold → next", () =>
+        void holdCurrentAskAndAdvance(shell, current),
+      );
+    }
+    return;
+  }
+  if (shell.openedRequestId === undefined) return;
 
   shell.answerShown = true;
   const waiting = orderedWaitingSessions();
@@ -1286,14 +1770,15 @@ async function launch(
   mode: LaunchMode,
   button?: HTMLButtonElement,
   requestId?: string,
-): Promise<void> {
+): Promise<boolean> {
+  const sourceShell = activeCollabShell;
   const idleLabel = button?.textContent ?? (mode === "view" ? "View" : "Control");
   if (button !== undefined) {
     button.disabled = true;
     button.dataset.busy = "true";
     button.setAttribute("aria-busy", "true");
     button.textContent = mode === "view" ? "Opening view…" : "Opening control…";
-  } else {
+  } else if (sourceShell === undefined) {
     setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
   }
   launchInProgress = true;
@@ -1307,13 +1792,25 @@ async function launch(
   };
   let stylesheet: HTMLLinkElement | undefined;
   let startCollabWithCapability: StartCollabWithCapability;
-  const fail = (kind: "offline" | "unauthorized" | "expired", message: string): void => {
+  const fail = (kind: "offline" | "unauthorized" | "expired", message: string): boolean => {
     launchInProgress = false;
+    resetButton();
+    if (sourceShell !== undefined && activeCollabShell === sourceShell) {
+      showTriageBar(sourceShell, "reconnecting", message, "Try again", () => {
+        showTriageBar(
+          sourceShell,
+          "sending",
+          mode === "view" ? "Opening view…" : "Opening control…",
+        );
+        void launch(session, mode, button, requestId);
+      });
+      return true;
+    }
     if (location.pathname === "/client/") history.replaceState(null, "", "/");
     stylesheet?.remove();
-    resetButton();
     setStatus(kind, message);
     applyActivatedWorkerUpdate();
+    return false;
   };
 
   try {
@@ -1325,7 +1822,7 @@ async function launch(
     startCollabWithCapability = collabClient.startCollabWithCapability;
   } catch {
     fail("offline", "The collaboration client did not start. Try again.");
-    return;
+    return false;
   }
 
   let response: Response;
@@ -1336,14 +1833,14 @@ async function launch(
       body: JSON.stringify({
         mode,
         generation: session.generation,
-        ...(requestId === undefined ? {} : { requestId }),
+        ...(mode === "control" && requestId !== undefined ? { requestId } : {}),
       }),
       cache: "no-store",
       credentials: "same-origin",
     });
   } catch {
     fail("offline", "Gateway unavailable. Check your tailnet connection and try again.");
-    return;
+    return false;
   }
 
   if (!response.ok) {
@@ -1351,12 +1848,14 @@ async function launch(
       authorizationDenied = true;
       fail("unauthorized", "This tailnet identity is not authorized.");
     } else if (response.status === 404 || response.status === 409) {
-      fail("expired", "That session changed or expired. Refreshing the list…");
-      if (await refreshAndConnect()) setStatus("expired", "That session changed or expired. The list has been refreshed.");
+      const preservedShell = fail("expired", "That session changed or expired. Try again.");
+      if (!preservedShell && await refreshAndConnect()) {
+        setStatus("expired", "That session changed or expired. The list has been refreshed.");
+      }
     } else {
       fail("offline", "The session could not be opened. Try again.");
     }
-    return;
+    return false;
   }
 
   let capability: string | undefined;
@@ -1368,9 +1867,11 @@ async function launch(
     capability = payload.capability;
     enterCollabClient(capability, startCollabWithCapability, session, mode, requestId);
     capability = undefined;
+    return true;
   } catch {
     capability = undefined;
     fail("offline", "The gateway returned an invalid launch response.");
+    return false;
   }
 }
 
@@ -1388,6 +1889,7 @@ function applyEvent(event: SessionEvent, epoch: number): boolean {
     const current = sessions.get(event.instanceId);
     if (current?.generation === event.generation) sessions.delete(event.instanceId);
   }
+  if (event.type !== "snapshot") reconcileLocalRecords();
   render();
   reconcileActiveCollabShell();
   return true;
@@ -1538,6 +2040,7 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
 notificationDisable.addEventListener("click", () => void disableBackgroundNotifications());
+localActionToastUndo.addEventListener("click", undoPendingDismissal);
 networkRecoveryHelpClose.addEventListener("click", () => networkRecoveryHelp.close());
 for (const input of notificationDetailInputs) {
   input.addEventListener("change", () => {

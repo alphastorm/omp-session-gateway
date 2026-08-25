@@ -63,11 +63,31 @@ Each card may show only non-secret metadata:
 - model label when configured;
 - process start and last-seen time;
 - health/streaming state if available without transcript data;
-- boolean response-required state, rendered as **Needs attention**, without prompt content, counts, or request identity;
-- **View** as the primary action;
-- **Control** as a distinct action only when available.
+- boolean response-required state, rendered as **Needs attention**, with an opaque request identity
+  and receipt timestamp but no prompt content or answer data;
+- **View** for ordinary read-only launches and **Open request** for attention requiring Control;
+- **Hold for desk** for exact-ask local queue routing; and
+- **Dismiss here** for reversible device-local hiding of non-attention rows.
 
-The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/sessions` and `GET /api/v1/events`, then requests one capability after an explicit tap.
+The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/sessions` and
+`GET /api/v1/events`, then requests one capability after an explicit tap.
+
+Couch triage is a device-local presentation layer over that authoritative metadata. **Hold for
+desk** stores only the exact `(instanceId, requestId, heldAt)` identity of an ask and skips it in
+this device's FIFO rotation; it does not clear gateway attention, reduce the pending count or app
+badge, or affect another device. **Dismiss here** is available only on non-attention rows and stores
+only `(instanceId, generation, dismissedAt)`; it hides the row on this device, performs no network
+mutation, and never stops the OMP process. A five-second Undo and a persistent **Show all** surface
+make dismissals reversible. Active-shell Hold commits only after the next launch succeeds; a launch
+failure leaves the current ask in rotation and offers retry without unmounting its collaboration
+shell.
+
+Authoritative snapshots and upserts remove a held record when its exact ask changes or clears, and
+remove a dismissal when the session disappears, its generation changes, or it needs attention.
+Transport failures do not erase either record. The current metadata does not distinguish completed
+from still-working sessions, so the PWA must not invent a Completed state or label local dismissal
+as Close or Exit. These bounded records contain no title, path, model, prompt, answer, transcript,
+or collaboration capability.
 
 An explicit dashboard action enables background Web Push. Permission is never requested on load.
 The gateway sends only strict instance/generation attention metadata to the browser-provided push

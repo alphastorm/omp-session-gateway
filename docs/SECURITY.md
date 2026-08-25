@@ -182,6 +182,16 @@ generation replacement. They are metadata, not authorization. Prompt text, optio
 transcript content remain prohibited unless a later publisher protocol explicitly introduces a
 bounded plain-text preview contract; the current implementation always uses the boolean fallback.
 
+The PWA may persist two bounded, non-secret local routing record types: an exact held ask
+`(instanceId, requestId, heldAt)`, and a generation-scoped dismissed session
+`(instanceId, generation, dismissedAt)`. It must reject malformed, oversized, non-canonical, or
+excess records and must never add session labels, paths, models, prompt content, transcript content,
+or capabilities. Holding does not change authoritative attention or badge counts. Dismissal is only
+a reversible local hide of a non-attention row: it makes no network request and does not stop OMP.
+Authoritative ask changes clear holds; removal, generation replacement, or attention clears
+dismissals. Transport failures clear neither. A held ask may close only a notification with the
+matching instance tag and request ID.
+
 After an explicit permission/subscription action, the gateway may persist a user-only VAPID key
 pair, bounded browser subscription set, authenticated identity, and per-device `private`,
 `session`, or `preview` choice. It assembles encrypted push presentation at send time. `private`

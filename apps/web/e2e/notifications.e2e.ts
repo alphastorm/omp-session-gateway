@@ -140,14 +140,32 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator(".queue-hero .ask-preview")).toHaveText("Waiting for your input");
     await expect(page.locator(".queue-hero").getByRole("button")).toHaveText([
       "Open request",
-      "View transcript instead",
+      "Hold for desk",
+      "Transcript",
     ]);
+    await page.getByRole("button", { name: "Hold for desk" }).click();
+    await expect(page.locator("#directory-count")).toHaveText("2 waiting · 1 held");
+    await expect(page.locator(".queue-hero h2")).toHaveText("attention-viewonly-002");
+    await expect(page.locator(".held-row .row-title")).toHaveText("attention-control-0001");
+    const heldStorage = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("omp.sessions.held-asks.v1") ?? "null") as unknown,
+    );
+    expect(heldStorage).toEqual([
+      {
+        instanceId: "attention-control-0001",
+        requestId: "request-attention-control-0001",
+        heldAt: expect.any(String),
+      },
+    ]);
+    await page.locator(".held-requeue").click();
+    await expect(page.locator("#directory-count")).toHaveText("2 waiting");
+    await expect(page.locator(".queue-hero h2")).toHaveText("attention-control-0001");
     await expect(page.locator(".queue-row .row-title")).toHaveText(["attention-viewonly-002"]);
     await expect(page.locator(".working-row .row-title")).toHaveText(["ordinary-newest-0003"]);
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const directoryTargets = await page
-      .locator("#notify, .action-request, .hero-alt, .queue-row, .working-row")
+      .locator("#notify, .action-request, .hero-alt, .queue-row, .working-row, .dismiss-session")
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
     expect(directoryTargets.every(height => height >= 44)).toBe(true);
 
@@ -164,7 +182,7 @@ test("attention cards and explicit background alert settings stay metadata-only"
       await expect(page.locator(".queue-row")).toHaveCount(count - 1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       const targets = await page
-        .locator(".action-request, .hero-alt, .queue-row, .working-row")
+        .locator(".action-request, .hero-alt, .queue-row, .working-row, .dismiss-session")
         .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
       expect(targets.every(height => height >= 44)).toBe(true);
     }
@@ -197,7 +215,35 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator("#notify")).toHaveText("Enable background alerts");
     await expect(page.locator("#notify-note")).toBeHidden();
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
+    await page.clock.install();
+    const requestsBeforeDismiss = fixture.requests.length;
+    await page.getByRole("button", { name: "Dismiss ordinary-newest-0003 on this device" }).click();
+    await expect(page.locator(".working-row")).toHaveCount(0);
+    await expect(page.locator("#directory-count")).toHaveText("Live · 1 · 1 dismissed here");
+    await expect(page.locator("#local-action-toast")).toBeVisible();
+    await expect(page.locator("#local-action-toast-copy")).toContainText("on this device");
+    const dismissedStorage = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("omp.sessions.dismissed.v1") ?? "null") as unknown,
+    );
+    expect(dismissedStorage).toEqual([
+      {
+        instanceId: "ordinary-newest-0003",
+        generation: 1,
+        dismissedAt: expect.any(String),
+      },
+    ]);
+    await page.locator("#local-action-toast-undo").click();
+    await expect(page.locator(".working-row")).toHaveCount(1);
+    await page.getByRole("button", { name: "Dismiss ordinary-newest-0003 on this device" }).click();
+    await page.clock.fastForward(5_100);
+    await expect(page.locator("#local-action-toast")).toBeHidden();
+    await expect(page.locator(".dismissed-control")).toContainText("1 dismissed on this device");
+    expect(fixture.requests).toHaveLength(requestsBeforeDismiss);
+    await page.locator(".dismissed-control").getByRole("button", { name: "Show all" }).click();
+    await expect(page.locator(".working-row")).toHaveCount(1);
+    expect(await page.evaluate(() => localStorage.getItem("omp.sessions.dismissed.v1"))).toBe("[]");
 
+    expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
     await page.locator("#notify").click();
     await expect(page.locator("#notify")).toHaveText("Disable background alerts");
     await expect(page.locator("#notification-settings")).toBeVisible();
