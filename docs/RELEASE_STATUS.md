@@ -1,10 +1,23 @@
 # Release status
 
-**Updated:** 2026-08-22<br>
-**Repository version:** `0.1.0`; stable publication source for **`v0.1.0`**<br>
-**Qualification predecessor:** **`v0.1.0-prealpha.23`**, independently verified<br>
-**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
-**Stable decision:** **GO, approved**, for the named support boundary and nothing else.
+**Updated:** 2026-08-28<br>
+**Repository version:** `0.2.0`; stable claim target **`v0.2.0`** (pending)<br>
+**Published stable:** **`v0.1.0`** remains GitHub Latest until the 0.2 campaign passes<br>
+**Classification:** v0.2.0 is **not qualified**; the v0.1.0 boundary below remains the only stable claim<br>
+**Stable decision (0.2):** **PENDING** — `STABLE_RELEASE.lock.json` is `pending` and blocks a `v0.2.0` tag.
+
+### Stable 0.2 — qualification pending
+
+**Target tag:** `v0.2.0`, to be published as a non-prerelease and GitHub Latest only after this
+section records a passed campaign.<br>
+**Planned candidate:** the first published `v0.2.0-prealpha.<n>` engineering tag.<br>
+**Rollback predecessor:** published stable `v0.1.0`.<br>
+**Machine gate:** `STABLE_RELEASE.lock.json` is `pending`; `release-policy.ts` refuses a stable
+tag until every commit-bound field passes and the ledger records approval.<br>
+**Planned evidence:** the same lanes as 0.1 — signed candidate artifacts, Debian disposable-host
+lifecycle, retained `Mac14,3` lifecycle with cross-version `v0.1.0 → candidate` upgrade/rollback,
+exact patched-OMP publication/revocation, physical Pixel acceptance with the forbidden-sink sweep,
+and a bounded default-relay smoke, recorded here before ledger approval.
 
 ### Stable 0.1 — GO
 

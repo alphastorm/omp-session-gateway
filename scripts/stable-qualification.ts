@@ -5,8 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
-const VERSION = "0.1.0";
-const PREVIOUS_TAG = "v0.1.0-beta.1";
+const VERSION = "0.2.0";
+// Rollback predecessor: the published stable release the candidate must migrate from and roll
+// back to. For the 0.2 campaign that is the bare v0.1.0 stable, not a 0.1 prerelease.
+const PREVIOUS_TAG = "v0.1.0";
 const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
@@ -182,12 +184,15 @@ export function parseStableQualificationArgs(
     else if (argument === "--previous-tag") previousTag = argv[++index] ?? "";
     else throw new Error(`unknown argument: ${argument ?? ""}`);
   }
-  if (tag === undefined) throw new Error("usage: bun run qualify:stable --tag v0.1.0-prealpha.<n>");
-  if (!/^v0\.1\.0-prealpha\.[1-9][0-9]*$/u.test(tag)) {
-    throw new Error("--tag must match v0.1.0-prealpha.<positive integer>");
+  if (tag === undefined) throw new Error("usage: bun run qualify:stable --tag v0.2.0-prealpha.<n>");
+  if (!/^v0\.2\.0-prealpha\.[1-9][0-9]*$/u.test(tag)) {
+    throw new Error("--tag must match v0.2.0-prealpha.<positive integer>");
   }
-  if (!/^v0\.1\.0-(?:alpha(?:\.[1-9][0-9]*)?|beta(?:\.[1-9][0-9]*)?|prealpha\.[1-9][0-9]*)$/u.test(previousTag)) {
-    throw new Error("--previous-tag must name an exact published 0.1 prerelease");
+  if (
+    previousTag !== "v0.1.0" &&
+    !/^v0\.2\.0-(?:alpha(?:\.[1-9][0-9]*)?|beta(?:\.[1-9][0-9]*)?|prealpha\.[1-9][0-9]*)$/u.test(previousTag)
+  ) {
+    throw new Error("--previous-tag must name the published v0.1.0 stable or an exact 0.2 prerelease");
   }
   const receiptRoot = resolve(
     environment.OMP_STABLE_QUALIFICATION_DIR ??

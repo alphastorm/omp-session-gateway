@@ -176,19 +176,26 @@ jobs:
           EOF
           elif [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
             cat > "$notes" <<EOF
-          ## v0.1.0 — narrowly supported stable release
+          ## v0.2.0 — narrowly supported stable release
 
-          This is the first non-prerelease OMP Session Gateway release. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+          This release supersedes v0.1.0 as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+
+          ### Highlights since v0.1.0
+
+          - Couch-first triage directory: FIFO Needs-you queue with an Up-next hero, device-local Hold for desk and reversible Dismiss here, and a Settings sheet for background alerts and notification detail.
+          - Long transcripts render incrementally in the embedded collaboration client: the initial snapshot defers to one loading placeholder and the transcript windows to the newest entries with a Show earlier control.
+          - The pinned collaboration client ships in the precached application shell and warms while the directory idles, so View/Control taps pay only for the no-store launch request and relay connect.
+          - Bounded transport recovery hardening for Android Chrome, including backoff ceilings, prolonged-outage guidance, and native EventSource reconnection support.
 
           ### Advertised combinations
 
           | role | combination |
           |---|---|
-          | host | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 |
-          | host | macOS 26.6.1 arm64 (Mac14,3) |
-          | client | Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro) |
+          | host | Debian 13 (trixie) x86-64 |
+          | host | macOS arm64 (Mac14,3) |
+          | client | Chrome on Android (Pixel 10 Pro) |
 
-          Per-lane evidence and the qualifying candidate are recorded in docs/RELEASE_STATUS.md and docs/COMPATIBILITY.md at this source commit.
+          Exact qualified OS, browser, and kernel builds, per-lane evidence, and the qualifying candidate are recorded in docs/RELEASE_STATUS.md and docs/COMPATIBILITY.md at this source commit.
 
           ### Required deployment preconditions
 
@@ -197,7 +204,7 @@ jobs:
 
           ### Known environment limitation
 
-          Exact candidate .23 recovered the same loaded page automatically after secure lock, an Airplane outage, and forced Doze, without a reload. Android Chrome can still wedge its process-wide network state outside those proven transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
+          Android Chrome can wedge its process-wide network state outside the qualified lock/Airplane/Doze transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
           Windows remains unadvertised. Background Web Push delivery remains best-effort and is not part of the stable core support claim.
 
           ### Install or upgrade
@@ -206,7 +213,7 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0-beta.1 archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0 stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
 
           - Source commit: $GITHUB_SHA
           - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
@@ -311,10 +318,9 @@ jobs:
 
           ### Changes to test
 
-          - The PWA adds device-local **Hold for desk** for an exact ask while preserving authoritative gateway attention, pending counts, and notifications on other devices.
-          - Reversible **Dismiss here** hides a non-attention row only on the current device; the OMP process keeps running and remains included in live totals.
-          - Failed in-shell advancement keeps the current ask queued, preserves the capability-bearing collaboration shell, and exposes an explicit retry.
-          - Local couch-routing records are bounded to identifiers and timestamps; capabilities, prompts, transcripts, titles, paths, and models are never persisted.
+          - Couch-flow visual pass: full-width session rows with a compact per-row Dismiss control, readable ask previews, a real empty state, and a Settings sheet for background alerts and notification detail.
+          - Embedded-client transcript windowing: the initial snapshot defers to one loading placeholder and long histories render behind a Show earlier control.
+          - The pinned collaboration client is precached with the application shell and warmed while the directory idles.
           - Other unreleased repository changes are recorded in CHANGELOG.md at this source commit.
 
           ### Required OMP prerequisite
@@ -330,7 +336,7 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0-beta.1 archive with the deployment's existing origin and allowlist.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0 stable archive with the deployment's existing origin and allowlist.
 
           Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF

@@ -833,11 +833,23 @@ report_imported_images() {
 
 # ---------------------------------------------------------------------------- qualification lanes
 
+# Release asset names carry the tag's own MAJOR.MINOR.PATCH. Deriving from the tag rather than the
+# checkout's package.json keeps every lane valid when the repository has already moved past the
+# candidate under test (and lets rollback pair a v0.1.0 predecessor with a 0.2.x candidate).
+version_from_tag() {
+  local version="${1#v}"
+  version="${version%%-*}"
+  case "$version" in
+    *[!0-9.]* | "" | .* | *. ) die "cannot derive a release version from tag $1" ;;
+  esac
+  printf '%s' "$version"
+}
+
 release_version() {
   if [ -n "${OMP_QUAL_VERSION:-}" ]; then
     printf '%s' "$OMP_QUAL_VERSION"
   else
-    jq -r '.version' package.json
+    version_from_tag "${OMP_QUAL_RELEASE_TAG:-}"
   fi
 }
 
@@ -1497,7 +1509,7 @@ lane_migration() {
     return 0
   fi
 
-  version="$(release_version)"
+  version="$(version_from_tag "$previous_tag")"
   archive="omp-session-gateway-${version}-bun.tar"
   sbom="omp-session-gateway-${version}.spdx.json"
   local_dir="$STATE_DIR/release/$previous_tag"
@@ -1533,9 +1545,16 @@ bun=~/.bun/bin/bun
 # download cannot be installed even though this lane staged it separately.
 cd ~/candidate-prev
 sha256sum --check SHA256SUMS >/dev/null
-identity="https://github.com/${REPO_SLUG}/.github/workflows/release.yml@refs/tags/${PREV_TAG}"
-~/tools/cosign verify-blob --bundle "${ARCHIVE}.sigstore.json" --certificate-identity "$identity" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$ARCHIVE" >/dev/null 2>&1
+verified=0
+for workflow in signed-release.yml release.yml; do
+  identity="https://github.com/${REPO_SLUG}/.github/workflows/${workflow}@refs/tags/${PREV_TAG}"
+  if ~/tools/cosign verify-blob --bundle "${ARCHIVE}.sigstore.json" --certificate-identity "$identity" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$ARCHIVE" >/dev/null 2>&1; then
+    verified=1
+    break
+  fi
+done
+[ "$verified" -eq 1 ] || { echo "predecessor Sigstore verification failed for $PREV_TAG" >&2; exit 1; }
 show "predecessor verified" "checksum and signature for $PREV_TAG"
 
 rm -rf ~/runtime-prev && mkdir -p ~/runtime-prev

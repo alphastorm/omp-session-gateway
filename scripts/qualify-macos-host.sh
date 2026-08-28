@@ -87,7 +87,7 @@ die() {
 
 readonly HOST="${OMP_MAC_HOST:-}"
 readonly TAG="${OMP_MAC_TAG:-}"
-readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.1.0-beta.1}"
+readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.1.0}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly EXPECTED_ARCHIVE_SHA256="${OMP_MAC_ARCHIVE_SHA256:-}"
 readonly SESSION_LABEL="${OMP_MAC_SESSION_LABEL:-omp-stable-pixel-qualification}"
@@ -115,6 +115,17 @@ esac
 case "$TAG:$PREVIOUS_TAG" in
   *[!A-Za-z0-9._:-]*) die "OMP_MAC_TAG and OMP_MAC_PREVIOUS_TAG must be plain release tags" ;;
 esac
+
+# Release asset names carry the tag's own MAJOR.MINOR.PATCH: a 0.2 candidate ships
+# omp-session-gateway-0.2.0-* while its v0.1.0 rollback predecessor keeps 0.1.0 names.
+tag_version() {
+  local version="${1#v}"
+  version="${version%%-*}"
+  case "$version" in
+    *[!0-9.]* | "" | .* | *. ) die "cannot derive a release version from tag $1" ;;
+  esac
+  printf '%s' "$version"
+}
 count_file_occurrences() {
   python3 - "$1" "$2" <<'PY'
 from pathlib import Path
@@ -234,11 +245,13 @@ lane_artifact() {
   mkdir -p "$dir"
   ( cd "$dir" && gh release download "$TAG" --repo "$REPO_SLUG" ) ||
     die "could not download release $TAG from $REPO_SLUG."
+  local candidate_version
+  candidate_version="$(tag_version "$TAG")"
   for asset in \
-    omp-session-gateway-0.1.0-bun.tar \
-    omp-session-gateway-0.1.0-bun.tar.sigstore.json \
-    omp-session-gateway-0.1.0.spdx.json \
-    omp-session-gateway-0.1.0.spdx.json.sigstore.json \
+    "omp-session-gateway-$candidate_version-bun.tar" \
+    "omp-session-gateway-$candidate_version-bun.tar.sigstore.json" \
+    "omp-session-gateway-$candidate_version.spdx.json" \
+    "omp-session-gateway-$candidate_version.spdx.json.sigstore.json" \
     SHA256SUMS SHA256SUMS.sigstore.json; do
     [ -f "$dir/$asset" ] || die "release $TAG is missing exact asset $asset"
   done
@@ -246,7 +259,7 @@ lane_artifact() {
     die "release $TAG did not download exactly six assets"
   ( cd "$dir" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1 ) ||
     die "checksums do not verify for $TAG. Refusing to install unverified bytes."
-  archive="omp-session-gateway-0.1.0-bun.tar"
+  archive="omp-session-gateway-$candidate_version-bun.tar"
   actual_archive_sha256="$(verified_archive_sha256 "$dir/$archive")"
   measure "archive sha256" "$actual_archive_sha256"
 
@@ -459,18 +472,19 @@ verify_rollback_bundle() {
 }
 
 prepare_rollback_tag() {
-  local root="$1" tag="$2" asset
+  local root="$1" tag="$2" asset tag_release_version
   local dir="$root/$tag"
+  tag_release_version="$(tag_version "$tag")"
   rm -rf "$dir"
   mkdir -p "$dir"
   gh release download "$tag" --repo "$REPO_SLUG" --dir "$dir" --clobber \
-    -p omp-session-gateway-0.1.0-bun.tar \
-    -p omp-session-gateway-0.1.0-bun.tar.sigstore.json \
+    -p "omp-session-gateway-$tag_release_version-bun.tar" \
+    -p "omp-session-gateway-$tag_release_version-bun.tar.sigstore.json" \
     -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null ||
     die "could not stage rollback assets for $tag"
   ( cd "$dir" && shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null ) ||
     die "rollback checksums failed for $tag"
-  for asset in omp-session-gateway-0.1.0-bun.tar SHA256SUMS; do
+  for asset in "omp-session-gateway-$tag_release_version-bun.tar" SHA256SUMS; do
     verify_rollback_bundle "$tag" "$dir" "$asset" ||
       die "rollback Sigstore verification failed for $asset at $tag"
   done

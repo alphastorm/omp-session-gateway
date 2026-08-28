@@ -20,10 +20,10 @@
   "properties": {
     "$schema": { "const": "./schemas/stable-release.schema.json" },
     "schemaVersion": { "const": 1 },
-    "version": { "const": "0.1.0" },
-    "releaseTag": { "const": "v0.1.0" },
+    "version": { "const": "0.2.0" },
+    "releaseTag": { "const": "v0.2.0" },
     "status": { "enum": ["pending", "qualified"] },
-    "candidateTag": { "pattern": "^v0\\.1\\.0-prealpha\\.[1-9][0-9]*$" },
+    "candidateTag": { "type": ["string", "null"], "pattern": "^v0\\.2\\.0-prealpha\\.[1-9][0-9]*$" },
     "candidateSourceCommit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
     "candidateArchiveSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
     "runtimeByteComparison": { "enum": ["pending", "passed"] },

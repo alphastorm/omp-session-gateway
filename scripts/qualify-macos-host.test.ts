@@ -19,8 +19,8 @@ function environment(archiveSha256: string): Record<string, string | undefined> 
   return {
     ...process.env,
     OMP_MAC_HOST: "synthetic@example.invalid",
-    OMP_MAC_TAG: "v0.1.0-prealpha.21",
-    OMP_MAC_PREVIOUS_TAG: "v0.1.0-beta.1",
+    OMP_MAC_TAG: "v0.2.0-prealpha.21",
+    OMP_MAC_PREVIOUS_TAG: "v0.1.0",
     OMP_MAC_LOGIN: "synthetic@example.invalid",
     OMP_MAC_ARCHIVE_SHA256: archiveSha256,
     OMP_MAC_SUDO_PW: sudoPassword,

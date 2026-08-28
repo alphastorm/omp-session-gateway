@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { assertReleaseState } from "./release-state.ts";
 
-const TAG = "v0.1.0";
+const TAG = "v0.2.0";
 function assets(): { name: string; state: string; digest: string }[] {
   const names = [
     "SHA256SUMS",
     "SHA256SUMS.sigstore.json",
-    "omp-session-gateway-0.1.0-bun.tar",
-    "omp-session-gateway-0.1.0-bun.tar.sigstore.json",
-    "omp-session-gateway-0.1.0.spdx.json",
-    "omp-session-gateway-0.1.0.spdx.json.sigstore.json",
+    "omp-session-gateway-0.2.0-bun.tar",
+    "omp-session-gateway-0.2.0-bun.tar.sigstore.json",
+    "omp-session-gateway-0.2.0.spdx.json",
+    "omp-session-gateway-0.2.0.spdx.json.sigstore.json",
   ];
   return names.map((name, index) => ({ name, state: "uploaded", digest: "sha256:" + String(index + 1).repeat(64) }));
 }

@@ -19,7 +19,7 @@ import {
   type ProtectedFileSnapshot,
 } from "./stable-qualification.ts";
 
-const TAG = "v0.1.0-prealpha.21";
+const TAG = "v0.2.0-prealpha.21";
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -39,14 +39,25 @@ describe("stable qualification arguments", () => {
   test("accepts the one-command stable candidate shape with bounded defaults", () => {
     const options = parseStableQualificationArgs(["--tag", TAG], {});
     expect(options.tag).toBe(TAG);
-    expect(options.previousTag).toBe("v0.1.0-beta.1");
+    expect(options.previousTag).toBe("v0.1.0");
     expect(options.macName).toBe("omp-macqual-01");
     expect(options.relaySeconds).toBe(60);
   });
 
-  test("rejects stable, rc, and zero-indexed candidate tags", () => {
-    for (const tag of ["v0.1.0", "v0.1.0-rc.1", "v0.1.0-prealpha.0"]) {
+  test("rejects stable, rc, zero-indexed, and prior-version candidate tags", () => {
+    for (const tag of ["v0.2.0", "v0.2.0-rc.1", "v0.2.0-prealpha.0", "v0.1.0-prealpha.25"]) {
       expect(() => parseStableQualificationArgs(["--tag", tag], {})).toThrow("--tag must match");
+    }
+  });
+
+  test("accepts only the published stable or a 0.2 prerelease as the rollback predecessor", () => {
+    expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", "v0.2.0-prealpha.1"], {}).previousTag).toBe(
+      "v0.2.0-prealpha.1",
+    );
+    for (const previous of ["v0.1.0-beta.1", "v0.1.0-alpha.1", "v0.2.0", ""]) {
+      expect(() => parseStableQualificationArgs(["--tag", TAG, "--previous-tag", previous], {})).toThrow(
+        "--previous-tag",
+      );
     }
   });
 

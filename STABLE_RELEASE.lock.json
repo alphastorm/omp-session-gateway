@@ -1,20 +1,20 @@
 {
   "$schema": "./schemas/stable-release.schema.json",
   "schemaVersion": 1,
-  "version": "0.1.0",
-  "releaseTag": "v0.1.0",
-  "status": "qualified",
-  "candidateTag": "v0.1.0-prealpha.23",
-  "candidateSourceCommit": "434cddc443335d6da6476b43564db8230365e6fc",
-  "candidateArchiveSha256": "f98bad0ce2ae20d3892e560069b2fbfc4ab6d084a403b6aa57e41c628c25ce98",
-  "runtimeByteComparison": "passed",
+  "version": "0.2.0",
+  "releaseTag": "v0.2.0",
+  "status": "pending",
+  "candidateTag": null,
+  "candidateSourceCommit": null,
+  "candidateArchiveSha256": null,
+  "runtimeByteComparison": "pending",
   "evidence": {
-    "debian": "passed",
-    "macos": "passed",
-    "android": "passed",
-    "ompPublication": "passed",
-    "provenance": "passed",
-    "secretSinks": "passed"
+    "debian": "pending",
+    "macos": "pending",
+    "android": "pending",
+    "ompPublication": "pending",
+    "provenance": "pending",
+    "secretSinks": "pending"
   },
-  "approvedAt": "2026-08-22T17:21:03.191Z"
+  "approvedAt": null
 }
