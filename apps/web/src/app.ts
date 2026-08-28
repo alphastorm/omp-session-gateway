@@ -1019,11 +1019,19 @@ function createWorkingRow(session: SessionMetadata): HTMLElement {
   button.dataset.instanceId = session.instanceId;
   button.disabled = !session.canView;
   button.setAttribute("aria-label", `View ${sessionTitle(session)}`);
-  button.append(
-    createTextElement("span", "row-dot row-dot-live", ""),
-    createTextElement("span", "row-title", sessionTitle(session)),
-    createTextElement("span", "row-time", uptimeLabel(session)),
-  );
+  const copy = document.createElement("span");
+  copy.className = "working-copy";
+  const details = document.createElement("span");
+  details.className = "working-details";
+  details.append(createTextElement("span", "row-time", uptimeLabel(session)));
+  if (session.cwdLabel) {
+    details.append(createTextElement("span", "working-context", `· ${session.cwdLabel}`));
+  }
+  if (session.model) {
+    details.append(createTextElement("span", "working-model", `· ${session.model}`));
+  }
+  copy.append(createTextElement("span", "row-title", sessionTitle(session)), details);
+  button.append(createTextElement("span", "row-dot row-dot-live", ""), copy);
   button.addEventListener("click", () => void launch(session, "view", button));
 
   const dismiss = document.createElement("button");

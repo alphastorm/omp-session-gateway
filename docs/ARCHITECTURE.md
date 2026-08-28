@@ -265,7 +265,9 @@ The documented extension lifecycle can observe session events, but the handoff c
   successful probes and replaces a potentially stale relay socket after the first success.
 - Terminal collaboration state: client recovery timers/listeners stop immediately; the ended status
   and return action remain stable and receive no later path-health publications.
-- Gateway restart: it starts empty; live publishers reconnect and repopulate.
+- Gateway restart: it starts empty; compatible live publishers reconnect and repopulate. An OMP
+  process retains the publisher code loaded at process start, so a process predating the current
+  publisher needs one manual `/collab` or an OMP restart at that upgrade boundary.
 - OMP crash: socket closure or TTL removes the card and capability.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.
 - Browser push service unavailable or delivery delayed: the dashboard and collaboration paths continue normally; alerts are best effort and never bypass current-state validation.

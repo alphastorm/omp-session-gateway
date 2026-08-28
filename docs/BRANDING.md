@@ -113,9 +113,14 @@ emerald = live, amber = needs-you/privileged, red = unauthorized.
   summary, sentence-case ask preview with a 2px amber rule, block
   `Open request`, quiet `Hold for desk`/`Transcript` alternates), `Then` rows
   with chevrons, dashed `On hold` rows with `Requeue`, then working rows.
-- Working rows: one bordered frame per session — whole-row View button (live
-  dot, title, mono uptime) plus a hairline-divided compact ✕ dismiss control
-  (44px target, `Dismiss … on this device` aria-label).
+- Working rows: one bordered frame per session — whole-row View button with a
+  live dot, full-width title, then one compact mono detail line ordered uptime,
+  project, model. Project and model truncate independently; uptime remains
+  visible. The quiet inset ✕ dismiss control retains a 44px target and
+  `Dismiss … on this device` aria-label without dividing the row visually.
+- Collaboration shell: one centered header row on wide screens. Phone widths
+  put Back and Control/connection state on the first row and give the session
+  title a full-width second row, so long titles never collide with controls.
 - All clear: borderless centered statement (ringed live dot, `All clear`, one
   muted line). The ping promise appears only while background alerts are
   enabled; otherwise a pill chip routes to Settings.

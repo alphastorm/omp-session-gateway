@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Give working-session titles the full card width and move uptime, project, and model into one
+  compact secondary row; keep uptime visible while project/model truncate independently, and
+  integrate the 44px device-local dismiss target without a full-height divider.
+
 ### Fixed
 
 - Report the true product version from managed installations and diagnostics: the published
@@ -14,6 +20,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
   Install and rollback identity bind to the content hash and source commit, so behavior was
   unaffected; a version-coherence test now fails `bun run check` when any constant lags
   `package.json`.
+- Prevent long session titles from colliding with Control and connection state in the mobile
+  collaboration shell by giving the title its own full-width header row.
 
 ## [v0.2.0] — 2026-08-28
 

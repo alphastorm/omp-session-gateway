@@ -199,12 +199,20 @@ Do not ask the user to bookmark or copy an individual OMP collaboration link.
 - pin the collab-web integration to an exact OMP commit and record it in `UPSTREAM.lock.json` and the compatibility matrix;
 - run parser/client compatibility fixtures before updating OMP;
 - support explicit protocol versions and a safe rolling-upgrade overlap where practical;
-- gateway restart begins empty and publishers reconnect;
+- gateway restart begins empty and compatible live publishers reconnect;
 - rotate the publisher token after suspected local exposure or ownership/permission failure;
   Rotation atomically replaces an unsafe regular-file/symlink leaf inside the verified private
   config directory, but refuses an unsafe parent or non-file token path.
 - verify release checksums and provenance before replacing binaries;
 - provide rollback instructions for gateway and OMP patch/extension versions.
+
+An OMP process keeps the collaboration controller and publisher code that was loaded when that
+process started. A gateway upgrade cannot retrofit a session launched from an older OMP build, and
+changing `collab.autoStart` does not rerun startup in an already-initialized session. Current
+publishers reconnect and repopulate the memory-only registry after a daemon replacement. During a
+one-time cutover from older publisher code or from `autoStart: "off"`, run `/collab` once in the
+long-running session (or restart that OMP process); subsequent gateway restarts require no manual
+session command.
 
 ## 10. Lost phone and revocation
 

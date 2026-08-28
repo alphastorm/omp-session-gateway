@@ -754,6 +754,10 @@ describe("dashboard attention and notifications", () => {
         .querySelectorAll(".working-row")
         .map(row => row.querySelector(".row-title")?.textContent),
     ).toEqual(["working-session-0002", "working-session-0001"]);
+    const firstWorking = harness.elements.sessionList.querySelector(".working-row");
+    expect(firstWorking?.querySelector(".row-time")).not.toBeNull();
+    expect(firstWorking?.querySelector(".working-context")?.textContent).toBe("· project");
+    expect(firstWorking?.querySelector(".working-model")?.textContent).toBe("· provider/model");
   });
 
   test("shows the empty state instead of a zero-count all-clear when nothing is live", async () => {
