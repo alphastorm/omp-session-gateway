@@ -169,9 +169,16 @@ jobs:
           # The second likely scheduled-run failure: a candidate tag that no longer exists, or whose
           # assets were renamed. Both would otherwise surface as "release <tag> is missing asset ..."
           # from inside the artifact lane, after a droplet had been created and paid for.
-          version="$(jq -r '.version' package.json)"
-          printf 'archive version from package.json: %s\n' "$version"
+          # Asset names carry each tag's own MAJOR.MINOR.PATCH: a 0.2 candidate pairs with a v0.1.0
+          # rollback predecessor whose assets keep 0.1.0 names, so the version derives per tag.
           for tag in "$OMP_QUAL_RELEASE_TAG" "$OMP_QUAL_PREVIOUS_TAG"; do
+            version="${tag#v}"
+            version="${version%%-*}"
+            case "$version" in
+              *[!0-9.]* | "" ) fail "Cannot derive a version from $tag" \
+                "Tag $tag does not start with a MAJOR.MINOR.PATCH version, so its release asset names cannot be predicted. No droplet was created." ;;
+            esac
+            printf 'archive version for %s: %s\n' "$tag" "$version"
             if ! gh release view "$tag" --repo "$REPO_SLUG" --json assets \
               --jq '.assets[].name' >"$RUNNER_TEMP/assets-$tag.txt" 2>/dev/null; then
               fail "Candidate tag $tag not found" \
@@ -186,7 +193,7 @@ jobs:
               SHA256SUMS.sigstore.json; do
               grep -qxF -- "$asset" "$RUNNER_TEMP/assets-$tag.txt" ||
                 fail "Candidate $tag is missing $asset" \
-                  "Release $tag does not carry $asset. Either the release is incomplete or package.json's version no longer matches its asset names; set OMP_QUAL_VERSION in that case. No droplet was created."
+                  "Release $tag does not carry $asset. Either the release is incomplete or its tag no longer matches its asset names. No droplet was created."
             done
             printf 'release %s carries all six expected assets\n' "$tag"
           done
