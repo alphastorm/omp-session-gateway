@@ -3,7 +3,7 @@
 ## Pre-alpha, alpha, beta, and stable artifacts
 
 The repository produces working Bun-runtime engineering candidates and advertised alpha, beta,
-and stable releases. v0.2.0 is the current stable publication and GitHub Latest. Its support claim
+and stable releases. v0.2.1 is the current stable publication and GitHub Latest. Its support claim
 is bound to the signed predecessor and exact evidence in `STABLE_RELEASE.lock.json` and
 `RELEASE_STATUS.md`; generated artifacts never promote themselves.
 
@@ -90,8 +90,8 @@ For the current stable, run:
 
 ```sh
 bunx bun@1.3.14 run smoke:release -- \
-  --tag v0.2.0 \
-  --archive-sha256 <the omp-session-gateway-0.2.0-bun.tar digest from the published SHA256SUMS>
+  --tag v0.2.1 \
+  --archive-sha256 <the omp-session-gateway-0.2.1-bun.tar digest from the published SHA256SUMS>
 ```
 
 The command verifies the annotated tag, GitHub Latest state, all six release asset digests,

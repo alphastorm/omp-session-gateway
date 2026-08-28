@@ -42,10 +42,10 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Qualified stable v0.2.0.**
-> [v0.2.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.0) is the
+> **Qualified stable v0.2.1.**
+> [v0.2.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1) is the
 > current GitHub Latest release. It was promoted from exact signed candidate
-> `v0.2.0-prealpha.1` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
+> `v0.2.1-prealpha.2` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
 > Android 17 Pixel matrix passed and candidate-to-stable runtime equivalence was verified.
 > Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP v17.4.1 remain
 > mandatory. Windows, background Push qualification, Portal Tunnel, userspace networking, and
@@ -119,15 +119,15 @@ After installation and tailnet configuration:
    anything is waiting, otherwise **All clear** and the working sessions.
 5. **Open request** launches Control for the oldest ask; **Hold for desk** defers that exact ask on
    this device and advances to the next one without clearing attention; **Transcript** stays
-   read-only. **Dismiss here** can hide a non-attention row on this device with Undo and Show all,
+   read-only. **Hide** can remove a non-attention row on this device with Undo and Show all,
    but OMP keeps running. The healthy gateway shell stays quiet, distinguishes gateway and relay
    interruptions when they persist, and keeps each answer at `Sending…` until OMP acknowledges
    it. After an authoritative answer, it offers the next ask or returns to the exact directory
    order and scroll position.
-6. **Experimental in this beta:** the Settings sheet behind the masthead control can enable
+6. **Experimental outside the stable core claim:** the Settings sheet behind the masthead control can enable
    background Web Push alerts and choose Private, Session, or Preview detail. The no-store tap
    path is implemented and capability-free, but closed-PWA/lock-screen/force-stop/network behavior
-   is not beta-qualified.
+   is not stable-qualified.
 7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport
    replacement reconcile without a prominent Refresh control. Abrupt Android radio transitions do
    not reliably self-heal and may require force-stopping Chrome.
@@ -149,14 +149,14 @@ stable release below; its support boundary remains deliberately narrow.
 
 | | Current claim |
 |---|---|
-| Current release | [`v0.2.0`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.0), GitHub Latest |
-| Qualification | Runtime-equivalent to independently qualified signed candidate `v0.2.0-prealpha.1` |
+| Current release | [`v0.2.1`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1), GitHub Latest |
+| Qualification | Runtime-equivalent to independently qualified signed candidate `v0.2.1-prealpha.2` |
 | Hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |
 | Client | Chrome `151.0.7922.173` on Android 17 (Pixel 10 Pro) |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | OMP baseline | Exact `v17.4.1` plus the repository's pinned patch and versioned `omp-gateway-patched` route |
 
-**Upstream baseline.** Stable v0.2.0 uses exact OMP v17.4.1 at
+**Upstream baseline.** Stable v0.2.1 uses exact OMP v17.4.1 at
 `9350b7990d26ebf69a604edc82d8558ef04adf30`, observed on **2026-08-21** and re-qualified on
 **2026-08-28**.
 Stock OMP is insufficient; the required versioned build/activation route is
