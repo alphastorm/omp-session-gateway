@@ -41,8 +41,28 @@ describe("release workflow trust ordering", () => {
       "bun scripts/release-policy.ts",
       "candidateSourceCommit",
       "candidateArchiveSha256",
+      "candidate_previous",
+      "previousTag",
       "gh release view",
     );
+  });
+
+  test("byte-compares the stable managed runtime with the qualified candidate", () => {
+    const validate = runStep("Validate signed release tag and derive its channel");
+    expect(validate).toContain("QUALIFIED_CANDIDATE_TAG");
+    expect(validate).toContain("QUALIFIED_CANDIDATE_SHA256");
+    const run = runStep("Compare stable runtime with qualified candidate");
+    ordered(run, "gh release download", "sha256sum --check", "tar -xf", "find .", "diff --unified", "cmp --silent");
+    for (const expectedDifference of [
+      "release-info.json",
+      "SBOM.spdx.json",
+      "STABLE_RELEASE.lock.json",
+      "schemas/stable-release.schema.json",
+    ]) {
+      expect(run).toContain(expectedDifference);
+    }
+    expect(run).toContain("candidate-members.txt");
+    expect(run).toContain("stable-members.txt");
   });
 
   test("revalidates the signed tag immediately before public provenance", () => {

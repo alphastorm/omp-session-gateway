@@ -2,11 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
 import { startDashboardFixture } from "./fixture-server.ts";
 
+const SESSION_TITLE = "Implement seamless registry recovery across long-running upgraded OMP sessions";
+
 function session(): SessionMetadata {
   return {
     instanceId: "standalone-launch-0001",
     generation: 1,
-    title: "Android standalone launch",
+    title: SESSION_TITLE,
     cwdLabel: "project",
     model: "provider/model",
     startedAt: "2026-07-21T10:00:00.000Z",
@@ -145,7 +147,7 @@ test("installed-PWA View and Control mount in the current window without losing 
     );
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     await expect(page.locator("#root[role='application']")).toHaveCount(1);
-    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".shell-title")).toHaveText(SESSION_TITLE);
     await expect(page.locator(".shell-control")).toBeVisible();
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "reconnecting");
     await expect(page.locator(".triage-bar")).toBeHidden();
@@ -158,6 +160,23 @@ test("installed-PWA View and Control mount in the current window without losing 
       elements.filter(element => !(element as HTMLElement).hidden).map(element => element.getBoundingClientRect().height),
     );
     expect(shellTargets.every(height => height >= 44)).toBe(true);
+    const shellOverlap = await page.locator(".shell-bar").evaluate(bar => {
+      const title = bar.querySelector<HTMLElement>(".shell-title")?.getBoundingClientRect();
+      const back = bar.querySelector<HTMLElement>(".shell-back")?.getBoundingClientRect();
+      const actions = bar.querySelector<HTMLElement>(".shell-actions")?.getBoundingClientRect();
+      const overlaps = (left?: DOMRect, right?: DOMRect): boolean =>
+        left !== undefined &&
+        right !== undefined &&
+        left.left < right.right &&
+        left.right > right.left &&
+        left.top < right.bottom &&
+        left.bottom > right.top;
+      return {
+        actions: overlaps(title, actions),
+        back: overlaps(title, back),
+      };
+    });
+    expect(shellOverlap).toEqual({ actions: false, back: false });
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests).toContain("POST /api/v1/sessions/standalone-launch-0001/launch");
     expect(fixture.launchRequests[0]).toEqual({
@@ -216,7 +235,7 @@ test("installed-PWA View and Control mount in the current window without losing 
     await page.locator(".triage-action").click();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
-    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you — 14 working.");
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you.");
     await expect(page.locator(".working-row")).toHaveCount(14);
     await expect(page.locator("#settings")).toBeVisible();
     const legacyAlertsBlock = await page.evaluate(() =>
@@ -516,7 +535,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       await route.continue();
     });
     await page.locator(".triage-action").click();
-    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".shell-title")).toHaveText(SESSION_TITLE);
     await expect(page.locator(".triage-copy")).toHaveText(
       "Couldn't open the next request. This one is still queued.",
     );
@@ -547,11 +566,11 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await page.unroute(nextLaunchRoute);
     await page.goBack();
     await expect(page).toHaveURL(fixture.origin + "/");
-    await expect(page.locator(".held-row .row-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".held-row .row-title")).toHaveText(SESSION_TITLE);
     await page.locator(".held-requeue").click();
-    await expect(page.locator(".queue-hero h2")).toHaveText("Android standalone launch");
+    await expect(page.locator(".queue-hero h2")).toHaveText(SESSION_TITLE);
     await page.locator(".queue-hero").getByRole("button", { name: "Open request", exact: true }).click();
-    await expect(page.locator(".shell-title")).toHaveText("Android standalone launch");
+    await expect(page.locator(".shell-title")).toHaveText(SESSION_TITLE);
     await expect(page.locator(".sh-ask-option").first()).toBeVisible();
     fixture.remove(nextAsk.instanceId, nextAsk.generation);
 

@@ -197,7 +197,7 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
     // Alerts were never enabled, so the resting copy must not promise a ping; the hint chip
     // routes to Settings instead, and the old bottom notifications block is gone.
-    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you — 1 working.");
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you.");
     await expect(page.locator(".alerts-hint")).toHaveText("Enable alerts to get pinged");
     await expect(page.locator(".working-row")).toHaveCount(1);
     await expect(page.locator(".lede, .site-footer, .home-alerts")).toHaveCount(0);
@@ -226,9 +226,10 @@ test("attention cards and explicit background alert settings stay metadata-only"
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
     await page.clock.install();
     const requestsBeforeDismiss = fixture.requests.length;
-    await page.getByRole("button", { name: "Dismiss ordinary-newest-0003 on this device" }).click();
+    await page.getByRole("button", { name: "Hide ordinary-newest-0003 on this device" }).click();
     await expect(page.locator(".working-row")).toHaveCount(0);
-    await expect(page.locator("#directory-count")).toHaveText("Live · 1 · 1 dismissed here");
+    await expect(page.locator("#directory-count")).toHaveText("Live · 1");
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you.");
     await expect(page.locator("#local-action-toast")).toBeVisible();
     await expect(page.locator("#local-action-toast-copy")).toContainText("on this device");
     const dismissedStorage = await page.evaluate(() =>
@@ -243,10 +244,18 @@ test("attention cards and explicit background alert settings stay metadata-only"
     ]);
     await page.locator("#local-action-toast-undo").click();
     await expect(page.locator(".working-row")).toHaveCount(1);
-    await page.getByRole("button", { name: "Dismiss ordinary-newest-0003 on this device" }).click();
+    await page.getByRole("button", { name: "Hide ordinary-newest-0003 on this device" }).click();
     await page.clock.fastForward(5_100);
     await expect(page.locator("#local-action-toast")).toBeHidden();
-    await expect(page.locator(".dismissed-control")).toContainText("1 dismissed on this device");
+    await expect(page.locator(".dismissed-control")).toContainText("1 hidden on this device");
+    const restoreSurface = await page.locator(".dismissed-control").evaluate(element => {
+      const action = element.querySelector("button");
+      return {
+        actionHeight: action?.getBoundingClientRect().height ?? 0,
+        overflowFree: document.documentElement.scrollWidth <= window.innerWidth,
+      };
+    });
+    expect(restoreSurface).toEqual({ actionHeight: 44, overflowFree: true });
     expect(fixture.requests).toHaveLength(requestsBeforeDismiss);
     await page.locator(".dismissed-control").getByRole("button", { name: "Show all" }).click();
     await expect(page.locator(".working-row")).toHaveCount(1);

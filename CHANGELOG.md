@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Give working-session titles the full card width and move uptime, project, and model into one
+  compact secondary row; show the useful model slug, remove wasteful flex gaps, strengthen title
+  contrast, and replace the ambiguous × with a quiet 44px `Hide` action.
+- Compress the all-clear state into the same left-aligned information grid as the directory,
+  removing repeated live/working counts while preserving honest alert state.
+
 ### Fixed
 
 - Report the true product version from managed installations and diagnostics: the published
@@ -14,6 +22,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
   Install and rollback identity bind to the content hash and source commit, so behavior was
   unaffected; a version-coherence test now fails `bun run check` when any constant lags
   `package.json`.
+- Prevent long session titles from colliding with Control and connection state in the mobile
+  collaboration shell by giving the title its own full-width header row.
 
 ## [v0.2.0] — 2026-08-28
 

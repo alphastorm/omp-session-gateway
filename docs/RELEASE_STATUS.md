@@ -1,9 +1,9 @@
 # Release status
 
 **Updated:** 2026-08-28<br>
-**Repository version:** `0.2.0`; stable publication source for **`v0.2.0`**<br>
+**Repository candidate:** `v0.2.1-prealpha.1`; qualification pending, current stable is **`v0.2.0`**<br>
 **Qualification predecessor:** **`v0.2.0-prealpha.1`**, independently verified<br>
-**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
+**Classification:** `0.2.1` is an unqualified engineering candidate; the stable-qualified claim below applies only to `v0.2.0`<br>
 **Stable decision:** **GO, approved**, for the named support boundary and nothing else.
 
 ### Stable 0.2 — GO

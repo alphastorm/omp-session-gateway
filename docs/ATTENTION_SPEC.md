@@ -32,7 +32,7 @@ The hero action is `Open request` when Control is available and `View transcript
 Control-capable heroes also offer `Hold for desk` and `Transcript`. A bounded `ask.preview`
 renders as readable sentence-case text with the option count; it is never uppercased. Every
 non-hero waiting or working item is a whole-row button; the working row's trailing compact
-dismiss control keeps the exact `Dismiss here` semantics (device-local, reversible, no network
+`Hide` control keeps the exact device-local dismissal semantics (reversible, no network
 effect) with an explicit accessible label. The `All clear` summary repeats the ping promise only
 while background alerts are enabled; otherwise it shows a chip that opens Settings. The masthead
 has no manual Refresh control; snapshots, SSE, liveness checks, and bounded retry own directory
@@ -135,5 +135,5 @@ worker messages, browser storage, caches, logs, and diagnostics.
 - [x] Strict v2 attention/clear payloads; per-instance replacement; exact-request clear; app badge.
 - [x] Notification tap scrubs and revalidates the exact ask before the no-store Control launch.
 - [x] Last-known metadata survives phone, tailnet, desktop, and relay failures with distinct copy.
-- [x] 412×915 and 390×844 browser checks remain overflow-free with targets at least 44px.
+- [x] The measured 411×816 Pixel layout viewport and synthetic 390×844 browser checks remain overflow-free with targets at least 44px.
 - [x] Capability-leak scan and focused protocol, registry, HTTP, app, worker, and browser tests pass.

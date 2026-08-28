@@ -17,6 +17,7 @@ const QUALIFICATION_KEYS = [
   "candidateSourceCommit",
   "candidateTag",
   "evidence",
+  "previousTag",
   "releaseTag",
   "runtimeByteComparison",
   "schemaVersion",
@@ -63,6 +64,9 @@ export function assertStableReleaseQualification(value: unknown, tag: string, ve
     !COMMIT_PATTERN.test(qualification.candidateSourceCommit) ||
     typeof qualification.candidateArchiveSha256 !== "string" ||
     !SHA256_PATTERN.test(qualification.candidateArchiveSha256) ||
+    typeof qualification.previousTag !== "string" ||
+    !/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(qualification.previousTag) ||
+    qualification.previousTag === tag ||
     qualification.runtimeByteComparison !== "passed"
   ) {
     throw new Error("stable release candidate evidence is incomplete");

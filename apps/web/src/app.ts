@@ -849,6 +849,11 @@ function uptimeLabel(session: SessionMetadata): string {
   return `up ${elapsedLabel(Number.isNaN(startedAt) ? Date.now() : startedAt)}`;
 }
 
+function modelSlug(model: string): string {
+  const separator = model.lastIndexOf("/");
+  return separator >= 0 && separator + 1 < model.length ? model.slice(separator + 1) : model;
+}
+
 function compareWaiting(left: SessionMetadata, right: SessionMetadata): number {
   const leftSince = left.ask?.since ?? left.lastSeenAt;
   const rightSince = right.ask?.since ?? right.lastSeenAt;
@@ -950,7 +955,7 @@ function requeueHeldSession(session: SessionMetadata): void {
 
 function showDismissToast(session: SessionMetadata): void {
   cancelPendingDismissToast();
-  localActionToastCopy.textContent = `Dismissed “${sessionTitle(session)}” on this device · 5s`;
+  localActionToastCopy.textContent = `Hidden “${sessionTitle(session)}” on this device · 5s`;
   localActionToast.hidden = false;
   const timeout = window.setTimeout(() => {
     if (
@@ -1019,19 +1024,27 @@ function createWorkingRow(session: SessionMetadata): HTMLElement {
   button.dataset.instanceId = session.instanceId;
   button.disabled = !session.canView;
   button.setAttribute("aria-label", `View ${sessionTitle(session)}`);
-  button.append(
-    createTextElement("span", "row-dot row-dot-live", ""),
-    createTextElement("span", "row-title", sessionTitle(session)),
-    createTextElement("span", "row-time", uptimeLabel(session)),
-  );
+  const copy = document.createElement("span");
+  copy.className = "working-copy";
+  const details = document.createElement("span");
+  details.className = "working-details";
+  details.append(createTextElement("span", "row-time", uptimeLabel(session)));
+  if (session.cwdLabel) {
+    details.append(createTextElement("span", "working-context", `· ${session.cwdLabel}`));
+  }
+  if (session.model) {
+    details.append(createTextElement("span", "working-model", `· ${modelSlug(session.model)}`));
+  }
+  copy.append(createTextElement("span", "row-title", sessionTitle(session)), details);
+  button.append(createTextElement("span", "row-dot row-dot-live", ""), copy);
   button.addEventListener("click", () => void launch(session, "view", button));
 
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "dismiss-session";
-  dismiss.textContent = "✕";
-  dismiss.title = "Dismiss here — hides on this device; the OMP process keeps running";
-  dismiss.setAttribute("aria-label", `Dismiss ${sessionTitle(session)} on this device`);
+  dismiss.textContent = "Hide";
+  dismiss.title = "Hide on this device — the OMP process keeps running";
+  dismiss.setAttribute("aria-label", `Hide ${sessionTitle(session)} on this device`);
   dismiss.addEventListener("click", () => dismissSession(session));
   frame.append(button, dismiss);
   return frame;
@@ -1094,7 +1107,7 @@ function appendDismissedControl(dismissed: readonly SessionMetadata[]): void {
   if (dismissed.length === 0) return;
   const control = document.createElement("aside");
   control.className = "dismissed-control";
-  control.append(createTextElement("span", "", `${dismissed.length} dismissed on this device`));
+  control.append(createTextElement("span", "", `${dismissed.length} hidden on this device`));
   const restore = document.createElement("button");
   restore.type = "button";
   restore.textContent = "Show all";
@@ -1109,18 +1122,18 @@ function renderAllClear(
 ): void {
   const summary = document.createElement("div");
   summary.className = "all-clear-summary";
-  const dismissedCopy = dismissed.length === 0 ? "" : ` · ${dismissed.length} dismissed here`;
-  const liveWorkingCount = working.length + dismissed.length;
   const alertsLive = notificationState === "enabled";
-  summary.append(
-    createTextElement("span", "all-clear-dot", ""),
+  const message = document.createElement("div");
+  message.className = "all-clear-message";
+  message.append(
     createTextElement("h2", "all-clear-title", "All clear"),
     createTextElement(
       "p",
       "all-clear-copy",
-      `Nothing needs you — ${liveWorkingCount} working${dismissedCopy}.${alertsLive ? " You'll get pinged." : ""}`,
+      `Nothing needs you.${alertsLive ? " Alerts are on." : ""}`,
     ),
   );
+  summary.append(createTextElement("span", "all-clear-dot", ""), message);
   // Keep the ping promise honest: without an active subscription, surface the path to one.
   if (notificationState === "idle" || notificationState === "blocked") {
     const hint = document.createElement("button");
@@ -1132,7 +1145,7 @@ function renderAllClear(
   }
   sessionList.append(summary);
   if (working.length > 0) {
-    sessionList.append(createQueueKicker(`Working · ${working.length}`));
+    sessionList.append(createQueueKicker("Working"));
     for (const session of working) sessionList.append(createWorkingRow(session));
   }
   appendDismissedControl(dismissed);
@@ -1268,10 +1281,7 @@ function render(): void {
   directoryTitle.textContent = "Sessions";
   directoryCount.className = "count-pill count-pill-live";
   const liveWorkingCount = working.length + dismissed.length;
-  directoryCount.textContent =
-    dismissed.length === 0
-      ? `Live · ${liveWorkingCount}`
-      : `Live · ${liveWorkingCount} · ${dismissed.length} dismissed here`;
+  directoryCount.textContent = `Live · ${liveWorkingCount}`;
   sessionList.className = "session-list all-clear";
   sessionList.setAttribute("aria-label", "Live OMP sessions");
   renderAllClear(working, dismissed);

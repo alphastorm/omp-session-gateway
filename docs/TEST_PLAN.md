@@ -42,7 +42,7 @@
   authoritative ask changes or clears;
 - Hold leaves authoritative pending counts and badges unchanged and closes only the notification
   whose instance tag and request ID match;
-- generation-scoped Dismiss, immediate local hiding, five-second Undo, persistent Show all, and
+- generation-scoped Hide, immediate local hiding, five-second Undo, persistent Show all, and
   zero network mutation when the Undo window expires;
 - session removal, generation replacement, and later attention restore a dismissed row
   immediately, while transport failure preserves local routing choices;
@@ -142,7 +142,7 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
     total, only its matching notification closes, and explicit requeue restores it.
 14. Hold every waiting request. Verify the device reports a clear couch queue without claiming the
     gateway is all clear, then replace one exact request and verify only that stale hold disappears.
-15. Dismiss a non-attention row, exercise Undo, let a second dismissal expire, and use Show all.
+15. Hide a non-attention row, exercise Undo, let a second dismissal expire, and use Show all.
     Verify no network mutation occurs; a new generation or later attention restores visibility
     immediately; live/working totals still include the hidden row; and the UI says OMP keeps
     running rather than claiming Close, Exit, or completion.

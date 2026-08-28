@@ -19,9 +19,9 @@ Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Ever
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
 
-Gateway rollback does not implicitly switch OMP. A rollback to the v0.1.0 stable predecessor
+Gateway rollback does not implicitly switch OMP. A rollback to the v0.2.0 stable predecessor
 retains the same exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
-predecessor archive remains in installation history, otherwise reinstall the signed v0.1.0
+predecessor archive remains in installation history, otherwise reinstall the signed v0.2.0
 archive. Any change to the active OMP binary or symlink remains the separate documented manual
 operation.
 
@@ -42,7 +42,7 @@ Every advertised release requires:
 - complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
   verification.
 
-Stable v0.2.0 additionally requires that the exact signed tag's tree contain a fully passed
+Stable v0.2.1 additionally requires that the exact signed tag's tree contain a fully passed
 STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
 retained Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence.
 The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
@@ -55,12 +55,12 @@ Chrome.
 Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
 
 ```sh
-bun run qualify:stable --tag v0.2.0-prealpha.1
+bun run qualify:stable --tag v0.2.1-prealpha.1
 ```
 
-The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, beta-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
+The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, stable-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
 
-The receipt resumes only for the same candidate and exact orchestrator commit. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
+The receipt resumes only for the same candidate, exact orchestrator commit, and v0.2.0 rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 
 Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked; concurrent invocations can dispatch two billed Debian runs and contend for the retained Mac.
 
@@ -212,7 +212,7 @@ locking the release, assets, and tag and issuing the immutable-release attestati
 the release as final at publication; publish a new tag to correct it.
 
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
-emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
+emits `dist/release/omp-session-gateway-<package-version>-bun.tar`, a deterministic SPDX 2.3 dependency
 inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
 For a byte-exact rebuild of an advertised tag, set OMP_RELEASE_CHANNEL to that tag's channel. Valid
 values are pre-alpha (default), alpha, beta, and stable; every other value fails. The channel moves

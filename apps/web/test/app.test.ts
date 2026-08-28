@@ -744,7 +744,7 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.sessionList.querySelector(".all-clear-title")?.textContent).toBe("All clear");
     // Blocked alerts must not promise a ping; the hint chip routes to Settings instead.
     expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe(
-      "Nothing needs you — 2 working.",
+      "Nothing needs you.",
     );
     expect(harness.elements.sessionList.querySelector(".alerts-hint")?.textContent).toBe(
       "Alerts blocked · Settings",
@@ -754,6 +754,14 @@ describe("dashboard attention and notifications", () => {
         .querySelectorAll(".working-row")
         .map(row => row.querySelector(".row-title")?.textContent),
     ).toEqual(["working-session-0002", "working-session-0001"]);
+    expect(harness.elements.sessionList.querySelector(".queue-kicker")?.textContent).toBe("Working");
+    const firstWorking = harness.elements.sessionList.querySelector(".working-row");
+    expect(firstWorking?.querySelector(".row-time")).not.toBeNull();
+    expect(firstWorking?.querySelector(".working-context")?.textContent).toBe("· project");
+    expect(firstWorking?.querySelector(".working-model")?.textContent).toBe("· model");
+    const hide = harness.elements.sessionList.querySelector(".dismiss-session");
+    expect(hide?.textContent).toBe("Hide");
+    expect(hide?.getAttribute("aria-label")).toBe("Hide working-session-0002 on this device");
   });
 
   test("shows the empty state instead of a zero-count all-clear when nothing is live", async () => {
@@ -1055,6 +1063,9 @@ describe("dashboard attention and notifications", () => {
     });
 
     expect(harness.elements.notificationButton.textContent).toBe("Disable background alerts");
+    expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe(
+      "Nothing needs you. Alerts are on.",
+    );
     expect(harness.permissionRequests.count).toBe(0);
     expect(harness.subscriptionCalls.subscribe).toBe(0);
     expect(harness.subscriptionRequests).toHaveLength(1);
@@ -1339,9 +1350,10 @@ describe("dashboard attention and notifications", () => {
 
     harness.elements.sessionList.querySelectorAll(".dismiss-session")[0]?.dispatchEvent(new Event("click"));
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
-    expect(harness.elements.directoryCount.textContent).toBe("Live · 2 · 1 dismissed here");
+    expect(harness.elements.directoryCount.textContent).toBe("Live · 2");
+    expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe("Nothing needs you.");
     expect(harness.elements.localActionToast.hidden).toBeFalse();
-    expect(harness.elements.localActionToastCopy.textContent).toContain("on this device");
+    expect(harness.elements.localActionToastCopy.textContent).toStartWith("Hidden “Dismiss One”");
     const stored = JSON.parse(
       harness.localStorage.getItem("omp.sessions.dismissed.v1") ?? "null",
     ) as Record<string, unknown>[];
@@ -1370,6 +1382,9 @@ describe("dashboard attention and notifications", () => {
     const restore = harness.elements.sessionList
       .querySelector(".dismissed-control")
       ?.querySelector("button");
+    expect(
+      harness.elements.sessionList.querySelector(".dismissed-control")?.querySelector("span")?.textContent,
+    ).toBe("1 hidden on this device");
     expect(restore?.textContent).toBe("Show all");
     restore?.dispatchEvent(new Event("click"));
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(2);

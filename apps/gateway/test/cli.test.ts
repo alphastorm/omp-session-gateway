@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { main, pollUntilReady, readinessBudgetMs } from "../src/cli.ts";
 import { defaultGatewayPaths, type GatewayConfig } from "../src/config.ts";
+import { GATEWAY_VERSION } from "../src/installation.ts";
 import { serviceDefinition } from "../src/service.ts";
 
 /**
@@ -351,6 +352,7 @@ describe("usage and daemon invocation", () => {
     const [help, bare] = await Promise.all([runCli(["--help"]), runCli([])]);
     expect(help.exitCode).toBe(0);
     expect(bare.exitCode).toBe(0);
+    expect(help.stdout).toStartWith(`OMP Session Gateway ${GATEWAY_VERSION}`);
     expect(help.stdout).toContain("Usage:");
     expect(bare.stdout).toBe(help.stdout);
     expect(help.artifacts).toEqual([]);

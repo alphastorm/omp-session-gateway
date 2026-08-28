@@ -517,10 +517,10 @@ h1 {
 
 .working-row-frame {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 0.6rem;
+  border-radius: 0.5rem;
   background: var(--surface);
 }
 
@@ -531,12 +531,12 @@ h1 {
 .working-row {
   display: grid;
   flex: 1;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.65rem;
   min-width: 0;
-  min-height: 3.25rem;
-  padding: 0.65rem 0.7rem 0.65rem 0.8rem;
+  min-height: 4rem;
+  padding: 0.55rem 0.45rem 0.55rem 0.8rem;
   border: 0;
   color: var(--body);
   background: none;
@@ -557,20 +557,75 @@ h1 {
   opacity: 0.45;
 }
 
+.working-copy {
+  display: block;
+  min-width: 0;
+}
+
+.working-copy .row-title {
+  display: block;
+  color: var(--ink);
+  font-size: 0.94rem;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.working-details {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  margin-top: 0.28rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.working-details > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.working-details .row-time {
+  flex: none;
+  color: var(--muted);
+  font-size: inherit;
+}
+
+.working-context {
+  flex: 0 1 auto;
+  max-width: 38%;
+  color: var(--body);
+}
+
+.working-model {
+  flex: 1 1 auto;
+  color: var(--muted);
+}
+
 .dismiss-session {
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 2.9rem;
-  min-height: 3.25rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-right: 0.25rem;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--border-subtle);
+  border-radius: 0.45rem;
   color: var(--faint);
   background: none;
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   line-height: 1;
+  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -698,39 +753,46 @@ h1 {
 /* ——— All clear ———————————————————————————————————————————————— */
 
 .all-clear-summary {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 2.1rem 1rem 1.2rem;
-  text-align: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.75rem;
+  padding: 0.9rem 0 0.4rem;
+  text-align: left;
 }
 
 .all-clear-dot {
   width: 8px;
   height: 8px;
-  margin-bottom: 0.55rem;
-  box-shadow: 0 0 0 6px rgba(49, 196, 141, 0.12);
+  margin-top: 0.42rem;
+  box-shadow: 0 0 0 5px rgba(49, 196, 141, 0.12);
+}
+
+.all-clear-message {
+  min-width: 0;
 }
 
 .all-clear-title {
   margin: 0;
-  font-size: 1.18rem;
+  font-size: 1rem;
   font-weight: 650;
   letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 .all-clear-copy {
-  margin: 0;
+  margin: 0.18rem 0 0;
   max-width: 24rem;
   color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .alerts-hint {
-  margin-top: 0.55rem;
-  min-height: 2.25rem;
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 0.5rem;
+  min-height: 2.75rem;
   padding: 0.35rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -745,6 +807,10 @@ h1 {
 .alerts-hint:hover {
   border-color: var(--border-strong);
   color: var(--ink);
+}
+
+.session-list.all-clear .queue-kicker {
+  margin-top: 0.3rem;
 }
 
 /* ——— Dismissed control ———————————————————————————————————————— */
@@ -1298,14 +1364,38 @@ body.collab-shell-active {
 
 /* ——— Responsive and motion ———————————————————————————————————— */
 
+@media (max-width: 35rem) {
+  .shell-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "back actions"
+      "title title";
+    gap: 0 0.3rem;
+    padding-inline: 0.4rem;
+    padding-bottom: 0.45rem;
+  }
+
+  .shell-back {
+    grid-area: back;
+  }
+
+  .shell-actions {
+    grid-area: actions;
+  }
+
+  .shell-title {
+    grid-area: title;
+    justify-self: stretch;
+    max-width: none;
+    padding: 0 0.35rem 0.1rem;
+    font-size: 0.86rem;
+    text-align: left;
+  }
+}
+
 @media (max-width: 26rem) {
   main {
     width: min(100% - 1.5rem, 35rem);
-  }
-
-  .shell-bar {
-    gap: 0.3rem;
-    padding-inline: 0.4rem;
   }
 
   .shell-back,
