@@ -3,12 +3,18 @@ import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/pr
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
-const VERSION = "0.2.0";
 // Rollback predecessor: the published stable release the candidate must migrate from and roll
-// back to. For the 0.2 campaign that is the bare v0.1.0 stable, not a 0.1 prerelease.
-const PREVIOUS_TAG = "v0.1.0";
+// back to. The 0.2.1 candidate must prove upgrade and rollback against bare v0.2.0 stable.
+const PREVIOUS_TAG = "v0.2.0";
+const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
+const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
+const CURRENT_PRERELEASE_PATTERN = new RegExp(
+  `^v${ESCAPED_VERSION}-(?:alpha(?:\\.[1-9][0-9]*)?|beta(?:\\.[1-9][0-9]*)?|prealpha\\.[1-9][0-9]*)$`,
+  "u",
+);
 const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
@@ -184,15 +190,14 @@ export function parseStableQualificationArgs(
     else if (argument === "--previous-tag") previousTag = argv[++index] ?? "";
     else throw new Error(`unknown argument: ${argument ?? ""}`);
   }
-  if (tag === undefined) throw new Error("usage: bun run qualify:stable --tag v0.2.0-prealpha.<n>");
-  if (!/^v0\.2\.0-prealpha\.[1-9][0-9]*$/u.test(tag)) {
-    throw new Error("--tag must match v0.2.0-prealpha.<positive integer>");
+  if (tag === undefined) throw new Error(`usage: bun run qualify:stable --tag v${VERSION}-prealpha.<n>`);
+  if (!CANDIDATE_TAG_PATTERN.test(tag)) {
+    throw new Error(`--tag must match v${VERSION}-prealpha.<positive integer>`);
   }
-  if (
-    previousTag !== "v0.1.0" &&
-    !/^v0\.2\.0-(?:alpha(?:\.[1-9][0-9]*)?|beta(?:\.[1-9][0-9]*)?|prealpha\.[1-9][0-9]*)$/u.test(previousTag)
-  ) {
-    throw new Error("--previous-tag must name the published v0.1.0 stable or an exact 0.2 prerelease");
+  if (previousTag !== PREVIOUS_TAG && !CURRENT_PRERELEASE_PATTERN.test(previousTag)) {
+    throw new Error(
+      `--previous-tag must name the published ${PREVIOUS_TAG} stable or an exact ${VERSION} prerelease`,
+    );
   }
   const receiptRoot = resolve(
     environment.OMP_STABLE_QUALIFICATION_DIR ??

@@ -176,16 +176,16 @@ jobs:
           EOF
           elif [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
             cat > "$notes" <<EOF
-          ## v0.2.0 — narrowly supported stable release
+          ## v$PACKAGE_VERSION — narrowly supported stable release
 
-          This release supersedes v0.1.0 as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+          This release supersedes v0.2.0 as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
 
-          ### Highlights since v0.1.0
+          ### Highlights since v0.2.0
 
-          - Couch-first triage directory: FIFO Needs-you queue with an Up-next hero, device-local Hold for desk and reversible Dismiss here, and a Settings sheet for background alerts and notification detail.
-          - Long transcripts render incrementally in the embedded collaboration client: the initial snapshot defers to one loading placeholder and the transcript windows to the newest entries with a Show earlier control.
-          - The pinned collaboration client ships in the precached application shell and warms while the directory idles, so View/Control taps pay only for the no-store launch request and relay connect.
-          - Bounded transport recovery hardening for Android Chrome, including backoff ceilings, prolonged-outage guidance, and native EventSource reconnection support.
+          - Working cards give titles the full row and use one compact uptime, project, and model-slug line without wasteful gaps; the reversible device-local action now says Hide instead of looking destructive.
+          - The all-clear state uses the same compact left-aligned information grid as the directory and no longer repeats counts already present in the masthead.
+          - Long session titles receive a dedicated mobile shell row and cannot collide with Back, Control, or connection state.
+          - Managed installs, status, diagnostics, and CLI help report the true 0.2.1 product version.
 
           ### Advertised combinations
 
@@ -213,7 +213,7 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0 stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.2.0 stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
 
           - Source commit: $GITHUB_SHA
           - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
@@ -314,13 +314,13 @@ jobs:
             cat > "$notes" <<EOF
           ## Engineering test candidate
 
-          This is a signed pre-alpha build from current development source. It is not an advertised or supported successor to v0.1.0, does not replace GitHub Latest, and does not widen the stable support matrix.
+          This is a signed pre-alpha build from current development source. It is not an advertised or supported successor to v0.2.0, does not replace GitHub Latest, and does not widen the stable support matrix.
 
           ### Changes to test
 
-          - Couch-flow visual pass: full-width session rows with a compact per-row Dismiss control, readable ask previews, a real empty state, and a Settings sheet for background alerts and notification detail.
-          - Embedded-client transcript windowing: the initial snapshot defers to one loading placeholder and long histories render behind a Show earlier control.
-          - The pinned collaboration client is precached with the application shell and warmed while the directory idles.
+          - Phone directory polish: compact left-aligned all-clear status, full-width titles, balanced uptime/project/model-slug metadata, and a clear device-local Hide action.
+          - Mobile collaboration shell titles occupy their own row and cannot collide with Back, Control, or connection state.
+          - Managed installs, status, diagnostics, and CLI help report the true 0.2.1 product version.
           - Other unreleased repository changes are recorded in CHANGELOG.md at this source commit.
 
           ### Required OMP prerequisite
@@ -336,7 +336,7 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.1.0 stable archive with the deployment's existing origin and allowlist.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.2.0 stable archive with the deployment's existing origin and allowlist.
 
           Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF
