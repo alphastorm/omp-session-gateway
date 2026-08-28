@@ -1,15 +1,20 @@
-const EXPECTED_ASSETS = [
-  "SHA256SUMS",
-  "SHA256SUMS.sigstore.json",
-  "omp-session-gateway-0.2.0-bun.tar",
-  "omp-session-gateway-0.2.0-bun.tar.sigstore.json",
-  "omp-session-gateway-0.2.0.spdx.json",
-  "omp-session-gateway-0.2.0.spdx.json.sigstore.json",
-] as const;
+function expectedAssets(tag: string): readonly string[] {
+  const match = /^v([0-9]+[.][0-9]+[.][0-9]+)(?:-|$)/u.exec(tag);
+  if (match === null) throw new Error("release tag does not contain a numeric version");
+  const version = match[1];
+  return [
+    "SHA256SUMS",
+    "SHA256SUMS.sigstore.json",
+    `omp-session-gateway-${version}-bun.tar`,
+    `omp-session-gateway-${version}-bun.tar.sigstore.json`,
+    `omp-session-gateway-${version}.spdx.json`,
+    `omp-session-gateway-${version}.spdx.json.sigstore.json`,
+  ];
+}
 
-export async function releaseAssetDigests(root: string): Promise<Record<string, string>> {
+export async function releaseAssetDigests(root: string, tag: string): Promise<Record<string, string>> {
   const digests: Record<string, string> = {};
-  for (const name of EXPECTED_ASSETS) {
+  for (const name of expectedAssets(tag)) {
     const hasher = new Bun.CryptoHasher("sha256");
     hasher.update(await Bun.file(root + "/" + name).arrayBuffer());
     digests[name] = "sha256:" + hasher.digest("hex");
@@ -35,6 +40,7 @@ export function assertReleaseState(
     readonly assetDigests: Readonly<Record<string, string>>;
   },
 ): void {
+  const expectedAssetNames = expectedAssets(expected.tag);
   const release = record(value, "GitHub release");
   if (
     release.tag_name !== expected.tag ||
@@ -44,7 +50,7 @@ export function assertReleaseState(
   ) {
     throw new Error("GitHub release flags do not match the validated policy");
   }
-  if (!Array.isArray(release.assets) || release.assets.length !== EXPECTED_ASSETS.length) {
+  if (!Array.isArray(release.assets) || release.assets.length !== expectedAssetNames.length) {
     throw new Error("GitHub release does not contain exactly six assets");
   }
   const names: string[] = [];
@@ -64,10 +70,10 @@ export function assertReleaseState(
     names.push(asset.name);
   }
   names.sort();
-  if (names.some((name, index) => name !== EXPECTED_ASSETS[index])) {
+  if (names.some((name, index) => name !== expectedAssetNames[index])) {
     throw new Error("GitHub release asset names do not match the stable contract");
   }
-  if (Object.keys(expected.assetDigests).sort().some((name, index) => name !== EXPECTED_ASSETS[index])) {
+  if (Object.keys(expected.assetDigests).sort().some((name, index) => name !== expectedAssetNames[index])) {
     throw new Error("Expected release asset digests do not match the stable contract");
   }
 }
@@ -115,7 +121,7 @@ if (import.meta.main) {
       draft: draft === "true",
       prerelease: prerelease === "true",
       latest: latest === "true",
-      assetDigests: await releaseAssetDigests(assetRoot),
+      assetDigests: await releaseAssetDigests(assetRoot, tag),
     });
     console.log("verified release state for " + tag);
   } catch (error) {
