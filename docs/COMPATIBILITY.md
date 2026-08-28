@@ -2,12 +2,12 @@
 
 ## Current claim
 
-**Current release:** stable-qualified `v0.1.0` for the exact matrix below.<br>
-**Stable candidate:** signed `v0.1.0-prealpha.23`, fully qualified and approved.<br>
-**Rollback predecessor:** qualified `v0.1.0-beta.1`.<br>
-**Qualification predecessor:** signed stable candidate `v0.1.0-prealpha.23`.<br>
+**Current release:** stable-qualified `v0.2.0` for the exact matrix below.<br>
+**Stable candidate:** signed `v0.2.0-prealpha.1`, fully qualified and approved.<br>
+**Rollback predecessor:** published stable `v0.1.0`.<br>
+**Qualification predecessor:** signed stable candidate `v0.2.0-prealpha.1`.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
-151.0.7922.171 on Android 17 (Pixel 10 Pro). Nothing else is advertised.
+151.0.7922.173 on Android 17 (Pixel 10 Pro). Nothing else is advertised.
 
 Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
 and Tailscale must run its TUN-mode client; userspace-networking tailscaled does not establish the
@@ -21,16 +21,18 @@ route. Stock OMP is unsupported. Upstreaming and paired packaging are not gates 
 matrix under ADR-024 and ADR-025.
 
 The stable support claim comes from one exact signed-candidate qualification, not row counts or
-transferred beta labels. Candidate `v0.1.0-prealpha.23` at source
-`434cddc443335d6da6476b43564db8230365e6fc` passed every lane exactly once:
+transferred beta labels. Candidate `v0.2.0-prealpha.1` at source
+`db88afb2ca18b0822648012bb6da50fd596f294c` passed every lane exactly once:
 
-- release run [`32586209795`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32586209795)
+- release run [`33155940416`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33155940416)
   verified the signed tag, six assets, checksums, three GitHub attestations, three Cosign bundles,
-  and archive SHA-256 `f98bad0ce2ae20d3892e560069b2fbfc4ab6d084a403b6aa57e41c628c25ce98`;
-- Debian run [`32586459902`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32586459902)
-  passed the complete disposable Debian 13 x86-64 lifecycle and teardown;
-- `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback 20/20, persistence, exact
-  artifact checks, patched-OMP publication/revocation, uninstall, and cleanup;
+  and archive SHA-256 `149fc1b88a22b9cb1781bcb6219f2c1e41cafc867cb4eefe0a1e04b07eceeea2`;
+- Debian run [`33156664373`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33156664373)
+  passed the complete disposable Debian 13 x86-64 lifecycle, including the cross-version `v0.1.0`
+  predecessor migration, and teardown;
+- `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback 20/20 against the published
+  `v0.1.0` stable predecessor, persistence, exact artifact checks, patched-OMP
+  publication/revocation, uninstall, and cleanup;
 - the physical Pixel rendered same-page automatic lock, Airplane, and forced-Doze recovery without
   a reload or competing recovery fetch; its seven-sink capability sweep was clean;
 - exact patched OMP v17.4.1 published generation-1 View and Control, returned `200 no-store`,
@@ -40,7 +42,7 @@ transferred beta labels. Candidate `v0.1.0-prealpha.23` at source
 Windows source/lifecycle checks pass, but Windows remains unadvertised and outside this stable
 matrix. No beta evidence is being used as a substitute for a missing stable-candidate lane.
 
-Known limits remain part of the claim. Exact candidate `.23` recovered same-page automatically
+Known limits remain part of the claim. Exact candidate `v0.2.0-prealpha.1` recovered same-page automatically
 after the qualified lock, Airplane, and forced-Doze transitions. Chrome for Android can still wedge
 its process-wide network state after some abrupt transitions while Android remains healthy. Native
 EventSource reconnection and the bounded snapshot fallback recover the proven cases; after 45
@@ -51,7 +53,8 @@ back to Session detail. Background Web Push remains outside the stable core clai
 self-hosted/proxied relays, Funnel, userspace networking, shared mutually untrusted local accounts,
 and every unnamed platform/browser/version remain unsupported.
 
-A signed artifact proves origin, not fitness. Candidate history for this point release is explicit:
+A signed artifact proves origin, not fitness. Candidate history for the 0.1 point release is
+explicit, and the 0.2 campaign adds its own row:
 
 | Candidate | Build | Disposition | Verification |
 |---|---|---|---|
@@ -61,6 +64,7 @@ A signed artifact proves origin, not fitness. Candidate history for this point r
 | `v0.1.0-prealpha.21` | `0.1.0-a98c526c40a3` | **Rejected.** Final qualification passed artifact, Debian, macOS, and relay lanes but failed the physical Android lane; cleanup passed. | Archive SHA-256 `cb7da13531875b879c3ab1c2451b58683199263877a74475f539258dfdcba33c`; Debian run `32565941928`; receipt `v0.1.0-prealpha.21.failed-32565941928-187994c`. |
 | `v0.1.0-prealpha.22` | `0.1.0-489b58e4b862` | **Rejected.** Lock and Doze did not recover, Airplane recovery took 170,210 ms, and no outage status rendered; cleanup passed. | Archive SHA-256 `194958b5b7affce27163145ca90b5cc14c6952ebb0bbf15b43878c351c6c69db`; release run `32579082734` attempt 2; Debian run `32579748768`. |
 | `v0.1.0-prealpha.23` | `0.1.0-434cddc44333` | **Qualified and approved for `v0.1.0`.** Native EventSource reconnection plus bounded snapshot fallback passed explicit no-reload recovery. | Archive SHA-256 `f98bad0ce2ae20d3892e560069b2fbfc4ab6d084a403b6aa57e41c628c25ce98`; signed tag/assets/attestations/bundles, exact rebuild, Debian/macOS/Pixel/patched-OMP/relay lanes, seven-sink sweep, and cleanup all passed exactly once. |
+| `v0.2.0-prealpha.1` | `0.2.0-db88afb2ca18` | **Qualified and approved for `v0.2.0`.** Couch-flow visual pass, Settings sheet, transcript windowing, and shell-precached collab client; cross-version `v0.1.0` rollback pair. | Archive SHA-256 `149fc1b88a22b9cb1781bcb6219f2c1e41cafc867cb4eefe0a1e04b07eceeea2`; signed tag/assets/attestations/bundles, Debian run `33156664373` incl. `v0.1.0` migration, macOS `doctor` 17/17 and rollback 20/20, Pixel lock/Airplane/Doze recovery with a clean seven-sink sweep, patched-OMP publication/revocation, 60s relay smoke, and cleanup all passed exactly once. |
 
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and release decisions.
 This document defines the supported boundary. Where they disagree, the ledger is authoritative.
@@ -90,6 +94,7 @@ Published releases and unreleased development targets use separate immutable ups
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 | `0.1.0`, published as `v0.1.0-beta.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit beta qualification through the versioned patched-binary route |
 | `0.1.0`, published as `v0.1.0` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7` through the versioned patched-binary route |
+| `0.2.0`, published as `v0.2.0` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7` through the versioned patched-binary route |
 
 v17.3.8 remains the immutable alpha baseline. Exact v17.4.1 source and patch tree are independently
 qualified for beta and stable through the versioned executable route. No other OMP release, commit,
@@ -114,13 +119,14 @@ Android, browser, or signed-artifact qualification. Any platform row whose evide
 2026-08-19 is therefore **NOT RUN** for this pin until re-executed, and an unchanged row is never
 coverage of `v17.3.8`.
 
-Re-execution is current at stable candidate `.23`. On 2026-08-22 it passed the complete Debian
-signed-artifact lifecycle; the complete macOS install, persistence, rollback, and cleanup sequence;
-exact v17.4.1 patched-OMP publication/revocation; physical Pixel same-page lock, Airplane, and
-forced-Doze recovery; the seven-sink capability sweep; and the bounded relay smoke. The protected
+Re-execution is current at stable candidate `v0.2.0-prealpha.1`. On 2026-08-28 it passed the
+complete Debian signed-artifact lifecycle including the cross-version `v0.1.0` predecessor
+migration; the complete macOS install, persistence, rollback, and cleanup sequence; exact v17.4.1
+patched-OMP publication/revocation; physical Pixel same-page lock, Airplane, and forced-Doze
+recovery; the seven-sink capability sweep; and the bounded relay smoke. The protected
 28,800-second long-window result remains transferable because relay host/client, collab-web, and
 wire bytes are unchanged. Issue #65 stays open for other process-wide Chrome failures, not as a
-qualification exception for the transitions `.23` actually passed.
+qualification exception for the transitions the candidate actually passed.
 
 The immutable source paths, versions, observation date, and upstream findings live in
 [`UPSTREAM.lock.json`](../UPSTREAM.lock.json). The gateway integration currently requires:

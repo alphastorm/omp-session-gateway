@@ -3,18 +3,18 @@
   "schemaVersion": 1,
   "version": "0.2.0",
   "releaseTag": "v0.2.0",
-  "status": "pending",
-  "candidateTag": null,
-  "candidateSourceCommit": null,
-  "candidateArchiveSha256": null,
-  "runtimeByteComparison": "pending",
+  "status": "qualified",
+  "candidateTag": "v0.2.0-prealpha.1",
+  "candidateSourceCommit": "db88afb2ca18b0822648012bb6da50fd596f294c",
+  "candidateArchiveSha256": "149fc1b88a22b9cb1781bcb6219f2c1e41cafc867cb4eefe0a1e04b07eceeea2",
+  "runtimeByteComparison": "passed",
   "evidence": {
-    "debian": "pending",
-    "macos": "pending",
-    "android": "pending",
-    "ompPublication": "pending",
-    "provenance": "pending",
-    "secretSinks": "pending"
+    "debian": "passed",
+    "macos": "passed",
+    "android": "passed",
+    "ompPublication": "passed",
+    "provenance": "passed",
+    "secretSinks": "passed"
   },
-  "approvedAt": null
+  "approvedAt": "2026-08-28T09:02:57.000Z"
 }
