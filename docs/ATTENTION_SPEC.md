@@ -24,16 +24,23 @@ The home screen has one whole-screen mode:
 
 - any waiting session: `Needs you`, FIFO by `ask.since`, with one `Up next` hero, remaining waiting
   rows under `Then`, and working rows last;
-- no waiting sessions: `Sessions`, one `All clear` summary, then working rows newest-first.
+- no waiting sessions and at least one live session: `Sessions`, one `All clear` summary, then
+  working rows newest-first;
+- no live sessions: the empty state with `collab.autoStart` guidance and no count pill.
 
 The hero action is `Open request` when Control is available and `View transcript` otherwise.
-Control-capable heroes also offer `View transcript instead`. Every non-hero waiting or working item
-is a whole-row button. The masthead has no manual Refresh control; snapshots, SSE, liveness checks,
-and bounded retry own directory freshness.
+Control-capable heroes also offer `Hold for desk` and `Transcript`. A bounded `ask.preview`
+renders as readable sentence-case text with the option count; it is never uppercased. Every
+non-hero waiting or working item is a whole-row button; the working row's trailing compact
+dismiss control keeps the exact `Dismiss here` semantics (device-local, reversible, no network
+effect) with an explicit accessible label. The `All clear` summary repeats the ping promise only
+while background alerts are enabled; otherwise it shows a chip that opens Settings. The masthead
+has no manual Refresh control; snapshots, SSE, liveness checks, and bounded retry own directory
+freshness.
 
 ## Notification control
 
-The masthead control has exactly these labels:
+The Settings sheet control has exactly these labels:
 
 | State | Label | Enabled? |
 |---|---|---:|
@@ -41,12 +48,15 @@ The masthead control has exactly these labels:
 | idle | `Enable background alerts` | Yes |
 | enabling | `Enabling…` | No |
 | disabling | `Disabling…` | No |
-| enabled | `Disable background alerts` | Yes; opens settings |
+| enabled | `Disable background alerts` | Yes; disables in place |
 | blocked | `Notifications blocked` | No |
 | unavailable | `Background alerts unavailable` | No |
 
-Permission is requested only from the explicit enable action. A previously granted subscription
-may be reconciled on load without prompting.
+The sheet opens from the persistent masthead Settings control. Notification detail options are
+visible only while the subscription is enabled.
+
+Permission is requested only from the explicit enable action inside the sheet. A previously
+granted subscription may be reconciled on load without prompting.
 
 The settings bottom sheet stores one level with each browser endpoint:
 

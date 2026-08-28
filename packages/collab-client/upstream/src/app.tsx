@@ -193,6 +193,13 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 	return <Session client={client} onLeave={leave} onRejoin={rejoin} embedOptions={embedOptions} />;
 }
 
+/**
+ * First-paint placeholder. A long history arrives as snapshot chunks and
+ * rendering each chunk stalls a phone, so the transcript waits for the complete
+ * snapshot; the gateway shell shows its own connecting chip meanwhile.
+ */
+const TRANSCRIPT_LOADING = <div className="tr-loading">loading transcript…</div>;
+
 interface SessionProps {
 	client: GuestClient;
 	onLeave(): void;
@@ -200,9 +207,14 @@ interface SessionProps {
 	embedOptions?: CollabEmbedOptions;
 }
 
-function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): ReactNode {
+export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): ReactNode {
 	const snap = useGuestSnapshot(client);
 	const embedded = embedOptions?.shellOwnsLifecycle === true;
+	// Hold the first transcript render until the snapshot completes, then keep it
+	// mounted for the rest of this client: a reconnect must never blank a
+	// transcript the reader already has.
+	const [transcriptReady, setTranscriptReady] = useState(snap.phase === "live");
+	if (!transcriptReady && snap.phase === "live") setTranscriptReady(true);
 	const [railOpen, setRailOpen] = useState(false);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const autoOpenedRef = useRef(false);
@@ -292,6 +304,25 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 					{embedded && snap.uiRequest !== null ? (
 						<div className="sh-embedded-body">
 							<div className="sh-transcript">
+								{transcriptReady ? (
+									<Transcript
+										entries={snap.entries}
+										stream={snap.stream}
+										streamDone={snap.streamDone}
+										activeTools={snap.activeTools}
+										working={snap.working}
+										host={toolHost}
+										suppressAskTool
+									/>
+								) : (
+									TRANSCRIPT_LOADING
+								)}
+							</div>
+							<Composer client={client} snapshot={snap} embedded />
+						</div>
+					) : (
+						<div className="sh-transcript">
+							{transcriptReady ? (
 								<Transcript
 									entries={snap.entries}
 									stream={snap.stream}
@@ -299,21 +330,10 @@ function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): Rea
 									activeTools={snap.activeTools}
 									working={snap.working}
 									host={toolHost}
-									suppressAskTool
 								/>
-							</div>
-							<Composer client={client} snapshot={snap} embedded />
-						</div>
-					) : (
-						<div className="sh-transcript">
-							<Transcript
-								entries={snap.entries}
-								stream={snap.stream}
-								streamDone={snap.streamDone}
-								activeTools={snap.activeTools}
-								working={snap.working}
-								host={toolHost}
-							/>
+							) : (
+								TRANSCRIPT_LOADING
+							)}
 						</div>
 					)}
 				</section>

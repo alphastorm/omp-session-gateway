@@ -227,7 +227,7 @@ Additional requirements:
 - all metadata rendered as text, never unsanitized HTML;
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
-- service worker caches only queryless, content-hashed static shell files and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/collab/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
+- service worker caches only queryless, content-hashed static shell files (the app shell plus the pinned collaboration-client module and stylesheet — never a capability-bearing response) and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/collab/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
 - service worker Push handling accepts exact `attention`/`clear` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
 - transient directory transport failure retains the last authenticated metadata only in volatile page memory, marks it stale with the last-fresh timestamp, and disables no actions solely because SSE disconnected; authorization failure clears it;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, performance marks, history state, or directory snapshots;

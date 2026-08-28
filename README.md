@@ -124,9 +124,10 @@ After installation and tailnet configuration:
    interruptions when they persist, and keeps each answer at `Sending…` until OMP acknowledges
    it. After an authoritative answer, it offers the next ask or returns to the exact directory
    order and scroll position.
-6. **Experimental in this beta:** an explicit dashboard action can enable background Web Push
-   alerts and choose Private, Session, or Preview detail. The no-store tap path is implemented and
-   capability-free, but closed-PWA/lock-screen/force-stop/network behavior is not beta-qualified.
+6. **Experimental in this beta:** the Settings sheet behind the masthead control can enable
+   background Web Push alerts and choose Private, Session, or Preview detail. The no-store tap
+   path is implemented and capability-free, but closed-PWA/lock-screen/force-stop/network behavior
+   is not beta-qualified.
 7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport
    replacement reconcile without a prominent Refresh control. Abrupt Android radio transitions do
    not reliably self-heal and may require force-stopping Chrome.
@@ -134,7 +135,7 @@ After installation and tailnet configuration:
 <div align="center">
 <img
   src="docs/media/04-notification-settings.png"
-  alt="Background alerts settings sheet titled Notification detail, with per-device Private, Session, and Preview levels, Session selected as the default, and a Disable background alerts action"
+  alt="OMP Sessions settings sheet with a Background alerts section, per-device Private, Session, and Preview notification detail levels, Session selected as the default, and a Disable background alerts toggle"
   width="300"
 ><br>
 <sub>Notification detail is chosen per device; payloads are built at the chosen level — the phone

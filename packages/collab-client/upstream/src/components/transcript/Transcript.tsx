@@ -1,7 +1,7 @@
 import type { AssistantMessage, ImageContent, SessionEntry, TextContent, ToolResultMessage } from "@oh-my-pi/pi-wire";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "../../lib/client";
 import { fmtTokens } from "../../lib/format";
 import type { ToolRenderHost } from "../../tool-render";
@@ -258,6 +258,30 @@ const EntryRow = memo(function EntryRow({ entry, results, active, host, suppress
 	}
 }, entryRowEqual);
 
+/** Entries rendered from the tail of a long transcript before any expansion. */
+export const TRANSCRIPT_WINDOW = 150;
+/** Older entries revealed per `Show earlier` tap. */
+export const TRANSCRIPT_WINDOW_STEP = 300;
+
+/**
+ * First entry the window renders — also the count of older entries kept out of
+ * the DOM. A long history arrives as one snapshot burst, so only its tail is
+ * mounted; pinning the oldest mounted entry then keeps later tail appends from
+ * dropping a row under a reader who scrolled up (or silently reclaiming an
+ * expansion), while a tap still reaches further back.
+ */
+function transcriptWindowStart(
+	entries: readonly SessionEntry[],
+	extraCount: number,
+	pinnedOldestId: string | null,
+): number {
+	const tail = entries.length - TRANSCRIPT_WINDOW - extraCount;
+	if (tail <= 0) return 0;
+	if (pinnedOldestId === null) return tail;
+	const pinned = entries.findIndex(entry => entry.id === pinnedOldestId);
+	return pinned >= 0 && pinned < tail ? pinned : tail;
+}
+
 export function Transcript(props: TranscriptProps): ReactNode {
 	const { entries, stream, streamDone, activeTools, working, compact, host, suppressAskTool } = props;
 
@@ -274,11 +298,44 @@ export function Transcript(props: TranscriptProps): ReactNode {
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const lockRef = useRef(true);
 
+	// Windowed tail. `results` above and `renderedToolIds` below still scan every
+	// entry, so a windowed assistant row keeps its tool results and the active
+	// tail stays exact.
+	const [extraCount, setExtraCount] = useState(0);
+	const pinnedOldestRef = useRef<string | null>(null);
+	const start = transcriptWindowStart(entries, extraCount, pinnedOldestRef.current);
+	const windowed = useMemo(() => (start === 0 ? entries : entries.slice(start)), [entries, start]);
+
+	// Distance from the viewport top to the content bottom, captured before an
+	// expansion mounts older rows above the reader.
+	const anchorRef = useRef<number | null>(null);
+
 	// Follow the tail while bottom-locked; releasing/re-arming happens in onScroll.
 	useEffect(() => {
 		const el = rootRef.current;
 		if (el !== null && lockRef.current) el.scrollTop = el.scrollHeight;
 	}, [entries, stream, activeTools, working]);
+
+	useLayoutEffect(() => {
+		pinnedOldestRef.current = windowed.length === 0 ? null : windowed[0].id;
+	}, [windowed]);
+
+	// An expansion is not a tail append: restore the reader's anchor instead of
+	// following the tail. Preserving the distance to the bottom also leaves the
+	// bottom lock exactly as the reader left it.
+	useLayoutEffect(() => {
+		const el = rootRef.current;
+		const anchor = anchorRef.current;
+		anchorRef.current = null;
+		if (el === null || anchor === null) return;
+		el.scrollTop = el.scrollHeight - anchor;
+	}, [extraCount]);
+
+	const revealEarlier = (): void => {
+		const el = rootRef.current;
+		anchorRef.current = el === null ? null : el.scrollHeight - el.scrollTop;
+		setExtraCount(prev => prev + TRANSCRIPT_WINDOW_STEP);
+	};
 
 	// Active tools not already represented as toolCall blocks in committed rows or the stream ghost.
 	const renderedToolIds = new Set<string>();
@@ -314,7 +371,12 @@ export function Transcript(props: TranscriptProps): ReactNode {
 			}}
 		>
 			{entries.length === 0 && stream === null && !working && <div className="tr-empty">no activity yet</div>}
-			{entries.map(entry => (
+			{start > 0 && (
+				<button type="button" className="tr-earlier" onClick={revealEarlier}>
+					Show earlier · {start} more
+				</button>
+			)}
+			{windowed.map(entry => (
 				<EntryRow
 					key={entry.id}
 					entry={entry}

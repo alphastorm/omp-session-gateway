@@ -14,6 +14,11 @@ Network Information transitions replace a potentially stale relay transport. Whi
 metadata-free same-origin health probe also forces one replacement after a detected gateway outage
 recovers.
 
+Long histories no longer stall the first paint. The transcript waits behind a `loading transcript…`
+placeholder until the guest snapshot completes, then mounts only its newest 150 entries; a
+`Show earlier` control reveals 300 more per tap and holds the reader's scroll anchor while those
+older rows mount.
+
 `upstream/UPSTREAM.json` records the exact source path, package version, Bun version, and local patch list.
 `upstream/LICENSE` preserves the upstream license. The build remains a narrow integration; it does not fork the
 collaboration protocol or transcript UI.

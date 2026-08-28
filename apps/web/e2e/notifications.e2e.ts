@@ -165,9 +165,13 @@ test("attention cards and explicit background alert settings stay metadata-only"
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const directoryTargets = await page
-      .locator("#notify, .action-request, .hero-alt, .queue-row, .working-row, .dismiss-session")
+      .locator("#settings, .action-request, .queue-row, .working-row, .dismiss-session")
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
     expect(directoryTargets.every(height => height >= 44)).toBe(true);
+    const heroAltTargets = await page
+      .locator(".hero-alt")
+      .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
+    expect(heroAltTargets.every(height => height >= 44)).toBe(true);
 
     for (let count = 1; count <= 6; count += 1) {
       const waiting = Array.from({ length: count }, (_, index) =>
@@ -191,12 +195,13 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator("#directory-title")).toHaveText("Sessions");
     await expect(page.locator("#directory-count")).toHaveText("Live · 1");
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
-    await expect(page.locator(".all-clear-copy")).toHaveText(
-      "Nothing needs you — 1 working. You'll get pinged.",
-    );
+    // Alerts were never enabled, so the resting copy must not promise a ping; the hint chip
+    // routes to Settings instead, and the old bottom notifications block is gone.
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you — 1 working.");
+    await expect(page.locator(".alerts-hint")).toHaveText("Enable alerts to get pinged");
     await expect(page.locator(".working-row")).toHaveCount(1);
-    await expect(page.locator(".lede, .site-footer")).toHaveCount(0);
-    expect(await page.evaluate(() => Boolean(document.querySelector("#session-list + .home-alerts")))).toBe(true);
+    await expect(page.locator(".lede, .site-footer, .home-alerts")).toHaveCount(0);
+    await expect(page.locator("#settings")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const allClearDot = await page.locator(".all-clear-dot").evaluate(element => {
       const style = getComputedStyle(element);
@@ -212,8 +217,12 @@ test("attention cards and explicit background alert settings stay metadata-only"
 
     await page.evaluate(async () => navigator.serviceWorker.ready);
     await page.reload();
+    await page.locator("#settings").click();
     await expect(page.locator("#notify")).toHaveText("Enable background alerts");
-    await expect(page.locator("#notify-note")).toBeHidden();
+    await expect(page.locator("#notify-note")).toBeVisible();
+    await expect(page.locator("#notification-detail-options")).toBeHidden();
+    await page.locator("#notification-settings-close").click();
+    await expect(page.locator("#notification-settings")).toBeHidden();
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
     await page.clock.install();
     const requestsBeforeDismiss = fixture.requests.length;
@@ -244,9 +253,11 @@ test("attention cards and explicit background alert settings stay metadata-only"
     expect(await page.evaluate(() => localStorage.getItem("omp.sessions.dismissed.v1"))).toBe("[]");
 
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
+    await page.locator("#settings").click();
+    await expect(page.locator("#notification-settings")).toBeVisible();
     await page.locator("#notify").click();
     await expect(page.locator("#notify")).toHaveText("Disable background alerts");
-    await expect(page.locator("#notification-settings")).toBeVisible();
+    await expect(page.locator("#notification-detail-options")).toBeVisible();
     await expect(page.locator('input[name="notification-detail"][value="session"]')).toBeChecked();
     await expect(page.locator(".sheet-footnote")).toHaveText(
       "Per-device, stored with the push subscription on the gateway. Payloads are built at the chosen level — the phone never redacts.",
@@ -268,8 +279,9 @@ test("attention cards and explicit background alert settings stay metadata-only"
     expect(fixture.requests).toContain("POST /api/v1/push/subscription");
 
 
-    await page.locator("#notification-disable").click();
+    await page.locator("#notify").click();
     await expect(page.locator("#notify")).toHaveText("Enable background alerts");
+    await expect(page.locator("#notification-detail-options")).toBeHidden();
     expect(await notificationState(page)).toMatchObject({
       subscribeCalls: 1,
       subscriptionActive: false,

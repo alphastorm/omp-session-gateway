@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sourceRevision": "b8178b8f6e206875c038d2f962bc20d4d3964afa",
+  "sourceRevision": "c0d737d5fc4497d418952999a6c6fbca8d299cdf",
   "upstreamClient": {
     "tag": "v17.4.1",
     "commit": "9350b7990d26ebf69a604edc82d8558ef04adf30",
@@ -33,8 +33,8 @@
   },
   "assets": {
     "omp-session-gateway-demo.gif": {
-      "bytes": 340653,
-      "sha256": "f8190ebc8b8044906f61af6d2a9c2519325d23df368062aa3709f587ccf11058",
+      "bytes": 339549,
+      "sha256": "da5602a3803445b947f7ca1674c0cf17049f5f4b51d05911450c69835d65096e",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
@@ -45,19 +45,19 @@
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
         },
         {
           "id": "runtime:discovered-live-five",
-          "sha256": "8d9d591b255d4ed89b98b1da63011aada20cebdac532b5ac188007f1b69b84fa"
+          "sha256": "bcb971613b33982df391a66d21848b36c557da8bf3a61f09a83993bf6686a113"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -66,8 +66,8 @@
       ]
     },
     "omp-session-gateway-demo.mp4": {
-      "bytes": 381817,
-      "sha256": "b7565611a347223124b8ecfdf3df5b40d808c9cc665aaaf001350bc945a68380",
+      "bytes": 380818,
+      "sha256": "8c1c2b4752d108ef83948dd772b7cfe437acda8dbb4bb48105473780a6241a79",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
@@ -79,19 +79,19 @@
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
         },
         {
           "id": "runtime:discovered-live-five",
-          "sha256": "8d9d591b255d4ed89b98b1da63011aada20cebdac532b5ac188007f1b69b84fa"
+          "sha256": "bcb971613b33982df391a66d21848b36c557da8bf3a61f09a83993bf6686a113"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -100,15 +100,15 @@
       ]
     },
     "omp-session-gateway-demo-poster.png": {
-      "bytes": 70022,
-      "sha256": "c66e58a7d72f89f3ce3d1f1a86d1ede1f07e3175fd2e8af53c3cb7a3f7bf7d3b",
+      "bytes": 70575,
+      "sha256": "61eba8f69beb5259c9be7ae73d1b96bb3cc2758086f3262c5375289127571d84",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
       "compositeInputs": [
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -118,23 +118,23 @@
       "sourceFrame": 60
     },
     "omp-session-gateway-product-flow.png": {
-      "bytes": 170766,
-      "sha256": "f88906e626e436eaddb83148df16143df1ba8fbca8a3655a4621b642029f1250",
+      "bytes": 172398,
+      "sha256": "ba2e4173326238d02e29f9bdc630aff544aff79370def9da5a86751bdc978168",
       "width": 1600,
       "height": 980,
       "provenance": "capture-only-presentation-composite",
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c"
+          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd"
+          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f"
+          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -143,29 +143,29 @@
       ]
     },
     "01-all-clear.png": {
-      "bytes": 79267,
-      "sha256": "657e4f56919eec7a07ad9adcf1cac9f217e93a05c23007119a4148fc485f083c",
+      "bytes": 74092,
+      "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
     },
     "02-needs-you.png": {
-      "bytes": 103839,
-      "sha256": "3666acc3c6b87c2de2ff935592de241ae8194df445aa1a8ca10ba4f2602cd8cd",
+      "bytes": 109868,
+      "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
     },
     "03-open-request.png": {
-      "bytes": 72413,
-      "sha256": "60e4bd60a7c38580ff47078030c31b5f20ad874e2812e6b5ce86eda9cd7c0e4f",
+      "bytes": 81599,
+      "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime-with-pinned-collab-client"
     },
     "04-notification-settings.png": {
-      "bytes": 149901,
-      "sha256": "7f604752f354d11abd06980fc072bc6d64060454504e8296dc3762c377496206",
+      "bytes": 145882,
+      "sha256": "a70c8991019d089fa0a69868717f41656177e2bbca3e30337cff80c9345ade74",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"

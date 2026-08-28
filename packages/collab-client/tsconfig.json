@@ -3,9 +3,12 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "exactOptionalPropertyTypes": false,
-    "noUncheckedIndexedAccess": false,
-    "rootDir": "upstream/src"
+    "noUncheckedIndexedAccess": false
   },
-  "include": ["upstream/src/**/*.ts", "upstream/src/**/*.tsx"],
+  "include": [
+    "upstream/src/**/*.ts",
+    "upstream/src/**/*.tsx",
+    "test/**/*.ts"
+  ],
   "exclude": []
 }

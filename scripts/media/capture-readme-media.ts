@@ -539,21 +539,22 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     await waitForExactText(page, "#directory-title", "Sessions");
     await waitForExactText(page, "#directory-count", "Live · 4");
     await waitForExactText(page, ".all-clear-title", "All clear");
-    await waitForExactText(
-      page,
-      ".all-clear-copy",
-      "Nothing needs you — 4 working. You'll get pinged.",
-    );
+    await waitForExactText(page, ".all-clear-copy", "Nothing needs you — 4 working.");
+    await waitForExactText(page, ".alerts-hint", "Enable alerts to get pinged");
     await waitForCount(page, ".working-row", 4);
 
     await page.evaluate(async () => navigator.serviceWorker.ready);
     await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator("#settings").click();
+    await page.locator("#notification-settings").waitFor({ state: "visible" });
     await waitForExactText(page, "#notify", "Enable background alerts");
     await page.locator("#notify").click();
     await waitForExactText(page, "#notify", "Disable background alerts");
-    await page.locator("#notification-settings").waitFor({ state: "visible" });
     await page.locator("#notification-settings-close").click();
     await page.locator("#notification-settings").waitFor({ state: "hidden" });
+    // With alerts enabled the resting copy carries the ping promise and the hint chip is gone.
+    await waitForExactText(page, ".all-clear-copy", "Nothing needs you — 4 working. You'll get pinged.");
+    await waitForCount(page, ".alerts-hint", 0);
     await captureProductPng(page, paths.allClear);
 
     fixture.upsert(GATEWAY_WORKING);
@@ -571,9 +572,12 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     await waitForExactText(page, "#directory-title", "Needs you");
     await waitForExactText(page, "#directory-count", "2 waiting");
     await waitForExactText(page, ".queue-hero h2", "Gateway auth hardening");
-    await waitForExactText(page, ".queue-hero .ask-preview", "「How should ADR-0036 proceed?」 · 2 options");
+    await waitForExactText(page, ".queue-hero .ask-preview", "How should ADR-0036 proceed?2 options to pick from");
     await waitForExactText(page, ".action-request", "Open request");
-    await waitForExactText(page, ".hero-alt", "View transcript instead");
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".hero-alt")].map(element => element.textContent?.trim()).join("|") ===
+        "Hold for desk|Transcript",
+    );
     await waitForExactText(page, ".queue-row .row-title", "Release qualification");
     await waitForCount(page, ".queue-row", 1);
     await waitForCount(page, ".working-row", 3);
@@ -606,7 +610,10 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     await waitForExactText(page, ".sh-ask-send", "Send");
     const selectedClasses = await page.locator(".sh-ask-option").first().getAttribute("class");
     assertCondition(selectedClasses?.includes("sh-ask-option-checked") === true, "recommended ask option is not selected");
-    assertCondition(await page.locator(".triage-bar").isHidden(), "triage bar is visible before an answer");
+    // An open pending request offers couch triage: the hold bar is part of the product surface.
+    await page.locator('.triage-bar[data-kind="hold"]').waitFor({ state: "visible" });
+    await waitForExactText(page, ".triage-copy", "Need the desk for this one?");
+    await waitForExactText(page, ".triage-action", "Hold → next");
     await page.waitForFunction(() => document.querySelector(".sh-ask-option-label")?.textContent?.includes("Implement ADR-0036 locally"));
     await page.waitForFunction(() => document.querySelectorAll(".sh-ask-option-label")[1]?.textContent?.includes("Wait for upstream"));
     await page.waitForFunction(() => {
@@ -632,9 +639,10 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     await waitForExactText(page, "#directory-title", "Sessions");
     await waitForExactText(page, "#directory-count", "Live · 4");
     await waitForExactText(page, ".all-clear-title", "All clear");
-    await waitForExactText(page, "#notify", "Disable background alerts");
-    await page.locator("#notify").click();
+    await page.locator("#settings").click();
     await page.locator("#notification-settings").waitFor({ state: "visible" });
+    await waitForExactText(page, "#notify", "Disable background alerts");
+    await page.locator("#notification-detail-options").waitFor({ state: "visible" });
     assertCondition(
       await page.locator('input[name="notification-detail"][value="session"]').isChecked(),
       "Session notification detail is not the real default",
@@ -646,7 +654,7 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     );
     await page.waitForFunction(() => document.querySelector(".detail-warning")?.textContent?.includes("notification history"));
     const detailTargetHeights = await page
-      .locator(".detail-option, #notification-settings-close, #notification-disable")
+      .locator(".detail-option, #notification-settings-close, #notify")
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
     assertCondition(detailTargetHeights.every(height => height >= 44), "notification sheet has a sub-44px action target");
     await captureProductPng(page, paths.notificationSettings);

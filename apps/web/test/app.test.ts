@@ -278,7 +278,9 @@ interface BrowserHarness {
     readonly notificationDisclosure: FakeElement;
     readonly notificationSettings: FakeElement;
     readonly networkRecoveryHelp: FakeElement;
-    readonly notificationDisable: FakeElement;
+    readonly settingsButton: FakeElement;
+    readonly notificationDetailOptions: FakeElement;
+    readonly emptyState: FakeElement;
     readonly notificationDetailInputs: readonly FakeElement[];
     readonly statusBanner: FakeElement;
     readonly directoryTitle: FakeElement;
@@ -373,7 +375,9 @@ async function bootApp(options: {
   const networkRecoveryHelp = new FakeElement("dialog");
   const networkRecoveryHelpClose = new FakeElement("button");
   const notificationSettingsClose = new FakeElement("button");
-  const notificationDisable = new FakeElement("button");
+  const settingsButton = new FakeElement("button");
+  const notificationDetailOptions = new FakeElement("fieldset");
+  notificationDetailOptions.hidden = true;
   const localActionToast = new FakeElement("aside");
   localActionToast.hidden = true;
   const localActionToastCopy = new FakeElement("span");
@@ -402,7 +406,8 @@ async function bootApp(options: {
     "#local-action-toast-undo": localActionToastUndo,
     "#notification-settings": notificationSettings,
     "#notification-settings-close": notificationSettingsClose,
-    "#notification-disable": notificationDisable,
+    "#settings": settingsButton,
+    "#notification-detail-options": notificationDetailOptions,
     "#network-recovery-help": networkRecoveryHelp,
     "#network-recovery-help-close": networkRecoveryHelpClose,
   };
@@ -592,7 +597,9 @@ async function bootApp(options: {
       notificationDisclosure,
       notificationSettings,
       networkRecoveryHelp,
-      notificationDisable,
+      settingsButton,
+      notificationDetailOptions,
+      emptyState,
       notificationDetailInputs,
       directoryTitle,
       directoryCount,
@@ -719,7 +726,7 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.notificationDisclosure.textContent).toBe(
       "Alerts work with the app closed. Tapping one opens current Control after revalidation.",
     );
-    expect(harness.elements.notificationDisclosure.hidden).toBeTrue();
+    expect(harness.elements.notificationDisclosure.hidden).toBeFalse();
   });
 
   test("renders the exact all-clear resting state", async () => {
@@ -735,14 +742,48 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.directoryTitle.textContent).toBe("Sessions");
     expect(harness.elements.directoryCount.textContent).toBe("Live · 2");
     expect(harness.elements.sessionList.querySelector(".all-clear-title")?.textContent).toBe("All clear");
+    // Blocked alerts must not promise a ping; the hint chip routes to Settings instead.
     expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe(
-      "Nothing needs you — 2 working. You'll get pinged.",
+      "Nothing needs you — 2 working.",
+    );
+    expect(harness.elements.sessionList.querySelector(".alerts-hint")?.textContent).toBe(
+      "Alerts blocked · Settings",
     );
     expect(
       harness.elements.sessionList
         .querySelectorAll(".working-row")
         .map(row => row.querySelector(".row-title")?.textContent),
     ).toEqual(["working-session-0002", "working-session-0001"]);
+  });
+
+  test("shows the empty state instead of a zero-count all-clear when nothing is live", async () => {
+    const harness = await bootApp({
+      permission: "denied",
+      suffix: "empty-directory",
+      initialSessions: [],
+    });
+
+    expect(harness.elements.emptyState.hidden).toBeFalse();
+    expect(harness.elements.directoryTitle.textContent).toBe("Sessions");
+    expect(harness.elements.directoryCount.hidden).toBeTrue();
+    expect(harness.elements.sessionList.querySelector(".all-clear-title")).toBeNull();
+
+    harness.emit("session_upsert", {
+      type: "session_upsert",
+      revision: 2,
+      session: session("empty-then-live-0001"),
+    });
+    expect(harness.elements.emptyState.hidden).toBeTrue();
+    expect(harness.elements.directoryCount.hidden).toBeFalse();
+
+    harness.emit("session_remove", {
+      type: "session_remove",
+      revision: 3,
+      instanceId: "empty-then-live-0001",
+      generation: 1,
+    });
+    expect(harness.elements.emptyState.hidden).toBeFalse();
+    expect(harness.elements.directoryCount.hidden).toBeTrue();
   });
 
   test("scrubs stale notification routes and keeps their expired state visible", async () => {
@@ -994,8 +1035,9 @@ describe("dashboard attention and notifications", () => {
     await Promise.resolve();
     expect(harness.subscriptionRequests).toHaveLength(1);
 
-    expect(harness.elements.notificationSettings.open).toBeTrue();
-    harness.elements.notificationDisable.dispatchEvent(new Event("click"));
+    // The toggle lives in the Settings sheet and now disables in place.
+    expect(harness.elements.notificationDetailOptions.hidden).toBeFalse();
+    harness.elements.notificationButton.dispatchEvent(new Event("click"));
     await settleUntil(() => harness.elements.notificationButton.textContent === "Enable background alerts");
     expect(harness.subscriptionCalls.unsubscribe).toBe(1);
     expect(harness.unsubscribeRequests).toEqual([
@@ -1034,8 +1076,9 @@ describe("dashboard attention and notifications", () => {
     });
 
     expect(harness.subscriptionRequests).toHaveLength(1);
-    harness.elements.notificationButton.dispatchEvent(new Event("click"));
+    harness.elements.settingsButton.dispatchEvent(new Event("click"));
     expect(harness.elements.notificationSettings.open).toBeTrue();
+    expect(harness.elements.notificationDetailOptions.hidden).toBeFalse();
     const preview = harness.elements.notificationDetailInputs.find(input => input.value === "preview");
     expect(preview).toBeDefined();
     if (preview === undefined) throw new Error("missing preview detail input");
