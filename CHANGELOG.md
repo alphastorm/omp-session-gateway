@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.2.1] — 2026-08-28
+
 ### Changed
 
 - Give working-session titles the full card width and move uptime, project, and model into one

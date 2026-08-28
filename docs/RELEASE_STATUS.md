@@ -1,9 +1,9 @@
 # Release status
 
 **Updated:** 2026-08-28<br>
-**Repository candidate:** `v0.2.1-prealpha.2`; qualification pending, current stable is **`v0.2.0`**<br>
-**Qualification predecessor:** **`v0.2.0-prealpha.1`**, independently verified<br>
-**Classification:** `0.2.1` is an unqualified engineering candidate; the stable-qualified claim below applies only to `v0.2.0`<br>
+**Repository version:** `0.2.1`; stable publication source for **`v0.2.1`**<br>
+**Qualification candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
+**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
 **Stable decision:** **GO, approved**, for the named support boundary and nothing else.
 
 Candidate `v0.2.1-prealpha.1` built, attested, and signed successfully, then failed closed while
@@ -12,7 +12,41 @@ deleted the draft; the signed tag and transparency records remain diagnostic evi
 `v0.2.1-prealpha.2` derives the six expected assets from the validated tag version and is the only
 0.2.1 candidate eligible for qualification.
 
-### Stable 0.2 — GO
+### Stable 0.2.1 — GO
+
+**Target tag:** `v0.2.1`, authorized for non-prerelease GitHub Latest publication.<br>
+**Machine gate:** `STABLE_RELEASE.lock.json` is qualified for candidate `v0.2.1-prealpha.2`.<br>
+**Candidate source:** `f09e3566c238ad76e220bea093d06d0124f924d9`.<br>
+**Candidate archive SHA-256:** `9fd5e49b9819ab4dfc82f978fcd9e8382b83d5b821bb341c6b6e6979ff42c7fa`.<br>
+**Rollback predecessor:** published stable `v0.2.0`; Debian and macOS exercised the exact
+`v0.2.0 → v0.2.1-prealpha.2` upgrade and rollback pair.<br>
+**Support boundary:** unchanged Debian 13 x86-64, macOS 26.6.1 arm64 on `Mac14,3`, Chrome
+`151.0.7922.173` on Android 17 / Pixel 10 Pro, TUN-mode Tailscale Serve, and exact patched OMP
+v17.4.1 source `9350b7990d26ebf69a604edc82d8558ef04adf30` with patched tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`. Every prior exclusion remains unchanged.
+
+One resumable orchestrator receipt ran from published `main` at
+`d768153610b6f1f43899d1a65e5330ab0396d9ef` and completed `passed` at
+`2026-08-28T22:34:56.358Z`:
+
+- release run [`33206359784`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33206359784)
+  published six prerelease/not-Latest assets; the signed tag, checksums, three attestations, three
+  Sigstore bundles, and exact candidate archive digest above verified;
+- Debian run [`33207184350`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33207184350)
+  passed the disposable Debian 13 lifecycle and the published `v0.2.0` migration/rollback pair;
+- retained `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback invariants 20/20,
+  persistence, exact archive/native checks, patched-OMP build, uninstall, and cleanup;
+- exact patched OMP v17.4.1 published and revoked generation-1 View and Control with `200 no-store`;
+- the physical Pixel passed same-page lock, Airplane, and forced-Doze recovery in 9,464 ms,
+  8,435 ms, and 8,360 ms respectively; the seven-sink capability sweep was clean;
+- the default relay stayed live for 60 seconds with two transitions; and
+- final cleanup measured zero gateway processes/listeners and zero patched-OMP processes.
+
+The initial physical-client attempt stopped before device effects because ADB had not yet been
+authorized. After explicit authorization, the same receipt resumed without redispatching Debian or
+rerunning the passed Mac/relay lanes; Android, OMP publication, and cleanup then passed.
+
+### Stable 0.2.0 — superseded
 
 **Target tag:** `v0.2.0`, published as a non-prerelease and GitHub Latest.<br>
 **Machine gate:** `STABLE_RELEASE.lock.json` is qualified for candidate `v0.2.0-prealpha.1`.<br>

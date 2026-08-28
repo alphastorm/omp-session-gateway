@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { assertReleaseState } from "./release-state.ts";
 
-const TAG = "v0.2.0";
+const TAG = "v0.2.1";
 function assets(tag = TAG): { name: string; state: string; digest: string }[] {
   const version = /^v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag)?.[1];
   if (version === undefined) throw new Error("test tag has no version");
