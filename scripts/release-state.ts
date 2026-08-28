@@ -1,10 +1,10 @@
 const EXPECTED_ASSETS = [
   "SHA256SUMS",
   "SHA256SUMS.sigstore.json",
-  "omp-session-gateway-0.1.0-bun.tar",
-  "omp-session-gateway-0.1.0-bun.tar.sigstore.json",
-  "omp-session-gateway-0.1.0.spdx.json",
-  "omp-session-gateway-0.1.0.spdx.json.sigstore.json",
+  "omp-session-gateway-0.2.0-bun.tar",
+  "omp-session-gateway-0.2.0-bun.tar.sigstore.json",
+  "omp-session-gateway-0.2.0.spdx.json",
+  "omp-session-gateway-0.2.0.spdx.json.sigstore.json",
 ] as const;
 
 export async function releaseAssetDigests(root: string): Promise<Record<string, string>> {

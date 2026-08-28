@@ -49,10 +49,8 @@
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
-OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.1.0-alpha.1}"
-NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.1.0-prealpha.20}"
-ARCHIVE="omp-session-gateway-0.1.0-bun.tar"
-ARCHIVE_ROOT="omp-session-gateway-0.1.0-bun"
+OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.1.0}"
+NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.2.0-prealpha.1}"
 LABEL="omp-session-gateway"
 QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"
@@ -374,23 +372,43 @@ step_isolation_gate() {
   fi
 }
 
+# Release asset names carry each tag's own MAJOR.MINOR.PATCH, so a cross-version
+# rollback pair (v0.1.0 predecessor, 0.2.x candidate) resolves different archives.
+tag_version() {
+  local version="${1#v}"
+  version="${version%%-*}"
+  case "$version" in
+    *[!0-9.]* | "" | .* | *. ) die "cannot derive a release version from tag $1" ;;
+  esac
+  printf '%s' "$version"
+}
+
+archive_for() {
+  printf 'omp-session-gateway-%s-bun.tar' "$(tag_version "$1")"
+}
+
+archive_root_for() {
+  printf 'omp-session-gateway-%s-bun' "$(tag_version "$1")"
+}
+
 fetch_tag() { # tag destination
-  local tag="$1" dest="$2" source asset workflow verified
+  local tag="$1" dest="$2" source asset workflow verified archive
+  archive="$(archive_for "$tag")"
   mkdir -p "$dest"
   (
     cd "$dest"
     if [ -n "$ARTIFACT_ROOT" ]; then
       source="$ARTIFACT_ROOT/$tag"
-      for asset in "$ARCHIVE" "$ARCHIVE.sigstore.json" SHA256SUMS SHA256SUMS.sigstore.json; do
+      for asset in "$archive" "$archive.sigstore.json" SHA256SUMS SHA256SUMS.sigstore.json; do
         [ -f "$source/$asset" ] || { printf 'preloaded rollback asset missing: %s/%s\n' "$source" "$asset" >&2; exit 1; }
         cp "$source/$asset" .
       done
     else
       gh release download "$tag" -R "$REPO" -D . --clobber \
-        -p "$ARCHIVE" -p "$ARCHIVE.sigstore.json" -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null
+        -p "$archive" -p "$archive.sigstore.json" -p SHA256SUMS -p SHA256SUMS.sigstore.json >/dev/null
     fi
     shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null
-    for asset in "$ARCHIVE" SHA256SUMS; do
+    for asset in "$archive" SHA256SUMS; do
       verified=0
       for workflow in signed-release.yml release.yml; do
         if cosign verify-blob \
@@ -405,9 +423,9 @@ fetch_tag() { # tag destination
       [ "$verified" -eq 1 ] || { printf 'cosign verify-blob failed for %s at %s\n' "$asset" "$tag" >&2; exit 1; }
     done
     mkdir -p extract
-    tar -xf "$ARCHIVE" -C extract
+    tar -xf "$archive" -C extract
   ) || die "download or verification failed for $tag"
-  fact "$tag archive sha256" "$(digest_of "$dest/$ARCHIVE")"
+  fact "$tag archive sha256" "$(digest_of "$dest/$(archive_for "$tag")")"
   fact "$tag SHA256SUMS + cosign" "shasum -c OK; verify-blob OK (archive, SHA256SUMS)"
 }
 
@@ -417,8 +435,8 @@ step_artifacts() {
   NEW_DIR="$SCRATCH/dl/$NEW_TAG"
   fetch_tag "$OLD_TAG" "$OLD_DIR"
   fetch_tag "$NEW_TAG" "$NEW_DIR"
-  OLD_CLI="$OLD_DIR/extract/$ARCHIVE_ROOT/apps/gateway/src/cli.js"
-  NEW_CLI="$NEW_DIR/extract/$ARCHIVE_ROOT/apps/gateway/src/cli.js"
+  OLD_CLI="$OLD_DIR/extract/$(archive_root_for "$OLD_TAG")/apps/gateway/src/cli.js"
+  NEW_CLI="$NEW_DIR/extract/$(archive_root_for "$NEW_TAG")/apps/gateway/src/cli.js"
   [ -f "$OLD_CLI" ] && [ -f "$NEW_CLI" ] || die "extracted archives do not contain apps/gateway/src/cli.js"
   fact "$OLD_TAG cli.js" "$(wc -c <"$OLD_CLI" | tr -d ' ') bytes"
   fact "$NEW_TAG cli.js" "$(wc -c <"$NEW_CLI" | tr -d ' ') bytes"

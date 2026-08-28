@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findCapabilityLeaks } from "./capability-leak-rules.ts";
 
-export const PRODUCT_VERSION = "0.1.0";
+export const PRODUCT_VERSION = "0.2.0";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultReleaseRoot = join(root, "dist", "release");
 const archiveBase = `omp-session-gateway-${PRODUCT_VERSION}-bun`;
@@ -392,7 +392,7 @@ export const RELEASE_QUALIFICATIONS = {
   beta:
     "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
   stable:
-    "qualified stable 0.1; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
+    "qualified stable 0.2; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;

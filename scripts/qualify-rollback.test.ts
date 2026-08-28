@@ -38,12 +38,12 @@ test.skipIf(!POSIX)("rollback cleanup succeeds when no LaunchAgent is loaded", a
 
 test.skipIf(!POSIX)("rollback consumes preloaded verified assets without GitHub authentication", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-rollback-preload-test-"));
-  const tag = "v0.1.0-prealpha.21";
+  const tag = "v0.2.0-prealpha.21";
   const artifactRoot = join(temporaryRoot, "artifacts");
   const tagRoot = join(artifactRoot, tag);
   const destination = join(temporaryRoot, "destination");
   const bin = join(temporaryRoot, "bin");
-  const archiveName = "omp-session-gateway-0.1.0-bun.tar";
+  const archiveName = "omp-session-gateway-0.2.0-bun.tar";
   const archive = Buffer.alloc(1024);
   const archiveDigest = createHash("sha256").update(archive).digest("hex");
   const ghMarker = join(temporaryRoot, "gh-called");

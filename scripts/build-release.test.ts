@@ -225,7 +225,7 @@ test("the recorded qualification comes from a closed channel set that fails shut
   expect(RELEASE_QUALIFICATIONS.beta).toContain("docs/COMPATIBILITY.md at this source commit");
   expect(RELEASE_QUALIFICATIONS.beta).toContain("UPSTREAM.lock.json");
   expect(RELEASE_QUALIFICATIONS.beta).toContain("not stable or production-qualified");
-  expect(RELEASE_QUALIFICATIONS.stable).toStartWith("qualified stable 0.1;");
+  expect(RELEASE_QUALIFICATIONS.stable).toStartWith("qualified stable 0.2;");
   expect(RELEASE_QUALIFICATIONS.stable).toContain("docs/COMPATIBILITY.md at this source commit");
   expect(RELEASE_QUALIFICATIONS.stable).toContain("UPSTREAM.lock.json");
   expect(RELEASE_QUALIFICATIONS.stable).toContain("environment limitations and exclusions still apply");
