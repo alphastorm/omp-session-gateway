@@ -235,7 +235,7 @@ test("installed-PWA View and Control mount in the current window without losing 
     await page.locator(".triage-action").click();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
-    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you — 14 working.");
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you.");
     await expect(page.locator(".working-row")).toHaveCount(14);
     await expect(page.locator("#settings")).toBeVisible();
     const legacyAlertsBlock = await page.evaluate(() =>

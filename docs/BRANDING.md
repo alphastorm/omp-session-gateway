@@ -115,14 +115,14 @@ emerald = live, amber = needs-you/privileged, red = unauthorized.
   with chevrons, dashed `On hold` rows with `Requeue`, then working rows.
 - Working rows: one bordered frame per session — whole-row View button with a
   live dot, full-width title, then one compact mono detail line ordered uptime,
-  project, model. Project and model truncate independently; uptime remains
-  visible. The quiet inset ✕ dismiss control retains a 44px target and
-  `Dismiss … on this device` aria-label without dividing the row visually.
+  project, model slug. Project and model consume only their content and available
+  space; uptime remains visible. The quiet inset `Hide` control retains a 44px
+  target and explicit `Hide … on this device` label without looking destructive.
 - Collaboration shell: one centered header row on wide screens. Phone widths
   put Back and Control/connection state on the first row and give the session
   title a full-width second row, so long titles never collide with controls.
-- All clear: borderless centered statement (ringed live dot, `All clear`, one
-  muted line). The ping promise appears only while background alerts are
+- All clear: compact left-aligned status (ringed live dot, `All clear`, one muted
+  line), without repeating live counts already present in the masthead. Alert state appears only while background alerts are
   enabled; otherwise a pill chip routes to Settings.
 - Settings sheet: bottom sheet with mono section kickers, the seven-state
   alert toggle, detail options (only while enabled), and a mono build line.

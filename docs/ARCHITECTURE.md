@@ -67,7 +67,7 @@ Each card may show only non-secret metadata:
   and receipt timestamp but no prompt content or answer data;
 - **View** for ordinary read-only launches and **Open request** for attention requiring Control;
 - **Hold for desk** for exact-ask local queue routing; and
-- **Dismiss here** for reversible device-local hiding of non-attention rows, presented as a
+- **Hide** for reversible device-local hiding of non-attention rows, presented as a
   compact per-row control with an explicit accessible label.
 
 A directory with zero live sessions shows the `collab.autoStart` empty-state guidance instead of a
@@ -82,7 +82,7 @@ The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/se
 Couch triage is a device-local presentation layer over that authoritative metadata. **Hold for
 desk** stores only the exact `(instanceId, requestId, heldAt)` identity of an ask and skips it in
 this device's FIFO rotation; it does not clear gateway attention, reduce the pending count or app
-badge, or affect another device. **Dismiss here** is available only on non-attention rows and stores
+badge, or affect another device. **Hide** is available only on non-attention rows and stores
 only `(instanceId, generation, dismissedAt)`; it hides the row on this device, performs no network
 mutation, and never stops the OMP process. A five-second Undo and a persistent **Show all** surface
 make dismissals reversible. Active-shell Hold commits only after the next launch succeeds; a launch

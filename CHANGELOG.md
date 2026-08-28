@@ -9,8 +9,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 ### Changed
 
 - Give working-session titles the full card width and move uptime, project, and model into one
-  compact secondary row; keep uptime visible while project/model truncate independently, and
-  integrate the 44px device-local dismiss target without a full-height divider.
+  compact secondary row; show the useful model slug, remove wasteful flex gaps, strengthen title
+  contrast, and replace the ambiguous × with a quiet 44px `Hide` action.
+- Compress the all-clear state into the same left-aligned information grid as the directory,
+  removing repeated live/working counts while preserving honest alert state.
 
 ### Fixed
 
