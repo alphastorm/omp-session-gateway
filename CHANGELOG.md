@@ -4,6 +4,17 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog and Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Report the true product version from managed installations and diagnostics: the published
+  v0.2.0 archive still names its version directories, `status` output, and doctor bundles
+  `0.1.0-<content-hash>` because two runtime constants sat outside the release version sweep.
+  Install and rollback identity bind to the content hash and source commit, so behavior was
+  unaffected; a version-coherence test now fails `bun run check` when any constant lags
+  `package.json`.
+
 ## [v0.2.0] — 2026-08-28
 
 ### Added
