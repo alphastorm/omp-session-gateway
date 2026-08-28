@@ -1,10 +1,16 @@
 # Release status
 
 **Updated:** 2026-08-28<br>
-**Repository candidate:** `v0.2.1-prealpha.1`; qualification pending, current stable is **`v0.2.0`**<br>
+**Repository candidate:** `v0.2.1-prealpha.2`; qualification pending, current stable is **`v0.2.0`**<br>
 **Qualification predecessor:** **`v0.2.0-prealpha.1`**, independently verified<br>
 **Classification:** `0.2.1` is an unqualified engineering candidate; the stable-qualified claim below applies only to `v0.2.0`<br>
 **Stable decision:** **GO, approved**, for the named support boundary and nothing else.
+
+Candidate `v0.2.1-prealpha.1` built, attested, and signed successfully, then failed closed while
+validating its draft because `release-state.ts` still expected `0.2.0` asset names. The workflow
+deleted the draft; the signed tag and transparency records remain diagnostic evidence. Candidate
+`v0.2.1-prealpha.2` derives the six expected assets from the validated tag version and is the only
+0.2.1 candidate eligible for qualification.
 
 ### Stable 0.2 — GO
 

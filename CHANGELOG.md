@@ -24,6 +24,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
   `package.json`.
 - Prevent long session titles from colliding with Control and connection state in the mobile
   collaboration shell by giving the title its own full-width header row.
+- Derive draft and published release asset names from the validated tag version; the first 0.2.1
+  candidate failed closed after signing when draft validation still looked for 0.2.0 filenames.
 
 ## [v0.2.0] — 2026-08-28
 
