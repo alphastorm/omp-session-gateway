@@ -212,7 +212,7 @@ locking the release, assets, and tag and issuing the immutable-release attestati
 the release as final at publication; publish a new tag to correct it.
 
 Run `bun run check` and `bun run release:build` for a local unsigned build. The builder
-emits `dist/release/omp-session-gateway-0.1.0-bun.tar`, a deterministic SPDX 2.3 dependency
+emits `dist/release/omp-session-gateway-<package-version>-bun.tar`, a deterministic SPDX 2.3 dependency
 inventory, and `SHA256SUMS`; the archive also contains `SBOM.spdx.json` and no source maps.
 For a byte-exact rebuild of an advertised tag, set OMP_RELEASE_CHANNEL to that tag's channel. Valid
 values are pre-alpha (default), alpha, beta, and stable; every other value fails. The channel moves

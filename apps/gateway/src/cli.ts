@@ -23,6 +23,7 @@ import {
   activateRuntime,
   activationState,
   currentInstalledRuntime,
+  GATEWAY_VERSION,
   resolveRollbackTarget,
   stageRuntimePayload,
 } from "./installation.ts";
@@ -548,7 +549,7 @@ async function runServeGuidance(): Promise<void> {
 }
 
 function printHelp(): void {
-  console.log(`OMP Session Gateway 0.1.0
+  console.log(`OMP Session Gateway ${GATEWAY_VERSION}
 
 Usage:
   omp-gateway install --origin https://host.tailnet.ts.net --allow user@example.com [--no-start]
