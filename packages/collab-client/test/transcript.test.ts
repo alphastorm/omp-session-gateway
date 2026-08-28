@@ -1,0 +1,294 @@
+import type { AssistantMessage, SessionEntry } from "@oh-my-pi/pi-wire";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { act, createElement } from "react";
+import type { GuestClient, GuestSnapshot } from "../upstream/src/lib/client";
+import type { TranscriptProps } from "../upstream/src/components/transcript/Transcript";
+import {
+  type MiniElement,
+  click,
+  mount,
+  query,
+  queryAll,
+  restoreDomGlobals,
+  textOf,
+  unmountAll,
+} from "./react-dom-harness";
+
+// The transcript pulls in the `<omp-tool-view>` custom element and the theme
+// store, which both need browser globals while their modules initialize, so the
+// harness above has to be in place before either module is loaded.
+const { TRANSCRIPT_WINDOW, TRANSCRIPT_WINDOW_STEP, Transcript } = await import(
+  "../upstream/src/components/transcript/Transcript"
+);
+const { Session } = await import("../upstream/src/app");
+
+const USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } };
+
+function userEntry(index: number): SessionEntry {
+  return {
+    id: `entry-${index}`,
+    parentId: null,
+    timestamp: "2026-08-01T00:00:00.000Z",
+    type: "message",
+    message: { role: "user", content: `message ${index}`, timestamp: index },
+  };
+}
+
+function userEntries(count: number): SessionEntry[] {
+  return Array.from({ length: count }, (_unused, index) => userEntry(index));
+}
+
+function toolCallEntry(toolCallId: string): SessionEntry {
+  const message: AssistantMessage = {
+    role: "assistant",
+    content: [{ type: "toolCall", id: toolCallId, name: "grep", arguments: { pattern: "needle" } }],
+    model: "test/model",
+    usage: USAGE,
+    stopReason: "toolUse",
+    timestamp: 0,
+  };
+  return { id: `call-${toolCallId}`, parentId: null, timestamp: "2026-08-01T00:00:00.000Z", type: "message", message };
+}
+
+function toolResultEntry(toolCallId: string, text: string): SessionEntry {
+  return {
+    id: `result-${toolCallId}`,
+    parentId: null,
+    timestamp: "2026-08-01T00:00:00.000Z",
+    type: "message",
+    message: {
+      role: "toolResult",
+      toolCallId,
+      toolName: "grep",
+      content: [{ type: "text", text }],
+      isError: false,
+      timestamp: 1,
+    },
+  };
+}
+
+function transcriptProps(entries: readonly SessionEntry[], overrides: Partial<TranscriptProps> = {}): TranscriptProps {
+  return {
+    entries,
+    stream: null,
+    streamDone: false,
+    activeTools: new Map(),
+    working: false,
+    ...overrides,
+  };
+}
+
+async function mountTranscript(props: TranscriptProps): Promise<{ root: MiniElement; render(next: TranscriptProps): Promise<void> }> {
+  const tree = await mount(createElement(Transcript, props));
+  const root = query(tree.container, "tr-root");
+  if (root === null) throw new Error("transcript did not render a root");
+  return { root, render: next => tree.render(createElement(Transcript, next)) };
+}
+
+function rowTexts(root: MiniElement): string[] {
+  return queryAll(root, "tr-row").map(row => textOf(row));
+}
+
+afterEach(async () => {
+  await unmountAll();
+});
+
+afterAll(() => {
+  restoreDomGlobals();
+});
+
+describe("transcript windowing", () => {
+  test("renders only the tail of a long transcript behind a Show earlier control", async () => {
+    const { root } = await mountTranscript(transcriptProps(userEntries(460)));
+
+    const rows = rowTexts(root);
+    expect(rows.length).toBe(TRANSCRIPT_WINDOW);
+    expect(rows[0]).toContain("message 310");
+    expect(rows[rows.length - 1]).toContain("message 459");
+    expect(textOf(root)).not.toContain("message 309");
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 310 more");
+  });
+
+  test("leaves a transcript inside the window whole and unwrapped", async () => {
+    const { root } = await mountTranscript(transcriptProps(userEntries(TRANSCRIPT_WINDOW)));
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    expect(query(root, "tr-earlier")).toBeNull();
+  });
+
+  test("reveals one window step per tap and retires the control at the head", async () => {
+    const { root } = await mountTranscript(transcriptProps(userEntries(460)));
+
+    const earlier = query(root, "tr-earlier");
+    expect(earlier).not.toBeNull();
+    await click(earlier as MiniElement);
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW + TRANSCRIPT_WINDOW_STEP);
+    expect(rowTexts(root)[0]).toContain("message 10");
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 10 more");
+
+    await click(query(root, "tr-earlier") as MiniElement);
+
+    expect(queryAll(root, "tr-row").length).toBe(460);
+    expect(rowTexts(root)[0]).toContain("message 0");
+    expect(query(root, "tr-earlier")).toBeNull();
+  });
+
+  test("holds the reader's anchor when a tap mounts older rows above them", async () => {
+    const { root } = await mountTranscript(transcriptProps(userEntries(460)));
+
+    // Mounting bottom-locks; the reader then scrolls back up into the window.
+    expect(root.scrollTop).toBe(root.scrollHeight);
+    const height = root.scrollHeight;
+    root.scrollTop = height - 2000;
+
+    await click(query(root, "tr-earlier") as MiniElement);
+
+    expect(root.scrollHeight).toBeGreaterThan(height);
+    // Same content still sits under the viewport top, and the bottom lock did
+    // not re-engage and drag the reader to the tail.
+    expect(root.scrollHeight - root.scrollTop).toBe(2000);
+    expect(root.scrollTop).not.toBe(root.scrollHeight);
+  });
+
+  test("extends the window on a tail append instead of dropping the oldest row", async () => {
+    const entries = userEntries(200);
+    const { root, render } = await mountTranscript(transcriptProps(entries));
+    const oldest = rowTexts(root)[0];
+
+    await render(transcriptProps([...entries, userEntry(200), userEntry(201)]));
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW + 2);
+    expect(rowTexts(root)[0]).toBe(oldest);
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 50 more");
+  });
+
+  test("re-windows to the tail when a welcome replaces the transcript wholesale", async () => {
+    const { root, render } = await mountTranscript(transcriptProps(userEntries(200)));
+
+    const replacement = userEntries(400).map(entry => ({ ...entry, id: `rejoined-${entry.id}` }));
+    await render(transcriptProps(replacement));
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    expect(rowTexts(root)[0]).toContain("message 250");
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 250 more");
+  });
+
+  test("windows the compact agent-drawer transcript too", async () => {
+    const { root } = await mountTranscript(transcriptProps(userEntries(200), { compact: true }));
+
+    expect(root.attributes.class).toContain("tr-root--compact");
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 50 more");
+  });
+
+  test("pairs a windowed assistant row with a tool result held outside the window", async () => {
+    // Pairing is keyed by toolCallId over the whole log, so where the log keeps
+    // the result entry — here older than the window — cannot matter.
+    const { root } = await mountTranscript(
+      transcriptProps([toolResultEntry("call-1", "42 matches"), ...userEntries(200), toolCallEntry("call-1")]),
+    );
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    expect(query(root, "tv-status--ok")).not.toBeNull();
+    expect(query(root, "tv-status--pending")).toBeNull();
+
+    await click(query(root, "tv-head") as MiniElement);
+    expect(textOf(root)).toContain("42 matches");
+  });
+
+  test("keeps an out-of-window tool call from duplicating as an active tail card", async () => {
+    const activeTools = new Map([
+      ["call-old", { toolCallId: "call-old", toolName: "grep", args: {}, startedAt: 0 }],
+    ]);
+    const { root } = await mountTranscript(
+      transcriptProps([toolCallEntry("call-old"), ...userEntries(200)], { activeTools, working: true }),
+    );
+
+    expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    expect(queryAll(root, "tv-card").length).toBe(0);
+  });
+});
+
+class FakeGuest {
+  #snapshot: GuestSnapshot;
+  readonly #listeners = new Set<() => void>();
+
+  constructor(snapshot: GuestSnapshot) {
+    this.#snapshot = snapshot;
+  }
+
+  getSnapshot = (): GuestSnapshot => this.#snapshot;
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  };
+
+  async publish(patch: Partial<GuestSnapshot>): Promise<void> {
+    this.#snapshot = { ...this.#snapshot, ...patch };
+    await act(async () => {
+      for (const listener of [...this.#listeners]) listener();
+    });
+  }
+
+  get client(): GuestClient {
+    return this as unknown as GuestClient;
+  }
+}
+
+function guestSnapshot(overrides: Partial<GuestSnapshot> = {}): GuestSnapshot {
+  return {
+    phase: "connecting",
+    endedReason: null,
+    header: null,
+    entries: [],
+    state: null,
+    agents: [],
+    progress: new Map(),
+    lifecycle: new Map(),
+    stream: null,
+    streamDone: false,
+    activeTools: new Map(),
+    working: false,
+    readOnly: false,
+    uiRequest: null,
+    uiResponsePending: false,
+    gatewayHealth: { state: "healthy", rttMs: 20, lastSuccessAt: 0, failureSince: null, retryAt: null },
+    relayHealth: { state: "healthy", rttMs: 30, lastSuccessAt: 0, failureSince: null, retryAt: null },
+    notices: [],
+    ...overrides,
+  };
+}
+
+describe("embedded session first paint", () => {
+  test("defers the transcript until the guest snapshot completes, then keeps it across a reconnect", async () => {
+    const guest = new FakeGuest(guestSnapshot({ entries: userEntries(1200) }));
+    const tree = await mount(
+      createElement(Session, {
+        client: guest.client,
+        onLeave: () => {},
+        onRejoin: () => {},
+        embedOptions: { shellOwnsLifecycle: true },
+      }),
+    );
+
+    // Chunked snapshot still arriving: placeholder only, composer already live.
+    expect(query(tree.container, "tr-loading")?.textContent).toBe("loading transcript…");
+    expect(query(tree.container, "tr-root")).toBeNull();
+    expect(query(tree.container, "sh-composer")).not.toBeNull();
+
+    await guest.publish({ phase: "live" });
+
+    const root = query(tree.container, "tr-root");
+    expect(root).not.toBeNull();
+    expect(query(tree.container, "tr-loading")).toBeNull();
+    expect(queryAll(root as MiniElement, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+
+    // A reconnect must not blank a transcript the reader already has.
+    await guest.publish({ phase: "reconnecting" });
+
+    expect(query(tree.container, "tr-root")).not.toBeNull();
+    expect(query(tree.container, "tr-loading")).toBeNull();
+  });
+});

@@ -19,6 +19,48 @@
 	font-size: 12px;
 }
 
+/* Deferred first paint: the host streams a long history as snapshot chunks, and
+ * rendering each chunk stalls a phone. Shown until that snapshot completes. */
+.tr-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	min-height: 96px;
+	padding: 24px 16px;
+	color: var(--fg-faint);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	animation: tr-pulse 1.4s ease-in-out infinite;
+}
+
+/* Windowed history: older rows stay out of the DOM until this control reveals
+ * them. `content-visibility: auto` on .tr-row is deliberately *not* used — a
+ * skipped row reports its estimated block size instead of its real one, so both
+ * the bottom lock (scrollTop = scrollHeight) and the expansion anchor would
+ * drift as rows materialize during a scroll. */
+.tr-earlier {
+	display: block;
+	width: 100%;
+	min-height: 44px;
+	margin: 0 0 6px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--bg-inset);
+	color: var(--fg-muted);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	text-align: center;
+	cursor: pointer;
+}
+
+.tr-earlier:hover {
+	border-color: var(--border-strong);
+	color: var(--fg);
+}
+
 /* ---- rows ---- */
 
 .tr-row {
