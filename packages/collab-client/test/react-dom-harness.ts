@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from "react";
 import { act } from "react";
-import type { Root } from "react-dom/client";
+import type { Root, createRoot as createRootFn } from "react-dom/client";
 
 /** Height every mounted child contributes to its parent's `scrollHeight`. */
 export const ROW_PX = 40;
@@ -296,8 +296,18 @@ export function restoreDomGlobals(): void {
 }
 
 // `react-dom/client` samples `window`/`document` while it initializes, so it can
-// only be loaded once the globals above exist.
-const { createRoot } = await import("react-dom/client");
+// only be loaded once the globals above exist. A lazy cached import (instead of a
+// top-level await) keeps this module free of TLA: Bun 1.3.14's coverage
+// instrumentation mis-orders TLA module evaluation and leaves the post-await
+// bindings in their temporal dead zone when the test file calls in.
+let createRootLazy: typeof createRootFn | undefined;
+
+async function loadCreateRoot(): Promise<typeof createRootFn> {
+  // Dynamic import by necessity: a static import would evaluate react-dom before
+  // the globals above are installed.
+  if (createRootLazy === undefined) createRootLazy = (await import("react-dom/client")).createRoot;
+  return createRootLazy;
+}
 
 export interface MountedTree {
   /** Root container React renders into. */
@@ -311,6 +321,7 @@ const mounted: Root[] = [];
 export async function mount(node: ReactNode): Promise<MountedTree> {
   const container = document.createElement("div");
   document.body.appendChild(container);
+  const createRoot = await loadCreateRoot();
   const root = createRoot(container as unknown as Element);
   mounted.push(root);
   const tree: MountedTree = {
