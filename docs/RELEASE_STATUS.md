@@ -1,23 +1,56 @@
 # Release status
 
 **Updated:** 2026-08-28<br>
-**Repository version:** `0.2.0`; stable claim target **`v0.2.0`** (pending)<br>
-**Published stable:** **`v0.1.0`** remains GitHub Latest until the 0.2 campaign passes<br>
-**Classification:** v0.2.0 is **not qualified**; the v0.1.0 boundary below remains the only stable claim<br>
-**Stable decision (0.2):** **PENDING** — `STABLE_RELEASE.lock.json` is `pending` and blocks a `v0.2.0` tag.
+**Repository version:** `0.2.0`; stable publication source for **`v0.2.0`**<br>
+**Qualification predecessor:** **`v0.2.0-prealpha.1`**, independently verified<br>
+**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
+**Stable decision:** **GO, approved**, for the named support boundary and nothing else.
 
-### Stable 0.2 — qualification pending
+### Stable 0.2 — GO
 
-**Target tag:** `v0.2.0`, to be published as a non-prerelease and GitHub Latest only after this
-section records a passed campaign.<br>
-**Planned candidate:** the first published `v0.2.0-prealpha.<n>` engineering tag.<br>
-**Rollback predecessor:** published stable `v0.1.0`.<br>
-**Machine gate:** `STABLE_RELEASE.lock.json` is `pending`; `release-policy.ts` refuses a stable
-tag until every commit-bound field passes and the ledger records approval.<br>
-**Planned evidence:** the same lanes as 0.1 — signed candidate artifacts, Debian disposable-host
-lifecycle, retained `Mac14,3` lifecycle with cross-version `v0.1.0 → candidate` upgrade/rollback,
-exact patched-OMP publication/revocation, physical Pixel acceptance with the forbidden-sink sweep,
-and a bounded default-relay smoke, recorded here before ledger approval.
+**Target tag:** `v0.2.0`, published as a non-prerelease and GitHub Latest.<br>
+**Machine gate:** `STABLE_RELEASE.lock.json` is qualified for candidate `v0.2.0-prealpha.1`.<br>
+**Candidate source:** `db88afb2ca18b0822648012bb6da50fd596f294c`.<br>
+**Candidate archive SHA-256:** `149fc1b88a22b9cb1781bcb6219f2c1e41cafc867cb4eefe0a1e04b07eceeea2`.<br>
+**Rollback predecessor:** published stable `v0.1.0`; the Mac lane exercised the cross-version
+`v0.1.0 → v0.2.0-prealpha.1` upgrade and rollback pair.<br>
+**Support boundary:** Debian 13 x86-64, macOS 26.6.1 arm64 on `Mac14,3`, Chrome
+`151.0.7922.173` on Android 17 / Pixel 10 Pro, TUN-mode Tailscale Serve, and exact patched OMP
+v17.4.1 source `9350b7990d26ebf69a604edc82d8558ef04adf30` with patched tree
+`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`. Windows, stock OMP, background Push, Funnel,
+Portal Tunnel, userspace networking, alternate/self-hosted relays, and paired OMP packaging remain
+unsupported.
+
+One orchestrator process ran from published branch `main` at
+`fb375fad33cba7945e3455a9d43c2fcb30874db7` and wrote the mode-`0600` receipt
+`~/.local/share/omp-session-gateway/qualification/v0.2.0-prealpha.1/stable-qualification.json`.
+It completed `passed` at `2026-08-28T09:01:38.902Z`; every lane ran exactly once:
+
+- release run [`33155940416`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33155940416)
+  published six prerelease/not-Latest assets; the signed tag, checksums, all six GitHub asset
+  digests, three GitHub attestations, and three Cosign bundles verified against the exact
+  candidate archive SHA-256 above;
+- Debian run [`33156664373`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33156664373)
+  passed the full disposable-host lifecycle on Debian 13 (trixie), kernel `6.12.94+deb13-amd64`,
+  systemd 257, including the cross-version `v0.1.0` predecessor migration lane, and destroyed its
+  droplet and ephemeral SSH key;
+- retained `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback invariants 20/20,
+  persistence, exact archive/native checks (archive equal to the candidate digest; native addon
+  `7fd4e3f822ff5b1fb890c27ec8a7e19166902f70c81eb4d303061fefe26766f1`), patched-OMP build,
+  publication/revocation, uninstall, and Serve/source cleanup;
+- the exact patched OMP published generation-1 View and Control, returned `200 no-store`, and
+  revoked before cleanup;
+- the Pixel 10 Pro (`Chrome 151.0.7922.173`) rendered the same page throughout: lock/resume
+  recovered in 8,793 ms, a visible Airplane outage recovered in 8,274 ms, and forced Doze
+  recovered in 8,360 ms; the seven-sink capability sweep planted 7, detected 7, and ended clean;
+- the default relay stayed live for 60 seconds with two transitions; and
+- final cleanup measured zero gateway processes/listeners and zero patched-OMP processes.
+
+The first `v0.2.0-prealpha.1` qualification dispatch failed closed at the Debian preflight
+(cross-version predecessor asset naming, fixed in
+[#146](https://github.com/alphastorm/omp-session-gateway/pull/146)) without creating a droplet or
+touching the Mac; its archived receipt recorded no Mac effects and the passing run above started
+from a fresh receipt.
 
 ### Stable 0.1 — GO
 

@@ -42,10 +42,10 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Qualified stable v0.1.0.**
-> [v0.1.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0) is the
+> **Qualified stable v0.2.0.**
+> [v0.2.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.0) is the
 > current GitHub Latest release. It was promoted from exact signed candidate
-> `v0.1.0-prealpha.23` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
+> `v0.2.0-prealpha.1` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
 > Android 17 Pixel matrix passed and candidate-to-stable runtime equivalence was verified.
 > Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP v17.4.1 remain
 > mandatory. Windows, background Push qualification, Portal Tunnel, userspace networking, and
@@ -149,15 +149,16 @@ stable release below; its support boundary remains deliberately narrow.
 
 | | Current claim |
 |---|---|
-| Current release | [`v0.1.0`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.1.0), GitHub Latest |
-| Qualification | Runtime-equivalent to independently qualified signed candidate `v0.1.0-prealpha.23` |
+| Current release | [`v0.2.0`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.0), GitHub Latest |
+| Qualification | Runtime-equivalent to independently qualified signed candidate `v0.2.0-prealpha.1` |
 | Hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |
-| Client | Chrome `151.0.7922.171` on Android 17 (Pixel 10 Pro) |
+| Client | Chrome `151.0.7922.173` on Android 17 (Pixel 10 Pro) |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | OMP baseline | Exact `v17.4.1` plus the repository's pinned patch and versioned `omp-gateway-patched` route |
 
-**Upstream baseline.** Stable v0.1.0 uses exact OMP v17.4.1 at
-`9350b7990d26ebf69a604edc82d8558ef04adf30`, observed and qualified on **2026-08-21**.
+**Upstream baseline.** Stable v0.2.0 uses exact OMP v17.4.1 at
+`9350b7990d26ebf69a604edc82d8558ef04adf30`, observed on **2026-08-21** and re-qualified on
+**2026-08-28**.
 Stock OMP is insufficient; the required versioned build/activation route is
 [patches/oh-my-pi/README.md](patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
 Earlier published prereleases remain immutable at their recorded baselines. Exact package and source

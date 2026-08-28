@@ -3,11 +3,11 @@
 ## Pre-alpha, alpha, beta, and stable artifacts
 
 The repository produces working Bun-runtime engineering candidates and advertised alpha, beta,
-and stable releases. v0.1.0 is the current stable publication and GitHub Latest. Its support claim
+and stable releases. v0.2.0 is the current stable publication and GitHub Latest. Its support claim
 is bound to the signed predecessor and exact evidence in `STABLE_RELEASE.lock.json` and
 `RELEASE_STATUS.md`; generated artifacts never promote themselves.
 
-Stable 0.1 is a bounded support claim, not an expansion to platform families. It covers only the
+Stable 0.2 is a bounded support claim, not an expansion to platform families. It covers only the
 hosts, Android client, TUN-mode Tailscale Serve path, and exact patched OMP baseline recorded in
 COMPATIBILITY.md at the release commit. Windows, background Push qualification, Portal Tunnel,
 userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every unnamed combination
@@ -19,10 +19,11 @@ Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Ever
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
 
-Gateway rollback does not implicitly switch OMP. A stable-to-beta rollback retains the same exact
-v17.4.1 patched OMP prerequisite; use managed gateway rollback when the beta archive remains in
-installation history, otherwise reinstall v0.1.0-beta.1. Any change to the active OMP binary or
-symlink remains the separate documented manual operation.
+Gateway rollback does not implicitly switch OMP. A rollback to the v0.1.0 stable predecessor
+retains the same exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
+predecessor archive remains in installation history, otherwise reinstall the signed v0.1.0
+archive. Any change to the active OMP binary or symlink remains the separate documented manual
+operation.
 
 ## Release gates
 
@@ -41,7 +42,7 @@ Every advertised release requires:
 - complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
   verification.
 
-Stable v0.1.0 additionally requires that the exact signed tag's tree contain a fully passed
+Stable v0.2.0 additionally requires that the exact signed tag's tree contain a fully passed
 STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
 retained Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence.
 The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
@@ -85,12 +86,12 @@ origin. The Android qualification PIN stays in the documented macOS Keychain ser
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
 fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
 
-For v0.1.0, run:
+For the current stable, run:
 
 ```sh
 bunx bun@1.3.14 run smoke:release -- \
-  --tag v0.1.0 \
-  --archive-sha256 925957ab636eb611649bafb3b6bac85061eefd3127dd756a9377123333eda262
+  --tag v0.2.0 \
+  --archive-sha256 <the omp-session-gateway-0.2.0-bun.tar digest from the published SHA256SUMS>
 ```
 
 The command verifies the annotated tag, GitHub Latest state, all six release asset digests,
