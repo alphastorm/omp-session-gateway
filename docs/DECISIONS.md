@@ -558,3 +558,33 @@ close requires a separately threat-modeled OMP command path and protocol decisio
 session keeps running and consuming its ordinary resources until OMP itself stops; only this
 device's row is hidden. Exact ask/generation scoping makes later work visible automatically, and
 the permanent restore surface prevents local state from becoming irrecoverable.
+
+## ADR-027 — Ship the couch-flow visual system with a Settings sheet and a precached client
+
+**Status:** Accepted
+
+**Context:** The first couch-flow directory carried a labeled "Dismiss here" button on every
+working row, rendered ask previews in uppercase mono, kept notification controls as a bottom-of-
+page block, showed an "All clear · 0 working" summary for an empty directory, and promised "You'll
+get pinged" regardless of alert state. Launching View/Control fetched the ~600 KB pinned
+collaboration-client module over the tailnet at tap time because the service worker precached only
+the app shell.
+
+**Decision:** Keep every couch-triage semantic from ADR-026 and restyle its presentation: the
+dismiss action becomes a hairline-divided compact per-row control with the explicit "Dismiss …
+on this device" accessible label; ask previews render as sentence-case body text with the option
+count; held rows requeue with a labeled control; list re-renders animate nothing. Move
+device-scoped preferences — the seven-state background-alert toggle, notification detail options,
+and build identity — into one Settings bottom sheet behind a persistent masthead control, with the
+toggle disabling in place instead of reopening the sheet. Show the `collab.autoStart` empty state
+when zero sessions are live, and state the ping promise only while alerts are enabled, otherwise
+offering a Settings chip. Treat the pinned collaboration-client module and stylesheet as part of
+the content-hashed application shell: the service worker precaches them, the document preloads
+them, and an idle directory warms the module import while capabilities remain fetched only on tap.
+
+**Consequences:** Session titles get the full row width and rare actions stop dominating the
+resting screen. Notification behavior keeps its exact seven labels and explicit-gesture permission
+flow with one added tap of indirection through Settings. The shell cache grows by the client
+bundle, keeping launches independent of tailnet round-trips for static bytes; the update flow is
+unchanged because the cache name derives from the full asset list. The alerts promise is now
+truthful per device state, and media, e2e, and unit fixtures encode the new presentation.

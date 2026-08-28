@@ -54,7 +54,8 @@ const directoryTitle = requiredElement<HTMLElement>("#directory-title");
 const directoryCount = requiredElement<HTMLElement>("#directory-count");
 const notificationSettings = requiredElement<HTMLDialogElement>("#notification-settings");
 const notificationSettingsClose = requiredElement<HTMLButtonElement>("#notification-settings-close");
-const notificationDisable = requiredElement<HTMLButtonElement>("#notification-disable");
+const settingsButton = requiredElement<HTMLButtonElement>("#settings");
+const notificationDetailOptions = requiredElement<HTMLFieldSetElement>("#notification-detail-options");
 const localActionToast = requiredElement<HTMLElement>("#local-action-toast");
 const localActionToastCopy = requiredElement<HTMLElement>("#local-action-toast-copy");
 const localActionToastUndo = requiredElement<HTMLButtonElement>("#local-action-toast-undo");
@@ -191,6 +192,7 @@ const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
 };
 
 function setNotificationControl(state: NotificationControlState): void {
+  const changed = notificationState !== state;
   notificationState = state;
   notificationButton.dataset.state = state;
   notificationButton.textContent = notificationLabels[state];
@@ -200,13 +202,16 @@ function setNotificationControl(state: NotificationControlState): void {
     state === "disabling" ||
     state === "blocked" ||
     state === "unavailable";
+  notificationDetailOptions.hidden = state !== "enabled";
   notificationDisclosure.textContent =
     state === "blocked"
       ? "Notifications are blocked. Enable them in this site's browser settings."
-      : state === "enabled"
-        ? "Tap to choose what this device can show."
+      : state === "unavailable"
+        ? "Background push is not available in this browser profile."
         : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
-  notificationDisclosure.hidden = state !== "blocked";
+  notificationDisclosure.hidden = state === "enabled";
+  // The all-clear surface repeats the alert promise, so it re-renders with the control state.
+  if (changed) render();
 }
 
 function isNotificationSupportResponse(value: unknown): boolean {
@@ -366,7 +371,6 @@ async function disableBackgroundNotifications(): Promise<void> {
   if (registration === undefined) return;
   const existing = await registration.pushManager.getSubscription();
   if (existing === null) {
-    notificationSettings.close();
     setNotificationControl("idle");
     return;
   }
@@ -381,16 +385,16 @@ async function disableBackgroundNotifications(): Promise<void> {
       cache: "no-store",
       credentials: "same-origin",
     });
-    notificationSettings.close();
     setNotificationControl("idle");
   } catch {
     setNotificationControl("unavailable");
   }
 }
 
+/** The toggle lives inside the Settings sheet: idle enables, enabled disables in place. */
 async function toggleBackgroundNotifications(): Promise<void> {
   if (notificationState === "enabled") {
-    notificationSettings.showModal();
+    await disableBackgroundNotifications();
     return;
   }
   const registration = notificationRegistration;
@@ -416,7 +420,6 @@ async function toggleBackgroundNotifications(): Promise<void> {
       throw error;
     }
     setNotificationControl("enabled");
-    notificationSettings.showModal();
   } catch {
     setNotificationControl(Notification.permission === "denied" ? "blocked" : "unavailable");
   }
@@ -1026,8 +1029,8 @@ function createWorkingRow(session: SessionMetadata): HTMLElement {
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "dismiss-session";
-  dismiss.textContent = "Dismiss here";
-  dismiss.title = "Hide on this device; the OMP process keeps running";
+  dismiss.textContent = "✕";
+  dismiss.title = "Dismiss here — hides on this device; the OMP process keeps running";
   dismiss.setAttribute("aria-label", `Dismiss ${sessionTitle(session)} on this device`);
   dismiss.addEventListener("click", () => dismissSession(session));
   frame.append(button, dismiss);
@@ -1080,7 +1083,7 @@ function createHeldRow(session: SessionMetadata): HTMLElement {
   const requeue = document.createElement("button");
   requeue.type = "button";
   requeue.className = "held-requeue";
-  requeue.textContent = "↺ Queue";
+  requeue.textContent = "Requeue";
   requeue.setAttribute("aria-label", `Return ${sessionTitle(session)} to the queue`);
   requeue.addEventListener("click", () => requeueHeldSession(session));
   row.append(open, requeue);
@@ -1108,15 +1111,25 @@ function renderAllClear(
   summary.className = "all-clear-summary";
   const dismissedCopy = dismissed.length === 0 ? "" : ` · ${dismissed.length} dismissed here`;
   const liveWorkingCount = working.length + dismissed.length;
+  const alertsLive = notificationState === "enabled";
   summary.append(
     createTextElement("span", "all-clear-dot", ""),
     createTextElement("h2", "all-clear-title", "All clear"),
     createTextElement(
       "p",
       "all-clear-copy",
-      `Nothing needs you — ${liveWorkingCount} working${dismissedCopy}. You'll get pinged.`,
+      `Nothing needs you — ${liveWorkingCount} working${dismissedCopy}.${alertsLive ? " You'll get pinged." : ""}`,
     ),
   );
+  // Keep the ping promise honest: without an active subscription, surface the path to one.
+  if (notificationState === "idle" || notificationState === "blocked") {
+    const hint = document.createElement("button");
+    hint.type = "button";
+    hint.className = "alerts-hint";
+    hint.textContent = notificationState === "blocked" ? "Alerts blocked · Settings" : "Enable alerts to get pinged";
+    hint.addEventListener("click", () => notificationSettings.showModal());
+    summary.append(hint);
+  }
   sessionList.append(summary);
   if (working.length > 0) {
     sessionList.append(createQueueKicker(`Working · ${working.length}`));
@@ -1152,10 +1165,16 @@ function renderWaitingQueue(
         ? hero.canControl
           ? "Waiting for your input"
           : "Waiting for your input — Control unavailable"
-        : `「${hero.ask.preview}」`,
+        : hero.ask.preview,
     );
     if (hero.ask?.optionCount !== undefined) {
-      askPreview.append(createTextElement("span", "", ` · ${hero.ask.optionCount} options`));
+      askPreview.append(
+        createTextElement(
+          "span",
+          "ask-options",
+          `${hero.ask.optionCount} ${hero.ask.optionCount === 1 ? "option" : "options"} to pick from`,
+        ),
+      );
     }
     article.append(
       createTextElement("h2", "", sessionTitle(hero)),
@@ -1212,10 +1231,18 @@ function renderWaitingQueue(
 function render(): void {
   if (activeCollabShell !== undefined) return;
   sessionList.replaceChildren();
-  emptyState.hidden = true;
   if (!directoryLoaded) {
+    emptyState.hidden = true;
     directoryTitle.textContent = "Sessions";
     directoryCount.hidden = true;
+    return;
+  }
+  emptyState.hidden = sessions.size > 0;
+  if (sessions.size === 0) {
+    directoryTitle.textContent = "Sessions";
+    directoryCount.hidden = true;
+    sessionList.className = "session-list";
+    sessionList.setAttribute("aria-label", "Live OMP sessions");
     return;
   }
 
@@ -1591,6 +1618,29 @@ async function loadCollabStylesheet(): Promise<HTMLLinkElement> {
   });
   document.head.append(link);
   return await loaded;
+}
+
+let collabClientWarmed = false;
+
+/**
+ * Import the pinned collaboration client while the directory idles so a later View/Control tap
+ * only pays for the launch POST and relay connect. Module only: applying the client stylesheet
+ * here would let its own :root/body theme rules restyle the directory, so CSS bytes are warmed by
+ * the build-emitted `<link rel="preload" as="style">` and applied first at launch. Any failure
+ * falls back to the launch-time import; no capability is involved.
+ */
+function warmCollabClient(): void {
+  if (collabClientWarmed) return;
+  collabClientWarmed = true;
+  const idle: (callback: () => void) => unknown =
+    typeof requestIdleCallback === "function" ? requestIdleCallback : queueMicrotask;
+  idle(() => {
+    try {
+      void importCollabClient(__COLLAB_CLIENT_MODULE__).catch(() => undefined);
+    } catch {
+      // Environments without the module define (unit harness) keep the launch-time import path.
+    }
+  });
 }
 
 function enterCollabClient(
@@ -2031,15 +2081,16 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
   if (loaded && epoch === directoryEpoch) {
     reconnectAttempt = 0;
     connectEvents(epoch);
+    warmCollabClient();
     await resolvePendingAttentionRoute();
     return true;
   }
   if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
   return false;
 }
+settingsButton.addEventListener("click", () => notificationSettings.showModal());
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
-notificationDisable.addEventListener("click", () => void disableBackgroundNotifications());
 localActionToastUndo.addEventListener("click", undoPendingDismissal);
 networkRecoveryHelpClose.addEventListener("click", () => networkRecoveryHelp.close());
 for (const input of notificationDetailInputs) {

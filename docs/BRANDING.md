@@ -96,33 +96,43 @@ on light GitHub). `<meta name="theme-color" content="#060809">`.
 
 ## PWA UI system ("OMP Sessions")
 
-Reference mockup: `OMP Sessions PWA.dc.html` (three states side by side).
 Register: Stripe/Uber/Square-grade restraint — strong type, hard hierarchy,
-few colors, no decoration that isn't information.
+few colors, no decoration that isn't information. One accent per state:
+emerald = live, amber = needs-you/privileged, red = unauthorized.
 
-- Layout: single column, `min(100% − 2rem, 26rem)` on phones; cards grid
-  `repeat(auto-fill, minmax(20rem, 1fr))` from 44rem up. Spacing on a 4px grid.
-- Radii: 8px cards/buttons, 999px pills. Borders 1px `border`; shadows none —
-  hierarchy comes from surface steps, not elevation.
-- App bar: mark 24px + mono eyebrow `PRIVATE TAILNET DIRECTORY` (live color) +
-  H1 "Sessions" (Space Grotesk 600, 28px) + live pill (`live` dot + "Live · N").
-- Session card (`surface` bg, `border`): title 17px/600; mono meta rows 12px
-  (model, cwd truncated middle, age, `g<N>` generation chip); actions row.
-- Actions: **View** = primary, solid `ink` bg / `ink-dark` text (Uber-style
-  white-on-dark). **Control** = outlined `control` color, transparent bg;
-  optional WebAuthn hint under it. Buttons ≥48px tall, radius 8, weight 600.
-- Status banner: left-borderless — a full-width `surface` strip with a leading
-  status dot (live/loading/danger). Unauthorized state uses `danger` text +
-  dot, mono detail line, and hides all cards.
-- Empty state: ghost mark (mark at 20% opacity), "No live sessions", mono hint
+- Layout: one couch-first triage column, `min(100% − 2rem, 35rem)` at every
+  viewport. Spacing on a 4px grid. System font stacks only in the app (Space
+  Grotesk/JetBrains Mono webfonts remain README/banner-only).
+- Radii: ~10px rows/cards, 12px hero, 999px pills. Borders 1px `border`;
+  shadows only on overlays (toast, sheets) — hierarchy comes from surface
+  steps, not elevation.
+- Masthead: brand row (mark 20px + mono eyebrow `PRIVATE TAILNET DIRECTORY` in
+  live color + trailing 44px Settings control), then H1 `Sessions`/`Needs you`
+  beside the state pill (`Live · N` emerald / `N waiting` amber).
+- Needs-you queue: one amber `Up next` hero (title, mono project/model
+  summary, sentence-case ask preview with a 2px amber rule, block
+  `Open request`, quiet `Hold for desk`/`Transcript` alternates), `Then` rows
+  with chevrons, dashed `On hold` rows with `Requeue`, then working rows.
+- Working rows: one bordered frame per session — whole-row View button (live
+  dot, title, mono uptime) plus a hairline-divided compact ✕ dismiss control
+  (44px target, `Dismiss … on this device` aria-label).
+- All clear: borderless centered statement (ringed live dot, `All clear`, one
+  muted line). The ping promise appears only while background alerts are
+  enabled; otherwise a pill chip routes to Settings.
+- Settings sheet: bottom sheet with mono section kickers, the seven-state
+  alert toggle, detail options (only while enabled), and a mono build line.
+- Status banner: full-width `surface` strip with a leading status dot
+  (live/loading/danger). Unauthorized uses `danger` text + dot and hides rows.
+- Empty state: ghost mark (20% opacity), `NO LIVE SESSIONS` kicker, mono hint
   about `collab.autoStart`.
-- Focus: 2px `live` ring, 2px offset. Motion: 150ms ease-out fades only;
-  respect `prefers-reduced-motion`.
+- Focus: 2px `live` ring, 2px offset; dialogs take initial focus themselves.
+  Motion: none on list re-renders; only the loading dot pulses, and
+  `prefers-reduced-motion` disables it.
 - Links: `live` color, hover lighten (`#5FD9A9`).
 
 Security-UX invariants (do not regress): capabilities fetched only on tap
-(no-store), never rendered into DOM attributes/history/storage; footer keeps
-both standing lines from the current app.
+(no-store), never rendered into DOM attributes/history/storage; the Settings
+sheet keeps the standing community/affiliation line.
 
 ## Relationship to upstream
 

@@ -67,7 +67,14 @@ Each card may show only non-secret metadata:
   and receipt timestamp but no prompt content or answer data;
 - **View** for ordinary read-only launches and **Open request** for attention requiring Control;
 - **Hold for desk** for exact-ask local queue routing; and
-- **Dismiss here** for reversible device-local hiding of non-attention rows.
+- **Dismiss here** for reversible device-local hiding of non-attention rows, presented as a
+  compact per-row control with an explicit accessible label.
+
+A directory with zero live sessions shows the `collab.autoStart` empty-state guidance instead of a
+zero-count summary. Device-scoped preferences — the background-alert toggle, notification detail,
+and build identity — live in one Settings sheet behind a persistent masthead control; the `All
+clear` summary claims "You'll get pinged" only while alerts are enabled and otherwise offers the
+Settings path.
 
 The PWA never prefetches capabilities. It receives metadata from `GET /api/v1/sessions` and
 `GET /api/v1/events`, then requests one capability after an explicit tap.
@@ -89,14 +96,17 @@ from still-working sessions, so the PWA must not invent a Completed state or lab
 as Close or Exit. These bounded records contain no title, path, model, prompt, answer, transcript,
 or collaboration capability.
 
-An explicit dashboard action enables background Web Push. Permission is never requested on load.
+An explicit Settings-sheet action enables background Web Push. Permission is never requested on load.
 The gateway sends only strict instance/generation attention metadata to the browser-provided push
 endpoint; visible text is fixed and contains no session label or prompt content. A tap opens a
 metadata-only attention route, which is synchronously scrubbed before the exact generation and
 current attention state are revalidated. Valid taps request Control through the ordinary no-store,
 in-memory launch flow; stale taps remain on the directory.
 
-PWA upgrades activate immediately after the new content-hashed shell is cached. The service worker
+PWA upgrades activate immediately after the new content-hashed shell is cached. The shell includes
+the pinned collaboration-client module and stylesheet, and an idle directory warms the module
+import so a launch pays only for its capability request and relay connect; launch-time loading
+remains the fallback. The service worker
 auto-navigates only an idle exact-root directory through the no-store `/update/` bootstrap, which
 the new document synchronously scrubs to `/`. A pending launch reserves `/client/` before any
 asynchronous work; active or pending collaboration is never reloaded. Deferred updates apply when a

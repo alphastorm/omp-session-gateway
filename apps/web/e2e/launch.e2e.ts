@@ -216,15 +216,13 @@ test("installed-PWA View and Control mount in the current window without losing 
     await page.locator(".triage-action").click();
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
-    await expect(page.locator(".all-clear-copy")).toHaveText(
-      "Nothing needs you — 14 working. You'll get pinged.",
-    );
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you — 14 working.");
     await expect(page.locator(".working-row")).toHaveCount(14);
-    await expect(page.locator("#notify")).toBeVisible();
-    const alertsAfterList = await page.evaluate(() =>
-      Boolean(document.querySelector("#session-list + .home-alerts")),
+    await expect(page.locator("#settings")).toBeVisible();
+    const legacyAlertsBlock = await page.evaluate(() =>
+      Boolean(document.querySelector(".home-alerts")),
     );
-    expect(alertsAfterList).toBe(true);
+    expect(legacyAlertsBlock).toBe(false);
     expect(auxiliaryPages).toBe(0);
     expect(fixture.requests.filter(request => request.endsWith("/launch"))).toHaveLength(3);
 

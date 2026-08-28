@@ -8,6 +8,20 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Added
 
+- Restyle the couch-flow directory for phone-first triage: full-width session titles with a
+  compact per-row **Dismiss here** control, sentence-case ask previews with option counts, a
+  labeled **Requeue** control on held rows, a calm borderless **All clear** statement, and a real
+  empty state when no session is live.
+- Move background-alert control, notification detail, and build identity into one Settings bottom
+  sheet behind a persistent masthead control; the seven exact alert states are unchanged, the
+  toggle disables in place, and the resting screen claims "You'll get pinged" only while alerts
+  are enabled.
+- Precache the pinned collaboration client with the application shell, preload it from the
+  document, and warm its module import while the directory idles, so View/Control taps pay only
+  for the no-store launch request and relay connect; capabilities are still fetched only on tap.
+- Render long transcripts incrementally in the embedded client: the initial snapshot defers to one
+  loading placeholder until it completes, and the transcript windows to the newest entries with a
+  **Show earlier** control instead of building the full history DOM at connect.
 - Add device-local couch triage to the PWA: exact-ask **Hold for desk** preserves authoritative
   attention while advancing to the next request, and reversible **Dismiss here** hides a
   non-attention row on one device without stopping OMP.

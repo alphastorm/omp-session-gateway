@@ -69,9 +69,16 @@ const stylesheetSource = await readFile(join(webSource, "styles.css"));
 const stylesheet = `/assets/app.${digest(stylesheetSource)}.css`;
 await writeFile(join(outputRoot, stylesheet.slice(1)), stylesheetSource);
 
+const buildTag = digest([webScript, stylesheet, clientModule, clientStylesheet].join("\0"));
 const indexTemplate = await readFile(join(webSource, "index.html"), "utf8");
 const indexHtml = indexTemplate
   .replace("<!--ASSET_STYLES-->", `<link rel="stylesheet" href="${stylesheet}" />`)
+  .replace(
+    "<!--ASSET_PRELOADS-->",
+    // Warm the pinned collab client on first visit; repeat visits hit the service-worker cache.
+    `<link rel="modulepreload" href="${clientModule}" />\n    <link rel="preload" as="style" href="${clientStylesheet}" />`,
+  )
+  .replace("<!--ASSET_BUILD-->", buildTag)
   .replace("<!--ASSET_SCRIPT-->", `<script type="module" src="${webScript}"></script>`);
 await writeFile(join(outputRoot, "index.html"), indexHtml);
 
@@ -87,7 +94,9 @@ for (const asset of [
 ]) {
   await copyFile(join(webSource, asset), join(outputRoot, asset));
 }
-const shellAssets = [webScript, stylesheet];
+// The collab client is part of the launch-critical shell: precaching it makes View/Control
+// taps independent of tailnet round-trips for static bytes. All entries stay content-hashed.
+const shellAssets = [webScript, stylesheet, clientModule, clientStylesheet];
 const cacheName = `omp-sessions-shell-${digest(shellAssets.join("\0"))}`;
 const workerBuild = await buildEntrypoint(join(webSource, "service-worker.ts"), join(temporaryRoot, "worker"), {
   __SHELL_ASSETS__: JSON.stringify(shellAssets),
