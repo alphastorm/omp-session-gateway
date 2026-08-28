@@ -11,10 +11,6 @@ const REPOSITORY = "alphastorm/omp-session-gateway";
 const PREVIOUS_TAG = "v0.2.0";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
-const CURRENT_PRERELEASE_PATTERN = new RegExp(
-  `^v${ESCAPED_VERSION}-(?:alpha(?:\\.[1-9][0-9]*)?|beta(?:\\.[1-9][0-9]*)?|prealpha\\.[1-9][0-9]*)$`,
-  "u",
-);
 const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
@@ -195,10 +191,8 @@ export function parseStableQualificationArgs(
   if (!CANDIDATE_TAG_PATTERN.test(tag)) {
     throw new Error(`--tag must match v${VERSION}-prealpha.<positive integer>`);
   }
-  if (previousTag !== PREVIOUS_TAG && !CURRENT_PRERELEASE_PATTERN.test(previousTag)) {
-    throw new Error(
-      `--previous-tag must name the published ${PREVIOUS_TAG} stable or an exact ${VERSION} prerelease`,
-    );
+  if (previousTag !== PREVIOUS_TAG) {
+    throw new Error(`--previous-tag must name the published ${PREVIOUS_TAG} stable`);
   }
   const receiptRoot = resolve(
     environment.OMP_STABLE_QUALIFICATION_DIR ??

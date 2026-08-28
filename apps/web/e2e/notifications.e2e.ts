@@ -248,6 +248,14 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await page.clock.fastForward(5_100);
     await expect(page.locator("#local-action-toast")).toBeHidden();
     await expect(page.locator(".dismissed-control")).toContainText("1 hidden on this device");
+    const restoreSurface = await page.locator(".dismissed-control").evaluate(element => {
+      const action = element.querySelector("button");
+      return {
+        actionHeight: action?.getBoundingClientRect().height ?? 0,
+        overflowFree: document.documentElement.scrollWidth <= window.innerWidth,
+      };
+    });
+    expect(restoreSurface).toEqual({ actionHeight: 44, overflowFree: true });
     expect(fixture.requests).toHaveLength(requestsBeforeDismiss);
     await page.locator(".dismissed-control").getByRole("button", { name: "Show all" }).click();
     await expect(page.locator(".working-row")).toHaveCount(1);

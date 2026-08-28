@@ -41,6 +41,8 @@ describe("release workflow trust ordering", () => {
       "bun scripts/release-policy.ts",
       "candidateSourceCommit",
       "candidateArchiveSha256",
+      "candidate_previous",
+      "previousTag",
       "gh release view",
     );
   });
@@ -50,22 +52,17 @@ describe("release workflow trust ordering", () => {
     expect(validate).toContain("QUALIFIED_CANDIDATE_TAG");
     expect(validate).toContain("QUALIFIED_CANDIDATE_SHA256");
     const run = runStep("Compare stable runtime with qualified candidate");
-    ordered(run, "gh release download", "sha256sum --check", "tar -xf", "runtime_paths=(", "diff --recursive");
-    for (const path of [
-      "apps",
-      "bun.lock",
-      "LICENSE",
-      "licenses",
-      "NOTICE.md",
-      "package.json",
-      "patches",
-      "THIRD_PARTY_NOTICES.md",
-      "UPSTREAM.lock.json",
+    ordered(run, "gh release download", "sha256sum --check", "tar -xf", "find .", "diff --unified", "cmp --silent");
+    for (const expectedDifference of [
+      "release-info.json",
+      "SBOM.spdx.json",
+      "STABLE_RELEASE.lock.json",
+      "schemas/stable-release.schema.json",
     ]) {
-      expect(run).toContain(path);
+      expect(run).toContain(expectedDifference);
     }
-    expect(run).not.toContain("release-info.json");
-    expect(run).not.toContain("SBOM.spdx.json");
+    expect(run).toContain("candidate-members.txt");
+    expect(run).toContain("stable-members.txt");
   });
 
   test("revalidates the signed tag immediately before public provenance", () => {

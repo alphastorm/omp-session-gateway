@@ -62,6 +62,11 @@ jobs:
             candidate_tag="$(jq -er '.candidateTag' STABLE_RELEASE.lock.json)"
             candidate_source="$(jq -er '.candidateSourceCommit' STABLE_RELEASE.lock.json)"
             candidate_digest="sha256:$(jq -er '.candidateArchiveSha256' STABLE_RELEASE.lock.json)"
+            candidate_previous="$(jq -er '.previousTag' STABLE_RELEASE.lock.json)"
+            if [[ "$candidate_previous" != "v0.2.0" ]]; then
+              echo "Stable 0.2.1 qualification must use v0.2.0 as its rollback predecessor." >&2
+              exit 1
+            fi
             if ! git merge-base --is-ancestor "$candidate_source" "$GITHUB_SHA"; then
               echo "Qualified candidate source must be an ancestor of the stable source." >&2
               exit 1
@@ -127,13 +132,17 @@ jobs:
           tar -xf "$ARCHIVE_PATH" -C "$stable_extract"
           candidate_root="$candidate_extract/omp-session-gateway-$PACKAGE_VERSION-bun"
           stable_root="$stable_extract/omp-session-gateway-$PACKAGE_VERSION-bun"
-          runtime_paths=(
-            apps bun.lock LICENSE licenses NOTICE.md package.json patches
-            THIRD_PARTY_NOTICES.md UPSTREAM.lock.json
-          )
-          for path in "${runtime_paths[@]}"; do
-            diff --recursive --brief --no-dereference "$candidate_root/$path" "$stable_root/$path"
-          done
+          (cd "$candidate_root" && find . \( -type f -o -type l \) -print | LC_ALL=C sort) > "$RUNNER_TEMP/candidate-members.txt"
+          (cd "$stable_root" && find . \( -type f -o -type l \) -print | LC_ALL=C sort) > "$RUNNER_TEMP/stable-members.txt"
+          diff --unified "$RUNNER_TEMP/candidate-members.txt" "$RUNNER_TEMP/stable-members.txt"
+          while IFS= read -r path; do
+            case "$path" in
+              ./release-info.json | ./SBOM.spdx.json | ./STABLE_RELEASE.lock.json | ./schemas/stable-release.schema.json)
+                continue
+                ;;
+            esac
+            cmp --silent "$candidate_root/$path" "$stable_root/$path"
+          done < "$RUNNER_TEMP/candidate-members.txt"
 
       - name: Revalidate signed tag before public provenance
         env:
@@ -287,7 +296,7 @@ jobs:
 
           ### Rollback
 
-          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha.1\` archive with the deployment's existing origin and allowlist.
+          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.2.0\` archive with the deployment's existing origin and allowlist.
 
           - Source commit: \`$GITHUB_SHA\`
           - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
@@ -334,7 +343,7 @@ jobs:
 
           ### Rollback
 
-          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.1.0-alpha\` archive with the deployment's existing origin and allowlist.
+          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.2.0\` archive with the deployment's existing origin and allowlist.
 
           - Source commit: \`$GITHUB_SHA\`
           - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch

@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "version": "0.2.0",
   "releaseTag": "v0.2.0",
+  "previousTag": "v0.1.0",
   "status": "qualified",
   "candidateTag": "v0.2.0-prealpha.1",
   "candidateSourceCommit": "db88afb2ca18b0822648012bb6da50fd596f294c",

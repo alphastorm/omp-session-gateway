@@ -51,11 +51,11 @@ describe("stable qualification arguments", () => {
     }
   });
 
-  test("accepts only the published stable or a 0.2.1 prerelease as the rollback predecessor", () => {
-    expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", "v0.2.1-prealpha.1"], {}).previousTag).toBe(
-      "v0.2.1-prealpha.1",
+  test("accepts only the published stable as the rollback predecessor", () => {
+    expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], {}).previousTag).toBe(
+      PREVIOUS_TAG,
     );
-    for (const previous of ["v0.1.0", "v0.2.0-prealpha.1", "v0.2.1", ""]) {
+    for (const previous of ["v0.1.0", "v0.2.0-prealpha.1", "v0.2.1-prealpha.1", "v0.2.1", ""]) {
       expect(() => parseStableQualificationArgs(["--tag", TAG, "--previous-tag", previous], {})).toThrow(
         "--previous-tag",
       );

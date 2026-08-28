@@ -10,6 +10,7 @@ const qualifiedManifest = () => ({
   schemaVersion: 1,
   version: VERSION,
   releaseTag: "v0.2.0",
+  previousTag: "v0.1.0",
   status: "qualified",
   candidateTag: "v0.2.0-prealpha.21",
   candidateSourceCommit: "b".repeat(40),
@@ -83,6 +84,11 @@ describe("release tag policy", () => {
     incomplete.evidence.android = "pending";
     expect(() => assertStableReleaseQualification(incomplete, "v0.2.0", VERSION)).toThrow(
       "stable release evidence is incomplete",
+    );
+    const missingPredecessor = qualifiedManifest();
+    Reflect.deleteProperty(missingPredecessor, "previousTag");
+    expect(() => assertStableReleaseQualification(missingPredecessor, "v0.2.0", VERSION)).toThrow(
+      "unexpected fields",
     );
   });
 
