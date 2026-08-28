@@ -228,7 +228,8 @@ test("attention cards and explicit background alert settings stay metadata-only"
     const requestsBeforeDismiss = fixture.requests.length;
     await page.getByRole("button", { name: "Hide ordinary-newest-0003 on this device" }).click();
     await expect(page.locator(".working-row")).toHaveCount(0);
-    await expect(page.locator("#directory-count")).toHaveText("Live · 1 · 1 hidden here");
+    await expect(page.locator("#directory-count")).toHaveText("Live · 1");
+    await expect(page.locator(".all-clear-copy")).toHaveText("Nothing needs you.");
     await expect(page.locator("#local-action-toast")).toBeVisible();
     await expect(page.locator("#local-action-toast-copy")).toContainText("on this device");
     const dismissedStorage = await page.evaluate(() =>

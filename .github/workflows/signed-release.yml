@@ -73,6 +73,10 @@ jobs:
               echo "Qualified candidate archive digest does not match the published release." >&2
               exit 1
             fi
+            {
+              echo "QUALIFIED_CANDIDATE_TAG=$candidate_tag"
+              echo "QUALIFIED_CANDIDATE_SHA256=${candidate_digest#sha256:}"
+            } >> "$GITHUB_ENV"
           fi
           archive="dist/release/omp-session-gateway-$version-bun.tar"
           checksums="dist/release/SHA256SUMS"
@@ -103,6 +107,33 @@ jobs:
             exit 1
           fi
           (cd dist/release && sha256sum --check SHA256SUMS)
+
+      - name: Compare stable runtime with qualified candidate
+        if: env.OMP_RELEASE_CHANNEL == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          candidate_dir="$RUNNER_TEMP/qualified-candidate"
+          candidate_extract="$RUNNER_TEMP/qualified-candidate-extract"
+          stable_extract="$RUNNER_TEMP/stable-extract"
+          candidate_archive="omp-session-gateway-$PACKAGE_VERSION-bun.tar"
+          mkdir -p "$candidate_dir" "$candidate_extract" "$stable_extract"
+          gh release download "$QUALIFIED_CANDIDATE_TAG" \
+            --repo "$GITHUB_REPOSITORY" --dir "$candidate_dir" --pattern "$candidate_archive"
+          printf '%s  %s\n' "$QUALIFIED_CANDIDATE_SHA256" "$candidate_dir/$candidate_archive" |
+            sha256sum --check -
+          tar -xf "$candidate_dir/$candidate_archive" -C "$candidate_extract"
+          tar -xf "$ARCHIVE_PATH" -C "$stable_extract"
+          candidate_root="$candidate_extract/omp-session-gateway-$PACKAGE_VERSION-bun"
+          stable_root="$stable_extract/omp-session-gateway-$PACKAGE_VERSION-bun"
+          runtime_paths=(
+            apps bun.lock LICENSE licenses NOTICE.md package.json patches
+            THIRD_PARTY_NOTICES.md UPSTREAM.lock.json
+          )
+          for path in "${runtime_paths[@]}"; do
+            diff --recursive --brief --no-dereference "$candidate_root/$path" "$stable_root/$path"
+          done
 
       - name: Revalidate signed tag before public provenance
         env:

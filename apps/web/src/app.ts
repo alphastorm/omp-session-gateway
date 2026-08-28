@@ -1122,7 +1122,6 @@ function renderAllClear(
 ): void {
   const summary = document.createElement("div");
   summary.className = "all-clear-summary";
-  const hiddenCopy = dismissed.length === 0 ? "" : ` · ${dismissed.length} hidden here`;
   const alertsLive = notificationState === "enabled";
   const message = document.createElement("div");
   message.className = "all-clear-message";
@@ -1131,7 +1130,7 @@ function renderAllClear(
     createTextElement(
       "p",
       "all-clear-copy",
-      `Nothing needs you${hiddenCopy}.${alertsLive ? " Alerts are on." : ""}`,
+      `Nothing needs you.${alertsLive ? " Alerts are on." : ""}`,
     ),
   );
   summary.append(createTextElement("span", "all-clear-dot", ""), message);
@@ -1282,10 +1281,7 @@ function render(): void {
   directoryTitle.textContent = "Sessions";
   directoryCount.className = "count-pill count-pill-live";
   const liveWorkingCount = working.length + dismissed.length;
-  directoryCount.textContent =
-    dismissed.length === 0
-      ? `Live · ${liveWorkingCount}`
-      : `Live · ${liveWorkingCount} · ${dismissed.length} hidden here`;
+  directoryCount.textContent = `Live · ${liveWorkingCount}`;
   sessionList.className = "session-list all-clear";
   sessionList.setAttribute("aria-label", "Live OMP sessions");
   renderAllClear(working, dismissed);

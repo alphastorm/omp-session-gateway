@@ -19,9 +19,9 @@ Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Ever
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
 
-Gateway rollback does not implicitly switch OMP. A rollback to the v0.1.0 stable predecessor
+Gateway rollback does not implicitly switch OMP. A rollback to the v0.2.0 stable predecessor
 retains the same exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
-predecessor archive remains in installation history, otherwise reinstall the signed v0.1.0
+predecessor archive remains in installation history, otherwise reinstall the signed v0.2.0
 archive. Any change to the active OMP binary or symlink remains the separate documented manual
 operation.
 
@@ -58,7 +58,7 @@ Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
 bun run qualify:stable --tag v0.2.1-prealpha.1
 ```
 
-The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, beta-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
+The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, stable-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
 
 The receipt resumes only for the same candidate and exact orchestrator commit. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 

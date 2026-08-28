@@ -61,6 +61,7 @@ export interface CandidateIdentity {
 export interface StableQualificationReceipt {
   schemaVersion: 1;
   tag: string;
+  previousTag: string;
   status: "running" | "passed" | "failed";
   orchestratorCommit: string;
   startedAt: string;
@@ -230,11 +231,16 @@ function emptyLanes(): Record<StableQualificationLane, LaneReceipt> {
   >;
 }
 
-export function createStableQualificationReceipt(tag: string, orchestratorCommit: string): StableQualificationReceipt {
+export function createStableQualificationReceipt(
+  tag: string,
+  orchestratorCommit: string,
+  previousTag: string,
+): StableQualificationReceipt {
   const startedAt = now();
   return {
     schemaVersion: 1,
     tag,
+    previousTag,
     status: "running",
     orchestratorCommit,
     startedAt,
@@ -247,15 +253,19 @@ export function validateStableQualificationReceipt(
   value: unknown,
   expectedTag: string,
   expectedCommit: string,
+  expectedPreviousTag: string,
 ): StableQualificationReceipt {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("qualification receipt is invalid");
   const receipt = value as Partial<StableQualificationReceipt>;
   if (
     receipt.schemaVersion !== 1 ||
     receipt.tag !== expectedTag ||
+    receipt.previousTag !== expectedPreviousTag ||
     receipt.orchestratorCommit !== expectedCommit
   ) {
-    throw new Error("qualification receipt identity is invalid; do not resume evidence across orchestrator commits");
+    throw new Error(
+      "qualification receipt identity is invalid; do not resume evidence across orchestrator commits or rollback predecessors",
+    );
   }
   if (typeof receipt.lanes !== "object" || receipt.lanes === null) throw new Error("qualification receipt lanes are invalid");
   for (const name of LANE_NAMES) {
@@ -304,9 +314,14 @@ export function createReceiptPersister(
   };
 }
 
-async function loadReceipt(path: string, tag: string, commit: string): Promise<StableQualificationReceipt> {
-  if (!(await Bun.file(path).exists())) return createStableQualificationReceipt(tag, commit);
-  return validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), tag, commit);
+async function loadReceipt(
+  path: string,
+  tag: string,
+  commit: string,
+  previousTag: string,
+): Promise<StableQualificationReceipt> {
+  if (!(await Bun.file(path).exists())) return createStableQualificationReceipt(tag, commit, previousTag);
+  return validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), tag, commit, previousTag);
 }
 
 export async function executeReceiptLane<T extends Record<string, unknown>>(
@@ -1227,7 +1242,7 @@ async function main(): Promise<void> {
   const receiptPath = join(options.receiptRoot, "stable-qualification.json");
   const orchestratorCommit = await commandOutput(["git", "rev-parse", "HEAD"]);
   const qualificationRef = await gitQualificationRef(orchestratorCommit);
-  const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit);
+  const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit, options.previousTag);
   receipt.status = "running";
   delete receipt.completedAt;
   delete receipt.error;

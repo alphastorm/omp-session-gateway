@@ -1350,7 +1350,8 @@ describe("dashboard attention and notifications", () => {
 
     harness.elements.sessionList.querySelectorAll(".dismiss-session")[0]?.dispatchEvent(new Event("click"));
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
-    expect(harness.elements.directoryCount.textContent).toBe("Live · 2 · 1 hidden here");
+    expect(harness.elements.directoryCount.textContent).toBe("Live · 2");
+    expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe("Nothing needs you.");
     expect(harness.elements.localActionToast.hidden).toBeFalse();
     expect(harness.elements.localActionToastCopy.textContent).toStartWith("Hidden “Dismiss One”");
     const stored = JSON.parse(
@@ -1381,6 +1382,9 @@ describe("dashboard attention and notifications", () => {
     const restore = harness.elements.sessionList
       .querySelector(".dismissed-control")
       ?.querySelector("button");
+    expect(
+      harness.elements.sessionList.querySelector(".dismissed-control")?.querySelector("span")?.textContent,
+    ).toBe("1 hidden on this device");
     expect(restore?.textContent).toBe("Show all");
     restore?.dispatchEvent(new Event("click"));
     expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(2);

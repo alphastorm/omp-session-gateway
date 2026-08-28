@@ -45,6 +45,29 @@ describe("release workflow trust ordering", () => {
     );
   });
 
+  test("byte-compares the stable managed runtime with the qualified candidate", () => {
+    const validate = runStep("Validate signed release tag and derive its channel");
+    expect(validate).toContain("QUALIFIED_CANDIDATE_TAG");
+    expect(validate).toContain("QUALIFIED_CANDIDATE_SHA256");
+    const run = runStep("Compare stable runtime with qualified candidate");
+    ordered(run, "gh release download", "sha256sum --check", "tar -xf", "runtime_paths=(", "diff --recursive");
+    for (const path of [
+      "apps",
+      "bun.lock",
+      "LICENSE",
+      "licenses",
+      "NOTICE.md",
+      "package.json",
+      "patches",
+      "THIRD_PARTY_NOTICES.md",
+      "UPSTREAM.lock.json",
+    ]) {
+      expect(run).toContain(path);
+    }
+    expect(run).not.toContain("release-info.json");
+    expect(run).not.toContain("SBOM.spdx.json");
+  });
+
   test("revalidates the signed tag immediately before public provenance", () => {
     expect(runStep("Revalidate signed tag before public provenance")).toContain("bun scripts/release-tag-state.ts");
   });

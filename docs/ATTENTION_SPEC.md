@@ -135,5 +135,5 @@ worker messages, browser storage, caches, logs, and diagnostics.
 - [x] Strict v2 attention/clear payloads; per-instance replacement; exact-request clear; app badge.
 - [x] Notification tap scrubs and revalidates the exact ask before the no-store Control launch.
 - [x] Last-known metadata survives phone, tailnet, desktop, and relay failures with distinct copy.
-- [x] 412×915 and 390×844 browser checks remain overflow-free with targets at least 44px.
+- [x] The measured 411×816 Pixel layout viewport and synthetic 390×844 browser checks remain overflow-free with targets at least 44px.
 - [x] Capability-leak scan and focused protocol, registry, HTTP, app, worker, and browser tests pass.

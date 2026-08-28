@@ -20,6 +20,7 @@ import {
 } from "./stable-qualification.ts";
 
 const TAG = "v0.2.1-prealpha.21";
+const PREVIOUS_TAG = "v0.2.0";
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -105,7 +106,7 @@ OMP_PIN_NATIVE_BINARY_SHA256=${"4".repeat(64)}
 
 describe("resumable receipt lanes", () => {
   test("checkpoints running evidence, persists a pass, and skips an already passed lane", async () => {
-    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     const states: string[] = [];
     const persist = async () => {
       states.push(receipt.lanes.artifacts.status);
@@ -129,7 +130,7 @@ describe("resumable receipt lanes", () => {
   });
 
   test("records a failure and never converts it into a pass", async () => {
-    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     const message = await rejectionMessage(
       executeReceiptLane(receipt, "debian", async () => {}, async () => {
         throw new Error("host lane failed");
@@ -145,12 +146,12 @@ describe("resumable receipt lanes", () => {
   test("serializes concurrent Android and relay receipt checkpoints", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-stable-receipt-concurrency-"));
     const receiptPath = join(temporaryRoot, "stable-qualification.json");
-    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     const persist = createReceiptPersister(receiptPath, receipt);
     try {
       await Promise.all(Array.from({ length: 32 }, () => persist()));
       const persisted = JSON.parse(await readFile(receiptPath, "utf8"));
-      expect(validateStableQualificationReceipt(persisted, TAG, COMMIT)).toEqual(persisted);
+      expect(validateStableQualificationReceipt(persisted, TAG, COMMIT, PREVIOUS_TAG)).toEqual(persisted);
       expect((await stat(receiptPath)).mode & 0o777).toBe(0o600);
       expect(await readdir(temporaryRoot)).toEqual(["stable-qualification.json"]);
     } finally {
@@ -160,16 +161,19 @@ describe("resumable receipt lanes", () => {
 });
 
 test("receipt identity cannot mix passed lanes across orchestrator commits", () => {
-  const receipt = createStableQualificationReceipt(TAG, COMMIT);
+  const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
   receipt.lanes.debian.status = "passed";
-  expect(validateStableQualificationReceipt(receipt, TAG, COMMIT)).toBe(receipt);
-  expect(() => validateStableQualificationReceipt(receipt, TAG, "b".repeat(40))).toThrow(
+  expect(validateStableQualificationReceipt(receipt, TAG, COMMIT, PREVIOUS_TAG)).toBe(receipt);
+  expect(() => validateStableQualificationReceipt(receipt, TAG, "b".repeat(40), PREVIOUS_TAG)).toThrow(
     "do not resume evidence across orchestrator commits",
+  );
+  expect(() => validateStableQualificationReceipt(receipt, TAG, COMMIT, "v0.2.1-prealpha.1")).toThrow(
+    "rollback predecessors",
   );
 });
 
 test("receipt-driven Mac cleanup survives restarts and reopens before renewed effects", () => {
-  const receipt = createStableQualificationReceipt(TAG, COMMIT);
+  const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
   expect(receiptNeedsMacCleanup(receipt)).toBe(false);
   receipt.lanes.macos.attempts = 1;
   receipt.lanes.macos.status = "failed";
@@ -193,7 +197,7 @@ describe("Debian workflow dispatch resume", () => {
   const options = parseStableQualificationArgs(["--tag", TAG], {});
 
   test("persists dispatch intent before creating one discoverable run", async () => {
-    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     const commands: string[][] = [];
     let dispatched = false;
     const checkpoint = async (evidence: Record<string, unknown>) => {
@@ -243,7 +247,7 @@ describe("Debian workflow dispatch resume", () => {
   });
 
   test("never redispatches after a durable request whose run is not yet visible", async () => {
-    const receipt = createStableQualificationReceipt(TAG, COMMIT);
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     receipt.lanes.debian.evidence = { dispatchId, dispatchRequestedAt: "2026-08-22T00:00:00.000Z" };
     let dispatches = 0;
     const runtime: DebianQualificationRuntime = {
