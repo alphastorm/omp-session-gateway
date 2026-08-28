@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { assertReleaseState } from "./release-state.ts";
 
 const TAG = "v0.2.0";
-function assets(): { name: string; state: string; digest: string }[] {
+function assets(tag = TAG): { name: string; state: string; digest: string }[] {
+  const version = /^v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag)?.[1];
+  if (version === undefined) throw new Error("test tag has no version");
   const names = [
     "SHA256SUMS",
     "SHA256SUMS.sigstore.json",
-    "omp-session-gateway-0.2.0-bun.tar",
-    "omp-session-gateway-0.2.0-bun.tar.sigstore.json",
-    "omp-session-gateway-0.2.0.spdx.json",
-    "omp-session-gateway-0.2.0.spdx.json.sigstore.json",
+    `omp-session-gateway-${version}-bun.tar`,
+    `omp-session-gateway-${version}-bun.tar.sigstore.json`,
+    `omp-session-gateway-${version}.spdx.json`,
+    `omp-session-gateway-${version}.spdx.json.sigstore.json`,
   ];
   return names.map((name, index) => ({ name, state: "uploaded", digest: "sha256:" + String(index + 1).repeat(64) }));
 }
@@ -30,6 +32,22 @@ describe("GitHub release state", () => {
   test("accepts a complete not-Latest stable draft and a published Latest release", () => {
     expect(() => assertReleaseState(release(), null, expectedState(true, false, false))).not.toThrow();
     expect(() => assertReleaseState(release({ draft: false }), TAG, expectedState(false, false, true))).not.toThrow();
+  });
+
+  test("derives prerelease asset names from the tag version", () => {
+    const tag = "v0.2.1-prealpha.1";
+    const candidateAssets = assets(tag);
+    const candidate = release({ tag_name: tag, prerelease: true, assets: candidateAssets });
+    const assetDigests = Object.fromEntries(candidateAssets.map(asset => [asset.name, asset.digest]));
+    expect(() =>
+      assertReleaseState(candidate, TAG, {
+        tag,
+        draft: true,
+        prerelease: true,
+        latest: false,
+        assetDigests,
+      }),
+    ).not.toThrow();
   });
 
   test("rejects wrong flags, premature Latest, and missing assets", () => {
