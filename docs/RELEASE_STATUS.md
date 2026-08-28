@@ -52,6 +52,14 @@ The first `v0.2.0-prealpha.1` qualification dispatch failed closed at the Debian
 touching the Mac; its archived receipt recorded no Mac effects and the passing run above started
 from a fresh receipt.
 
+**Known cosmetic defect in the published v0.2.0 archive:** `installation.ts`/`diagnostics.ts`
+carry a hardcoded `0.1.0` product constant, so managed-installation directories, `status`
+`activeVersion`, and diagnostics bundles from v0.2.0 report `0.1.0-<content-hash>` while running
+the exact v0.2.0 bytes. Install/rollback identity binds to the content hash and source commit —
+the qualified rollback and post-release smoke lanes passed with the defect present — so the
+support claim is unaffected. Fixed on `main` with a version-coherence test; the next release
+reports its true version.
+
 ### Stable 0.1 — GO
 
 **Target tag:** `v0.1.0`, published as a non-prerelease and GitHub Latest.<br>

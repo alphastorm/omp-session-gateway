@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { GatewayConfig } from "../src/config.ts";
 import {
+  GATEWAY_VERSION,
   type InstalledRuntime,
   activateRuntime,
   activationHistory,
@@ -87,7 +88,7 @@ test("stages immutable content-addressed runtimes and atomically advances the cu
     const source = await sourceFixture(root);
     const first = await stageRuntimePayload(gatewayConfig, source);
     expect(first.previous).toBeUndefined();
-    expect(first.directory).toMatch(/0\.1\.0-[0-9a-f]{12}$/u);
+    expect(basename(first.directory)).toMatch(new RegExp(`^${GATEWAY_VERSION.replaceAll(".", "\\.")}-[0-9a-f]{12}$`, "u"));
     expect(first.readinessProtocol).toBe("instance-v1");
     expect((await lstat(first.cliPath)).isFile()).toBe(true);
     expect((await lstat(join(first.directory, "bun.lock"))).isFile()).toBe(true);
