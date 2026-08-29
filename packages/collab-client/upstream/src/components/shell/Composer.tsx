@@ -23,22 +23,25 @@ const PAD_Y = 16;
 const MAX_ROWS = 8;
 const PHOTO_CONFIRM_TIMEOUT_MS = 5_000;
 
-interface PendingPhotoPrompt {
+export interface PendingPhotoPrompt {
 	readonly text: string;
 	readonly images: readonly ImageContent[];
 	readonly afterEntryId: string | null;
 }
 
-function photoPromptAcknowledged(entries: readonly SessionEntry[], pending: PendingPhotoPrompt): boolean {
+export function photoPromptAcknowledged(entries: readonly SessionEntry[], pending: PendingPhotoPrompt): boolean {
 	let startIndex = 0;
+	let baselineFound = pending.afterEntryId === null;
 	if (pending.afterEntryId !== null) {
 		for (let index = entries.length - 1; index >= 0; index -= 1) {
 			if (entries[index]?.id === pending.afterEntryId) {
 				startIndex = index + 1;
+				baselineFound = true;
 				break;
 			}
 		}
 	}
+	if (!baselineFound) return false;
 	for (let index = entries.length - 1; index >= startIndex; index -= 1) {
 		const entry = entries[index];
 		if (

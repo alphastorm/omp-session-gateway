@@ -25,6 +25,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   retake.
 - Enforce View/read-only state inside every mutating collaboration-client method rather than only
   through rendered control state.
+- Preserve link-derived View state when an older host omits the optional welcome flag, suppress
+  pending Ask-response replay after a read-only downgrade, and require the pre-send transcript
+  baseline before any matching photo entry can acknowledge a draft.
 
 ## [v0.2.1] — 2026-08-28
 

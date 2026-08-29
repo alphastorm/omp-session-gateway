@@ -456,7 +456,7 @@ describe("CollabSocket browser lifecycle recovery", () => {
     client.sendPrompt("blocked before welcome", [{ type: "image", data: "blocked", mimeType: "image/jpeg" }]);
     client.sendAbort();
     client.sendAgentCmd("chat", "blocked-agent", "blocked");
-    client.applyFrameForTest({ ...TEST_WELCOME, readOnly: true });
+    client.applyFrameForTest(TEST_WELCOME);
     expect(client.getSnapshot().readOnly).toBeTrue();
 
     client.sendPrompt("blocked", [{ type: "image", data: "blocked-image", mimeType: "image/jpeg" }]);
@@ -502,6 +502,15 @@ describe("CollabSocket browser lifecycle recovery", () => {
     const replacement = FakeWebSocket.instances[1];
     if (replacement === undefined) throw new Error("replacement WebSocket was not created");
     replacement.open();
+    client.applyFrameForTest({ ...TEST_WELCOME, readOnly: true });
+    const resentWhileReadOnly = await Promise.race([
+      replacement.waitForSent(2).then(() => true),
+      Bun.sleep(100).then(() => false),
+    ]);
+    expect(resentWhileReadOnly).toBeFalse();
+    expect(client.getSnapshot().readOnly).toBeTrue();
+    expect(client.getSnapshot().uiResponsePending).toBeTrue();
+
     client.applyFrameForTest(TEST_WELCOME);
     await replacement.waitForSent(2);
     expect((await decodeFrames(replacement, key)).map(frame => frame.t)).toEqual(["hello", "ui-response"]);

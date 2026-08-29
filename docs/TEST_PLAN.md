@@ -61,7 +61,9 @@
   documented neutral text used only when the note is empty;
 - an unacknowledged photo prompt retains its exact preview and note, disables editing, and offers
   retry after five seconds only when relay health is current; a matching `collab-prompt` entry
-  clears it;
+  clears it only after the recorded pre-send transcript baseline;
+- a View link remains read-only when an older host omits the optional welcome flag, and direct
+  prompt, abort, agent-command, fresh Ask response, and pending-response replay all emit no mutation;
 - read-only, disconnected, and preparing states cannot open or submit the photo path;
 - a moving status row cannot cancel a pointer-captured Send, Stop, remove, or camera action.
 

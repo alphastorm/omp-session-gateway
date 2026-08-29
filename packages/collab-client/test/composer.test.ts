@@ -1,5 +1,6 @@
-import type { AssistantMessage, SessionEntry } from "@oh-my-pi/pi-wire";
+import type { AssistantMessage, ImageContent, SessionEntry } from "@oh-my-pi/pi-wire";
 import { describe, expect, test } from "bun:test";
+import { photoPromptAcknowledged } from "../upstream/src/components/shell/Composer";
 import { recommendedOptionIndex } from "../upstream/src/components/shell/ask-recommendation";
 import type { ActiveTool, GuestSnapshot } from "../upstream/src/lib/client";
 
@@ -62,6 +63,21 @@ function activeAsk(toolCallId: string, args: Record<string, unknown>): ActiveToo
   return { toolCallId, toolName: "ask", args, startedAt: 0 };
 }
 
+const PHOTO: ImageContent = { type: "image", data: "normalized-photo", mimeType: "image/jpeg" };
+
+function photoPromptEntry(id: string, text: string, image: ImageContent = PHOTO): SessionEntry {
+  return {
+    id,
+    parentId: null,
+    timestamp: "2026-07-25T00:00:02.000Z",
+    type: "custom_message",
+    customType: "collab-prompt",
+    content: [{ type: "text", text }, image],
+    details: { from: "guest" },
+    display: true,
+  };
+}
+
 function snapshot(overrides: Partial<GuestSnapshot> = {}): GuestSnapshot {
   return {
     phase: "live",
@@ -115,5 +131,32 @@ describe("collaboration ask recommendations", () => {
     });
 
     expect(recommendedOptionIndex(current)).toBeUndefined();
+  });
+});
+
+describe("photo prompt acknowledgements", () => {
+  const pending = { text: "Please inspect this photo.", images: [PHOTO], afterEntryId: "baseline" };
+
+  test("never lets an older identical entry replace a missing baseline", () => {
+    expect(photoPromptAcknowledged([photoPromptEntry("older", pending.text)], pending)).toBeFalse();
+  });
+
+  test("requires an exact matching entry after the baseline", () => {
+    const entries = [
+      photoPromptEntry("baseline", "Earlier prompt"),
+      photoPromptEntry("wrong", pending.text, { ...PHOTO, data: "different-photo" }),
+      photoPromptEntry("acknowledged", pending.text),
+    ];
+    expect(photoPromptAcknowledged(entries, pending)).toBeTrue();
+    expect(photoPromptAcknowledged(entries.slice(0, 2), pending)).toBeFalse();
+  });
+
+  test("accepts the first exact entry when the send had no baseline", () => {
+    expect(
+      photoPromptAcknowledged([photoPromptEntry("acknowledged", pending.text)], {
+        ...pending,
+        afterEntryId: null,
+      }),
+    ).toBeTrue();
   });
 });

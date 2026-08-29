@@ -914,6 +914,43 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await expect(page.locator(".sh-photo-error")).toHaveText("Choose a JPEG, PNG, or WebP photo.");
     await expect(promptSend).toBeDisabled();
 
+    const photoResidue = await page.evaluate(async () => {
+      const cacheUrls = (
+        await Promise.all((await caches.keys()).map(async name => {
+          const cache = await caches.open(name);
+          return (await cache.keys()).map(request => request.url);
+        }))
+      ).flat();
+      const persistence = JSON.stringify({
+        url: location.href,
+        historyState: history.state,
+        localStorage: { ...localStorage },
+        sessionStorage: { ...sessionStorage },
+        cookies: document.cookie,
+        cacheUrls,
+        indexedDatabases: (await indexedDB.databases()).map(database => database.name),
+      });
+      return {
+        dataUrlPersisted: persistence.includes("data:image/jpeg;base64,"),
+        promptPersisted: persistence.includes("Is this connector fully seated?"),
+        preparedPreviews: document.querySelectorAll(".sh-photo").length,
+        transcriptPhotos: document.querySelectorAll(".tr-msg-img").length,
+      };
+    });
+    expect(photoResidue).toEqual({
+      dataUrlPersisted: false,
+      promptPersisted: false,
+      preparedPreviews: 0,
+      transcriptPhotos: 2,
+    });
+    expect(
+      fixture.requests.some(request =>
+        ["Is this connector fully seated?", "data:image/jpeg", "/media", "/upload"].some(fragment =>
+          request.includes(fragment),
+        ),
+      ),
+    ).toBe(false);
+
     await page.evaluate(async () => {
       const socket = (globalThis as typeof globalThis & {
         __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };

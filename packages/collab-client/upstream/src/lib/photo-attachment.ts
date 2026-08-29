@@ -120,7 +120,7 @@ function webpDimensions(bytes: Uint8Array, view: DataView): ImageDimensions | nu
 	return null;
 }
 
-async function assertSafeSourceDimensions(file: File): Promise<void> {
+export async function assertSafeSourceDimensions(file: File): Promise<void> {
 	const bytes = new Uint8Array(await file.arrayBuffer());
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const dimensions =

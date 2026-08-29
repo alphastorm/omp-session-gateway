@@ -426,7 +426,7 @@ export class GuestClient {
 				this.#progress = new Map();
 				this.#lifecycle = new Map();
 				this.#working = frame.state.isStreaming;
-				this.#readOnly = frame.readOnly === true;
+				this.#readOnly = this.#writeToken === undefined || frame.readOnly === true;
 				this.#restorePendingUiRequest();
 				this.#welcomed = true;
 				this.#socket.markRoomWelcomed();
@@ -741,7 +741,7 @@ export class GuestClient {
 
 	#resendPendingUiResponse(): void {
 		const pending = this.#pendingUiResponse;
-		if (pending === null || this.#phase !== "live") return;
+		if (pending === null || this.#phase !== "live" || this.#readOnly) return;
 		this.#socket.send({ t: "ui-response", reqId: pending.request.reqId, value: pending.value });
 	}
 

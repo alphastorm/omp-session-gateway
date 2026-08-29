@@ -24,7 +24,9 @@ deleted the draft; the signed tag and transparency records remain diagnostic evi
 
 ### Stable 0.2.1 — GO
 
-**Target tag:** `v0.2.1`, authorized for non-prerelease GitHub Latest publication.<br>
+**Target tag:** `v0.2.1`, published as a non-prerelease GitHub Latest release and now immutable.<br>
+**Published source:** `9efef77820db3d530f54fa89ee9fbac61f13ad3b`.<br>
+**Published archive SHA-256:** `337a3b654edb1eb0151377ffc0d41e097fda1a7ca127c1f8c067abb8fa1146b6`.<br>
 **Machine gate:** `STABLE_RELEASE.lock.json` is qualified for candidate `v0.2.1-prealpha.2`.<br>
 **Candidate source:** `f09e3566c238ad76e220bea093d06d0124f924d9`.<br>
 **Candidate archive SHA-256:** `9fd5e49b9819ab4dfc82f978fcd9e8382b83d5b821bb341c6b6e6979ff42c7fa`.<br>
