@@ -4,6 +4,8 @@
 
 **Current release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
 **Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
+**Engineering head:** `0.3.0` adds the phone photo composer and is unqualified pre-alpha work;
+none of the stable evidence transfers to its changed collaboration-client bytes.<br>
 **Rollback predecessor:** published stable `v0.2.0`.<br>
 **Qualification predecessor:** signed stable candidate `v0.2.1-prealpha.2`.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome

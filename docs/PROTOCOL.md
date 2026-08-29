@@ -411,6 +411,14 @@ Requirements:
 - keep a submitted host UI response visible and disabled until `ui-request-end`; resend it after a
   fresh welcome, and accept a targeted end frame as the idempotent acknowledgement when the host
   already settled that request;
+- for writable photo prompts, use the pinned v3 `{ t: "prompt", text, images }` frame without a
+  gateway media endpoint or protocol revision; each `ImageContent` is a normalized `image/jpeg`
+  data block, with at most four blocks and at most 1 MiB of decoded bytes per block;
+- accept only JPEG, PNG, and WebP source files up to 24 MiB, re-encode to a maximum 2,048px edge in
+  browser memory so source filenames and EXIF/location metadata do not cross the relay, and drop
+  preview/base64 references on remove, send, or client disposal;
+- permit image-only submission by supplying the explicit neutral text `Please inspect this photo.`
+  (or its plural); user-entered text takes precedence unchanged;
 
 Separate-page alternative:
 

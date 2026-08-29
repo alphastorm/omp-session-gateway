@@ -7,8 +7,8 @@ import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 // Rollback predecessor: the published stable release the candidate must migrate from and roll
-// back to. The 0.2.1 candidate must prove upgrade and rollback against bare v0.2.0 stable.
-const PREVIOUS_TAG = "v0.2.0";
+// back to. A 0.3.0 candidate must prove upgrade and rollback against bare v0.2.1 stable.
+const PREVIOUS_TAG = "v0.2.1";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
 const SIGNED_WORKFLOW = "signed-release.yml";

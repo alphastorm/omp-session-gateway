@@ -1,7 +1,14 @@
-import { SendHorizontal, Square } from "lucide-react";
-import type { KeyboardEvent, ReactNode, RefObject } from "react";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Camera, SendHorizontal, Square, X } from "lucide-react";
+import type { ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestClient, GuestSnapshot } from "../../lib/client";
+import {
+	disposePhotoAttachment,
+	MAX_PHOTO_ATTACHMENTS,
+	PhotoAttachmentError,
+	preparePhotoAttachment,
+	type PreparedPhoto,
+} from "../../lib/photo-attachment";
 import { recommendedOptionIndex } from "./ask-recommendation";
 
 export interface ComposerProps {
@@ -14,6 +21,11 @@ export interface ComposerProps {
 const LINE_PX = 20;
 const PAD_Y = 16;
 const MAX_ROWS = 8;
+
+function captureComposerPointer(event: ReactPointerEvent<HTMLButtonElement>): void {
+	event.currentTarget.setPointerCapture(event.pointerId);
+	event.preventDefault();
+}
 
 function autosize(el: HTMLTextAreaElement | null): void {
 	if (!el) return;
@@ -203,7 +215,13 @@ function SelectAsk({ client, disabled, embedded, recommendedIndex, request, send
 
 export function Composer({ client, snapshot, embedded = false }: ComposerProps): ReactNode {
 	const [text, setText] = useState("");
+	const [photos, setPhotos] = useState<readonly PreparedPhoto[]>([]);
+	const [preparingPhoto, setPreparingPhoto] = useState(false);
+	const [photoError, setPhotoError] = useState<string | null>(null);
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
+	const photoInputRef = useRef<HTMLInputElement | null>(null);
+	const photosRef = useRef<readonly PreparedPhoto[]>([]);
+	const mountedRef = useRef(true);
 	const { composingRef, onCompositionStart, onCompositionEnd } = useCompositionGuard();
 
 	const live = snapshot.phase === "live";
@@ -213,7 +231,8 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	const canPrompt = live && !readOnly;
 	const busy = snapshot.working;
 	const queued = snapshot.state?.queuedMessageCount ?? 0;
-	const canSend = canPrompt && text.trim().length > 0;
+	const canSend = canPrompt && !preparingPhoto && (text.trim().length > 0 || photos.length > 0);
+	const canAddPhoto = canPrompt && !preparingPhoto && photos.length < MAX_PHOTO_ATTACHMENTS;
 	const recommendedIndex = useMemo(
 		() => recommendedOptionIndex(snapshot),
 		[uiRequest, snapshot.entries, snapshot.stream, snapshot.activeTools],
@@ -223,12 +242,74 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 		autosize(taRef.current);
 	}, [text, uiRequest?.reqId]);
 
+	useEffect(() => {
+		return () => {
+			mountedRef.current = false;
+			for (const photo of photosRef.current) disposePhotoAttachment(photo);
+			photosRef.current = [];
+		};
+	}, []);
+
+	const selectPhotos = useCallback(async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+		const files = [...(event.currentTarget.files ?? [])];
+		event.currentTarget.value = "";
+		if (files.length === 0) return;
+		const available = MAX_PHOTO_ATTACHMENTS - photosRef.current.length;
+		if (available <= 0) {
+			setPhotoError(`You can attach up to ${MAX_PHOTO_ATTACHMENTS} photos.`);
+			return;
+		}
+
+		setPhotoError(null);
+		setPreparingPhoto(true);
+		for (const file of files.slice(0, available)) {
+			try {
+				const prepared = await preparePhotoAttachment(file);
+				if (!mountedRef.current) {
+					disposePhotoAttachment(prepared);
+					return;
+				}
+				const next = [...photosRef.current, prepared];
+				photosRef.current = next;
+				setPhotos(next);
+			} catch (error) {
+				if (!mountedRef.current) return;
+				setPhotoError(
+					error instanceof PhotoAttachmentError
+						? error.message
+						: "This photo could not be prepared. Try another image.",
+				);
+			}
+		}
+		if (files.length > available) {
+			setPhotoError(`Only the first ${available} photos were attached.`);
+		}
+		if (mountedRef.current) setPreparingPhoto(false);
+	}, []);
+
+	const removePhoto = useCallback((index: number): void => {
+		const removed = photosRef.current[index];
+		if (!removed) return;
+		const next = photosRef.current.filter((_, candidate) => candidate !== index);
+		photosRef.current = next;
+		setPhotos(next);
+		setPhotoError(null);
+		disposePhotoAttachment(removed);
+	}, []);
+
 	const send = useCallback((): void => {
 		const trimmed = text.trim();
-		if (!trimmed || !live || readOnly) return;
-		client.sendPrompt(trimmed);
+		const selectedPhotos = photosRef.current;
+		if ((!trimmed && selectedPhotos.length === 0) || !live || readOnly || preparingPhoto) return;
+		const prompt =
+			trimmed || (selectedPhotos.length === 1 ? "Please inspect this photo." : "Please inspect these photos.");
+		client.sendPrompt(prompt, selectedPhotos.map(photo => photo.content));
 		setText("");
-	}, [client, live, readOnly, text]);
+		photosRef.current = [];
+		setPhotos([]);
+		setPhotoError(null);
+		for (const photo of selectedPhotos) disposePhotoAttachment(photo);
+	}, [client, live, preparingPhoto, readOnly, text]);
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (shouldSubmitOnEnter(e, composingRef.current)) {
@@ -295,7 +376,61 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 
 	return (
 		<div className="sh-composer">
+			{(photos.length > 0 || preparingPhoto || photoError) && (
+				<div className="sh-photo-stage">
+					{(photos.length > 0 || preparingPhoto) && (
+						<div className="sh-photo-strip" role="list" aria-label="Photos ready to send">
+							{photos.map((photo, index) => (
+								<figure className="sh-photo" role="listitem" key={photo.previewUrl}>
+									<img src={photo.previewUrl} alt={`Photo ${index + 1} ready to send`} />
+									<button
+										type="button"
+										className="sh-photo-remove"
+										onClick={() => removePhoto(index)}
+										onPointerDown={captureComposerPointer}
+										disabled={preparingPhoto}
+										aria-label={`Remove photo ${index + 1}`}
+									>
+										<X size={14} />
+									</button>
+								</figure>
+							))}
+							{preparingPhoto && (
+								<div className="sh-photo-preparing" role="status" aria-live="polite">
+									<span className="sh-photo-progress" aria-hidden="true" />
+									Preparing photo…
+								</div>
+							)}
+						</div>
+					)}
+					{photoError && <div className="sh-photo-error" role="alert">{photoError}</div>}
+				</div>
+			)}
 			<div className="sh-composer-inner">
+				<input
+					ref={photoInputRef}
+					className="sh-photo-input"
+					type="file"
+					accept="image/jpeg,image/png,image/webp"
+					capture="environment"
+					hidden
+					onChange={selectPhotos}
+					disabled={!canAddPhoto}
+				/>
+				<button
+					type="button"
+					className={`sh-btn sh-photo-trigger${photos.length > 0 ? " sh-photo-trigger-active" : ""}`}
+					onClick={() => {
+						setPhotoError(null);
+						photoInputRef.current?.click();
+					}}
+					onPointerDown={captureComposerPointer}
+					disabled={!canAddPhoto}
+					title={photos.length >= MAX_PHOTO_ATTACHMENTS ? "Photo limit reached" : "Take or attach a photo"}
+					aria-label="Take or attach a photo"
+				>
+					<Camera size={17} /> <span className="sh-btn-label">Photo</span>
+				</button>
 				<textarea
 					ref={taRef}
 					className="sh-composer-input"
@@ -308,7 +443,9 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 						readOnly
 							? "read-only session — watching only"
 							: live
-								? "prompt the host agent…"
+								? photos.length > 0
+									? "add a note (optional)…"
+									: "prompt the host agent…"
 								: "waiting for session…"
 					}
 					disabled={!canPrompt}
@@ -326,20 +463,22 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 							type="button"
 							className="sh-btn sh-btn-stop"
 							onClick={() => client.sendAbort()}
+							onPointerDown={captureComposerPointer}
 							disabled={!live}
 							title="stop the current turn"
 						>
-							<Square size={11} /> <span className="sh-btn-label">Stop</span>
+							<Square size={14} /> <span className="sh-btn-label">Stop</span>
 						</button>
 					)}
 					<button
 						type="button"
 						className="sh-btn sh-btn-primary"
 						onClick={send}
+						onPointerDown={captureComposerPointer}
 						disabled={!canSend}
 						title="send (Enter)"
 					>
-						<SendHorizontal size={12} /> <span className="sh-btn-label">Send</span>
+						<SendHorizontal size={15} /> <span className="sh-btn-label">Send</span>
 					</button>
 				</div>
 			</div>

@@ -14,6 +14,7 @@ import type {
 	CollabUiRequest,
 	CollabUiResponseValue,
 	HostFrame,
+	ImageContent,
 	SessionEntry,
 	SessionHeader,
 	SessionState,
@@ -256,8 +257,8 @@ export class GuestClient {
 		return this.#snapshot;
 	}
 
-	sendPrompt(text: string): void {
-		this.#socket.send({ t: "prompt", text });
+	sendPrompt(text: string, images?: ImageContent[]): void {
+		this.#socket.send({ t: "prompt", text, images: images && images.length > 0 ? images : undefined });
 	}
 
 	sendUiResponse(reqId: number, value?: CollabUiResponseValue): void {

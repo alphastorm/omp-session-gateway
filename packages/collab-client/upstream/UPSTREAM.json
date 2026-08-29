@@ -19,6 +19,8 @@
     "Correlate active Ask requests with explicit tool-call recommendation metadata",
     "Embed under gateway chrome without a competing client header, rail, or lifecycle overlay",
     "Present an embedded active Ask in the client's sole composer without a duplicate transcript card",
+    "Capture, metadata-strip, bound, preview, and send phone photos through the existing encrypted image-prompt frame",
+    "Capture active composer pointers so status-row layout changes cannot cancel mobile actions",
     "Keep the npm marked dependency instead of @oh-my-pi/pi-utils/marked so the bundled runtime closure stays pure JavaScript",
     "Window a long transcript to its tail behind a Show earlier control that reveals older entries without moving the reader",
     "Defer the first transcript render until the guest snapshot completes and keep it mounted across reconnects (Session exported for coverage)"

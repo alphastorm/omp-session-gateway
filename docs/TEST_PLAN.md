@@ -49,6 +49,18 @@
 - malformed, oversized, excess, or non-canonical local records fail closed within the documented
   bounds, and allowed records contain identifiers and timestamps only.
 
+### Collaboration photo composer
+
+- JPEG, PNG, and WebP inputs normalize to JPEG no larger than a 2,048px edge or 1 MiB;
+- unsupported, empty, over-24-MiB, undecodable, and over-detailed inputs fail visibly without a
+  relay frame;
+- at most four volatile previews are retained; remove, send, and unmount revoke preview URLs and
+  drop base64 references;
+- text-only, photo-plus-note, and photo-only prompts produce the existing v3 frame shape, with the
+  documented neutral text used only when the note is empty;
+- read-only, disconnected, and preparing states cannot open or submit the photo path;
+- a moving status row cannot cancel a pointer-captured Send, Stop, remove, or camera action.
+
 ### OMP patch
 
 - see `docs/OMP_INTEGRATION.md` section 8.
@@ -75,6 +87,10 @@ volatile DOM/history routing state, and bounded device-local held-ask records. B
 generations, and canonical timestamps are also allowed in the device-local Hold/Dismiss records.
 Bounded title/project canaries are allowed in encrypted push and visible notification text only for
 `session`/`preview`, never in persisted push or local triage state.
+- generate photo-flow fixtures in the browser rather than checking real user media into the
+  repository; scan gateway requests, browser storage/caches, diagnostics, logs, and retained test
+  artifacts for the synthetic pixel/base64 canary. Its only permitted live sinks are volatile
+  collab-client memory, the encrypted relay frame, and the receiving OMP test session;
 - scan private push state, intercepted encrypted-payload plaintext, visible notification title/body/data, notification tags, app badges, and request-route history against the selected detail contract;
 
 ## 3. Integration tests
@@ -93,6 +109,8 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 - collab-web parse/connect against mock relay;
 - view client write attempt is rejected;
 - control prompt/interrupt against mock/real OMP host.
+- rear-camera/file selection -> metadata-free bounded JPEG preview -> encrypted `prompt.images`
+  frame -> real OMP host image prompt, with no gateway HTTP or service-worker media request;
 - a pending response operation before any writer exists -> metadata attention -> later Control replay -> exactly one settlement -> authoritative clear;
 - concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
 - generation replacement clears attention before removal and cannot be mutated by a stale lease;
@@ -114,6 +132,11 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 1. Open View for process A; transcript streams and write controls are unavailable/rejected.
 2. Open Control for process B; submit a benign prompt and interrupt it.
 3. Host tools continue to execute on the desktop process, not the phone.
+4. From the Pixel Control composer, take a rear-camera photo, add a note, preview it, and send.
+   Repeat without a note. The host receives one bounded JPEG each time and the active model can
+   inspect it; View exposes no enabled photo action.
+5. Remove a prepared photo, choose an unsupported file, and exceed the attachment bound. No
+   rejected media reaches the relay, gateway, OMP transcript, browser storage, or test artifacts.
 
 ### C. Lifecycle correctness
 
@@ -162,6 +185,10 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 4. Live OMP processes republish fresh in-memory records.
 5. Device-local Hold/Dismiss state contains only the bounded identifier, generation, and timestamp
    fields; no title, path, model, prompt, transcript, or capability survives there.
+6. A prepared-but-unsent photo disappears after remove, Back, reload, or client disposal and is
+   absent from gateway/browser persistence and service-worker caches. A sent normalized photo may
+   remain only through ordinary OMP transcript and model-provider retention; the original file,
+   filename, and EXIF/location metadata do not.
 
 ## 5. Relay soak test
 

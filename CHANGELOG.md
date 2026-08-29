@@ -6,6 +6,21 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add a phone-first photo composer to Control sessions: one tap opens the rear camera or image
+  picker, up to four previews stay beside an optional note, and the pinned OMP client sends the
+  normalized images through its existing encrypted collaboration frame directly to the host.
+- Re-encode JPEG, PNG, and WebP input in browser memory as metadata-free JPEG, bounded to a 2,048px
+  edge and 1 MiB per photo. The gateway, service worker, URLs, logs, and browser storage never
+  receive the image; the normalized prompt follows ordinary OMP transcript and model-provider
+  handling after send.
+
+### Fixed
+
+- Capture active composer pointers so a transient phone status row cannot move Send, Stop, or
+  photo controls out from under a tap before release.
+
 ## [v0.2.1] — 2026-08-28
 
 ### Changed

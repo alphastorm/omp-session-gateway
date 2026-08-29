@@ -1,10 +1,20 @@
 # Release status
 
-**Updated:** 2026-08-28<br>
-**Repository version:** `0.2.1`; stable publication source for **`v0.2.1`**<br>
-**Qualification candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
-**Classification:** stable-qualified for the exact combinations below; no broader production claim<br>
-**Stable decision:** **GO, approved**, for the named support boundary and nothing else.
+**Updated:** 2026-08-29<br>
+**Repository version:** `0.3.0`; unqualified engineering track after **`v0.2.1`**<br>
+**Qualified stable candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
+**Classification:** 0.3.0 is pre-alpha engineering work; published stable `v0.2.1` retains the
+exact qualified combinations below and no broader production claim<br>
+**Stable decision:** **GO, approved for v0.2.1 only**, for the named support boundary and nothing else.
+
+### 0.3.0 engineering track — unqualified
+
+The 0.3.0 source adds a bounded phone-camera/photo composer to the pinned collaboration client.
+It uses the existing encrypted OMP v3 image-prompt frame and does not change gateway IPC/HTTP,
+capability handling, the controller/publisher patch, or `COLLAB_PROTO`. No 0.2.1 qualification
+evidence transfers to these changed client bytes. Any 0.3.0 artifact remains pre-alpha until its
+exact source, archive, local activation, physical Pixel flow, and forbidden-sink checks are
+recorded; it cannot replace or widen the stable support claim below.
 
 Candidate `v0.2.1-prealpha.1` built, attested, and signed successfully, then failed closed while
 validating its draft because `release-state.ts` still expected `0.2.0` asset names. The workflow
