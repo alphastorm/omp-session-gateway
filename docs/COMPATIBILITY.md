@@ -4,8 +4,9 @@
 
 **Current release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
 **Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
-**Engineering head:** `0.3.0` adds the phone photo composer and is unqualified pre-alpha work;
-none of the stable evidence transfers to its changed collaboration-client bytes.<br>
+**Engineering release:** published `v0.3.0-prealpha.1` adds the phone photo composer and has
+only the exact local Darwin/desktop/Pixel-viewport smoke recorded below; none of the stable evidence
+transfers to its changed collaboration-client bytes.<br>
 **0.3.0 engineering/qualification predecessor:** published stable `v0.2.1`.<br>
 **v0.2.1 stable campaign rollback predecessor:** published stable `v0.2.0`.<br>
 **Qualification predecessor:** signed stable candidate `v0.2.1-prealpha.2`.<br>
@@ -69,6 +70,7 @@ explicit, and the 0.2 campaign adds its own row:
 | `v0.2.0-prealpha.1` | `0.2.0-db88afb2ca18` | **Qualified and approved for `v0.2.0`.** Couch-flow visual pass, Settings sheet, transcript windowing, and shell-precached collab client; cross-version `v0.1.0` rollback pair. | Archive SHA-256 `149fc1b88a22b9cb1781bcb6219f2c1e41cafc867cb4eefe0a1e04b07eceeea2`; signed tag/assets/attestations/bundles, Debian run `33156664373` incl. `v0.1.0` migration, macOS `doctor` 17/17 and rollback 20/20, Pixel lock/Airplane/Doze recovery with a clean seven-sink sweep, patched-OMP publication/revocation, 60s relay smoke, and cleanup all passed exactly once. |
 | `v0.2.1-prealpha.1` | `0.2.1-3ea58e234b6d` | **Rejected before qualification.** Build, attest, and signing passed; draft validation still expected 0.2.0 asset names and deleted the draft. | Signed diagnostic tag and transparency records retained; no GitHub release survived and no host/client qualification ran. |
 | `v0.2.1-prealpha.2` | `0.2.1-f09e3566c238` | **Qualified and approved for `v0.2.1`.** Final phone hierarchy, coherent product versioning, predecessor-bound receipts, and stable runtime equivalence gate. | Archive SHA-256 `9fd5e49b9819ab4dfc82f978fcd9e8382b83d5b821bb341c6b6e6979ff42c7fa`; release run `33206359784`, Debian `33207184350`, macOS `doctor` 17/17 and rollback 20/20 from v0.2.0, physical Pixel recovery/leak sweep, patched-OMP publication/revocation, 60s relay smoke, and cleanup passed. |
+| `v0.3.0-prealpha.1` | `0.3.0-1a8a3212e195` | **Published pre-alpha; locally smoke-tested, not qualified.** Phone photo chooser/composer using existing OMP v3 image prompts. | Archive SHA-256 `60750b2b5f21d4e99dbd1a4d05230f4aa3f4d79b15c113d08aa68042a54c5fed`; release run `33281549543`; checksums, six immutable assets, three attestations, and three bundles verified; local Darwin install/doctor 17/17 and real patched-host desktop plus measured Pixel-viewport sends passed. No physical Android run. |
 
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and release decisions.
 This document defines the supported boundary. Where they disagree, the ledger is authoritative.

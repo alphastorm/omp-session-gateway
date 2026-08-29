@@ -9,12 +9,39 @@ exact qualified combinations below and no broader production claim<br>
 
 ### 0.3.0 engineering track — unqualified
 
-The 0.3.0 source adds a bounded phone-camera/photo composer to the pinned collaboration client.
+Published engineering release `v0.3.0-prealpha.1` adds a bounded phone-camera/photo composer to
+the pinned collaboration client.
 It uses the existing encrypted OMP v3 image-prompt frame and does not change gateway IPC/HTTP,
 capability handling, the controller/publisher patch, or `COLLAB_PROTO`. No 0.2.1 qualification
-evidence transfers to these changed client bytes. Any 0.3.0 artifact remains pre-alpha until its
-exact source, archive, local activation, physical Pixel flow, and forbidden-sink checks are
-recorded; it cannot replace or widen the stable support claim below.
+evidence transfers to these changed client bytes. The exact source, archive, local activation, and
+real patched-host browser flow are recorded below; the physical Pixel camera chooser and the full
+qualification matrix have not run. The release remains pre-alpha and cannot replace or widen the
+stable support claim below.
+
+### v0.3.0-prealpha.1 — published engineering release
+
+**Source:** `790658ee914658d742ff0b369fd6b33b78efd9ea`.<br>
+**Archive SHA-256:** `60750b2b5f21d4e99dbd1a4d05230f4aa3f4d79b15c113d08aa68042a54c5fed`.<br>
+**Release run:** [`33281549543`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33281549543), passed.<br>
+**Classification:** published immutable prerelease, not Latest; unqualified beyond the exact smoke
+below. Stable `v0.2.1` remains GitHub Latest and the 0.3.0 rollback/qualification predecessor.
+
+The release published six assets. `SHA256SUMS` verified the archive and SPDX document; all six
+immutable asset digests, three GitHub build attestations, and three Sigstore bundles verified
+against the signed tag and `signed-release.yml` identity.
+
+The published archive installed on the configured Darwin arm64 workstation as
+`0.3.0-1a8a3212e195` under pinned Bun 1.3.14. Private config and publisher-token SHA-256 values
+remained byte-identical, `status` reported active/ready/non-diverged, and `doctor` passed 17/17.
+An owned exact patched-OMP v17.4.1 fixture published View and Control through the default relay.
+The released client proved View disabled the photo path, upgraded to Control, normalized and sent a
+2,048px captioned desktop image and a 2,048px image-only Pixel-viewport image, received byte-exact
+host transcript acknowledgement, cleared each retained draft, rendered transcript images within
+the viewport, and showed no horizontal overflow. Fixture revocation and scoped cleanup passed.
+
+The measured `411 × 816` Pixel layout and desktop Chromium surface are smoke evidence only. No ADB
+device was attached, so physical camera/photo chooser behavior, Android process lifecycle, and the
+full forbidden-sink sweep remain unproven for these exact bytes.
 
 Candidate `v0.2.1-prealpha.1` built, attested, and signed successfully, then failed closed while
 validating its draft because `release-state.ts` still expected `0.2.0` asset names. The workflow
