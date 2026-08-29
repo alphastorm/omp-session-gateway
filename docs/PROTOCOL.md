@@ -402,6 +402,9 @@ startCollabWithCapability(bootstrap: CollabBootstrap): Promise<void>;
 Requirements:
 
 - parse with pinned upstream OMP code;
+- derive View/read-only state from the absence of the capability write token; a host welcome may
+  further restrict a full link but omission of its optional `readOnly` field must never upgrade a
+  View link or replay a pending mutating response;
 - do not stringify or attach the bootstrap object to React/Vue devtools-visible global state in production;
 - never assign the capability to `location`, an element attribute, text content, a form field, or persistent state;
 - clear references on disconnect/leave and call `onDispose`;
@@ -411,6 +414,19 @@ Requirements:
 - keep a submitted host UI response visible and disabled until `ui-request-end`; resend it after a
   fresh welcome, and accept a targeted end frame as the idempotent acknowledgement when the host
   already settled that request;
+- for writable photo prompts, use the pinned v3 `{ t: "prompt", text, images }` frame without a
+  gateway media endpoint or protocol revision; each `ImageContent` is a normalized `image/jpeg`
+  data block, with at most four blocks and at most 1 MiB of decoded bytes per block;
+- accept only JPEG, PNG, and WebP source files up to 24 MiB and at most an 8,192px edge or
+  20 megapixels, re-encode to a maximum 2,048px edge in browser memory so source filenames and
+  EXIF/location metadata do not cross the relay, and drop preview/base64 references on remove,
+  host-confirmed transcript echo, or client disposal;
+- retain a sent photo draft until an exact `collab-prompt` transcript entry acknowledges its text
+  and image blocks after the recorded pre-send entry; if that baseline is absent during reconnect,
+  no older identical entry may acknowledge the draft. After five seconds without acknowledgement,
+  keep the draft and offer retry only while the relay is healthy;
+- permit image-only submission by supplying the explicit neutral text `Please inspect this photo.`
+  (or its plural); user-entered text takes precedence unchanged;
 
 Separate-page alternative:
 

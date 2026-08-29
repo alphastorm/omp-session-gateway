@@ -165,6 +165,12 @@ liveness when the optional health advertisement is absent. Reliable `Sending…`
 a reconnect requires the fifth patch commit: only that host acknowledges a duplicate or late
 response after the original request has already settled.
 
+The pinned v17.4.1 wire and host already accept `{ t: "prompt", text, images?: ImageContent[] }`
+and forward image blocks through `promptCustomMessage`. The gateway photo composer consumes that
+existing contract; it does not change `COLLAB_PROTO`, the controller/publisher patch, capability
+publication, or generation behavior. Host-side tests remain responsible for preserving image
+blocks and write-token/read-only enforcement exactly as for text prompts.
+
 ## 8. OMP tests
 
 Add tests for:

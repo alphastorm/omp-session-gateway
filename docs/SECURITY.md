@@ -160,6 +160,18 @@ OMP encrypts collaboration frames client-side. The relay can observe room identi
 
 The existing relay is acceptable for v1 when this metadata/availability dependency is understood. Self-hosting can reduce third-party exposure but introduces TLS, WebSocket, update, and availability responsibilities. Treat it as an explicit advanced mode and run long-lived connection tests through the exact deployment path.
 
+Phone photos are prompt content, not gateway metadata. A writable client accepts only JPEG, PNG,
+or WebP source files up to 24 MiB, rejects source dimensions above an 8,192px edge or 20 megapixels,
+canvas-re-encodes at most four as JPEG with a 2,048px edge and 1 MiB per-image cap, and thereby
+removes filenames, EXIF, and location metadata before transport.
+Only the normalized bytes enter the existing encrypted `prompt.images` frame. They never traverse
+gateway HTTP/IPC, the service worker, URLs, history, logs, diagnostics, analytics, or browser
+storage. Preview data URLs and base64 references are dropped on remove, host-confirmed send, and
+client disposal; an unconfirmed send retains the draft for retry. JavaScript memory is not claimed
+to be zeroized. After send, the normalized image
+is ordinary OMP prompt content and may persist in the host transcript and at the selected model
+provider under those systems' normal retention policies. The original phone file is not uploaded.
+
 ## 6. Capability handling
 
 Mandatory rules:

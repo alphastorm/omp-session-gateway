@@ -19,8 +19,8 @@ import {
   type ProtectedFileSnapshot,
 } from "./stable-qualification.ts";
 
-const TAG = "v0.2.1-prealpha.21";
-const PREVIOUS_TAG = "v0.2.0";
+const TAG = "v0.3.0-prealpha.21";
+const PREVIOUS_TAG = "v0.2.1";
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -40,13 +40,13 @@ describe("stable qualification arguments", () => {
   test("accepts the one-command stable candidate shape with bounded defaults", () => {
     const options = parseStableQualificationArgs(["--tag", TAG], {});
     expect(options.tag).toBe(TAG);
-    expect(options.previousTag).toBe("v0.2.0");
+    expect(options.previousTag).toBe(PREVIOUS_TAG);
     expect(options.macName).toBe("omp-macqual-01");
     expect(options.relaySeconds).toBe(60);
   });
 
   test("rejects stable, rc, zero-indexed, and prior-version candidate tags", () => {
-    for (const tag of ["v0.2.1", "v0.2.1-rc.1", "v0.2.1-prealpha.0", "v0.2.0-prealpha.25"]) {
+    for (const tag of ["v0.3.0", "v0.3.0-rc.1", "v0.3.0-prealpha.0", "v0.2.1-prealpha.25"]) {
       expect(() => parseStableQualificationArgs(["--tag", tag], {})).toThrow("--tag must match");
     }
   });
@@ -55,7 +55,7 @@ describe("stable qualification arguments", () => {
     expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], {}).previousTag).toBe(
       PREVIOUS_TAG,
     );
-    for (const previous of ["v0.1.0", "v0.2.0-prealpha.1", "v0.2.1-prealpha.1", "v0.2.1", ""]) {
+    for (const previous of ["v0.1.0", "v0.2.0", "v0.2.1-prealpha.1", "v0.3.0-prealpha.1", "v0.3.0", ""]) {
       expect(() => parseStableQualificationArgs(["--tag", TAG, "--previous-tag", previous], {})).toThrow(
         "--previous-tag",
       );
@@ -167,7 +167,7 @@ test("receipt identity cannot mix passed lanes across orchestrator commits", () 
   expect(() => validateStableQualificationReceipt(receipt, TAG, "b".repeat(40), PREVIOUS_TAG)).toThrow(
     "do not resume evidence across orchestrator commits",
   );
-  expect(() => validateStableQualificationReceipt(receipt, TAG, COMMIT, "v0.2.1-prealpha.1")).toThrow(
+  expect(() => validateStableQualificationReceipt(receipt, TAG, COMMIT, "v0.2.0")).toThrow(
     "rollback predecessors",
   );
 });

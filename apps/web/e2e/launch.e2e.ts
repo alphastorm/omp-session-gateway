@@ -81,6 +81,75 @@ function relaySocketCount(page: Page): Promise<number> {
   );
 }
 
+async function attachSyntheticPhoto(
+  page: Page,
+  label: string,
+  mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg",
+): Promise<void> {
+  await page.locator(".sh-photo-input").evaluate(async (element, options) => {
+    const input = element as HTMLInputElement;
+    const canvas = document.createElement("canvas");
+    canvas.width = 2_400;
+    canvas.height = 1_200;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("missing synthetic photo canvas");
+    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#1b2528");
+    gradient.addColorStop(0.5, "#c99855");
+    gradient.addColorStop(1, "#334e56");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = "#eee7da";
+    context.lineWidth = 14;
+    for (let x = 80; x < canvas.width; x += 120) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(canvas.width - x / 2, canvas.height);
+      context.stroke();
+    }
+    context.fillStyle = "#141410";
+    context.font = "700 96px system-ui";
+    context.fillText(options.label, 120, 180);
+
+    const { promise, resolve } = Promise.withResolvers<Blob | null>();
+    canvas.toBlob(resolve, options.mimeType, 0.92);
+    const blob = await promise;
+    if (!blob) throw new Error("failed to encode synthetic photo");
+    const transfer = new DataTransfer();
+    const extension = options.mimeType === "image/jpeg" ? "jpg" : options.mimeType === "image/png" ? "png" : "webp";
+    transfer.items.add(new File([blob], `component.${extension}`, { type: options.mimeType }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, { label, mimeType });
+}
+
+function capturedPhotoPrompts(page: Page): Promise<readonly {
+  text: string;
+  imageCount: number;
+  mimeType: string;
+  bytes: number;
+  jpegMagic: string;
+}[]> {
+  return page.evaluate(() => {
+    const frames = (globalThis as typeof globalThis & { __askGuestFrames?: unknown[] }).__askGuestFrames ?? [];
+    return frames.flatMap(frame => {
+      if (!frame || typeof frame !== "object" || !("t" in frame) || frame.t !== "prompt") return [];
+      const prompt = frame as { text?: unknown; images?: unknown };
+      if (typeof prompt.text !== "string" || !Array.isArray(prompt.images) || prompt.images.length === 0) return [];
+      const first = prompt.images[0] as { data?: unknown; mimeType?: unknown };
+      if (typeof first.data !== "string" || typeof first.mimeType !== "string") return [];
+      const binary = atob(first.data);
+      return [{
+        text: prompt.text,
+        imageCount: prompt.images.length,
+        mimeType: first.mimeType,
+        bytes: binary.length,
+        jpegMagic: [binary.charCodeAt(0), binary.charCodeAt(1)].join(","),
+      }];
+    });
+  });
+}
+
 test("installed-PWA View and Control mount in the current window without losing the handoff", async ({ context, page }) => {
   const fixture = await startDashboardFixture([session(), ...Array.from({ length: 12 }, (_, index) => workingSession(index))]);
   let auxiliaryPages = 0;
@@ -270,6 +339,7 @@ test("installed-PWA View and Control mount in the current window without losing 
 });
 
 test("embedded active ask matches the original 3d shell interaction", async ({ page }) => {
+  test.setTimeout(45_000);
   const roomKey = new Uint8Array(32).fill(37);
   const fixture = await startDashboardFixture([session()], { roomKey });
 
@@ -283,8 +353,11 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       const args = {
         questions: [{ id: "adr-0036", question, options, multi: false, recommended: 0 }],
       };
-      const key = crypto.subtle.importKey("raw", new Uint8Array(keyBytes), "AES-GCM", false, ["encrypt"]);
+      const key = crypto.subtle.importKey("raw", new Uint8Array(keyBytes), "AES-GCM", false, ["encrypt", "decrypt"]);
       const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+      const guestFrames: unknown[] = [];
+      (globalThis as typeof globalThis & { __askGuestFrames?: unknown[] }).__askGuestFrames = guestFrames;
       let holdConnections = false;
       let holdNextSnapshot = true;
       let resumeSnapshot: (() => void) | undefined;
@@ -305,6 +378,8 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
         onclose: ((event: CloseEvent) => void) | null = null;
         sentWelcome = false;
         hostFramesSent = false;
+        promptSequence = 0;
+        suppressedPromptAcks = 0;
 
         constructor(url: string) {
           this.url = url;
@@ -348,10 +423,50 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
           holdConnections = false;
         }
 
-        send(): void {
+        suppressNextPromptAck(): void {
+          this.suppressedPromptAcks += 1;
+        }
+
+        send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+          void this.captureGuestFrame(data);
           if (this.sentWelcome) return;
           this.sentWelcome = true;
           void this.sendHostFrames();
+        }
+
+        async captureGuestFrame(data: string | ArrayBufferLike | Blob | ArrayBufferView): Promise<void> {
+          if (typeof data === "string" || data instanceof Blob) return;
+          const bytes = ArrayBuffer.isView(data)
+            ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+            : new Uint8Array(data);
+          if (bytes.byteLength <= 16) return;
+          const iv = bytes.slice(4, 16);
+          const ciphertext = bytes.slice(16);
+          const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, await key, ciphertext);
+          const frame = JSON.parse(decoder.decode(plaintext)) as unknown;
+          guestFrames.push(frame);
+          if (!frame || typeof frame !== "object" || !("t" in frame) || frame.t !== "prompt") return;
+          if (this.suppressedPromptAcks > 0) {
+            this.suppressedPromptAcks -= 1;
+            return;
+          }
+          const prompt = frame as { text?: unknown; images?: unknown };
+          if (typeof prompt.text !== "string") return;
+          const images = Array.isArray(prompt.images) ? prompt.images : [];
+          this.promptSequence += 1;
+          await this.sendHostFrame({
+            t: "entry",
+            entry: {
+              id: `guest-photo-${this.promptSequence}`,
+              parentId: null,
+              timestamp: "2026-07-25T00:00:02.000Z",
+              type: "custom_message",
+              customType: "collab-prompt",
+              content: images.length > 0 ? [{ type: "text", text: prompt.text }, ...images] : prompt.text,
+              details: { from: "guest" },
+              display: true,
+            },
+          });
         }
 
         async sendHostFrame(frame: unknown): Promise<void> {
@@ -653,6 +768,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
     await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 1 working");
+
     await page.route("**/api/v1/health", route =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
@@ -681,6 +797,160 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     });
     await expect(page.locator(".conn-chip")).toHaveText("Connected", { timeout: 5_000 });
     await expect(page.locator(".triage-bar")).toBeHidden();
+    await page.evaluate(async () => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      await socket.sendHostFrame({ t: "ui-request-end", reqId: 7 });
+    });
+    await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(0);
+
+    const photoInput = page.locator(".sh-photo-input");
+    const photoTrigger = page.getByRole("button", { name: "Take or attach a photo" });
+    const promptInput = page.locator(".sh-composer-input");
+    const promptSend = page.locator(".sh-composer > .sh-composer-inner .sh-btn-primary");
+    await expect(photoInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    await expect(photoInput).not.toHaveAttribute("capture", /.+/u);
+    await expect(photoTrigger).toBeEnabled();
+
+    await attachSyntheticPhoto(page, "CONNECTOR A");
+    const preview = page.locator(".sh-photo img");
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.evaluate(image => ({
+      width: (image as HTMLImageElement).naturalWidth,
+      height: (image as HTMLImageElement).naturalHeight,
+    }))).toEqual({ width: 2_048, height: 1_024 });
+    await expect(promptInput).toHaveAttribute("placeholder", "add a note (optional)…");
+    await promptInput.fill("Is this connector fully seated?");
+    await expect(promptSend).toBeEnabled();
+    expect(await promptSend.evaluate(button => {
+      const bounds = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+      return {
+        height: Math.round(bounds.height),
+        hit: hit === button || (hit !== null && button.contains(hit)),
+        width: Math.round(bounds.width),
+      };
+    })).toEqual({ height: 44, hit: true, width: 44 });
+    await promptSend.click();
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
+    await expect(promptInput).toHaveValue("");
+    const transcriptPhoto = page.locator(".tr-msg-img").last();
+    await expect(transcriptPhoto).toBeVisible();
+    expect(await transcriptPhoto.evaluate(image => {
+      const bounds = image.getBoundingClientRect();
+      return { fitsViewport: bounds.left >= 0 && bounds.right <= innerWidth, source: (image as HTMLImageElement).src.slice(0, 16) };
+    })).toEqual({ fitsViewport: true, source: "data:image/jpeg;" });
+    await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(1);
+    const [captionedPhoto] = await capturedPhotoPrompts(page);
+    expect(captionedPhoto).toEqual({
+      text: "Is this connector fully seated?",
+      imageCount: 1,
+      mimeType: "image/jpeg",
+      bytes: expect.any(Number),
+      jpegMagic: "255,216",
+    });
+    expect(captionedPhoto?.bytes).toBeLessThanOrEqual(1_024 * 1_024);
+
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { suppressNextPromptAck(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.suppressNextPromptAck();
+    });
+    await attachSyntheticPhoto(page, "CONNECTOR B", "image/png");
+    await expect(page.locator(".sh-photo img")).toBeVisible();
+    await expect(promptSend).toBeEnabled();
+    await promptSend.tap();
+    await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(2);
+    await expect(page.locator(".sh-photo")).toHaveCount(1);
+    await expect(page.locator(".sh-photo-send-state")).toHaveText("Sending photo…");
+    await expect(promptInput).toBeDisabled();
+    await expect(page.locator(".sh-photo-send-state")).toHaveText(
+      "Photo not confirmed. Tap Send to retry.",
+      { timeout: 7_000 },
+    );
+    await expect(promptSend).toBeEnabled();
+    await expect(promptSend).toHaveAttribute("title", "retry photo send");
+    await promptSend.tap();
+    await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(3);
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
+    const photoPrompts = await capturedPhotoPrompts(page);
+    expect(photoPrompts[1]?.text).toBe("Please inspect this photo.");
+    expect(photoPrompts[2]?.text).toBe("Please inspect this photo.");
+
+    await attachSyntheticPhoto(page, "CONNECTOR C", "image/webp");
+    await expect(page.locator(".sh-photo img")).toBeVisible();
+    await page.getByRole("button", { name: "Remove photo 1" }).tap();
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
+    await expect(promptSend).toBeDisabled();
+
+    await photoInput.evaluate(input => {
+      const bytes = new Uint8Array(24);
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const view = new DataView(bytes.buffer);
+      view.setUint32(8, 13, false);
+      bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+      view.setUint32(16, 100_000, false);
+      view.setUint32(20, 100_000, false);
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], "oversized.png", { type: "image/png" }));
+      (input as HTMLInputElement).files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(page.locator(".sh-photo-error")).toHaveText(
+      "That photo is too large to process safely. Use a lower-resolution image.",
+    );
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
+
+    await photoInput.evaluate(input => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["not an image"], "notes.txt", { type: "text/plain" }));
+      (input as HTMLInputElement).files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(page.locator(".sh-photo-error")).toHaveText("Choose a JPEG, PNG, or WebP photo.");
+    await expect(promptSend).toBeDisabled();
+
+    const photoResidue = await page.evaluate(async () => {
+      const cacheUrls = (
+        await Promise.all((await caches.keys()).map(async name => {
+          const cache = await caches.open(name);
+          return (await cache.keys()).map(request => request.url);
+        }))
+      ).flat();
+      const persistence = JSON.stringify({
+        url: location.href,
+        historyState: history.state,
+        localStorage: { ...localStorage },
+        sessionStorage: { ...sessionStorage },
+        cookies: document.cookie,
+        cacheUrls,
+        indexedDatabases: (await indexedDB.databases()).map(database => database.name),
+      });
+      return {
+        dataUrlPersisted: persistence.includes("data:image/jpeg;base64,"),
+        promptPersisted: persistence.includes("Is this connector fully seated?"),
+        preparedPreviews: document.querySelectorAll(".sh-photo").length,
+        transcriptPhotos: document.querySelectorAll(".tr-msg-img").length,
+      };
+    });
+    expect(photoResidue).toEqual({
+      dataUrlPersisted: false,
+      promptPersisted: false,
+      preparedPreviews: 0,
+      transcriptPhotos: 2,
+    });
+    expect(
+      fixture.requests.some(request =>
+        ["Is this connector fully seated?", "data:image/jpeg", "/media", "/upload"].some(fragment =>
+          request.includes(fragment),
+        ),
+      ),
+    ).toBe(false);
+
     await page.evaluate(async () => {
       const socket = (globalThis as typeof globalThis & {
         __askSocket?: { sendHostFrame(frame: unknown): Promise<void> };

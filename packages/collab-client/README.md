@@ -19,6 +19,15 @@ placeholder until the guest snapshot completes, then mounts only its newest 150 
 `Show earlier` control reveals 300 more per tap and holds the reader's scroll anchor while those
 older rows mount.
 
+Control sessions expose the existing OMP v3 `prompt.images` path as a phone-first photo action.
+The browser opens the system camera/photo chooser, rejects source dimensions above an 8,192px edge
+or 20 megapixels, and normalizes up to four JPEG, PNG, or WebP inputs to metadata-free JPEGs with a
+2,048px edge and 1 MiB per-image cap. Volatile previews stay available until the host echoes the
+sent transcript entry; a lost send retains the exact draft for retry. The gateway HTTP service and
+service worker never receive media. Removing, acknowledged sending, or leaving drops preview
+references; the normalized image then follows ordinary OMP transcript and model-provider handling
+on the host.
+
 `upstream/UPSTREAM.json` records the exact source path, package version, Bun version, and local patch list.
 `upstream/LICENSE` preserves the upstream license. The build remains a narrow integration; it does not fork the
 collaboration protocol or transcript UI.

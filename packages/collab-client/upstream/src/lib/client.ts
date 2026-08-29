@@ -14,6 +14,7 @@ import type {
 	CollabUiRequest,
 	CollabUiResponseValue,
 	HostFrame,
+	ImageContent,
 	SessionEntry,
 	SessionHeader,
 	SessionState,
@@ -164,6 +165,7 @@ export class GuestClient {
 		if ("error" in parsed) throw new Error(parsed.error);
 		this.#name = displayName;
 		this.#writeToken = parsed.writeToken ? encodeBase64Url(parsed.writeToken) : undefined;
+		this.#readOnly = this.#writeToken === undefined;
 		this.#socket = new CollabSocket({ wsUrl: parsed.wsUrl, role: "guest", key: importRoomKey(parsed.key) });
 		this.#socket.onOpen = () => this.#handleOpen();
 		this.#socket.onFrame = frame => this.#applyFrameSafe(frame);
@@ -256,8 +258,9 @@ export class GuestClient {
 		return this.#snapshot;
 	}
 
-	sendPrompt(text: string): void {
-		this.#socket.send({ t: "prompt", text });
+	sendPrompt(text: string, images?: ImageContent[]): void {
+		if (this.#readOnly) return;
+		this.#socket.send({ t: "prompt", text, images: images && images.length > 0 ? images : undefined });
 	}
 
 	sendUiResponse(reqId: number, value?: CollabUiResponseValue): void {
@@ -268,10 +271,12 @@ export class GuestClient {
 	}
 
 	sendAbort(): void {
+		if (this.#readOnly) return;
 		this.#socket.send({ t: "abort" });
 	}
 
 	sendAgentCmd(cmd: "chat" | "kill" | "revive", agentId: string, text?: string): void {
+		if (this.#readOnly) return;
 		this.#socket.send({ t: "agent-cmd", cmd, agentId, ...(text === undefined ? {} : { text }) });
 	}
 
@@ -421,7 +426,7 @@ export class GuestClient {
 				this.#progress = new Map();
 				this.#lifecycle = new Map();
 				this.#working = frame.state.isStreaming;
-				this.#readOnly = frame.readOnly === true;
+				this.#readOnly = this.#writeToken === undefined || frame.readOnly === true;
 				this.#restorePendingUiRequest();
 				this.#welcomed = true;
 				this.#socket.markRoomWelcomed();
@@ -736,7 +741,7 @@ export class GuestClient {
 
 	#resendPendingUiResponse(): void {
 		const pending = this.#pendingUiResponse;
-		if (pending === null || this.#phase !== "live") return;
+		if (pending === null || this.#phase !== "live" || this.#readOnly) return;
 		this.#socket.send({ t: "ui-response", reqId: pending.request.reqId, value: pending.value });
 	}
 
