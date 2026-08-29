@@ -465,6 +465,11 @@
 	color: var(--err);
 }
 
+.sh-photo-send-state {
+	font: 500 11px / 1.4 var(--font-mono);
+	color: var(--fg-muted);
+}
+
 .sh-photo-trigger {
 	min-height: 38px;
 	flex: none;

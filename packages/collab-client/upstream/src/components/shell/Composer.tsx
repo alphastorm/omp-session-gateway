@@ -1,9 +1,9 @@
+import { COLLAB_PROMPT_MESSAGE_TYPE, type ImageContent, type SessionEntry } from "@oh-my-pi/pi-wire";
 import { Camera, SendHorizontal, Square, X } from "lucide-react";
 import type { ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestClient, GuestSnapshot } from "../../lib/client";
 import {
-	disposePhotoAttachment,
 	MAX_PHOTO_ATTACHMENTS,
 	PhotoAttachmentError,
 	preparePhotoAttachment,
@@ -21,6 +21,55 @@ export interface ComposerProps {
 const LINE_PX = 20;
 const PAD_Y = 16;
 const MAX_ROWS = 8;
+const PHOTO_CONFIRM_TIMEOUT_MS = 5_000;
+
+interface PendingPhotoPrompt {
+	readonly text: string;
+	readonly images: readonly ImageContent[];
+	readonly afterEntryId: string | null;
+}
+
+function photoPromptAcknowledged(entries: readonly SessionEntry[], pending: PendingPhotoPrompt): boolean {
+	let startIndex = 0;
+	if (pending.afterEntryId !== null) {
+		for (let index = entries.length - 1; index >= 0; index -= 1) {
+			if (entries[index]?.id === pending.afterEntryId) {
+				startIndex = index + 1;
+				break;
+			}
+		}
+	}
+	for (let index = entries.length - 1; index >= startIndex; index -= 1) {
+		const entry = entries[index];
+		if (
+			!entry ||
+			entry.type !== "custom_message" ||
+			entry.customType !== COLLAB_PROMPT_MESSAGE_TYPE ||
+			typeof entry.content === "string" ||
+			entry.content.length !== pending.images.length + 1
+		) {
+			continue;
+		}
+		const text = entry.content[0];
+		if (text?.type !== "text" || text.text !== pending.text) continue;
+		let matches = true;
+		for (let imageIndex = 0; imageIndex < pending.images.length; imageIndex += 1) {
+			const actual = entry.content[imageIndex + 1];
+			const expected = pending.images[imageIndex];
+			if (
+				actual?.type !== "image" ||
+				!expected ||
+				actual.mimeType !== expected.mimeType ||
+				actual.data !== expected.data
+			) {
+				matches = false;
+				break;
+			}
+		}
+		if (matches) return true;
+	}
+	return false;
+}
 
 function captureComposerPointer(event: ReactPointerEvent<HTMLButtonElement>): void {
 	event.currentTarget.setPointerCapture(event.pointerId);
@@ -218,6 +267,8 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	const [photos, setPhotos] = useState<readonly PreparedPhoto[]>([]);
 	const [preparingPhoto, setPreparingPhoto] = useState(false);
 	const [photoError, setPhotoError] = useState<string | null>(null);
+	const [pendingPhotoPrompt, setPendingPhotoPrompt] = useState<PendingPhotoPrompt | null>(null);
+	const [photoConfirmationExpired, setPhotoConfirmationExpired] = useState(false);
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
 	const photoInputRef = useRef<HTMLInputElement | null>(null);
 	const photosRef = useRef<readonly PreparedPhoto[]>([]);
@@ -231,8 +282,29 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	const canPrompt = live && !readOnly;
 	const busy = snapshot.working;
 	const queued = snapshot.state?.queuedMessageCount ?? 0;
-	const canSend = canPrompt && !preparingPhoto && (text.trim().length > 0 || photos.length > 0);
-	const canAddPhoto = canPrompt && !preparingPhoto && photos.length < MAX_PHOTO_ATTACHMENTS;
+	const relayReady = snapshot.relayHealth.state === "healthy";
+	const retryReady = pendingPhotoPrompt !== null && photoConfirmationExpired && relayReady;
+	const hasDraft = text.trim().length > 0 || photos.length > 0;
+	const canSend =
+		canPrompt &&
+		!preparingPhoto &&
+		hasDraft &&
+		(pendingPhotoPrompt === null ? photos.length === 0 || relayReady : retryReady);
+	const canAddPhoto =
+		canPrompt &&
+		!preparingPhoto &&
+		pendingPhotoPrompt === null &&
+		photos.length < MAX_PHOTO_ATTACHMENTS;
+	const photoSendMessage =
+		pendingPhotoPrompt === null
+			? null
+			: !photoConfirmationExpired
+				? photos.length === 1
+					? "Sending photo…"
+					: "Sending photos…"
+				: !relayReady
+					? "Waiting for relay…"
+					: "Photo not confirmed. Tap Send to retry.";
 	const recommendedIndex = useMemo(
 		() => recommendedOptionIndex(snapshot),
 		[uiRequest, snapshot.entries, snapshot.stream, snapshot.activeTools],
@@ -243,17 +315,33 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	}, [text, uiRequest?.reqId]);
 
 	useEffect(() => {
+		mountedRef.current = true;
 		return () => {
 			mountedRef.current = false;
-			for (const photo of photosRef.current) disposePhotoAttachment(photo);
 			photosRef.current = [];
 		};
 	}, []);
 
+	useEffect(() => {
+		if (pendingPhotoPrompt === null || !photoPromptAcknowledged(snapshot.entries, pendingPhotoPrompt)) return;
+		setPendingPhotoPrompt(null);
+		setPhotoConfirmationExpired(false);
+		setText("");
+		photosRef.current = [];
+		setPhotos([]);
+		setPhotoError(null);
+	}, [pendingPhotoPrompt, snapshot.entries]);
+
+	useEffect(() => {
+		if (pendingPhotoPrompt === null) return;
+		const timer = setTimeout(() => setPhotoConfirmationExpired(true), PHOTO_CONFIRM_TIMEOUT_MS);
+		return () => clearTimeout(timer);
+	}, [pendingPhotoPrompt]);
+
 	const selectPhotos = useCallback(async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
 		const files = [...(event.currentTarget.files ?? [])];
 		event.currentTarget.value = "";
-		if (files.length === 0) return;
+		if (files.length === 0 || pendingPhotoPrompt !== null) return;
 		const available = MAX_PHOTO_ATTACHMENTS - photosRef.current.length;
 		if (available <= 0) {
 			setPhotoError(`You can attach up to ${MAX_PHOTO_ATTACHMENTS} photos.`);
@@ -265,10 +353,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 		for (const file of files.slice(0, available)) {
 			try {
 				const prepared = await preparePhotoAttachment(file);
-				if (!mountedRef.current) {
-					disposePhotoAttachment(prepared);
-					return;
-				}
+				if (!mountedRef.current) return;
 				const next = [...photosRef.current, prepared];
 				photosRef.current = next;
 				setPhotos(next);
@@ -285,7 +370,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 			setPhotoError(`Only the first ${available} photos were attached.`);
 		}
 		if (mountedRef.current) setPreparingPhoto(false);
-	}, []);
+	}, [pendingPhotoPrompt]);
 
 	const removePhoto = useCallback((index: number): void => {
 		const removed = photosRef.current[index];
@@ -294,22 +379,36 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 		photosRef.current = next;
 		setPhotos(next);
 		setPhotoError(null);
-		disposePhotoAttachment(removed);
+		setPendingPhotoPrompt(null);
+		setPhotoConfirmationExpired(false);
 	}, []);
 
 	const send = useCallback((): void => {
 		const trimmed = text.trim();
 		const selectedPhotos = photosRef.current;
-		if ((!trimmed && selectedPhotos.length === 0) || !live || readOnly || preparingPhoto) return;
+		if (
+			(!trimmed && selectedPhotos.length === 0) ||
+			!live ||
+			readOnly ||
+			preparingPhoto ||
+			(pendingPhotoPrompt !== null && !retryReady)
+		) {
+			return;
+		}
 		const prompt =
 			trimmed || (selectedPhotos.length === 1 ? "Please inspect this photo." : "Please inspect these photos.");
-		client.sendPrompt(prompt, selectedPhotos.map(photo => photo.content));
-		setText("");
-		photosRef.current = [];
-		setPhotos([]);
 		setPhotoError(null);
-		for (const photo of selectedPhotos) disposePhotoAttachment(photo);
-	}, [client, live, preparingPhoto, readOnly, text]);
+		if (selectedPhotos.length === 0) {
+			client.sendPrompt(prompt);
+			setText("");
+			return;
+		}
+		if (!relayReady) return;
+		const images = selectedPhotos.map(photo => photo.content);
+		setPendingPhotoPrompt({ text: prompt, images, afterEntryId: snapshot.entries.at(-1)?.id ?? null });
+		setPhotoConfirmationExpired(false);
+		client.sendPrompt(prompt, images);
+	}, [client, live, pendingPhotoPrompt, preparingPhoto, readOnly, relayReady, retryReady, snapshot.entries, text]);
 
 	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (shouldSubmitOnEnter(e, composingRef.current)) {
@@ -376,19 +475,24 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 
 	return (
 		<div className="sh-composer">
-			{(photos.length > 0 || preparingPhoto || photoError) && (
+			{(photos.length > 0 || preparingPhoto || photoError || photoSendMessage) && (
 				<div className="sh-photo-stage">
 					{(photos.length > 0 || preparingPhoto) && (
 						<div className="sh-photo-strip" role="list" aria-label="Photos ready to send">
 							{photos.map((photo, index) => (
-								<figure className="sh-photo" role="listitem" key={photo.previewUrl}>
-									<img src={photo.previewUrl} alt={`Photo ${index + 1} ready to send`} />
+								<figure className="sh-photo" role="listitem" key={index}>
+									<img
+										src={`data:${photo.content.mimeType};base64,${photo.content.data}`}
+										alt={`Photo ${index + 1} ready to send`}
+									/>
 									<button
 										type="button"
 										className="sh-photo-remove"
 										onClick={() => removePhoto(index)}
 										onPointerDown={captureComposerPointer}
-										disabled={preparingPhoto}
+										disabled={
+											preparingPhoto || (pendingPhotoPrompt !== null && !photoConfirmationExpired)
+										}
 										aria-label={`Remove photo ${index + 1}`}
 									>
 										<X size={14} />
@@ -403,6 +507,11 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 							)}
 						</div>
 					)}
+					{photoSendMessage && (
+						<div className="sh-photo-send-state" role="status" aria-live="polite">
+							{photoSendMessage}
+						</div>
+					)}
 					{photoError && <div className="sh-photo-error" role="alert">{photoError}</div>}
 				</div>
 			)}
@@ -412,7 +521,6 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					className="sh-photo-input"
 					type="file"
 					accept="image/jpeg,image/png,image/webp"
-					capture="environment"
 					hidden
 					onChange={selectPhotos}
 					disabled={!canAddPhoto}
@@ -426,7 +534,13 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					}}
 					onPointerDown={captureComposerPointer}
 					disabled={!canAddPhoto}
-					title={photos.length >= MAX_PHOTO_ATTACHMENTS ? "Photo limit reached" : "Take or attach a photo"}
+					title={
+						pendingPhotoPrompt !== null
+							? "Photo send pending"
+							: photos.length >= MAX_PHOTO_ATTACHMENTS
+								? "Photo limit reached"
+								: "Take or attach a photo"
+					}
 					aria-label="Take or attach a photo"
 				>
 					<Camera size={17} /> <span className="sh-btn-label">Photo</span>
@@ -448,7 +562,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 									: "prompt the host agent…"
 								: "waiting for session…"
 					}
-					disabled={!canPrompt}
+					disabled={!canPrompt || pendingPhotoPrompt !== null}
 					rows={1}
 					spellCheck={false}
 				/>
@@ -476,9 +590,18 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 						onClick={send}
 						onPointerDown={captureComposerPointer}
 						disabled={!canSend}
-						title="send (Enter)"
+						title={
+							pendingPhotoPrompt === null
+								? "send (Enter)"
+								: photoConfirmationExpired
+									? "retry photo send"
+									: "waiting for host confirmation"
+						}
 					>
-						<SendHorizontal size={15} /> <span className="sh-btn-label">Send</span>
+						<SendHorizontal size={15} />
+						<span className="sh-btn-label">
+							{pendingPhotoPrompt === null ? "Send" : photoConfirmationExpired ? "Retry" : "Sending…"}
+						</span>
 					</button>
 				</div>
 			</div>

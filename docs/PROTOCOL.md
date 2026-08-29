@@ -414,9 +414,13 @@ Requirements:
 - for writable photo prompts, use the pinned v3 `{ t: "prompt", text, images }` frame without a
   gateway media endpoint or protocol revision; each `ImageContent` is a normalized `image/jpeg`
   data block, with at most four blocks and at most 1 MiB of decoded bytes per block;
-- accept only JPEG, PNG, and WebP source files up to 24 MiB, re-encode to a maximum 2,048px edge in
-  browser memory so source filenames and EXIF/location metadata do not cross the relay, and drop
-  preview/base64 references on remove, send, or client disposal;
+- accept only JPEG, PNG, and WebP source files up to 24 MiB and at most an 8,192px edge or
+  20 megapixels, re-encode to a maximum 2,048px edge in browser memory so source filenames and
+  EXIF/location metadata do not cross the relay, and drop preview/base64 references on remove,
+  host-confirmed transcript echo, or client disposal;
+- retain a sent photo draft until an exact `collab-prompt` transcript entry acknowledges its text
+  and image blocks; after five seconds without acknowledgement, keep the draft and offer retry only
+  while the relay is healthy;
 - permit image-only submission by supplying the explicit neutral text `Please inspect this photo.`
   (or its plural); user-entered text takes precedence unchanged;
 

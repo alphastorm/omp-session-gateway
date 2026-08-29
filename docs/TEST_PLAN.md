@@ -51,13 +51,17 @@
 
 ### Collaboration photo composer
 
-- JPEG, PNG, and WebP inputs normalize to JPEG no larger than a 2,048px edge or 1 MiB;
-- unsupported, empty, over-24-MiB, undecodable, and over-detailed inputs fail visibly without a
-  relay frame;
-- at most four volatile previews are retained; remove, send, and unmount revoke preview URLs and
-  drop base64 references;
+- JPEG, PNG, and WebP inputs at or below an 8,192px edge and 20 megapixels normalize to JPEG no
+  larger than a 2,048px edge or 1 MiB;
+- unsupported, empty, over-24-MiB, over-dimension, undecodable, and over-detailed inputs fail
+  visibly before decode or relay send;
+- at most four volatile previews are retained; remove, host-confirmed send, and unmount drop
+  preview data URLs and base64 references;
 - text-only, photo-plus-note, and photo-only prompts produce the existing v3 frame shape, with the
   documented neutral text used only when the note is empty;
+- an unacknowledged photo prompt retains its exact preview and note, disables editing, and offers
+  retry after five seconds only when relay health is current; a matching `collab-prompt` entry
+  clears it;
 - read-only, disconnected, and preparing states cannot open or submit the photo path;
 - a moving status row cannot cancel a pointer-captured Send, Stop, remove, or camera action.
 
@@ -109,7 +113,7 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 - collab-web parse/connect against mock relay;
 - view client write attempt is rejected;
 - control prompt/interrupt against mock/real OMP host.
-- rear-camera/file selection -> metadata-free bounded JPEG preview -> encrypted `prompt.images`
+- system camera/photo selection -> metadata-free bounded JPEG preview -> encrypted `prompt.images`
   frame -> real OMP host image prompt, with no gateway HTTP or service-worker media request;
 - a pending response operation before any writer exists -> metadata attention -> later Control replay -> exactly one settlement -> authoritative clear;
 - concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
@@ -132,11 +136,13 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 1. Open View for process A; transcript streams and write controls are unavailable/rejected.
 2. Open Control for process B; submit a benign prompt and interrupt it.
 3. Host tools continue to execute on the desktop process, not the phone.
-4. From the Pixel Control composer, take a rear-camera photo, add a note, preview it, and send.
+4. From the Pixel Control composer, choose the camera, take a photo, add a note, preview it, and send.
    Repeat without a note. The host receives one bounded JPEG each time and the active model can
    inspect it; View exposes no enabled photo action.
-5. Remove a prepared photo, choose an unsupported file, and exceed the attachment bound. No
-   rejected media reaches the relay, gateway, OMP transcript, browser storage, or test artifacts.
+5. Drop one send before host acknowledgement and verify the exact draft remains until Retry is
+   acknowledged. Remove a prepared photo, choose an unsupported/over-dimension file, and exceed
+   the attachment bound. No rejected media reaches the relay, gateway, OMP transcript, browser
+   storage, or test artifacts.
 
 ### C. Lifecycle correctness
 

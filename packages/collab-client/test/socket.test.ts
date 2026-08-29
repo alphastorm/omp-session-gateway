@@ -131,6 +131,7 @@ afterEach(() => {
 
 
 const TEST_LINK = `synthetic-room#${encodeBase64Url(new Uint8Array(32))}`;
+const TEST_CONTROL_LINK = `synthetic-room#${encodeBase64Url(new Uint8Array(48))}`;
 const TEST_HEADER: SessionHeader = {
   type: "session",
   id: "socket-lifecycle-test",
@@ -444,9 +445,35 @@ describe("CollabSocket browser lifecycle recovery", () => {
     }
   });
 
+  test("drops every mutating frame after a read-only welcome", async () => {
+    const client = new GuestClient(TEST_LINK, "test guest");
+    expect(client.getSnapshot().readOnly).toBeTrue();
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) throw new Error("initial WebSocket was not created");
+    socket.open();
+    await socket.waitForSent(1);
+    client.sendPrompt("blocked before welcome", [{ type: "image", data: "blocked", mimeType: "image/jpeg" }]);
+    client.sendAbort();
+    client.sendAgentCmd("chat", "blocked-agent", "blocked");
+    client.applyFrameForTest({ ...TEST_WELCOME, readOnly: true });
+    expect(client.getSnapshot().readOnly).toBeTrue();
+
+    client.sendPrompt("blocked", [{ type: "image", data: "blocked-image", mimeType: "image/jpeg" }]);
+    client.sendAbort();
+    client.sendAgentCmd("chat", "blocked-agent", "blocked");
+    const mutationSent = await Promise.race([
+      socket.waitForSent(2).then(() => true),
+      Bun.sleep(100).then(() => false),
+    ]);
+    expect(mutationSent).toBeFalse();
+    expect(socket.sent).toHaveLength(1);
+    client.close();
+  });
+
   test("keeps a UI response pending until host acknowledgement and resends it after reconnect", async () => {
     const key = await importRoomKey(new Uint8Array(32));
-    const client = new GuestClient(TEST_LINK, "test guest");
+    const client = new GuestClient(TEST_CONTROL_LINK, "test guest");
     client.connect();
     const initial = FakeWebSocket.instances[0];
     if (initial === undefined) throw new Error("initial WebSocket was not created");

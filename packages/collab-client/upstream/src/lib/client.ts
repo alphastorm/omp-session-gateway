@@ -165,6 +165,7 @@ export class GuestClient {
 		if ("error" in parsed) throw new Error(parsed.error);
 		this.#name = displayName;
 		this.#writeToken = parsed.writeToken ? encodeBase64Url(parsed.writeToken) : undefined;
+		this.#readOnly = this.#writeToken === undefined;
 		this.#socket = new CollabSocket({ wsUrl: parsed.wsUrl, role: "guest", key: importRoomKey(parsed.key) });
 		this.#socket.onOpen = () => this.#handleOpen();
 		this.#socket.onFrame = frame => this.#applyFrameSafe(frame);
@@ -258,6 +259,7 @@ export class GuestClient {
 	}
 
 	sendPrompt(text: string, images?: ImageContent[]): void {
+		if (this.#readOnly) return;
 		this.#socket.send({ t: "prompt", text, images: images && images.length > 0 ? images : undefined });
 	}
 
@@ -269,10 +271,12 @@ export class GuestClient {
 	}
 
 	sendAbort(): void {
+		if (this.#readOnly) return;
 		this.#socket.send({ t: "abort" });
 	}
 
 	sendAgentCmd(cmd: "chat" | "kill" | "revive", agentId: string, text?: string): void {
+		if (this.#readOnly) return;
 		this.#socket.send({ t: "agent-cmd", cmd, agentId, ...(text === undefined ? {} : { text }) });
 	}
 

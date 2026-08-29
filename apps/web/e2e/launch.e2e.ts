@@ -81,8 +81,12 @@ function relaySocketCount(page: Page): Promise<number> {
   );
 }
 
-async function attachSyntheticPhoto(page: Page, label: string): Promise<void> {
-  await page.locator(".sh-photo-input").evaluate(async (element, photoLabel) => {
+async function attachSyntheticPhoto(
+  page: Page,
+  label: string,
+  mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg",
+): Promise<void> {
+  await page.locator(".sh-photo-input").evaluate(async (element, options) => {
     const input = element as HTMLInputElement;
     const canvas = document.createElement("canvas");
     canvas.width = 2_400;
@@ -105,17 +109,18 @@ async function attachSyntheticPhoto(page: Page, label: string): Promise<void> {
     }
     context.fillStyle = "#141410";
     context.font = "700 96px system-ui";
-    context.fillText(photoLabel, 120, 180);
+    context.fillText(options.label, 120, 180);
 
     const { promise, resolve } = Promise.withResolvers<Blob | null>();
-    canvas.toBlob(resolve, "image/png");
+    canvas.toBlob(resolve, options.mimeType, 0.92);
     const blob = await promise;
     if (!blob) throw new Error("failed to encode synthetic photo");
     const transfer = new DataTransfer();
-    transfer.items.add(new File([blob], "component.png", { type: "image/png" }));
+    const extension = options.mimeType === "image/jpeg" ? "jpg" : options.mimeType === "image/png" ? "png" : "webp";
+    transfer.items.add(new File([blob], `component.${extension}`, { type: options.mimeType }));
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-  }, label);
+  }, { label, mimeType });
 }
 
 function capturedPhotoPrompts(page: Page): Promise<readonly {
@@ -334,6 +339,7 @@ test("installed-PWA View and Control mount in the current window without losing 
 });
 
 test("embedded active ask matches the original 3d shell interaction", async ({ page }) => {
+  test.setTimeout(45_000);
   const roomKey = new Uint8Array(32).fill(37);
   const fixture = await startDashboardFixture([session()], { roomKey });
 
@@ -372,6 +378,8 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
         onclose: ((event: CloseEvent) => void) | null = null;
         sentWelcome = false;
         hostFramesSent = false;
+        promptSequence = 0;
+        suppressedPromptAcks = 0;
 
         constructor(url: string) {
           this.url = url;
@@ -415,6 +423,10 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
           holdConnections = false;
         }
 
+        suppressNextPromptAck(): void {
+          this.suppressedPromptAcks += 1;
+        }
+
         send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
           void this.captureGuestFrame(data);
           if (this.sentWelcome) return;
@@ -431,7 +443,30 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
           const iv = bytes.slice(4, 16);
           const ciphertext = bytes.slice(16);
           const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, await key, ciphertext);
-          guestFrames.push(JSON.parse(decoder.decode(plaintext)) as unknown);
+          const frame = JSON.parse(decoder.decode(plaintext)) as unknown;
+          guestFrames.push(frame);
+          if (!frame || typeof frame !== "object" || !("t" in frame) || frame.t !== "prompt") return;
+          if (this.suppressedPromptAcks > 0) {
+            this.suppressedPromptAcks -= 1;
+            return;
+          }
+          const prompt = frame as { text?: unknown; images?: unknown };
+          if (typeof prompt.text !== "string") return;
+          const images = Array.isArray(prompt.images) ? prompt.images : [];
+          this.promptSequence += 1;
+          await this.sendHostFrame({
+            t: "entry",
+            entry: {
+              id: `guest-photo-${this.promptSequence}`,
+              parentId: null,
+              timestamp: "2026-07-25T00:00:02.000Z",
+              type: "custom_message",
+              customType: "collab-prompt",
+              content: images.length > 0 ? [{ type: "text", text: prompt.text }, ...images] : prompt.text,
+              details: { from: "guest" },
+              display: true,
+            },
+          });
         }
 
         async sendHostFrame(frame: unknown): Promise<void> {
@@ -776,7 +811,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     const promptInput = page.locator(".sh-composer-input");
     const promptSend = page.locator(".sh-composer > .sh-composer-inner .sh-btn-primary");
     await expect(photoInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
-    await expect(photoInput).toHaveAttribute("capture", "environment");
+    await expect(photoInput).not.toHaveAttribute("capture", /.+/u);
     await expect(photoTrigger).toBeEnabled();
 
     await attachSyntheticPhoto(page, "CONNECTOR A");
@@ -801,6 +836,12 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await promptSend.click();
     await expect(page.locator(".sh-photo")).toHaveCount(0);
     await expect(promptInput).toHaveValue("");
+    const transcriptPhoto = page.locator(".tr-msg-img").last();
+    await expect(transcriptPhoto).toBeVisible();
+    expect(await transcriptPhoto.evaluate(image => {
+      const bounds = image.getBoundingClientRect();
+      return { fitsViewport: bounds.left >= 0 && bounds.right <= innerWidth, source: (image as HTMLImageElement).src.slice(0, 16) };
+    })).toEqual({ fitsViewport: true, source: "data:image/jpeg;" });
     await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(1);
     const [captionedPhoto] = await capturedPhotoPrompts(page);
     expect(captionedPhoto).toEqual({
@@ -812,13 +853,57 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     });
     expect(captionedPhoto?.bytes).toBeLessThanOrEqual(1_024 * 1_024);
 
-    await attachSyntheticPhoto(page, "CONNECTOR B");
+    await page.evaluate(() => {
+      const socket = (globalThis as typeof globalThis & {
+        __askSocket?: { suppressNextPromptAck(): void };
+      }).__askSocket;
+      if (socket === undefined) throw new Error("missing ask socket");
+      socket.suppressNextPromptAck();
+    });
+    await attachSyntheticPhoto(page, "CONNECTOR B", "image/png");
     await expect(page.locator(".sh-photo img")).toBeVisible();
     await expect(promptSend).toBeEnabled();
     await promptSend.tap();
     await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(2);
+    await expect(page.locator(".sh-photo")).toHaveCount(1);
+    await expect(page.locator(".sh-photo-send-state")).toHaveText("Sending photo…");
+    await expect(promptInput).toBeDisabled();
+    await expect(page.locator(".sh-photo-send-state")).toHaveText(
+      "Photo not confirmed. Tap Send to retry.",
+      { timeout: 7_000 },
+    );
+    await expect(promptSend).toBeEnabled();
+    await expect(promptSend).toHaveAttribute("title", "retry photo send");
+    await promptSend.tap();
+    await expect.poll(async () => (await capturedPhotoPrompts(page)).length).toBe(3);
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
     const photoPrompts = await capturedPhotoPrompts(page);
     expect(photoPrompts[1]?.text).toBe("Please inspect this photo.");
+    expect(photoPrompts[2]?.text).toBe("Please inspect this photo.");
+
+    await attachSyntheticPhoto(page, "CONNECTOR C", "image/webp");
+    await expect(page.locator(".sh-photo img")).toBeVisible();
+    await page.getByRole("button", { name: "Remove photo 1" }).tap();
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
+    await expect(promptSend).toBeDisabled();
+
+    await photoInput.evaluate(input => {
+      const bytes = new Uint8Array(24);
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const view = new DataView(bytes.buffer);
+      view.setUint32(8, 13, false);
+      bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+      view.setUint32(16, 100_000, false);
+      view.setUint32(20, 100_000, false);
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], "oversized.png", { type: "image/png" }));
+      (input as HTMLInputElement).files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(page.locator(".sh-photo-error")).toHaveText(
+      "That photo is too large to process safely. Use a lower-resolution image.",
+    );
+    await expect(page.locator(".sh-photo")).toHaveCount(0);
 
     await photoInput.evaluate(input => {
       const transfer = new DataTransfer();

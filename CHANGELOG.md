@@ -8,18 +8,23 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Added
 
-- Add a phone-first photo composer to Control sessions: one tap opens the rear camera or image
-  picker, up to four previews stay beside an optional note, and the pinned OMP client sends the
+- Add a phone-first photo composer to Control sessions: one tap opens the system camera/photo
+  chooser, up to four previews stay beside an optional note, and the pinned OMP client sends the
   normalized images through its existing encrypted collaboration frame directly to the host.
-- Re-encode JPEG, PNG, and WebP input in browser memory as metadata-free JPEG, bounded to a 2,048px
-  edge and 1 MiB per photo. The gateway, service worker, URLs, logs, and browser storage never
-  receive the image; the normalized prompt follows ordinary OMP transcript and model-provider
-  handling after send.
+- Reject source dimensions above an 8,192px edge or 20 megapixels, then re-encode JPEG, PNG, and
+  WebP input in browser memory as metadata-free JPEG bounded to a 2,048px edge and 1 MiB per photo.
+  The gateway, service worker, URLs, logs, and browser storage never receive the image; the
+  normalized prompt follows ordinary OMP transcript and model-provider handling after send.
 
 ### Fixed
 
 - Capture active composer pointers so a transient phone status row cannot move Send, Stop, or
   photo controls out from under a tap before release.
+- Keep a photo and its note visible until the host transcript acknowledges the prompt; an
+  interrupted send now preserves the exact draft and enables bounded Retry instead of forcing a
+  retake.
+- Enforce View/read-only state inside every mutating collaboration-client method rather than only
+  through rendered control state.
 
 ## [v0.2.1] — 2026-08-28
 

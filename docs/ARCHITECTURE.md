@@ -124,11 +124,13 @@ Preferred integration:
 4. dispose of references when leaving the session;
 5. return to the directory on reload because the capability is intentionally not recoverable.
 
-In a writable Control session, the same pinned client may collect up to four photos through a
-browser file input with rear-camera capture. It decodes and canvas-re-encodes JPEG, PNG, or WebP
-input in volatile browser memory, stripping EXIF/location metadata while bounding each normalized
-JPEG to a 2,048px edge and 1 MiB. The composer passes an optional note plus those images through
-OMP's existing encrypted v3 `prompt.images` frame directly to the host. No gateway HTTP endpoint,
+In a writable Control session, the same pinned client may collect up to four photos through the
+system camera/photo chooser. It rejects source dimensions above an 8,192px edge or 20 megapixels,
+then decodes and canvas-re-encodes JPEG, PNG, or WebP input in volatile browser memory, stripping
+EXIF/location metadata while bounding each normalized JPEG to a 2,048px edge and 1 MiB. The
+composer passes an optional note plus those images through OMP's existing encrypted v3
+`prompt.images` frame directly to the host, then retains the draft until the host echoes the
+corresponding transcript entry. No gateway HTTP endpoint,
 registry record, service-worker route, URL, browser-storage record, or new relay protocol is added.
 The host and model provider receive the normalized prompt exactly as they would an image attached
 locally in OMP; ordinary OMP transcript/provider retention therefore still applies.
