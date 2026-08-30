@@ -9,14 +9,37 @@ exact qualified combinations below and no broader production claim<br>
 
 ### 0.3.0 engineering track — unqualified
 
-Published engineering release `v0.3.0-prealpha.1` adds a bounded phone-camera/photo composer to
-the pinned collaboration client.
+Published engineering release `v0.3.0-prealpha.2` adds an explicit direct-camera versus
+existing-photo choice to the bounded phone photo composer introduced in `v0.3.0-prealpha.1`.
 It uses the existing encrypted OMP v3 image-prompt frame and does not change gateway IPC/HTTP,
 capability handling, the controller/publisher patch, or `COLLAB_PROTO`. No 0.2.1 qualification
 evidence transfers to these changed client bytes. The exact source, archive, local activation, and
 real patched-host browser flow are recorded below; the physical Pixel camera chooser and the full
 qualification matrix have not run. The release remains pre-alpha and cannot replace or widen the
 stable support claim below.
+
+### v0.3.0-prealpha.2 — published direct-camera follow-up
+
+**Source:** `a9ef7e03934986bf9a3ecc12eb87a707d35e846b`.<br>
+**Archive SHA-256:** `ca05549aecdf0d2e01f2b5d6820729222e29b38e92aa4ee1582c009e195c6fff`.<br>
+**Release run:** [`33283594409`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33283594409), passed.<br>
+**Classification:** published immutable prerelease, not Latest; the exact local smoke below does
+not transfer stable qualification.
+
+The release published six assets. Checksums, all immutable asset digests, three GitHub build
+attestations, and three Sigstore bundles verified against the signed tag. The published archive
+installed under pinned Bun 1.3.14 as `0.3.0-d259ea06c7fe`; config and publisher-token bytes were
+unchanged, `status` was active/ready/non-diverged, and `doctor` passed 17/17.
+
+An owned exact patched-OMP v17.4.1 fixture proved the activated released client kept Photo disabled
+in View, upgraded to Control, and rendered two 56px Pixel-width choices without overflow.
+**Take photo** targeted the dedicated `capture="environment"` input; **Choose existing** targeted
+the no-capture input. Synthetic camera-JPEG and existing-photo PNG sends both traversed the default
+relay, received exact host transcript acknowledgement, rendered two transcript images, and cleared
+their drafts. Fixture revocation and scoped cleanup passed.
+
+No physical ADB device was attached. The native Android camera application launch remains the one
+unobserved handoff; the activated release now exposes that path for the user's direct Pixel test.
 
 ### v0.3.0-prealpha.1 — published engineering release
 

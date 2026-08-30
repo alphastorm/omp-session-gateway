@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.3.0-prealpha.2] — 2026-08-30
+
 ### Changed
 
 - Make the Photo action explicitly offer **Take photo** and **Choose existing**. The camera path
