@@ -20,6 +20,7 @@ import {
 const { TRANSCRIPT_WINDOW, TRANSCRIPT_WINDOW_STEP, Transcript } = await import(
   "../upstream/src/components/transcript/Transcript"
 );
+const { Composer } = await import("../upstream/src/components/shell/Composer");
 const { Session } = await import("../upstream/src/app");
 
 const USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } };
@@ -260,6 +261,55 @@ function guestSnapshot(overrides: Partial<GuestSnapshot> = {}): GuestSnapshot {
     ...overrides,
   };
 }
+
+describe("photo source chooser", () => {
+  test("routes explicit camera and library choices to separate inputs", async () => {
+    const guest = new FakeGuest(guestSnapshot({ phase: "live" }));
+    const tree = await mount(
+      createElement(Composer, {
+        client: guest.client,
+        snapshot: guest.getSnapshot(),
+        embedded: true,
+      }),
+    );
+    const trigger = query(tree.container, "sh-photo-trigger");
+    const cameraInput = query(tree.container, "sh-photo-input-camera");
+    const libraryInput = query(tree.container, "sh-photo-input-library");
+    if (trigger === null || cameraInput === null || libraryInput === null) {
+      throw new Error("photo chooser controls did not render");
+    }
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(cameraInput.getAttribute("capture")).toBe("environment");
+    expect(libraryInput.getAttribute("capture")).toBeNull();
+
+    let cameraClicks = 0;
+    let libraryClicks = 0;
+    (cameraInput as MiniElement & { click(): void }).click = () => {
+      cameraClicks += 1;
+    };
+    (libraryInput as MiniElement & { click(): void }).click = () => {
+      libraryClicks += 1;
+    };
+
+    await click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const choices = queryAll(tree.container, "sh-photo-source-option");
+    expect(choices.map(choice => textOf(choice))).toEqual([
+      "Take photoOpen rear camera",
+      "Choose existingPhoto library or files",
+    ]);
+    await click(choices[0] as MiniElement);
+    expect(cameraClicks).toBe(1);
+    expect(libraryClicks).toBe(0);
+    expect(query(tree.container, "sh-photo-source-options")).toBeNull();
+
+    await click(trigger);
+    await click(queryAll(tree.container, "sh-photo-source-option")[1] as MiniElement);
+    expect(cameraClicks).toBe(1);
+    expect(libraryClicks).toBe(1);
+    expect(query(tree.container, "sh-photo-source-options")).toBeNull();
+  });
+});
 
 describe("embedded session first paint", () => {
   test("defers the transcript until the guest snapshot completes, then keeps it across a reconnect", async () => {

@@ -160,3 +160,4 @@ describe("photo prompt acknowledgements", () => {
     ).toBeTrue();
   });
 });
+
