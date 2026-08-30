@@ -20,6 +20,7 @@
     "Embed under gateway chrome without a competing client header, rail, or lifecycle overlay",
     "Present an embedded active Ask in the client's sole composer without a duplicate transcript card",
     "Capture, metadata-strip, bound, preview, and send phone photos through the existing encrypted image-prompt frame",
+    "Offer separate rear-camera capture and existing-photo inputs behind one accessible Photo source panel",
     "Reject oversized decoded image dimensions before browser decode and use CSP-compatible data previews",
     "Retain photo drafts until the host transcript acknowledges delivery and expose bounded retry",
     "Enforce view-link read-only state inside every mutating guest-client method",

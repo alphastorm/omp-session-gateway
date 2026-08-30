@@ -172,6 +172,11 @@ to be zeroized. After send, the normalized image
 is ordinary OMP prompt content and may persist in the host transcript and at the selected model
 provider under those systems' normal retention policies. The original phone file is not uploaded.
 
+The Photo action uses two hidden file inputs behind explicit user choices. **Take photo** adds the
+browser `capture="environment"` hint; **Choose existing** omits `capture`. Native file-input
+capture launches the operating-system camera UI and does not grant script-level camera access, so
+the gateway keeps `Permissions-Policy: camera=()` and never invokes `getUserMedia`.
+
 ## 6. Capability handling
 
 Mandatory rules:

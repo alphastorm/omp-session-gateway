@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Make the Photo action explicitly offer **Take photo** and **Choose existing**. The camera path
+  requests the rear-facing system camera while the library path remains an unrestricted image
+  picker, avoiding Android's one-input camera-or-library ambiguity.
+
 ## [v0.3.0-prealpha.1] — 2026-08-29
 
 ### Added

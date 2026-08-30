@@ -125,8 +125,11 @@ Preferred integration:
 5. return to the directory on reload because the capability is intentionally not recoverable.
 
 In a writable Control session, the same pinned client may collect up to four photos through the
-system camera/photo chooser. It rejects source dimensions above an 8,192px edge or 20 megapixels,
-then decodes and canvas-re-encodes JPEG, PNG, or WebP input in volatile browser memory, stripping
+Photo action's explicit source panel. **Take photo** uses a dedicated file input with
+`capture="environment"`; **Choose existing** uses a separate image input without `capture` so
+Android never has to infer camera-versus-library intent from one control. It rejects source
+dimensions above an 8,192px edge or 20 megapixels, then decodes and canvas-re-encodes JPEG, PNG, or
+WebP input in volatile browser memory, stripping
 EXIF/location metadata while bounding each normalized JPEG to a 2,048px edge and 1 MiB. The
 composer passes an optional note plus those images through OMP's existing encrypted v3
 `prompt.images` frame directly to the host, then retains the draft until the host echoes the

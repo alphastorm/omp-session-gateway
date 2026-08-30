@@ -20,9 +20,11 @@ placeholder until the guest snapshot completes, then mounts only its newest 150 
 older rows mount.
 
 Control sessions expose the existing OMP v3 `prompt.images` path as a phone-first photo action.
-The browser opens the system camera/photo chooser, rejects source dimensions above an 8,192px edge
-or 20 megapixels, and normalizes up to four JPEG, PNG, or WebP inputs to metadata-free JPEGs with a
-2,048px edge and 1 MiB per-image cap. Volatile previews stay available until the host echoes the
+The Photo action opens an explicit two-choice panel: **Take photo** invokes a rear-camera capture
+input, while **Choose existing** opens the ordinary photo library/file picker. The browser rejects
+source dimensions above an 8,192px edge or 20 megapixels and normalizes up to four JPEG, PNG, or
+WebP inputs to metadata-free JPEGs with a 2,048px edge and 1 MiB per-image cap. Volatile previews
+stay available until the host echoes the
 sent transcript entry; a lost send retains the exact draft for retry. The gateway HTTP service and
 service worker never receive media. Removing, acknowledged sending, or leaving drops preview
 references; the normalized image then follows ordinary OMP transcript and model-provider handling

@@ -421,6 +421,9 @@ Requirements:
   20 megapixels, re-encode to a maximum 2,048px edge in browser memory so source filenames and
   EXIF/location metadata do not cross the relay, and drop preview/base64 references on remove,
   host-confirmed transcript echo, or client disposal;
+- expose separate user actions and hidden inputs for **Take photo**
+  (`capture="environment"`) and **Choose existing** (no `capture`); both feed the same bounded
+  preparation path, and cancelling either chooser sends nothing;
 - retain a sent photo draft until an exact `collab-prompt` transcript entry acknowledges its text
   and image blocks after the recorded pre-send entry; if that baseline is absent during reconnect,
   no older identical entry may acknowledge the draft. After five seconds without acknowledgement,

@@ -85,8 +85,9 @@ async function attachSyntheticPhoto(
   page: Page,
   label: string,
   mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg",
+  source: "camera" | "library" = "library",
 ): Promise<void> {
-  await page.locator(".sh-photo-input").evaluate(async (element, options) => {
+  await page.locator(".sh-photo-input-" + source).evaluate(async (element, options) => {
     const input = element as HTMLInputElement;
     const canvas = document.createElement("canvas");
     canvas.width = 2_400;
@@ -806,15 +807,51 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     });
     await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(0);
 
-    const photoInput = page.locator(".sh-photo-input");
-    const photoTrigger = page.getByRole("button", { name: "Take or attach a photo" });
+    const cameraInput = page.locator(".sh-photo-input-camera");
+    const photoInput = page.locator(".sh-photo-input-library");
+    const photoTrigger = page.getByRole("button", { name: "Add a photo" });
     const promptInput = page.locator(".sh-composer-input");
     const promptSend = page.locator(".sh-composer > .sh-composer-inner .sh-btn-primary");
+    await expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    await expect(cameraInput).toHaveAttribute("capture", "environment");
     await expect(photoInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
     await expect(photoInput).not.toHaveAttribute("capture", /.+/u);
     await expect(photoTrigger).toBeEnabled();
+    await photoTrigger.click();
+    await expect(photoTrigger).toHaveAttribute("aria-expanded", "true");
+    const takePhoto = page.getByRole("button", { name: /Take photo/u });
+    const chooseExisting = page.getByRole("button", { name: /Choose existing/u });
+    await expect(takePhoto).toBeVisible();
+    await expect(chooseExisting).toBeVisible();
+    for (const choice of [takePhoto, chooseExisting]) {
+      const bounds = await choice.boundingBox();
+      expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    }
+    await takePhoto.focus();
+    await page.keyboard.press("Escape");
+    await expect(photoTrigger).toHaveAttribute("aria-expanded", "false");
+    await expect(photoTrigger).toBeFocused();
+    await photoTrigger.click();
+    await expect(takePhoto).toBeVisible();
+    const cameraChooserPromise = page.waitForEvent("filechooser");
+    await takePhoto.click();
+    const cameraChooser = await cameraChooserPromise;
+    expect(await cameraChooser.element().getAttribute("capture")).toBe("environment");
+    await cameraChooser.setFiles([]);
+    await expect(photoTrigger).toHaveAttribute("aria-expanded", "false");
 
-    await attachSyntheticPhoto(page, "CONNECTOR A");
+    await photoTrigger.click();
+    const libraryChooserPromise = page.waitForEvent("filechooser");
+    await chooseExisting.click();
+    const libraryChooser = await libraryChooserPromise;
+    expect(await libraryChooser.element().getAttribute("capture")).toBeNull();
+    await libraryChooser.setFiles([]);
+    await expect(photoTrigger).toHaveAttribute("aria-expanded", "false");
+
+    await photoTrigger.click();
+
+    await attachSyntheticPhoto(page, "CONNECTOR A", "image/jpeg", "camera");
+    await expect(photoTrigger).toHaveAttribute("aria-expanded", "false");
     const preview = page.locator(".sh-photo img");
     await expect(preview).toBeVisible();
     await expect.poll(() => preview.evaluate(image => ({
