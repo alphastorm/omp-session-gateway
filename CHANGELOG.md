@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Codecov's project status green across Bun's observed same-tree LCOV variance while retaining
+  a blocking project gate for coverage drops beyond the two-point reporter-noise allowance.
+
 ## [v0.3.0-prealpha.2] — 2026-08-30
 
 ### Changed
