@@ -20,17 +20,20 @@
 #     in `apps/web/e2e`, which Bun does not instrument, so its line coverage here reflects only what
 #     the unit tests load. It is kept in the report rather than ignored, because excluding production
 #     code to improve a number is exactly the move this file exists to discourage.
-# Coverage runs in one Bun test worker. Bun 1.3.14 produced different app.ts line/source-map totals
-# across identical multi-worker runs, moving the project status by more than its regression budget;
-# two consecutive single-worker runs produced identical per-file totals without increasing runtime.
+# Coverage runs in one Bun test worker. The app tests import `app.ts` under cache-busting query
+# suffixes for page isolation, and Bun 1.3.14 emits those executions under one LCOV source path.
+# Local consecutive same-tree reports have varied only that record, while GitHub-hosted Bun 1.3.14
+# reports from identical coverage-relevant trees have differed by 1.31 project points. The status
+# threshold below contains that observed reporter noise while still rejecting a larger regression.
 
 coverage:
   status:
     project:
       default:
         target: auto
-        # A real regression gate, not a fixed target. The absolute figure is not the point; a drop is.
-        threshold: 1%
+        # A real regression gate, not a fixed target. Two points contain the observed 1.31-point
+        # Bun reporter swing without making the project status merely informational.
+        threshold: 2%
     patch:
       default:
         # Informational deliberately. Because Bun omits modules no test imports, a new and entirely
