@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.3.0-prealpha.1] — 2026-08-29
+
 ### Added
 
 - Add a phone-first photo composer to Control sessions: one tap opens the system camera/photo
