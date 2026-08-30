@@ -1,5 +1,5 @@
 import { COLLAB_PROMPT_MESSAGE_TYPE, type ImageContent, type SessionEntry } from "@oh-my-pi/pi-wire";
-import { Camera, SendHorizontal, Square, X } from "lucide-react";
+import { Camera, ImagePlus, Images, SendHorizontal, Square, X } from "lucide-react";
 import type { ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GuestClient, GuestSnapshot } from "../../lib/client";
@@ -272,8 +272,11 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	const [photoError, setPhotoError] = useState<string | null>(null);
 	const [pendingPhotoPrompt, setPendingPhotoPrompt] = useState<PendingPhotoPrompt | null>(null);
 	const [photoConfirmationExpired, setPhotoConfirmationExpired] = useState(false);
+	const [photoSourceOpen, setPhotoSourceOpen] = useState(false);
 	const taRef = useRef<HTMLTextAreaElement | null>(null);
-	const photoInputRef = useRef<HTMLInputElement | null>(null);
+	const cameraInputRef = useRef<HTMLInputElement | null>(null);
+	const libraryInputRef = useRef<HTMLInputElement | null>(null);
+	const photoTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const photosRef = useRef<readonly PreparedPhoto[]>([]);
 	const mountedRef = useRef(true);
 	const { composingRef, onCompositionStart, onCompositionEnd } = useCompositionGuard();
@@ -341,9 +344,14 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 		return () => clearTimeout(timer);
 	}, [pendingPhotoPrompt]);
 
+	useEffect(() => {
+		if (!canAddPhoto) setPhotoSourceOpen(false);
+	}, [canAddPhoto]);
+
 	const selectPhotos = useCallback(async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
 		const files = [...(event.currentTarget.files ?? [])];
 		event.currentTarget.value = "";
+		setPhotoSourceOpen(false);
 		if (files.length === 0 || pendingPhotoPrompt !== null) return;
 		const available = MAX_PHOTO_ATTACHMENTS - photosRef.current.length;
 		if (available <= 0) {
@@ -387,6 +395,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 	}, []);
 
 	const send = useCallback((): void => {
+		setPhotoSourceOpen(false);
 		const trimmed = text.trim();
 		const selectedPhotos = photosRef.current;
 		if (
@@ -518,10 +527,66 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					{photoError && <div className="sh-photo-error" role="alert">{photoError}</div>}
 				</div>
 			)}
+			{photoSourceOpen && canAddPhoto && (
+				<div
+					id="sh-photo-source-choices"
+					className="sh-photo-source-chooser"
+					role="group"
+					aria-label="Add a photo"
+					onKeyDown={event => {
+						if (event.key !== "Escape") return;
+						setPhotoSourceOpen(false);
+						photoTriggerRef.current?.focus();
+					}}
+				>
+					<div className="sh-photo-source-options">
+						<button
+							type="button"
+							className="sh-photo-source-option"
+							onClick={() => {
+								setPhotoSourceOpen(false);
+								cameraInputRef.current?.click();
+							}}
+							onPointerDown={captureComposerPointer}
+						>
+							<Camera size={18} aria-hidden="true" />
+							<span className="sh-photo-source-copy">
+								<span className="sh-photo-source-label">Take photo</span>
+								<span className="sh-photo-source-detail">Open rear camera</span>
+							</span>
+						</button>
+						<button
+							type="button"
+							className="sh-photo-source-option"
+							onClick={() => {
+								setPhotoSourceOpen(false);
+								libraryInputRef.current?.click();
+							}}
+							onPointerDown={captureComposerPointer}
+						>
+							<Images size={18} aria-hidden="true" />
+							<span className="sh-photo-source-copy">
+								<span className="sh-photo-source-label">Choose existing</span>
+								<span className="sh-photo-source-detail">Photo library or files</span>
+							</span>
+						</button>
+					</div>
+				</div>
+			)}
 			<div className="sh-composer-inner">
 				<input
-					ref={photoInputRef}
-					className="sh-photo-input"
+					ref={cameraInputRef}
+					className="sh-photo-input sh-photo-input-camera"
+					type="file"
+					accept="image/jpeg,image/png,image/webp"
+					capture="environment"
+					hidden
+					onChange={selectPhotos}
+					disabled={!canAddPhoto}
+				/>
+				<input
+					ref={libraryInputRef}
+					className="sh-photo-input sh-photo-input-library"
 					type="file"
 					accept="image/jpeg,image/png,image/webp"
 					hidden
@@ -529,11 +594,12 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					disabled={!canAddPhoto}
 				/>
 				<button
+					ref={photoTriggerRef}
 					type="button"
-					className={`sh-btn sh-photo-trigger${photos.length > 0 ? " sh-photo-trigger-active" : ""}`}
+					className={`sh-btn sh-photo-trigger${photos.length > 0 || photoSourceOpen ? " sh-photo-trigger-active" : ""}`}
 					onClick={() => {
 						setPhotoError(null);
-						photoInputRef.current?.click();
+						setPhotoSourceOpen(open => !open);
 					}}
 					onPointerDown={captureComposerPointer}
 					disabled={!canAddPhoto}
@@ -544,15 +610,18 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 								? "Photo limit reached"
 								: "Take or attach a photo"
 					}
-					aria-label="Take or attach a photo"
+					aria-label="Add a photo"
+					aria-expanded={photoSourceOpen}
+					aria-controls={photoSourceOpen ? "sh-photo-source-choices" : undefined}
 				>
-					<Camera size={17} /> <span className="sh-btn-label">Photo</span>
+					<ImagePlus size={17} /> <span className="sh-btn-label">Photo</span>
 				</button>
 				<textarea
 					ref={taRef}
 					className="sh-composer-input"
 					value={text}
 					onChange={e => setText(e.target.value)}
+					onFocus={() => setPhotoSourceOpen(false)}
 					onKeyDown={onKeyDown}
 					onCompositionStart={onCompositionStart}
 					onCompositionEnd={onCompositionEnd}

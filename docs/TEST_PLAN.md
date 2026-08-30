@@ -53,6 +53,9 @@
 
 - JPEG, PNG, and WebP inputs at or below an 8,192px edge and 20 megapixels normalize to JPEG no
   larger than a 2,048px edge or 1 MiB;
+- the Photo control exposes two 44px choices; **Take photo** targets the environment camera input,
+  **Choose existing** targets the no-capture library input, Escape closes the panel and returns
+  focus, and cancelling either picker prepares nothing;
 - unsupported, empty, over-24-MiB, over-dimension, undecodable, and over-detailed inputs fail
   visibly before decode or relay send;
 - at most four volatile previews are retained; remove, host-confirmed send, and unmount drop
@@ -115,7 +118,7 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 - collab-web parse/connect against mock relay;
 - view client write attempt is rejected;
 - control prompt/interrupt against mock/real OMP host.
-- system camera/photo selection -> metadata-free bounded JPEG preview -> encrypted `prompt.images`
+- explicit camera and existing-photo selection -> metadata-free bounded JPEG preview -> encrypted `prompt.images`
   frame -> real OMP host image prompt, with no gateway HTTP or service-worker media request;
 - a pending response operation before any writer exists -> metadata attention -> later Control replay -> exactly one settlement -> authoritative clear;
 - concurrent response operations and multiple Control writers preserve one boolean and settle each request once;
@@ -138,7 +141,8 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 1. Open View for process A; transcript streams and write controls are unavailable/rejected.
 2. Open Control for process B; submit a benign prompt and interrupt it.
 3. Host tools continue to execute on the desktop process, not the phone.
-4. From the Pixel Control composer, choose the camera, take a photo, add a note, preview it, and send.
+4. From the Pixel Control composer, open Photo and exercise both **Take photo** and
+   **Choose existing**. Take a rear-camera photo, add a note, preview it, and send.
    Repeat without a note. The host receives one bounded JPEG each time and the active model can
    inspect it; View exposes no enabled photo action.
 5. Drop one send before host acknowledgement and verify the exact draft remains until Retry is
