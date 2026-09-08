@@ -3,10 +3,15 @@
 One throwaway root on the operator's own macOS workstation, driven by
 [`scripts/qualify-rollback.sh`](../scripts/qualify-rollback.sh). The selected signed predecessor is
 installed, upgraded to the selected signed candidate, and restored while the production daemon
-continues running on the same machine. Defaults are `v0.1.0-alpha.1` → `v0.1.0-prealpha.20`.
+continues running on the same machine. Defaults are `v0.2.1` → `v0.3.0-prealpha.3`.
 
 This document is the operating manual for that lane. It does not promote any ledger row. Every
 command below prints numbers; the lead decides what those numbers mean.
+
+The prospective v0.3.0 campaign passes explicit tags: `v0.2.1` → `v0.3.0-prealpha.3`.
+Current candidate upgrades preserve existing configuration unless an install option explicitly
+overrides it, including custom registry limits and identity-trust settings. Historical predecessor
+installers retain their original behavior; keep their matching configuration available for recovery.
 
 ## 1. Why rollback needs its own lane
 

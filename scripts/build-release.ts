@@ -64,8 +64,8 @@ interface RuntimeLicenseMetadata {
 
 export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> = {
   "@oh-my-pi/pi-wire": {
-    version: "17.4.1",
-    source: "https://github.com/can1357/oh-my-pi/tree/v17.4.1/packages/wire",
+    version: "18.1.14",
+    source: "https://github.com/can1357/oh-my-pi/tree/v18.1.14/packages/wire",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
@@ -102,6 +102,14 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
     licenseConcluded: "BSD-3-Clause",
     copyrightText: "Copyright (c) 2013, GoInstant Inc., a salesforce.com company",
     licensePath: "licenses/runtime/buffer-equal-constant-time/LICENSE",
+  },
+  commander: {
+    version: "15.0.0",
+    source: "https://github.com/tj/commander.js/tree/v15.0.0",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>",
+    licensePath: "licenses/runtime/commander/LICENSE",
   },
   debug: {
     version: "4.4.3",
@@ -159,6 +167,14 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013 Brian J. Brennan",
     licensePath: "licenses/runtime/jws/LICENSE",
+  },
+  katex: {
+    version: "0.18.5",
+    source: "https://github.com/KaTeX/KaTeX/tree/v0.18.5",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2013-2020 Khan Academy and other contributors",
+    licensePath: "licenses/runtime/katex/LICENSE",
   },
   "minimalistic-assert": {
     version: "1.0.1",
@@ -382,7 +398,7 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
  * signed-release.yml delegates exact tag classification to release-policy.ts and exports one of these
  * keys as OMP_RELEASE_CHANNEL. A tag selects a claim but never writes one. Pre-alpha covers both
  * engineering candidates and provenance exercises; alpha and beta retain their deliberately
- * bounded claims; stable names the supported 0.1 matrix without widening it to stock OMP,
+ * bounded claims; stable names the recorded support matrix without widening it to stock OMP,
  * unadvertised platforms, alternate relays, or browser-process failures outside the PWA.
  */
 export const RELEASE_QUALIFICATIONS = {
@@ -392,7 +408,7 @@ export const RELEASE_QUALIFICATIONS = {
   beta:
     "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
   stable:
-    "qualified stable 0.2; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
+    "qualified stable; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;
@@ -681,7 +697,7 @@ async function buildRelease(): Promise<void> {
           version: PRODUCT_VERSION,
           private: true,
           type: "module",
-          engines: { bun: ">=1.3.14" },
+          engines: { bun: ">=1.4.0" },
           bin: {
             "omp-gateway": "apps/gateway/src/cli.js",
             "omp-gatewayd": "apps/gateway/src/cli.js",
@@ -697,7 +713,7 @@ async function buildRelease(): Promise<void> {
         {
           product: "OMP Session Gateway",
           version: PRODUCT_VERSION,
-          runtime: "Bun >=1.3.14",
+          runtime: "Bun >=1.4.0",
           sourceCommit: source.commit,
           sourceCreated: source.created,
           upstreamCommit: upstream.commit,

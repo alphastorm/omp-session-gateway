@@ -40,11 +40,11 @@ on:
       release_tag:
         description: Signed candidate tag to qualify
         required: false
-        default: v0.1.0-prealpha.20
+        default: v0.3.0-prealpha.3
       previous_tag:
         description: Exact signed predecessor for gateway migration and rollback
         required: false
-        default: v0.1.0-alpha.1
+        default: v0.2.1
       lanes:
         description: >-
           Space-separated lane subset; empty runs the script's full default order. A subset must be
@@ -94,8 +94,8 @@ jobs:
     env:
       # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the copies in
       # step: the input default is what a human sees in the dispatch form, this is what cron uses.
-      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-prealpha.20' }}
-      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.1.0-alpha.1' }}
+      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.3.0-prealpha.3' }}
+      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.2.1' }}
       OMP_QUAL_SIZE: ${{ inputs.droplet_size || 's-2vcpu-4gb' }}
       QUAL_LANES: ${{ inputs.lanes || '' }}
       # Pinned here rather than left to the script's default so the droplet name this workflow checks

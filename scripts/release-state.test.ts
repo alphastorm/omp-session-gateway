@@ -3,7 +3,7 @@ import { assertReleaseState } from "./release-state.ts";
 
 const TAG = "v0.2.1";
 function assets(tag = TAG): { name: string; state: string; digest: string }[] {
-  const version = /^v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag)?.[1];
+  const version = /^(?:provenance-test-)?v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag)?.[1];
   if (version === undefined) throw new Error("test tag has no version");
   const names = [
     "SHA256SUMS",
@@ -48,6 +48,36 @@ describe("GitHub release state", () => {
         assetDigests,
       }),
     ).not.toThrow();
+  });
+
+  test("accepts provenance test assets and rejects malformed tag shapes", () => {
+    const tag = "provenance-test-v0.3.0.1";
+    const provenanceAssets = assets(tag);
+    const assetDigests = Object.fromEntries(provenanceAssets.map(asset => [asset.name, asset.digest]));
+    expect(() =>
+      assertReleaseState(
+        release({ tag_name: tag, prerelease: true, assets: provenanceAssets }),
+        TAG,
+        { tag, draft: true, prerelease: true, latest: false, assetDigests },
+      ),
+    ).not.toThrow();
+
+    for (const malformedTag of ["v0.3.0-rc.1", "v0.3.0-alpha.0", "provenance-test-v0.3.0"]) {
+      const malformedAssets = assets(malformedTag);
+      expect(() =>
+        assertReleaseState(
+          release({ tag_name: malformedTag, prerelease: true, assets: malformedAssets }),
+          TAG,
+          {
+            tag: malformedTag,
+            draft: true,
+            prerelease: true,
+            latest: false,
+            assetDigests: Object.fromEntries(malformedAssets.map(asset => [asset.name, asset.digest])),
+          },
+        ),
+      ).toThrow("tag must be");
+    }
   });
 
   test("rejects wrong flags, premature Latest, and missing assets", () => {

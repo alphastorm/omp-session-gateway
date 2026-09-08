@@ -2,7 +2,11 @@
 
 ## Current claim
 
-**Current release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
+**Current source:** gateway `0.3.0` targets exact patched OMP `v18.1.14`; this is an
+engineering integration prepared for `v0.3.0-prealpha.3` (publication pending), the qualification vehicle for stable **v0.3.0**, not a new stable qualification. Upstream now publishes
+`pi-natives-linux-arm64@18.1.14`; the current source-checkout lane stages that addon and requires
+its native-dependent fixtures, but no Linux ARM64 runtime qualification is claimed here.<br>
+**Current stable release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
 **Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
 **Engineering release:** published `v0.3.0-prealpha.2` adds explicit direct-camera and
 existing-photo choices to the phone photo composer and has only the exact local
@@ -98,6 +102,8 @@ Published releases and unreleased development targets use separate immutable ups
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
+| `0.3.0`, current unreleased source | `can1357/oh-my-pi@daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` | `v18.1.14` | coding-agent `18.1.14`; wire `18.1.14` | collab-web `16.3.6` from the same source commit, with gateway patches | 1 | Engineering target only; no inherited stable qualification |
+| `0.3.0`, published as `v0.3.0-prealpha.2` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit, with photo composer patches | 1 | Published engineering prerelease; exact local smoke only |
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 | `0.1.0`, published as `v0.1.0-beta.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit beta qualification through the versioned patched-binary route |
 | `0.1.0`, published as `v0.1.0` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7` through the versioned patched-binary route |
@@ -105,8 +111,9 @@ Published releases and unreleased development targets use separate immutable ups
 | `0.2.1`, published as `v0.2.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with unchanged patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`; UI/version point release only |
 
 v17.3.8 remains the immutable alpha baseline. Exact v17.4.1 source and patch tree are independently
-qualified for beta and stable through the versioned executable route. No other OMP release, commit,
-fork, loose semver range, stock binary, or paired-package route is supported.
+qualified for beta and stable through the versioned executable route. Current engineering source
+targets only the exact patched v18.1.14 pin in `UPSTREAM.lock.json`; it does not widen the stable
+claim. No loose semver range, stock binary, or arbitrary fork is supported.
 
 **Pin refreshed 2026-08-21, from `v17.3.8` to `v17.4.1`.** The maintained
 `gateway-collaboration` series already targeted the new exact base. The carried health-probe commit
@@ -143,10 +150,10 @@ The immutable source paths, versions, observation date, and upstream findings li
   [`patches/oh-my-pi`](../patches/oh-my-pi/README.md);
 - the pinned collab-web source integration described by
   [`packages/collab-client/upstream/UPSTREAM.json`](../packages/collab-client/upstream/UPSTREAM.json);
-- the reviewed in-memory client bootstrap, because unchanged upstream collab-web writes a
+- the reviewed in-memory client bootstrap, because upstream collab-web writes a
   capability to `location.hash`; and
-- Bun `1.3.14` for the recorded build and test baseline. The runtime archive declares
-  Bun `>=1.3.14`, but versions newer than the pinned baseline are not release-qualified yet.
+- exact Bun `1.4.0` for the current engineering build and test baseline. Current archives declare
+  Bun `>=1.4.0`; stable v0.2.1 qualification remains specific to Bun `1.3.14`.
 
 ## Versioned interfaces
 

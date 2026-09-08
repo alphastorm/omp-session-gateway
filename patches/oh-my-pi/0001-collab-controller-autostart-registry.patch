@@ -1,7 +1,7 @@
-From adbe1d48bc13cf3fe563606c8a4ecd7e6155dc50 Mon Sep 17 00:00:00 2001
-From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
-Date: Tue, 21 Jul 2026 10:22:26 -0400
-Subject: [PATCH 1/6] fix: rework gateway collaboration controller
+From 729f42c4eadfdb0e7841d92e142511dadcf239fb Mon Sep 17 00:00:00 2001
+From: OMP Release Composer <omp-release@example.invalid>
+Date: Sun, 23 Aug 2026 01:06:50 -0700
+Subject: [PATCH 1/4] fix: rework gateway collaboration controller
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -9,34 +9,54 @@ Content-Transfer-Encoding: 8bit
 Adaptation: Rerolled onto v17.3.5: SessionManager keeps upstream’s #persistenceErrorCallbacks/onPersistenceError beside the downstream #modelChangedCallbacks/onModelChanged hook, so both subscription sets survive.
 
 Adaptation: Rerolled onto v17.4.0: upstream handoff compaction now replaces context in place instead of switching sessions, so gateway reconciliation remains on genuine session transitions only.
+
+Adaptation: Rerolled onto v18.0.0: upstream relocated the status-line watchBranch registration earlier in interactive setup and now maps builtin slash commands through getSlashCommandTypeIcon, so CollabController construction sits beside the icon-mapped builtins and only autoStart() remains appended at the end of setup.
+
+Adaptation: Rerolled onto v18.0.1: upstream wrapped the startup reconcile in logger.time("InteractiveMode.init:reconcileMode"), so the downstream phase-aware setSessionSwitchReconciler (collab prepareActiveSessionReplacement/restoreActiveSession around #reconcileModeFromSession) is preserved above the instrumented startup reconcile.
+
+Absorbs during the 2026-08-23 series consolidation:
+- feat(collab): publish response-required state
+- fix(collab): recover publication after transient registry faults
+
+Adaptation: Rerolled onto v18.0.4: upstream added registered bash shell-environment coverage to agent-session-bash-session-ownership.test.ts; the downstream session-switch reconciler regression remains alongside both upstream shell-hook tests. The QR-code slash-command harness now supplies the controller's resumePublication contract so its active-host fixtures exercise the shipping controller surface instead of an incomplete mock.
+
+Adaptation: Critical-review remediation reconciles each publication against the live collab.registryEndpoint setting, revokes and closes a deselected endpoint before rebinding, and proves the A-to-off-to-B authorization transition without restarting the collaboration host.
+
+Adaptation: preserve upstream v18.0.7 collab link rendering while adding directory publication status to the controller-backed host.
+
+Adaptation: Rerolled onto v18.1.8: upstream extracted the shared #teardown() used by both shutdown() and the new restart() path, so CollabController.shutdown() moves inside that teardown and covers relaunch as well as exit; autoStart() now follows upstream's composer submit-gate lift at the end of init(); and upstream's #reconcileModeAfterBranch() hook for issue #10468 is dropped because the phase-aware #reconcileSessionSwitch("after", …) this patch already installs on both branch paths performs the same re-anchor, and running both would invoke goalRuntime.onThreadResumed() twice per branch.
+
+Adaptation: Rerolled onto v18.0.9: upstream made cross-project cwd transitions transactional and boolean-returning; the controller refreshes published collaboration metadata before reporting success, while resume rollback uses the phase-aware collaboration reconciler and retains upstream's cwd restoration and terminal mismatch handling.
 ---
- .../coding-agent/src/collab/controller.ts     | 308 +++++++++
+ .../coding-agent/src/collab/controller.ts     | 394 ++++++++++
  packages/coding-agent/src/collab/host.ts      |   5 +-
- .../src/collab/registry-publisher.ts          | 603 ++++++++++++++++++
+ .../src/collab/registry-publisher.ts          | 682 ++++++++++++++++
  .../src/config/settings-schema.ts             |  28 +
  .../controllers/extension-ui-controller.ts    |   8 +-
- .../src/modes/interactive-mode.ts             |  58 +-
+ .../src/modes/interactive-mode.ts             |  42 +-
  packages/coding-agent/src/modes/types.ts      |   4 +-
- .../coding-agent/src/session/agent-session.ts |  52 +-
+ .../coding-agent/src/session/agent-session.ts |  60 +-
  .../src/session/session-handoff.ts            |   1 +
  .../src/session/session-manager.ts            |  19 +
- .../slash-commands/builtin-collaboration.ts   |  52 +-
+ .../slash-commands/builtin-collaboration.ts   |  80 +-
  ...ent-session-bash-session-ownership.test.ts |  17 +
  .../test/collab/chunked-welcome.test.ts       |   1 -
- .../test/collab/controller.test.ts            | 245 +++++++
+ .../collab/collab-command-publication.test.ts |  79 ++
+ .../test/collab/controller.test.ts            | 399 ++++++++++
  .../test/collab/guest-ui-request.test.ts      |   8 +-
  .../test/collab/read-only.test.ts             |   1 -
- ...gistry-publisher-explicit-token.fixture.ts |  32 +
- .../test/collab/registry-publisher.test.ts    | 582 +++++++++++++++++
+ ...gistry-publisher-explicit-token.fixture.ts |  33 +
+ .../test/collab/registry-publisher.test.ts    | 733 ++++++++++++++++++
  .../test/collab/replication-shrink.test.ts    |   1 -
  .../test/collab/steer-queue.test.ts           |   1 -
  .../test/config/collab-settings.test.ts       |   8 +
  .../extension-ui-controller.test.ts           |   4 +
  .../test/session-manager-branch-order.test.ts |  14 +
- .../test/slash-commands/collab-qrcode.test.ts |  79 ++-
- 24 files changed, 2025 insertions(+), 106 deletions(-)
+ .../test/slash-commands/collab-qrcode.test.ts |  80 +-
+ 25 files changed, 2590 insertions(+), 112 deletions(-)
  create mode 100644 packages/coding-agent/src/collab/controller.ts
  create mode 100644 packages/coding-agent/src/collab/registry-publisher.ts
+ create mode 100644 packages/coding-agent/test/collab/collab-command-publication.test.ts
  create mode 100644 packages/coding-agent/test/collab/controller.test.ts
  create mode 100644 packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
  create mode 100644 packages/coding-agent/test/collab/registry-publisher.test.ts
@@ -44,15 +64,16 @@ Adaptation: Rerolled onto v17.4.0: upstream handoff compaction now replaces cont
 
 diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
 new file mode 100644
-index 000000000..7f838661f
+index 0000000..0926a37
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/controller.ts
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,394 @@
 +import { randomUUID } from "node:crypto";
 +import { basename } from "node:path";
 +import type { InteractiveModeContext } from "../modes/types";
 +import { CollabHost } from "./host";
 +import {
++	type CollabPublicationState,
 +	type CollabPublisherRecord,
 +	CollabRegistryPublisher,
 +	type PublishedCapabilityMode,
@@ -92,6 +113,8 @@ index 000000000..7f838661f
 +	publish(record: CollabPublisherRecord): void;
 +	remove(generation: number, reason: "stopped" | "shutdown" | "session_changed" | "faulted"): void;
 +	shutdown(generation: number | undefined): void;
++	resume(): void;
++	publicationState(): CollabPublicationState;
 +}
 +
 +export interface CollabControllerOptions {
@@ -112,10 +135,14 @@ index 000000000..7f838661f
 +	readonly #publisherFactory: NonNullable<CollabControllerOptions["publisherFactory"]>;
 +	readonly #listeners = new Map<CollabControllerEvent, Set<(capabilities?: CollabCapabilities) => void>>();
 +	#publisher: PublisherLike | undefined;
++	#publisherEndpointSetting: string | undefined;
 +	#host: HostLike | undefined;
 +	#capabilities: CollabCapabilities | undefined;
 +	#queue: Promise<void> = Promise.resolve();
 +	#generation = 0;
++	#inputRequired = false;
++	#inputRequiredLeaseCount = 0;
++	#inputRequiredEpoch = 0;
 +	#manualSuspended = false;
 +	#restartAfterSessionReplacement = false;
 +	#state: CollabControllerState = "stopped";
@@ -144,6 +171,11 @@ index 000000000..7f838661f
 +		return this.#capabilities;
 +	}
 +
++	/** Directory publication state for `/collab status`. */
++	publicationState(): CollabPublicationState {
++		return this.#publisher?.publicationState() ?? { kind: "off" };
++	}
++
 +	on(event: CollabControllerEvent, listener: (capabilities?: CollabCapabilities) => void): () => void {
 +		let listeners = this.#listeners.get(event);
 +		if (!listeners) {
@@ -152,6 +184,20 @@ index 000000000..7f838661f
 +		}
 +		listeners.add(listener);
 +		return () => listeners?.delete(listener);
++	}
++	beginInputRequired(): () => void {
++		if (this.#state !== "running" || !this.#capabilities) return () => {};
++		const epoch = this.#inputRequiredEpoch;
++		this.#inputRequiredLeaseCount += 1;
++		if (this.#inputRequiredLeaseCount === 1) this.#transitionInputRequired(epoch, true);
++		let released = false;
++		return () => {
++			if (released) return;
++			released = true;
++			if (epoch !== this.#inputRequiredEpoch || this.#inputRequiredLeaseCount === 0) return;
++			this.#inputRequiredLeaseCount -= 1;
++			if (this.#inputRequiredLeaseCount === 0) this.#transitionInputRequired(epoch, false);
++		};
 +	}
 +
 +	start(
@@ -164,7 +210,7 @@ index 000000000..7f838661f
 +	): Promise<CollabCapabilities> {
 +		return this.#serialize(async () => {
 +			this.#manualSuspended = false;
-+			return this.#start(options);
++			return this.#start({ ...options, resumePublisher: true });
 +		});
 +	}
 +
@@ -172,6 +218,20 @@ index 000000000..7f838661f
 +		return this.#serialize(async () => {
 +			if (manual) this.#manualSuspended = true;
 +			await this.#stop(reason, reason === "session changed" ? "session_changed" : "stopped");
++		});
++	}
++
++	/**
++	 * Manual `/collab` on a session that is already hosting: clear a latched
++	 * publisher and re-announce the current capabilities without restarting the
++	 * host. That is the path a user whose session went silent actually takes, and
++	 * it never reaches `start()`.
++	 */
++	resumePublication(): Promise<void> {
++		return this.#serialize(async () => {
++			const capabilities = this.#capabilities;
++			const mode = this.#publicationMode;
++			if (capabilities && mode !== "off") this.#publish(capabilities, mode, true);
 +		});
 +	}
 +
@@ -230,6 +290,7 @@ index 000000000..7f838661f
 +			await this.#stop("OMP shutdown", "shutdown");
 +			this.#publisher?.shutdown(generation);
 +			this.#publisher = undefined;
++			this.#publisherEndpointSetting = undefined;
 +		});
 +	}
 +
@@ -238,6 +299,7 @@ index 000000000..7f838661f
 +		webUrl?: string;
 +		publish?: PublishedCapabilityMode;
 +		forceReplacement?: boolean;
++		resumePublisher?: boolean;
 +	}): Promise<CollabCapabilities> {
 +		const relayInput = options.relayUrl ?? this.#context.settings.get("collab.relayUrl") ?? "";
 +		if (!relayInput) throw new Error("No collaboration relay is configured");
@@ -247,7 +309,10 @@ index 000000000..7f838661f
 +			if (publish !== this.#publicationMode) {
 +				this.#publisher?.remove(this.#capabilities.generation, "session_changed");
 +				this.#publicationMode = publish;
-+				if (publish !== "off") this.#publish(this.#capabilities, publish);
++				if (publish !== "off") this.#publish(this.#capabilities, publish, options.resumePublisher);
++				this.#emit("updated", this.#capabilities);
++			} else if (publish !== "off" && options.resumePublisher) {
++				this.#publish(this.#capabilities, publish, true);
 +				this.#emit("updated", this.#capabilities);
 +			}
 +			return this.#capabilities;
@@ -280,7 +345,7 @@ index 000000000..7f838661f
 +		this.#capabilities = capabilities;
 +		this.#state = "running";
 +		this.#publicationMode = publish;
-+		if (publish !== "off") this.#publish(capabilities, publish);
++		if (publish !== "off") this.#publish(capabilities, publish, options.resumePublisher);
 +		this.#emit("started", capabilities);
 +		return capabilities;
 +	}
@@ -288,8 +353,11 @@ index 000000000..7f838661f
 +	async #stop(reason: string, publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted"): Promise<void> {
 +		const host = this.#host;
 +		const capabilities = this.#capabilities;
++		const publicationMode = this.#publicationMode;
++		this.#resetInputRequired(capabilities, publicationMode);
 +		if (!host || !capabilities) {
 +			this.#state = "stopped";
++			this.#publicationMode = "off";
 +			return;
 +		}
 +		this.#state = "stopping";
@@ -302,12 +370,21 @@ index 000000000..7f838661f
 +		this.#emit("stopped");
 +	}
 +
-+	#publish(capabilities: CollabCapabilities, mode: Exclude<PublishedCapabilityMode, "off">): void {
++	#publish(capabilities: CollabCapabilities, mode: Exclude<PublishedCapabilityMode, "off">, resume = false): void {
 +		const endpointSetting = this.#context.settings.get("collab.registryEndpoint") ?? "auto";
++		if (this.#publisher && this.#publisherEndpointSetting !== endpointSetting) {
++			this.#publisher.shutdown(capabilities.generation);
++			this.#publisher = undefined;
++			this.#publisherEndpointSetting = undefined;
++		}
 +		if (endpointSetting === "off") return;
-+		this.#publisher ??= this.#publisherFactory(this.#instanceId, process.pid, endpointSetting, message => {
-+			this.#context.showWarning(message);
-+		});
++		if (!this.#publisher) {
++			this.#publisher = this.#publisherFactory(this.#instanceId, process.pid, endpointSetting, message => {
++				this.#context.showWarning(message);
++			});
++			this.#publisherEndpointSetting = endpointSetting;
++		}
++		if (resume) this.#publisher.resume();
 +		this.#publisher.publish({
 +			instanceId: capabilities.instanceId,
 +			generation: capabilities.generation,
@@ -323,6 +400,7 @@ index 000000000..7f838661f
 +					}
 +				: {}),
 +			startedAt: capabilities.startedAt,
++			inputRequired: this.#inputRequired,
 +			viewLink: capabilities.viewLink,
 +			...(mode === "control" ? { controlLink: capabilities.controlLink } : {}),
 +		});
@@ -335,12 +413,40 @@ index 000000000..7f838661f
 +	#handleFatal(host: HostLike, generation: number, _reason: string): Promise<void> {
 +		return this.#serialize(async () => {
 +			if (this.#host !== host || this.#capabilities?.generation !== generation) return;
++			const capabilities = this.#capabilities;
++			this.#resetInputRequired(capabilities, this.#publicationMode);
 +			this.#publisher?.remove(generation, "faulted");
 +			this.#host = undefined;
 +			this.#capabilities = undefined;
++			this.#publicationMode = "off";
 +			this.#state = "faulted";
 +			this.#emit("faulted");
 +		});
++	}
++
++	#transitionInputRequired(epoch: number, desired: boolean): void {
++		if (epoch !== this.#inputRequiredEpoch || desired === this.#inputRequired) return;
++		this.#inputRequired = desired;
++		void this.#serialize(async () => {
++			const capabilities = this.#capabilities;
++			const mode = this.#publicationMode;
++			if (epoch !== this.#inputRequiredEpoch || this.#inputRequired !== desired || !capabilities || mode === "off") {
++				return;
++			}
++			this.#publish(capabilities, mode);
++			this.#emit("updated", capabilities);
++		});
++	}
++
++	#resetInputRequired(capabilities: CollabCapabilities | undefined, mode: PublishedCapabilityMode): void {
++		const changed = this.#inputRequired;
++		this.#inputRequiredEpoch += 1;
++		this.#inputRequiredLeaseCount = 0;
++		this.#inputRequired = false;
++		if (changed && capabilities && mode !== "off") {
++			this.#publish(capabilities, mode);
++			this.#emit("updated", capabilities);
++		}
 +	}
 +
 +	#emit(event: CollabControllerEvent, capabilities?: CollabCapabilities): void {
@@ -357,10 +463,10 @@ index 000000000..7f838661f
 +	}
 +}
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 2ece267dd..668677455 100644
+index 5703c56..dd61ec9 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -139,6 +139,8 @@ export class CollabHost {
+@@ -140,6 +140,8 @@ export class CollabHost {
  	#busUnsubscribers: (() => void)[] = [];
  	#registryUnsubscribe?: () => void;
  	#stopped = false;
@@ -369,7 +475,7 @@ index 2ece267dd..668677455 100644
  
  	constructor(ctx: InteractiveModeContext) {
  		this.#ctx = ctx;
-@@ -246,7 +248,7 @@ export class CollabHost {
+@@ -247,7 +249,7 @@ export class CollabHost {
  			if (willReconnect) {
  				this.#ctx.showStatus(`Collab relay connection lost (${reason}), reconnecting…`, { dim: true });
  			} else {
@@ -378,7 +484,7 @@ index 2ece267dd..668677455 100644
  				this.#ctx.session.emitNotice("warning", `Collab ended: ${reason}`, "collab");
  			}
  		};
-@@ -315,7 +317,6 @@ export class CollabHost {
+@@ -322,7 +324,6 @@ export class CollabHost {
  		this.#peers.clear();
  		this.#socket?.close();
  		this.#socket = null;
@@ -388,10 +494,10 @@ index 2ece267dd..668677455 100644
  	}
 diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
 new file mode 100644
-index 000000000..d68c1615b
+index 0000000..067f0df
 --- /dev/null
 +++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -0,0 +1,603 @@
+@@ -0,0 +1,682 @@
 +import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 +import { lstat, readFile } from "node:fs/promises";
 +import { homedir, tmpdir } from "node:os";
@@ -407,6 +513,31 @@ index 000000000..d68c1615b
 +
 +export type PublishedCapabilityMode = "off" | "view" | "control";
 +
++/**
++ * Observable publication state. A publisher that has stopped announcing itself
++ * must be diagnosable from `/collab status` rather than from a warning that has
++ * long since scrolled away.
++ */
++export type CollabPublicationState =
++	| { readonly kind: "off" }
++	| { readonly kind: "publishing" }
++	| { readonly kind: "retrying"; readonly attempt: number; readonly reason: string }
++	| { readonly kind: "disabled"; readonly reason: string };
++
++/**
++ * A local-configuration violation: the endpoint setting is not local IPC, or the
++ * socket is observable by another user. Both are deterministic properties of this
++ * machine, so no retry can clear them and publication latches off.
++ *
++ * Every other setup failure stays on the retry path — a registry that is not
++ * running yet, a token file torn by an in-flight rewrite, EACCES/EMFILE/EINTR
++ * while the runtime directory is recreated. Failing open on those is safe because
++ * the handshake still has to authenticate against the real token, and latching on
++ * them silently drops a live session out of the directory for the rest of the
++ * process lifetime.
++ */
++class PublisherSecurityViolation extends Error {}
++
 +export interface CollabPublisherRecord {
 +	readonly instanceId: string;
 +	readonly generation: number;
@@ -416,6 +547,7 @@ index 000000000..d68c1615b
 +	readonly cwdLabel?: string;
 +	readonly model?: string;
 +	readonly startedAt: string;
++	readonly inputRequired: boolean;
 +	readonly viewLink: string;
 +	readonly controlLink?: string;
 +}
@@ -597,16 +729,18 @@ index 000000000..d68c1615b
 +	if (setting === "off") return undefined;
 +	if (setting === "auto") return automaticEndpoint();
 +	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting)) {
-+		throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
++		throw new PublisherSecurityViolation("collab.registryEndpoint must be local IPC, not a network URL");
 +	}
 +	if (process.platform === "win32") {
 +		const name = setting.startsWith(WINDOWS_PIPE_PREFIX) ? setting.slice(WINDOWS_PIPE_PREFIX.length) : "";
 +		if (!WINDOWS_PIPE_NAME_PATTERN.test(name)) {
-+			throw new Error("collab.registryEndpoint must be a local Windows named pipe");
++			throw new PublisherSecurityViolation("collab.registryEndpoint must be a local Windows named pipe");
 +		}
 +		return setting;
 +	}
-+	if (!isAbsolute(setting)) throw new Error("collab.registryEndpoint must be an absolute local socket path");
++	if (!isAbsolute(setting)) {
++		throw new PublisherSecurityViolation("collab.registryEndpoint must be an absolute local socket path");
++	}
 +	return setting;
 +}
 +
@@ -625,7 +759,7 @@ index 000000000..d68c1615b
 +		parentInfo.uid !== uid ||
 +		(parentInfo.mode & 0o077) !== 0
 +	) {
-+		throw new Error("unsafe OMP Session Gateway registry endpoint");
++		throw new PublisherSecurityViolation("unsafe OMP Session Gateway registry endpoint");
 +	}
 +}
 +
@@ -749,8 +883,9 @@ index 000000000..d68c1615b
 +	#reconnectTimer: Timer | undefined;
 +	#connecting = false;
 +	#stopping = false;
-+	#securityDisabled = false;
-+	#securityWarningShown = false;
++	#disabledReason: string | undefined;
++	#retryReason: string | undefined;
++	#concernReported = false;
 +	#attempt = 0;
 +
 +	constructor(options: {
@@ -802,8 +937,34 @@ index 000000000..d68c1615b
 +		this.#current = undefined;
 +	}
 +
++	/** Publication state for `/collab status`; a latched publisher reports why. */
++	publicationState(): CollabPublicationState {
++		const disabled = this.#disabledReason;
++		if (disabled !== undefined) return { kind: "disabled", reason: disabled };
++		if (this.#socket) return { kind: "publishing" };
++		if (!this.#current) return { kind: "off" };
++		return { kind: "retrying", attempt: this.#attempt, reason: this.#retryReason ?? "connecting" };
++	}
++
++	/**
++	 * Clear a latched publisher and reconnect immediately. An explicit `/collab` is
++	 * unambiguous user intent and the only recovery short of restarting OMP, so it
++	 * also re-arms the one-shot warning: if the condition persists, say so again.
++	 */
++	resume(): void {
++		this.#disabledReason = undefined;
++		this.#retryReason = undefined;
++		this.#concernReported = false;
++		this.#attempt = 0;
++		clearTimeout(this.#reconnectTimer);
++		this.#reconnectTimer = undefined;
++		if (this.#current && !this.#stopping) void this.#connect();
++	}
++
 +	async #connect(): Promise<void> {
-+		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#securityDisabled) return;
++		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#disabledReason !== undefined) {
++			return;
++		}
 +		this.#connecting = true;
 +		let endpoint: string;
 +		let token: Buffer | undefined;
@@ -824,12 +985,8 @@ index 000000000..d68c1615b
 +		} catch (error) {
 +			token?.fill(0);
 +			this.#connecting = false;
-+			const code =
-+				typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-+					? error.code
-+					: undefined;
-+			if (code === "ENOENT" || code === "ECONNREFUSED") this.#scheduleReconnect();
-+			else this.#disableForSecurity(error);
++			if (error instanceof PublisherSecurityViolation) this.#disableForSecurity(error);
++			else this.#retryAfterFailure(error);
 +			return;
 +		}
 +		if (token === undefined) {
@@ -931,6 +1088,7 @@ index 000000000..d68c1615b
 +							owner.#connecting = false;
 +							owner.#socket = socket;
 +							owner.#attempt = 0;
++							owner.#retryReason = undefined;
 +							socket.data.buffer = "";
 +							const current = owner.#current;
 +							if (current) owner.#sendUpsert(socket, current);
@@ -948,6 +1106,7 @@ index 000000000..d68c1615b
 +						if (owner.#socket === socket) owner.#socket = undefined;
 +						clearInterval(owner.#heartbeatTimer);
 +						owner.#heartbeatTimer = undefined;
++						owner.#retryReason = "connection closed";
 +						owner.#scheduleReconnect();
 +					},
 +					error() {},
@@ -977,7 +1136,7 @@ index 000000000..d68c1615b
 +	}
 +
 +	#scheduleReconnect(): void {
-+		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#securityDisabled) return;
++		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#disabledReason !== undefined) return;
 +		const base = Math.min(30_000, 250 * 2 ** Math.min(this.#attempt, 7));
 +		const delay = Math.floor(base * (0.75 + Math.random() * 0.5));
 +		this.#attempt += 1;
@@ -987,19 +1146,45 @@ index 000000000..d68c1615b
 +		}, delay);
 +	}
 +
++	/**
++	 * Transient setup failure: keep retrying, and say so once unless this is the
++	 * routine "registry is not running" state. Reporting without latching is what
++	 * keeps a token-file hiccup from muting a live session permanently.
++	 */
++	#retryAfterFailure(error: unknown): void {
++		const code =
++			typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
++				? error.code
++				: undefined;
++		this.#retryReason = code ?? (error instanceof Error ? error.message : "unknown publication failure");
++		if (code !== "ENOENT" && code !== "ECONNREFUSED") this.#reportConcern(error);
++		this.#scheduleReconnect();
++	}
++
 +	#disableForSecurity(error: unknown): void {
-+		this.#securityDisabled = true;
-+		if (this.#securityWarningShown) return;
-+		this.#securityWarningShown = true;
-+		const message = error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
-+		this.#onSecurityError(message);
++		const alreadyLatched = this.#disabledReason !== undefined;
++		this.#disabledReason =
++			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
++		// Latching is the severe state and always speaks once, even when a retryable
++		// concern already consumed the warning slot.
++		if (alreadyLatched) return;
++		this.#concernReported = true;
++		this.#onSecurityError(this.#disabledReason);
++	}
++
++	#reportConcern(error: unknown): void {
++		if (this.#concernReported) return;
++		this.#concernReported = true;
++		this.#onSecurityError(
++			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration",
++		);
 +	}
 +}
 diff --git a/packages/coding-agent/src/config/settings-schema.ts b/packages/coding-agent/src/config/settings-schema.ts
-index bbe297d91..9e29bbabe 100644
+index 3c9b926..2fd224d 100644
 --- a/packages/coding-agent/src/config/settings-schema.ts
 +++ b/packages/coding-agent/src/config/settings-schema.ts
-@@ -2128,6 +2128,34 @@ export const SETTINGS_SCHEMA = {
+@@ -2372,6 +2372,34 @@ export const SETTINGS_SCHEMA = {
  	},
  
  	// Collab
@@ -1035,10 +1220,10 @@ index bbe297d91..9e29bbabe 100644
  		type: "string",
  		default: DEFAULT_RELAY_URL,
 diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-index fa23f2222..1e8f79506 100644
+index 769830e..1d7c73f 100644
 --- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-@@ -101,7 +101,7 @@ export class ExtensionUiController {
+@@ -102,7 +102,7 @@ export class ExtensionUiController {
  		// Create and set hook & tool UI context
  		const uiContext: ExtensionUIContext = {
  			timeoutStartsOnPresentation: true,
@@ -1047,7 +1232,7 @@ index fa23f2222..1e8f79506 100644
  			confirm: (title, message, dialogOptions) => this.showHookConfirm(title, message, dialogOptions),
  			input: (title, placeholder, dialogOptions) => this.showHookInput(title, placeholder, dialogOptions),
  			askDialog: (questions, dialogOptions) => this.showAskDialog(questions, dialogOptions),
-@@ -614,7 +614,7 @@ export class ExtensionUiController {
+@@ -615,7 +615,7 @@ export class ExtensionUiController {
  		questions: ExtensionAskDialogQuestion[],
  		dialogOptions?: ExtensionUIDialogOptions,
  	): Promise<ExtensionAskDialogResult | undefined> {
@@ -1056,7 +1241,7 @@ index fa23f2222..1e8f79506 100644
  		if (!host) return this.#showLocalAskDialog(questions, dialogOptions);
  		const localAbort = new AbortController();
  		const remoteAbort = new AbortController();
-@@ -743,7 +743,7 @@ export class ExtensionUiController {
+@@ -745,7 +745,7 @@ export class ExtensionUiController {
  		signal: AbortSignal | undefined,
  		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
  	): Promise<string | undefined> {
@@ -1065,7 +1250,7 @@ index fa23f2222..1e8f79506 100644
  		if (!host) return local(signal);
  		const localAbort = new AbortController();
  		const remoteAbort = new AbortController();
-@@ -883,7 +883,7 @@ export class ExtensionUiController {
+@@ -885,7 +885,7 @@ export class ExtensionUiController {
  	}
  
  	async #requestGuestUiString(request: CollabUiRequestDraft, signal: AbortSignal): Promise<GuestUiResult> {
@@ -1075,22 +1260,20 @@ index fa23f2222..1e8f79506 100644
  		const remote = host.requestGuestUi(request, signal);
  		if (!remote) return { kind: "unavailable" };
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index fd86e0088..1cf06897f 100644
+index 536c6c8..9dbd662 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -54,9 +54,10 @@ import {
- 	setProjectDir,
- } from "@oh-my-pi/pi-utils";
+@@ -55,8 +55,8 @@ import {
  import chalk from "@oh-my-pi/pi-utils/chalk";
-+import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
  import { reset as resetCapabilities } from "../capability";
+ import { restartArgv } from "../cli/flag-tables";
 +import { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
 -import type { CollabHost } from "../collab/host";
- import { KeybindingsManager } from "../config/keybindings";
+ import { formatKeyHint, KeybindingsManager } from "../config/keybindings";
  import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
  import { applyProviderGlobalsFromSettings } from "../config/provider-globals";
-@@ -641,7 +642,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -710,7 +710,7 @@ export class InteractiveMode implements InteractiveModeContext {
  	fileSlashCommands: Set<string> = new Set();
  	skillCommands: Map<string, Skill> = new Map();
  	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
@@ -1099,15 +1282,15 @@ index fd86e0088..1cf06897f 100644
  	collabGuest?: CollabGuestLink;
  
  	#pendingCommandOutput: Component[] = [];
-@@ -899,6 +900,7 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1022,6 +1022,7 @@ export class InteractiveMode implements InteractiveModeContext {
  
  		const skillCommandList = this.#rebuildSkillCommandsFromSession();
  
 +		this.collabController = new CollabController(this);
- 		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
- 		// Store pending commands for init() where file commands are loaded async
- 		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
-@@ -1152,6 +1154,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		const builtinCommands: SlashCommand[] = buildTuiBuiltinSlashCommands({ ctx: this }).map(cmd => ({
+ 			...cmd,
+ 			icon: getSlashCommandTypeIcon(cmd.icon ?? "action"),
+@@ -1280,6 +1281,7 @@ export class InteractiveMode implements InteractiveModeContext {
  			this.sessionManager.onSessionNameChanged(() => {
  				setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
  				this.#handleSessionAccentInputsChanged();
@@ -1115,7 +1298,7 @@ index fd86e0088..1cf06897f 100644
  			}),
  		);
  		this.#syncEditorMaxHeight();
-@@ -1179,7 +1182,14 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1310,7 +1312,14 @@ export class InteractiveMode implements InteractiveModeContext {
  			await this.#liveCommandController.stop();
  			await this.#quiesceVibeForSessionSwitch();
  		});
@@ -1128,10 +1311,10 @@ index fd86e0088..1cf06897f 100644
 +			await this.collabController.restoreActiveSession();
 +			await this.#reconcileModeFromSession({ preserveActiveGoal: true });
 +		});
- 		await this.#reconcileModeFromSession();
+ 		await logger.time("InteractiveMode.init:reconcileMode", () => this.#reconcileModeFromSession());
  
  		// Brand-new sessions optionally start in plan mode when the user has made it
-@@ -1223,6 +1233,9 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -1357,6 +1366,9 @@ export class InteractiveMode implements InteractiveModeContext {
  				}
  				void this.#handleGoalSessionEvent(event);
  			}),
@@ -1141,28 +1324,28 @@ index fd86e0088..1cf06897f 100644
  			onStatusLineSessionAccentChanged(() => {
  				this.#syncStatusLineSettings();
  				this.#handleSessionAccentInputsChanged();
-@@ -1309,6 +1322,9 @@ export class InteractiveMode implements InteractiveModeContext {
- 		this.statusLine.watchBranch(() => {
- 			this.ui.requestRender();
- 		});
+@@ -1449,6 +1461,9 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		// `streamingBehavior: "steer"`, so whichever lands second queues into the
+ 		// other's turn instead of dying.
+ 		this.editor.disableSubmit = false;
 +
 +		// Collaboration starts only after the interactive context and session are ready.
 +		await this.collabController.autoStart();
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -1446,6 +1462,7 @@ export class InteractiveMode implements InteractiveModeContext {
- 		await this.refreshSlashCommandState(newCwd);
+@@ -1652,6 +1667,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		}
  		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
  		this.statusLine.applyCwdChange();
 +		await this.collabController.refreshMetadata();
+ 		return true;
  	}
  
- 	async getUserInput(): Promise<SubmittedUserInput> {
-@@ -4318,30 +4335,27 @@ export class InteractiveMode implements InteractiveModeContext {
- 		if (this.#isShuttingDown) return;
- 		this.#isShuttingDown = true;
+@@ -4870,18 +4886,10 @@ export class InteractiveMode implements InteractiveModeContext {
  
+ 	/** Shared `shutdown()`/`restart()` teardown: dispose the session and hand the terminal back. */
+ 	async #teardown(): Promise<void> {
 -		await this.#liveCommandController.stop();
 -
 -		this.#btwController.dispose();
@@ -1170,22 +1353,17 @@ index fd86e0088..1cf06897f 100644
 -		this.#cleanseController.dispose();
 -		this.#focusController.dispose();
 -
--		// Surface an explicit "Closing session…" line so the user sees a reason
--		// for the pause while `session.dispose()` flushes memory consolidate and
+ 		// Surface an explicit "Closing session…" line so the user sees a reason
+ 		// for the pause while `session.dispose()` flushes memory consolidate and
 -		// other cleanups (issue #3641). The await on the next line yields the
 -		// event loop, giving requestRender() a tick to paint the status before
 -		// dispose blocks.
-+		// Paint the reason for the pause before collaboration, command, or session teardown can
-+		// yield or block. The status must be observable even when an earlier cleanup is slow.
++		// other cleanups (issue #3641), before controller cleanup can yield or
++		// block. The status must be observable even when an earlier cleanup is slow.
  		this.showStatus("Closing session…");
--
--		// Persist the draft and dispose the session through the shared teardown
--		// so a signal that arrives mid-shutdown cannot fire a second dispose.
--		// The teardown is a promise-memoized singleton; whichever path calls it
--		// first runs the work, the other awaits the same settled promise.
--		// The teardown is registered lazily in `init()` — a `/exit` reached
--		// before `init()` completed falls back to a direct dispose.
- 		const stillClosingTimer = setTimeout(() => {
+ 
+ 		// Persist the draft and dispose the session through the shared teardown
+@@ -4894,6 +4902,14 @@ export class InteractiveMode implements InteractiveModeContext {
  			this.showStatus("Still closing… (flushing memory backend / network)");
  		}, STILL_CLOSING_DELAY_MS);
  		try {
@@ -1197,22 +1375,16 @@ index fd86e0088..1cf06897f 100644
 +			this.#cleanseController.dispose();
 +			this.#focusController.dispose();
 +
-+			// Persist the draft and dispose the session through the shared teardown
-+			// so a signal that arrives mid-shutdown cannot fire a second dispose.
-+			// The teardown is a promise-memoized singleton; whichever path calls it
-+			// first runs the work, the other awaits the same settled promise.
-+			// The teardown is registered lazily in `init()` — a `/exit` reached
-+			// before `init()` completed falls back to a direct dispose.
  			if (this.#signalTeardown) {
  				await this.#signalTeardown();
  			} else {
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 04d4322d8..38df3f804 100644
+index 9f79c56..8949cd5 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
 @@ -2,8 +2,8 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
  import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
- import type { AssistantMessage, ImageContent, Message, Usage, UsageReport } from "@oh-my-pi/pi-ai";
+ import type { AssistantMessage, ImageContent, Message, Model, Usage, UsageReport } from "@oh-my-pi/pi-ai";
  import type { Component, Container, EditorTheme, Loader, Spacer, Text, TUI } from "@oh-my-pi/pi-tui";
 +import type { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
@@ -1220,7 +1392,7 @@ index 04d4322d8..38df3f804 100644
  import type { KeybindingsManager } from "../config/keybindings";
  import type { Settings } from "../config/settings";
  import type {
-@@ -146,7 +146,7 @@ export interface InteractiveModeContext {
+@@ -158,7 +158,7 @@ export interface InteractiveModeContext {
  	historyStorage?: HistoryStorage;
  	mcpManager?: MCPManager;
  	lspServers?: LspStartupServerInfo[];
@@ -1230,18 +1402,18 @@ index 04d4322d8..38df3f804 100644
  	eventController: EventController;
  	eventBus?: EventBus;
 diff --git a/packages/coding-agent/src/session/agent-session.ts b/packages/coding-agent/src/session/agent-session.ts
-index 451ff6513..e3b0a27d7 100644
+index 6c9bf38..a7e1922 100644
 --- a/packages/coding-agent/src/session/agent-session.ts
 +++ b/packages/coding-agent/src/session/agent-session.ts
-@@ -1619,6 +1619,7 @@ export class AgentSession {
+@@ -1792,6 +1792,7 @@ export class AgentSession {
  			thinkingLevel: () => this.thinkingLevel,
  			sessionId: () => this.sessionId,
  			baseSystemPrompt: () => this.#tools.baseSystemPrompt,
 +
  			setSkipPostTurnMaintenance: timestamp => {
  				this.#maintenance.skipPostTurnMaintenanceAssistantTimestamp = timestamp;
- 			},
-@@ -1769,12 +1770,24 @@ export class AgentSession {
+ 				if (timestamp === undefined) this.#skippedPostTurnSpeculationCompletion = undefined;
+@@ -1965,27 +1966,19 @@ export class AgentSession {
  		this.#sessionBeforeSwitchReconciler = reconciler ?? undefined;
  	}
  
@@ -1253,22 +1425,30 @@ index 451ff6513..e3b0a27d7 100644
  		this.#sessionSwitchReconciler = reconciler ?? undefined;
  	}
  
+-	/**
+-	 * Re-anchor mode state to the session a branch just minted. Branching mints a
+-	 * new session id/file (see {@link SessionManager.createBranchedSession}), so
+-	 * without this the interactive-mode reconciler keeps the pre-branch vibe owner
+-	 * scope and disabling vibe mode trips the stale-scope guard in
+-	 * `VibeRuntime.#persistModeExit` (issue #10468). Mirrors the reconcile step
+-	 * `switchSession` runs for the same reason. Best-effort: a reconcile failure
+-	 * must not roll back an otherwise-successful branch.
+-	 */
+-	async #reconcileModeAfterBranch(): Promise<void> {
 +	async #reconcileSessionSwitch(phase: "before" | "after", reason: string): Promise<void> {
-+		try {
+ 		try {
+-			await this.#sessionSwitchReconciler?.();
 +			await this.#sessionSwitchReconciler?.(phase);
-+		} catch (error) {
+ 		} catch (error) {
+-			logger.warn("Failed to reconcile session mode after branch", {
+-				sessionFile: this.sessionFile,
 +			logger.warn("Failed to reconcile collaboration around session replacement", {
 +				phase,
 +				reason,
-+				error: String(error),
-+			});
-+		}
-+	}
-+
- 	/** Provider-scoped mutable state store for transport/session caches. */
- 	get providerSessionState(): Map<string, ProviderSessionState> {
- 		return this.#providerSessionState;
-@@ -6893,6 +6906,7 @@ export class AgentSession {
+ 				error: String(error),
+ 			});
+ 		}
+@@ -7586,6 +7579,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1276,7 +1456,7 @@ index 451ff6513..e3b0a27d7 100644
  		this.#disconnectFromAgent();
  		let advisorRecordersDetached = false;
  		await this.abort();
-@@ -6927,6 +6941,7 @@ export class AgentSession {
+@@ -7620,6 +7614,7 @@ export class AgentSession {
  				sessionTransitioned = true;
  			} finally {
  				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
@@ -1284,15 +1464,15 @@ index 451ff6513..e3b0a27d7 100644
  			}
  
  			this.#clearSessionScopedToolState();
-@@ -6954,6 +6969,7 @@ export class AgentSession {
- 			// The workspace-roots block must reflect the new session's directory set,
- 			// not the previous session's — refresh before the next turn goes out.
+@@ -7666,6 +7661,7 @@ export class AgentSession {
+ 			// turn goes out.
+ 			resetCapabilities();
  			await this.refreshBaseSystemPrompt();
 +			await this.#reconcileSessionSwitch("after", "new");
  
  			// Emit session_switch event with reason "new" to hooks
  			if (this.#extensionRunner) {
-@@ -7004,6 +7020,7 @@ export class AgentSession {
+@@ -7716,6 +7712,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1300,7 +1480,7 @@ index 451ff6513..e3b0a27d7 100644
  		await this.#bash.flushPending();
  		// Flush current session to ensure all entries are written
  		await this.sessionManager.flush();
-@@ -7021,10 +7038,12 @@ export class AgentSession {
+@@ -7733,10 +7730,12 @@ export class AgentSession {
  				forkResult = await this.sessionManager.fork();
  			} catch (error) {
  				this.#bash.finishSessionTransition(bashTransition, false);
@@ -1313,7 +1493,7 @@ index 451ff6513..e3b0a27d7 100644
  				return false;
  			}
  			this.#bash.markSessionTransition(bashTransition);
-@@ -7043,6 +7062,7 @@ export class AgentSession {
+@@ -7755,6 +7754,7 @@ export class AgentSession {
  			this.#advisors.reattachRecorderFeeds();
  			advisorRecordersDetached = false;
  			await this.#memory.resetContextForNewTranscript();
@@ -1321,7 +1501,7 @@ index 451ff6513..e3b0a27d7 100644
  
  			// Emit session_switch event with reason "fork" to hooks
  			if (this.#extensionRunner) {
-@@ -7963,6 +7983,7 @@ export class AgentSession {
+@@ -8736,6 +8736,7 @@ export class AgentSession {
  			}
  		}
  
@@ -1329,7 +1509,7 @@ index 451ff6513..e3b0a27d7 100644
  		this.#disconnectFromAgent();
  		await this.abort({ goalReason: "internal" });
  		await this.#sessionBeforeSwitchReconciler?.();
-@@ -8142,14 +8163,7 @@ export class AgentSession {
+@@ -8946,14 +8947,7 @@ export class AgentSession {
  				this.#clearSessionScopedToolState();
  			}
  			this.#reconnectToAgent();
@@ -1345,7 +1525,7 @@ index 451ff6513..e3b0a27d7 100644
  			// Refresh the workspace-roots block to match the resumed session's directory set.
  			// Wrapped so a rebuild failure (e.g. a gate that intentionally fails in tests)
  			// doesn't roll back an otherwise-successful session switch.
-@@ -8222,14 +8236,7 @@ export class AgentSession {
+@@ -9034,14 +9028,7 @@ export class AgentSession {
  			this.#advisors.resetAllRuntimes();
  			this.#advisors.reattachRecorderFeeds();
  			this.#reconnectToAgent();
@@ -1358,10 +1538,10 @@ index 451ff6513..e3b0a27d7 100644
 -				});
 -			}
 +			await this.#reconcileSessionSwitch("after", "resume rollback");
- 			this.#bash.finishSessionTransition(bashTransition, false);
- 			throw error;
- 		}
-@@ -8275,6 +8282,7 @@ export class AgentSession {
+ 			if (cwdChangeTarget && error !== SESSION_CWD_CHANGE_REJECTED && options?.onCwdChange) {
+ 				let rollbackFailure: string | undefined;
+ 				try {
+@@ -9105,6 +9092,7 @@ export class AgentSession {
  			skipConversationRestore = result?.skipConversationRestore ?? false;
  		}
  
@@ -1369,7 +1549,7 @@ index 451ff6513..e3b0a27d7 100644
  		// Clear pending messages (bound to old session state)
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
-@@ -8308,6 +8316,7 @@ export class AgentSession {
+@@ -9138,6 +9126,7 @@ export class AgentSession {
  				sessionTransitioned = true;
  			} finally {
  				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
@@ -1377,7 +1557,7 @@ index 451ff6513..e3b0a27d7 100644
  			}
  			this.#clearSessionScopedToolState();
  			this.#rehydrateCheckpointRewindState();
-@@ -8334,6 +8343,7 @@ export class AgentSession {
+@@ -9164,10 +9153,10 @@ export class AgentSession {
  				this.#advisors.resetSessionState();
  				this.#closeCodexProviderSessionsForHistoryRewrite();
  			}
@@ -1385,7 +1565,11 @@ index 451ff6513..e3b0a27d7 100644
  
  			this.#advisors.reattachRecorderFeeds();
  			advisorRecordersDetached = false;
-@@ -8404,6 +8414,7 @@ export class AgentSession {
+-			await this.#reconcileModeAfterBranch();
+ 			return { selectedText, selectedImages, cancelled: false };
+ 		} finally {
+ 			if (advisorRecordersDetached) {
+@@ -9235,6 +9224,7 @@ export class AgentSession {
  			throw new Error("Cannot branch /btw while session maintenance or user work is still running");
  		}
  
@@ -1393,7 +1577,7 @@ index 451ff6513..e3b0a27d7 100644
  		this.#pendingNextTurnMessages = [];
  		this.#scheduledHiddenNextTurnGeneration = undefined;
  		this.agent.replaceQueues([], []);
-@@ -8431,6 +8442,7 @@ export class AgentSession {
+@@ -9262,6 +9252,7 @@ export class AgentSession {
  				sessionTransitioned = true;
  			} finally {
  				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
@@ -1401,15 +1585,17 @@ index 451ff6513..e3b0a27d7 100644
  			}
  
  			this.#clearSessionScopedToolState();
-@@ -8460,6 +8472,7 @@ export class AgentSession {
+@@ -9291,8 +9282,8 @@ export class AgentSession {
  			this.agent.replaceMessages(sessionContext.messages);
  			this.#advisors.resetSessionState();
  			this.#closeCodexProviderSessionsForHistoryRewrite();
 +			await this.#reconcileSessionSwitch("after", "btw branch");
  			advisorRecordersDetached = false;
+-			await this.#reconcileModeAfterBranch();
  
  			return { cancelled: false, sessionFile: this.sessionFile };
-@@ -8738,6 +8751,7 @@ export class AgentSession {
+ 		} finally {
+@@ -9574,6 +9565,7 @@ export class AgentSession {
  			newLeafId = targetId;
  		}
  
@@ -1417,7 +1603,7 @@ index 451ff6513..e3b0a27d7 100644
  		// Switch leaf (with or without summary)
  		// Summary is attached at the navigation target position (newLeafId), not the old branch
  		const bashTransition = this.#bash.beginSessionTransition();
-@@ -8762,6 +8776,7 @@ export class AgentSession {
+@@ -9598,6 +9590,7 @@ export class AgentSession {
  			branchTransitioned = true;
  		} finally {
  			this.#bash.finishSessionTransition(bashTransition, branchTransitioned);
@@ -1425,7 +1611,7 @@ index 451ff6513..e3b0a27d7 100644
  		}
  
  		// Update agent state — build display context to populate agent messages.
-@@ -8772,6 +8787,7 @@ export class AgentSession {
+@@ -9608,6 +9601,7 @@ export class AgentSession {
  		this.#advisors.resetSessionState({ preserveCost: true });
  		this.#todo.syncFromBranch();
  		this.#closeCodexProviderSessionsForHistoryRewrite();
@@ -1434,7 +1620,7 @@ index 451ff6513..e3b0a27d7 100644
  		this.#branchSummaryAbortController = undefined;
  
 diff --git a/packages/coding-agent/src/session/session-handoff.ts b/packages/coding-agent/src/session/session-handoff.ts
-index d021f916e..e166211fe 100644
+index d021f91..e166211 100644
 --- a/packages/coding-agent/src/session/session-handoff.ts
 +++ b/packages/coding-agent/src/session/session-handoff.ts
 @@ -46,6 +46,7 @@ export interface SessionHandoffHost {
@@ -1446,10 +1632,10 @@ index d021f916e..e166211fe 100644
  	obfuscateTextForProvider(text: string | undefined): string | undefined;
  	deobfuscateFromProvider(text: string): string;
 diff --git a/packages/coding-agent/src/session/session-manager.ts b/packages/coding-agent/src/session/session-manager.ts
-index 335669340..1f257ce42 100644
+index 6561abc..e28d512 100644
 --- a/packages/coding-agent/src/session/session-manager.ts
 +++ b/packages/coding-agent/src/session/session-manager.ts
-@@ -549,6 +549,7 @@ export class SessionManager {
+@@ -569,6 +569,7 @@ export class SessionManager {
  	#breadcrumbFresh = false;
  	#sessionNameChangedCallbacks = new Set<() => void>();
  	#persistenceErrorCallbacks = new Set<(error: Error) => void>();
@@ -1457,7 +1643,7 @@ index 335669340..1f257ce42 100644
  
  	private constructor(cwd: string, sessionDir: string, persist: boolean, storage: SessionStorage) {
  		this.#cwd = cwd;
-@@ -1262,6 +1263,16 @@ export class SessionManager {
+@@ -1283,6 +1284,16 @@ export class SessionManager {
  		}
  	}
  
@@ -1474,7 +1660,7 @@ index 335669340..1f257ce42 100644
  	static #cleanTitle(raw: string): string {
  		return raw
  			.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-@@ -2072,6 +2083,13 @@ export class SessionManager {
+@@ -2213,6 +2224,13 @@ export class SessionManager {
  		};
  	}
  
@@ -1488,7 +1674,7 @@ index 335669340..1f257ce42 100644
  	/**
  	 * Set the session display name.
  	 * @param source "user" for explicit renames; "auto" for generated titles.
-@@ -2213,6 +2231,7 @@ export class SessionManager {
+@@ -2383,6 +2401,7 @@ export class SessionManager {
  			resolvedModelIsFallback,
  		};
  		this.#recordEntry(entry);
@@ -1497,19 +1683,47 @@ index 335669340..1f257ce42 100644
  	}
  
 diff --git a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
-index 0bf8d71f3..a106d93f4 100644
+index b3e5e75..294c30f 100644
 --- a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
 +++ b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
-@@ -1,7 +1,7 @@
+@@ -1,7 +1,8 @@
  import { Spacer } from "@oh-my-pi/pi-tui";
  import { APP_NAME } from "@oh-my-pi/pi-utils";
  import { CollabGuestLink } from "../collab/guest";
 -import { CollabHost } from "../collab/host";
 +import type { CollabHost } from "../collab/host";
++import type { CollabPublicationState } from "../collab/registry-publisher";
  import type { SettingPath, SettingValue } from "../config/settings";
  import { settings } from "../config/settings";
  import { parseExportArgs } from "../export/html/args";
-@@ -261,8 +261,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -17,6 +18,26 @@ import { CollabQrCodeComponent, collabBrowserLink } from "./helpers/collab-qrcod
+ import { commandConsumed, errorMessage, parseSubcommand, usage } from "./helpers/parse";
+ import type { SlashCommandSpec } from "./types";
+ 
++/**
++ * Directory publication line for `/collab status`. A host can be perfectly
++ * healthy on the relay while its gateway publication is retrying or latched off,
++ * and that state is otherwise invisible.
++ */
++function collabPublicationHint(state: CollabPublicationState): string {
++	const bullet = theme.fg("accent", theme.format.bullet);
++	const label = theme.fg("muted", "Session directory:");
++	if (state.kind === "publishing") return ` ${bullet} ${label} publishing`;
++	if (state.kind === "retrying") {
++		return ` ${bullet} ${label} retrying (attempt ${state.attempt}: ${state.reason})`;
++	}
++	if (state.kind === "disabled") {
++		return [
++			` ${bullet} ${label} ${theme.fg("warning", `disabled — ${state.reason}`)}`,
++			theme.fg("dim", "Run /collab to clear it and retry publication."),
++		].join("\n");
++	}
++	return ` ${bullet} ${label} not published`;
++}
+ /** Join hint printed by /collab: compact terminal link + clickable browser deep link. */
+ function collabLinkHint(host: CollabHost, heading: string, view = false): string {
+ 	const bullet = theme.fg("accent", theme.format.bullet);
+@@ -290,8 +311,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  		],
  		allowArgs: true,
  		getTuiAutocompleteDescription: runtime => {
@@ -1520,7 +1734,7 @@ index 0bf8d71f3..a106d93f4 100644
  			}
  			if (runtime.ctx.collabGuest?.readOnly) return "Collab: read-only guest";
  			if (runtime.ctx.collabGuest) return "Collab: guest";
-@@ -274,20 +274,22 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -303,20 +324,26 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			const args = command.args.trim();
  			const { verb, rest } = parseSubcommand(args);
  			if (verb === "stop") {
@@ -1541,14 +1755,18 @@ index 0bf8d71f3..a106d93f4 100644
 +					const names = ctx.collabController.host.participants.map(p =>
  						p.role === "host" ? `${p.name} (host)` : p.readOnly ? `${p.name} (view-only)` : p.name,
  					);
--					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabHost.webLink)}`);
+-					ctx.showStatus(`Collab: ${names.join(", ")} — ${collabBrowserLink(ctx.collabHost.webLink)}`);
 +					ctx.showStatus(
-+						`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
++						[
++							`Collab: ${names.join(", ")} — ${collabBrowserLink(ctx.collabController.host.webLink)}`,
++							collabPublicationHint(ctx.collabController.publicationState()),
++						].join("\n"),
++						{ dim: false },
 +					);
  				} else if (ctx.collabGuest) {
  					ctx.showStatus(
  						ctx.collabGuest.readOnly
-@@ -305,16 +307,12 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -334,16 +361,15 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			}
  			const knownStartVerb = verb === "start" || verb === "view";
  			const view = verb === "view";
@@ -1562,6 +1780,9 @@ index 0bf8d71f3..a106d93f4 100644
 +			const explicitUrl = knownStartVerb ? rest : args;
 +			const existingHost = ctx.collabController.host;
 +			if (existingHost && !explicitUrl) {
++				// A latched publisher is only recoverable through an explicit /collab,
++				// and an already-hosting session lands here rather than in start().
++				await ctx.collabController.resumePublication();
 +				showCollabLink(ctx, existingHost, view ? "Read-only collab session active" : "Collab session active", view);
  				return;
  			}
@@ -1569,7 +1790,7 @@ index 0bf8d71f3..a106d93f4 100644
  			const relayInput = explicitUrl || ctx.settings.get("collab.relayUrl") || "";
  			if (!relayInput) {
  				ctx.showError(
-@@ -325,14 +323,22 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -354,14 +380,22 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  			// Scheme-less relay args default to wss (ws:// must be spelled out for localhost).
  			const relayUrl = relayInput.includes("://") ? relayInput : `wss://${relayInput}`;
  			const webUrl = ctx.settings.get("collab.webUrl") || "";
@@ -1595,7 +1816,7 @@ index 0bf8d71f3..a106d93f4 100644
  			showCollabLink(ctx, host, "Collab session started!", view);
  		},
  	},
-@@ -349,7 +355,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -379,7 +413,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  				ctx.showError("Usage: /join <link>");
  				return;
  			}
@@ -1604,8 +1825,8 @@ index 0bf8d71f3..a106d93f4 100644
  				ctx.showError("Stop hosting first (/collab stop)");
  				return;
  			}
-@@ -368,7 +374,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
- 		name: "leave",
+@@ -399,7 +433,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 		icon: "signOut",
  		description: "Leave the collab session",
  		getTuiAutocompleteDescription: runtime => {
 -			if (runtime.ctx.collabHost) return "Leave collab: hosting";
@@ -1613,7 +1834,7 @@ index 0bf8d71f3..a106d93f4 100644
  			if (runtime.ctx.collabGuest) return "Leave collab: guest";
  			return "Leave collab: not in collab";
  		},
-@@ -379,8 +385,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+@@ -410,8 +444,8 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
  				await ctx.collabGuest.leave("left");
  				return;
  			}
@@ -1625,11 +1846,11 @@ index 0bf8d71f3..a106d93f4 100644
  				return;
  			}
 diff --git a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
-index 7fd2826bf..f1f1039bc 100644
+index 37f5e81..15d38f8 100644
 --- a/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
 +++ b/packages/coding-agent/test/agent-session-bash-session-ownership.test.ts
-@@ -113,6 +113,23 @@ describe("AgentSession bash session ownership", () => {
- 		expect(session.messages.some(message => message.role === "bashExecution")).toBe(false);
+@@ -260,6 +260,23 @@ describe("AgentSession bash session ownership", () => {
+ 		expect(spawnHook).not.toHaveBeenCalled();
  	});
  
 +	it("brackets session identity replacement with reconciler phases", async () => {
@@ -1653,7 +1874,7 @@ index 7fd2826bf..f1f1039bc 100644
  		const sessionManager = SessionManager.inMemory(tempDir.path());
  		let returnEmptyStop = true;
 diff --git a/packages/coding-agent/test/collab/chunked-welcome.test.ts b/packages/coding-agent/test/collab/chunked-welcome.test.ts
-index 9c110fb54..bb25da094 100644
+index d54834a..88d8272 100644
 --- a/packages/coding-agent/test/collab/chunked-welcome.test.ts
 +++ b/packages/coding-agent/test/collab/chunked-welcome.test.ts
 @@ -82,7 +82,6 @@ function makeHostContext(snapshot: SizedSnapshot): InteractiveModeContext {
@@ -1664,19 +1885,101 @@ index 9c110fb54..bb25da094 100644
  	};
  	return ctx as unknown as InteractiveModeContext;
  }
+diff --git a/packages/coding-agent/test/collab/collab-command-publication.test.ts b/packages/coding-agent/test/collab/collab-command-publication.test.ts
+new file mode 100644
+index 0000000..046ed96
+--- /dev/null
++++ b/packages/coding-agent/test/collab/collab-command-publication.test.ts
+@@ -0,0 +1,79 @@
++import { beforeAll, expect, test } from "bun:test";
++import type { CollabPublicationState } from "../../src/collab/registry-publisher";
++import { initTheme } from "../../src/modes/theme/theme";
++import type { InteractiveModeContext } from "../../src/modes/types";
++import { lookupBuiltinSlashCommand } from "../../src/slash-commands/builtin-registry";
++
++/**
++ * A host can be perfectly healthy on the relay while its gateway publication is
++ * retrying or latched off. `/collab status` is the only place that state is
++ * observable — the publisher's single warning is long gone from scrollback — and
++ * a bare `/collab` on an already-hosting session is the only recovery short of
++ * restarting OMP, so it must reach the controller rather than return early.
++ */
++
++// Resolved through the registry: importing the collab module directly trips the
++// builtin-modes import cycle before the registry finishes initializing.
++const collabCommand = lookupBuiltinSlashCommand("collab");
++const SGR_PATTERN = /\x1b\[[0-9;]*m/gu;
++
++function harness(publication: CollabPublicationState) {
++	const statuses: string[] = [];
++	let resumes = 0;
++	const ctx = {
++		editor: { setText() {} },
++		present() {},
++		showStatus: (message: string) => statuses.push(message.replace(SGR_PATTERN, "")),
++		showError: (message: string) => statuses.push(`ERROR ${message}`),
++		settings: { get: () => "" },
++		collabController: {
++			host: {
++				participants: [{ name: "host", role: "host" as const }],
++				link: "CONTROL_CAPABILITY_FIXTURE",
++				viewLink: "VIEW_CAPABILITY_FIXTURE",
++				webLink: "https://example.invalid/client",
++				webViewLink: "https://example.invalid/client-view",
++			},
++			publicationState: () => publication,
++			resumePublication: async () => {
++				resumes += 1;
++			},
++		},
++	} as unknown as InteractiveModeContext;
++	return {
++		statuses,
++		resumeCount: () => resumes,
++		run: async (args: string) => {
++			await collabCommand?.handleTui?.({ name: "collab", args, text: `/collab ${args}`.trimEnd() }, {
++				ctx,
++			} as never);
++			return statuses.join("\n");
++		},
++	};
++}
++
++beforeAll(async () => {
++	await initTheme();
++});
++
++test("/collab status names a latched publisher and how to clear it", async () => {
++	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
++	const rendered = await collab.run("status");
++	expect(rendered).toContain("Session directory: disabled — unsafe OMP Session Gateway registry endpoint");
++	expect(rendered).toContain("Run /collab to clear it and retry publication.");
++});
++
++test("/collab status distinguishes publishing from retrying", async () => {
++	expect(await harness({ kind: "publishing" }).run("status")).toContain("Session directory: publishing");
++	expect(await harness({ kind: "retrying", attempt: 3, reason: "EACCES" }).run("status")).toContain(
++		"Session directory: retrying (attempt 3: EACCES)",
++	);
++	expect(await harness({ kind: "off" }).run("status")).toContain("Session directory: not published");
++});
++
++test("a bare /collab on a hosting session clears the latch instead of only reprinting the link", async () => {
++	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
++	const rendered = await collab.run("");
++	expect(collab.resumeCount()).toBe(1);
++	expect(rendered).toContain("Collab session active");
++});
 diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
 new file mode 100644
-index 000000000..eafda3952
+index 0000000..4f168fc
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -0,0 +1,245 @@
-+import { describe, expect, mock, test } from "bun:test";
-+import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
+@@ -0,0 +1,399 @@
++import { describe, expect, test } from "bun:test";
++import { CollabController } from "../../src/collab/controller";
++import type { CollabPublicationState, CollabPublisherRecord } from "../../src/collab/registry-publisher";
 +import type { InteractiveModeContext } from "../../src/modes/types";
-+
-+// Load after the host mock so controller lifecycle tests never open a relay.
-+mock.module("../../src/collab/host", () => ({ CollabHost: class {} }));
-+const { CollabController } = await import("../../src/collab/controller");
 +
 +class FakeHost {
 +	readonly link = "CONTROL_CAPABILITY_FIXTURE";
@@ -1727,6 +2030,14 @@ index 000000000..eafda3952
 +	const hosts: FakeHost[] = [];
 +	const events: Array<{ type: string; generation: number }> = [];
 +	const published: CollabPublisherRecord[] = [];
++	const operations: Array<
++		{ type: "publish"; record: CollabPublisherRecord } | { type: "remove"; generation: number }
++	> = [];
++	let publication: CollabPublicationState = { kind: "off" };
++	let lastPublished: CollabPublisherRecord | undefined;
++	let resumes = 0;
++	const publisherEndpoints: string[] = [];
++	const publisherShutdowns: Array<{ endpoint: string; generation: number | undefined }> = [];
 +	const controller = new CollabController(context, {
 +		instanceId: "test-instance-id",
 +		hostFactory: () => {
@@ -1734,19 +2045,37 @@ index 000000000..eafda3952
 +			hosts.push(host);
 +			return host;
 +		},
-+		publisherFactory: () => ({
-+			publish(record: CollabPublisherRecord) {
-+				published.push({ ...record });
-+				events.push({
-+					type: record.controlLink ? "publish-control" : "publish-view",
-+					generation: record.generation,
-+				});
-+			},
-+			remove(generation: number) {
-+				events.push({ type: "remove", generation });
-+			},
-+			shutdown() {},
-+		}),
++		publisherFactory: (_instanceId, _pid, endpointSetting) => {
++			publisherEndpoints.push(endpointSetting);
++			return {
++				publish(record: CollabPublisherRecord) {
++					lastPublished = { ...record };
++					publication = { kind: "publishing" };
++					published.push({ ...record });
++					operations.push({ type: "publish", record: { ...record } });
++					events.push({
++						type: record.controlLink ? "publish-control" : "publish-view",
++						generation: record.generation,
++					});
++				},
++				remove(generation: number) {
++					events.push({ type: "remove", generation });
++					operations.push({ type: "remove", generation });
++				},
++				shutdown(generation: number | undefined) {
++					publisherShutdowns.push({ endpoint: endpointSetting, generation });
++					lastPublished = undefined;
++					publication = { kind: "off" };
++				},
++				resume() {
++					resumes += 1;
++					publication = lastPublished ? { kind: "publishing" } : { kind: "off" };
++				},
++				publicationState() {
++					return publication;
++				},
++			};
++		},
 +	});
 +	return {
 +		context,
@@ -1754,13 +2083,32 @@ index 000000000..eafda3952
 +		hosts,
 +		events,
 +		published,
++		operations,
 +		warnings,
++		publisherEndpoints,
++		publisherShutdowns,
++		latchPublisher(reason: string) {
++			publication = { kind: "disabled", reason };
++		},
++		resumeCount: () => resumes,
++		setRegistryEndpoint(endpoint: string) {
++			values["collab.registryEndpoint"] = endpoint;
++		},
 +		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
 +			if ("sessionName" in next) sessionName = next.sessionName;
 +			if ("cwd" in next && next.cwd !== undefined) cwd = next.cwd;
 +			if ("model" in next) model = next.model;
 +		},
 +	};
++}
++function nextUpdated(controller: InstanceType<typeof CollabController>): Promise<void> {
++	const { promise, resolve } = Promise.withResolvers<void>();
++	let unsubscribe = (): void => {};
++	unsubscribe = controller.on("updated", () => {
++		unsubscribe();
++		resolve();
++	});
++	return promise;
 +}
 +
 +describe("CollabController", () => {
@@ -1781,6 +2129,53 @@ index 000000000..eafda3952
 +		const { controller, events } = harness("view");
 +		await controller.autoStart();
 +		expect(events).toEqual([{ type: "publish-view", generation: 1 }]);
++	});
++	test("publishes only first and last generation-scoped input-required lease transitions", async () => {
++		const { controller, published } = harness("control");
++		await controller.autoStart();
++		expect(published.map(record => record.inputRequired)).toEqual([false]);
++
++		const required = nextUpdated(controller);
++		const releaseFirst = controller.beginInputRequired();
++		const releaseSecond = controller.beginInputRequired();
++		await required;
++		expect(published.map(record => record.inputRequired)).toEqual([false, true]);
++
++		await controller.refreshMetadata();
++		expect(published.at(-1)?.inputRequired).toBe(true);
++		const beforeIntermediateRelease = published.length;
++		releaseFirst();
++		expect(published).toHaveLength(beforeIntermediateRelease);
++
++		const cleared = nextUpdated(controller);
++		releaseSecond();
++		await cleared;
++		expect(published.at(-1)?.inputRequired).toBe(false);
++		const afterClear = published.length;
++		releaseSecond();
++		expect(published).toHaveLength(afterClear);
++	});
++
++	test("clears before replacement removal and ignores a stale generation lease release", async () => {
++		const { controller, operations, published } = harness("control");
++		await controller.autoStart();
++		const required = nextUpdated(controller);
++		const staleRelease = controller.beginInputRequired();
++		await required;
++
++		await controller.prepareActiveSessionReplacement();
++		expect(published.map(record => record.inputRequired)).toEqual([false, true, false]);
++		expect(operations.at(-2)).toMatchObject({
++			type: "publish",
++			record: { generation: 1, inputRequired: false },
++		});
++		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
++
++		await controller.restoreActiveSession();
++		expect(published.at(-1)).toMatchObject({ generation: 2, inputRequired: false });
++		const beforeStaleRelease = published.length;
++		staleRelease();
++		expect(published).toHaveLength(beforeStaleRelease);
 +	});
 +
 +	test("refreshes same-generation title, cwd, and model metadata without rotating capabilities", async () => {
@@ -1820,6 +2215,23 @@ index 000000000..eafda3952
 +		await controller.refreshMetadata();
 +		expect(published).toHaveLength(2);
 +		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
++	});
++	test("revokes a deselected registry and rebinds publication to the replacement endpoint", async () => {
++		const { controller, published, publisherEndpoints, publisherShutdowns, setRegistryEndpoint } = harness("control");
++		setRegistryEndpoint("/tmp/registry-a.sock");
++		await controller.autoStart();
++		expect(publisherEndpoints).toEqual(["/tmp/registry-a.sock"]);
++
++		setRegistryEndpoint("off");
++		await controller.refreshMetadata();
++		expect(publisherShutdowns).toEqual([{ endpoint: "/tmp/registry-a.sock", generation: 1 }]);
++		expect(controller.publicationState()).toEqual({ kind: "off" });
++		const publishedBeforeReplacement = published.length;
++
++		setRegistryEndpoint("/tmp/registry-b.sock");
++		await controller.refreshMetadata();
++		expect(publisherEndpoints).toEqual(["/tmp/registry-a.sock", "/tmp/registry-b.sock"]);
++		expect(published).toHaveLength(publishedBeforeReplacement + 1);
 +	});
 +
 +	test("bounds refreshed metadata labels to the gateway protocol limit", async () => {
@@ -1905,18 +2317,66 @@ index 000000000..eafda3952
 +	});
 +
 +	test("fatal host closure unregisters immediately", async () => {
-+		const { controller, hosts, events } = harness("control");
++		const { controller, hosts, events, operations, published } = harness("control");
 +		await controller.autoStart();
++		const required = nextUpdated(controller);
++		const staleRelease = controller.beginInputRequired();
++		await required;
 +		const faulted = Promise.withResolvers<void>();
 +		controller.on("faulted", () => faulted.resolve());
 +		hosts[0]?.onFatal?.("relay failed");
 +		await faulted.promise;
++		expect(published.at(-1)?.inputRequired).toBe(false);
++		expect(operations.at(-2)).toMatchObject({
++			type: "publish",
++			record: { generation: 1, inputRequired: false },
++		});
++		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
 +		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
 +		expect(controller.state).toBe("faulted");
++		const beforeStaleRelease = published.length;
++		staleRelease();
++		expect(published).toHaveLength(beforeStaleRelease);
++	});
++
++	test("publication state is reported and only a manual start clears a latch", async () => {
++		const { controller, latchPublisher, resumeCount } = harness("control");
++		expect(controller.publicationState()).toEqual({ kind: "off" });
++		await controller.autoStart();
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
++
++		latchPublisher("unsafe OMP Session Gateway registry endpoint");
++		expect(controller.publicationState()).toEqual({
++			kind: "disabled",
++			reason: "unsafe OMP Session Gateway registry endpoint",
++		});
++
++		// Auto-start keeps its caution: it must not clear a latch on its own.
++		await controller.autoStart();
++		expect(resumeCount()).toBe(0);
++		expect(controller.publicationState().kind).toBe("disabled");
++
++		await controller.start({ publish: "control" });
++		expect(resumeCount()).toBe(1);
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
++	});
++
++	test("resumePublication re-announces a hosting session without restarting the host", async () => {
++		const { controller, hosts, latchPublisher, resumeCount, operations } = harness("control");
++		await controller.autoStart();
++		latchPublisher("unsafe OMP Session Gateway registry endpoint");
++		const before = operations.length;
++
++		await controller.resumePublication();
++		expect(resumeCount()).toBe(1);
++		expect(hosts).toHaveLength(1);
++		expect(hosts[0]?.stops).toBe(0);
++		expect(operations.slice(before)).toMatchObject([{ type: "publish", record: { generation: 1 } }]);
++		expect(controller.publicationState()).toEqual({ kind: "publishing" });
 +	});
 +});
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index f1a829628..281512a61 100644
+index 84c1d3f..4bf066c 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -473,7 +473,7 @@ function makeHostContext(): InteractiveModeContext {
@@ -1956,7 +2416,7 @@ index f1a829628..281512a61 100644
  		try {
  			const guest = await joinRawGuest(host.link, COLLAB_PROTO);
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 3f627b804..0f78dd47d 100644
+index 3f627b8..0f78dd4 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
 @@ -75,7 +75,6 @@ function makeHostContext(): HostHarness {
@@ -1969,10 +2429,10 @@ index 3f627b804..0f78dd47d 100644
  		const { promise, resolve } = Promise.withResolvers<{ from?: string }>();
 diff --git a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
 new file mode 100644
-index 000000000..32674dbd8
+index 0000000..0f27bf0
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,33 @@
 +import { CollabRegistryPublisher } from "../../src/collab/registry-publisher";
 +
 +const endpoint = process.env.OMP_GATEWAY_TEST_ENDPOINT;
@@ -1994,6 +2454,7 @@ index 000000000..32674dbd8
 +	pid: process.pid,
 +	sessionId: "publisher-explicit-token-session",
 +	startedAt: "2026-07-21T00:00:00.000Z",
++	inputRequired: false,
 +	viewLink: "VIEW_CAPABILITY_FIXTURE",
 +	controlLink: "CONTROL_CAPABILITY_FIXTURE",
 +});
@@ -2007,10 +2468,10 @@ index 000000000..32674dbd8
 +await new Promise(() => {});
 diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
 new file mode 100644
-index 000000000..83332b59f
+index 0000000..b4d4201
 --- /dev/null
 +++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -0,0 +1,582 @@
+@@ -0,0 +1,733 @@
 +import { expect, test, vi } from "bun:test";
 +import { createHmac, randomBytes } from "node:crypto";
 +import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -2033,6 +2494,7 @@ index 000000000..83332b59f
 +	pid: process.pid,
 +	sessionId: "publisher-test-session",
 +	startedAt: "2026-07-19T00:00:00.000Z",
++	inputRequired: false,
 +	viewLink: "VIEW_CAPABILITY_FIXTURE",
 +	controlLink: "CONTROL_CAPABILITY_FIXTURE",
 +};
@@ -2049,6 +2511,7 @@ index 000000000..83332b59f
 +	readonly frames: Array<Record<string, unknown>>;
 +	readonly binding: () => AuthBinding | undefined;
 +	readonly upsertReceived: Promise<void>;
++	readonly nextUpsert: () => Promise<Record<string, unknown>>;
 +}
 +
 +interface PublisherFixture {
@@ -2114,7 +2577,11 @@ index 000000000..83332b59f
 +	await rm(fixture.root, { recursive: true, force: true });
 +}
 +
-+async function beforeTimeout<T>(promise: Promise<T>, message: string, timeoutMilliseconds = HANDSHAKE_TIMEOUT_MS): Promise<T> {
++async function beforeTimeout<T>(
++	promise: Promise<T>,
++	message: string,
++	timeoutMilliseconds = HANDSHAKE_TIMEOUT_MS,
++): Promise<T> {
 +	return await Promise.race([
 +		promise,
 +		Bun.sleep(timeoutMilliseconds).then(() => {
@@ -2130,6 +2597,15 @@ index 000000000..83332b59f
 +): AuthenticatedRegistryServer {
 +	const frames: Array<Record<string, unknown>> = [];
 +	const upsertReceived = Promise.withResolvers<void>();
++	const upserts: Array<Record<string, unknown>> = [];
++	const upsertWaiters: Array<(frame: Record<string, unknown>) => void> = [];
++	const nextUpsert = (): Promise<Record<string, unknown>> => {
++		const queued = upserts.shift();
++		if (queued) return Promise.resolve(queued);
++		const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
++		upsertWaiters.push(resolve);
++		return promise;
++	};
 +	let binding: AuthBinding | undefined;
 +	let activeSocket: Bun.Socket<{ buffer: string }> | undefined;
 +	const server = Bun.listen<{ buffer: string }>({
@@ -2166,6 +2642,9 @@ index 000000000..83332b59f
 +						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
 +					} else if (frame.op === "upsert") {
 +						upsertReceived.resolve();
++						const waiter = upsertWaiters.shift();
++						if (waiter) waiter(frame);
++						else upserts.push(frame);
 +					}
 +				}
 +			},
@@ -2180,6 +2659,7 @@ index 000000000..83332b59f
 +		frames,
 +		binding: () => binding,
 +		upsertReceived: upsertReceived.promise,
++		nextUpsert,
 +	};
 +}
 +
@@ -2214,109 +2694,193 @@ index 000000000..83332b59f
 +	expect(() => resolveCollabRegistryEndpoint("relative.sock")).toThrow("absolute");
 +});
 +
-+test("publisher sends no token, proof, or capability to a named-pipe squatter", async () => {
-+	const fixture = await createPublisherFixture("squatter");
-+	const frames: Array<Record<string, unknown>> = [];
-+	const server = Bun.listen<{ buffer: string; challenged: boolean }>({
-+		unix: fixture.endpoint,
-+		data: { buffer: "", challenged: false },
-+		socket: {
-+			data(socket, data) {
-+				socket.data.buffer += Buffer.from(data).toString("utf8");
-+				while (socket.data.buffer.includes("\n")) {
-+					const newline = socket.data.buffer.indexOf("\n");
-+					const line = socket.data.buffer.slice(0, newline);
-+					socket.data.buffer = socket.data.buffer.slice(newline + 1);
-+					frames.push(JSON.parse(line) as Record<string, unknown>);
-+					if (!socket.data.challenged) {
-+						socket.data.challenged = true;
-+						socket.write(
-+							`${JSON.stringify({
-+								v: 1,
-+								op: "challenge",
-+								serverNonce: "C".repeat(43),
-+								proof: "X".repeat(43),
-+							})}\n`,
-+						);
++test(
++	"publisher sends no token, proof, or capability to a named-pipe squatter",
++	async () => {
++		const fixture = await createPublisherFixture("squatter");
++		const frames: Array<Record<string, unknown>> = [];
++		const server = Bun.listen<{ buffer: string; challenged: boolean }>({
++			unix: fixture.endpoint,
++			data: { buffer: "", challenged: false },
++			socket: {
++				data(socket, data) {
++					socket.data.buffer += Buffer.from(data).toString("utf8");
++					while (socket.data.buffer.includes("\n")) {
++						const newline = socket.data.buffer.indexOf("\n");
++						const line = socket.data.buffer.slice(0, newline);
++						socket.data.buffer = socket.data.buffer.slice(newline + 1);
++						frames.push(JSON.parse(line) as Record<string, unknown>);
++						if (!socket.data.challenged) {
++							socket.data.challenged = true;
++							socket.write(
++								`${JSON.stringify({
++									v: 1,
++									op: "challenge",
++									serverNonce: "C".repeat(43),
++									proof: "X".repeat(43),
++								})}\n`,
++							);
++						}
 +					}
-+				}
++				},
++				error() {},
 +			},
-+			error() {},
-+		},
-+	});
-+	try {
-+		await prepareServerEndpoint(fixture.endpoint);
-+		const warning = Promise.withResolvers<string>();
-+		const publisher = new CollabRegistryPublisher({
-+			instanceId: record.instanceId,
-+			pid: record.pid,
-+			endpointSetting: fixture.endpoint,
-+			onSecurityError: warning.resolve,
 +		});
-+		publisher.publish(record);
-+		const message = await beforeTimeout(warning.promise, "publisher accepted an unauthenticated registry server");
-+		publisher.shutdown(record.generation);
-+		expect(message).toContain("server authentication failed");
-+		expect(frames).toHaveLength(1);
-+		expect(frames[0]?.op).toBe("hello");
-+		expect(frames[0]).not.toHaveProperty("token");
-+		const wire = JSON.stringify(frames);
-+		expect(wire).not.toContain("A".repeat(43));
-+		expect(wire).not.toContain(record.viewLink);
-+		expect(wire).not.toContain(record.controlLink);
-+		expect(wire).not.toContain('"authenticate"');
-+		expect(wire).not.toContain('"upsert"');
-+	} finally {
-+		server.stop(true);
-+		await cleanupPublisherFixture(fixture);
-+	}
-+}, PUBLISHER_TEST_TIMEOUT_MS);
++		try {
++			await prepareServerEndpoint(fixture.endpoint);
++			const warning = Promise.withResolvers<string>();
++			const publisher = new CollabRegistryPublisher({
++				instanceId: record.instanceId,
++				pid: record.pid,
++				endpointSetting: fixture.endpoint,
++				onSecurityError: warning.resolve,
++			});
++			publisher.publish(record);
++			const message = await beforeTimeout(warning.promise, "publisher accepted an unauthenticated registry server");
++			publisher.shutdown(record.generation);
++			expect(message).toContain("server authentication failed");
++			expect(frames).toHaveLength(1);
++			expect(frames[0]?.op).toBe("hello");
++			expect(frames[0]).not.toHaveProperty("token");
++			const wire = JSON.stringify(frames);
++			expect(wire).not.toContain("A".repeat(43));
++			expect(wire).not.toContain(record.viewLink);
++			expect(wire).not.toContain(record.controlLink);
++			expect(wire).not.toContain('"authenticate"');
++			expect(wire).not.toContain('"upsert"');
++		} finally {
++			server.stop(true);
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
 +
-+test("publisher authenticates the registry server before releasing capabilities", async () => {
-+	const fixture = await createPublisherFixture("mutual-auth");
-+	const token = "A".repeat(43);
-+	const frames: Array<Record<string, unknown>> = [];
-+	const upsertReceived = Promise.withResolvers<void>();
-+	let binding: AuthBinding | undefined;
-+	const server = Bun.listen<{ buffer: string }>({
-+		unix: fixture.endpoint,
-+		data: { buffer: "" },
-+		socket: {
-+			data(socket, data) {
-+				socket.data.buffer += Buffer.from(data).toString("utf8");
-+				while (socket.data.buffer.includes("\n")) {
-+					const newline = socket.data.buffer.indexOf("\n");
-+					const line = socket.data.buffer.slice(0, newline);
-+					socket.data.buffer = socket.data.buffer.slice(newline + 1);
-+					const frame = JSON.parse(line) as Record<string, unknown>;
-+					frames.push(frame);
-+					if (frames.length === 1) {
-+						binding = {
-+							clientNonce: String(frame.clientNonce),
-+							serverNonce: "C".repeat(43),
-+							instanceId: String(frame.instanceId),
-+							pid: Number(frame.pid),
-+						};
-+						socket.write(
-+							`${JSON.stringify({
-+								v: 1,
-+								op: "challenge",
-+								serverNonce: binding.serverNonce,
-+								proof: authProof(token, "omp-session-gateway.registry.server.v1", binding),
-+							})}\n`,
-+						);
-+					} else if (frames.length === 2) {
-+						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
-+					} else if (frame.op === "upsert") {
-+						upsertReceived.resolve();
++test(
++	"publisher authenticates the registry server before releasing capabilities",
++	async () => {
++		const fixture = await createPublisherFixture("mutual-auth");
++		const token = "A".repeat(43);
++		const frames: Array<Record<string, unknown>> = [];
++		const upsertReceived = Promise.withResolvers<void>();
++		let binding: AuthBinding | undefined;
++		const server = Bun.listen<{ buffer: string }>({
++			unix: fixture.endpoint,
++			data: { buffer: "" },
++			socket: {
++				data(socket, data) {
++					socket.data.buffer += Buffer.from(data).toString("utf8");
++					while (socket.data.buffer.includes("\n")) {
++						const newline = socket.data.buffer.indexOf("\n");
++						const line = socket.data.buffer.slice(0, newline);
++						socket.data.buffer = socket.data.buffer.slice(newline + 1);
++						const frame = JSON.parse(line) as Record<string, unknown>;
++						frames.push(frame);
++						if (frames.length === 1) {
++							binding = {
++								clientNonce: String(frame.clientNonce),
++								serverNonce: "C".repeat(43),
++								instanceId: String(frame.instanceId),
++								pid: Number(frame.pid),
++							};
++							socket.write(
++								`${JSON.stringify({
++									v: 1,
++									op: "challenge",
++									serverNonce: binding.serverNonce,
++									proof: authProof(token, "omp-session-gateway.registry.server.v1", binding),
++								})}\n`,
++							);
++						} else if (frames.length === 2) {
++							socket.write(
++								`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`,
++							);
++						} else if (frame.op === "upsert") {
++							upsertReceived.resolve();
++						}
 +					}
-+				}
++				},
++				error() {},
 +			},
-+			error() {},
-+		},
-+	});
-+	try {
++		});
++		try {
++			await prepareServerEndpoint(fixture.endpoint);
++			const warnings: string[] = [];
++			const publisher = new CollabRegistryPublisher({
++				instanceId: record.instanceId,
++				pid: record.pid,
++				endpointSetting: fixture.endpoint,
++				onSecurityError: message => warnings.push(message),
++			});
++			publisher.publish(record);
++			await beforeTimeout(upsertReceived.promise, "publisher did not complete mutual authentication");
++			expect(warnings).toEqual([]);
++			expect(binding).toBeDefined();
++			expect(frames[0]?.op).toBe("hello");
++			expect(frames[0]).not.toHaveProperty("token");
++			expect(frames[1]).toEqual({
++				v: 1,
++				op: "authenticate",
++				proof: authProof(token, "omp-session-gateway.registry.client.v1", binding as AuthBinding),
++			});
++			expect(frames[2]?.op).toBe("upsert");
++			expect(frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++			expect(JSON.stringify(frames)).not.toContain(token);
++			publisher.shutdown(record.generation);
++		} finally {
++			server.stop(true);
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
++
++test(
++	"publisher token path override preserves the ambient XDG configuration",
++	async () => {
++		const fixture = await createPublisherFixture("explicit-token-path");
++		const token = "A".repeat(43);
++		const explicitTokenPath = join(fixture.root, "publisher-token");
++		await writeFile(explicitTokenPath, `${token}\n`, { mode: 0o600 });
++		await secureWindowsPublisherToken(explicitTokenPath);
++		await writeFile(fixture.tokenPath, `${"B".repeat(43)}\n`, { mode: 0o600 });
++		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
 +		await prepareServerEndpoint(fixture.endpoint);
++		const subprocess = Bun.spawn(
++			[process.execPath, join(import.meta.dir, "registry-publisher-explicit-token.fixture.ts")],
++			{
++				env: {
++					...process.env,
++					OMP_GATEWAY_PUBLISHER_TOKEN_PATH: explicitTokenPath,
++					OMP_GATEWAY_TEST_ENDPOINT: fixture.endpoint,
++				},
++				stdin: "ignore",
++				stdout: "ignore",
++				stderr: "pipe",
++			},
++		);
++		try {
++			await beforeTimeout(server.upsertReceived, "publisher ignored the explicit token path");
++			expect(server.frames.at(-1)?.op).toBe("upsert");
++		} finally {
++			subprocess.kill();
++			await subprocess.exited;
++			server.server.stop(true);
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
++
++test(
++	"publisher reconnects after registry restart and rereads the rotated token",
++	async () => {
++		const fixture = await createPublisherFixture("restart-token");
++		const initialToken = "A".repeat(43);
++		const rotatedToken = "B".repeat(43);
++		const first = startAuthenticatedRegistryServer(fixture.endpoint, initialToken, "C".repeat(43));
++		let firstStopped = false;
++		let second: AuthenticatedRegistryServer | undefined;
 +		const warnings: string[] = [];
 +		const publisher = new CollabRegistryPublisher({
 +			instanceId: record.instanceId,
@@ -2324,130 +2888,68 @@ index 000000000..83332b59f
 +			endpointSetting: fixture.endpoint,
 +			onSecurityError: message => warnings.push(message),
 +		});
-+		publisher.publish(record);
-+		await beforeTimeout(upsertReceived.promise, "publisher did not complete mutual authentication");
-+		expect(warnings).toEqual([]);
-+		expect(binding).toBeDefined();
-+		expect(frames[0]?.op).toBe("hello");
-+		expect(frames[0]).not.toHaveProperty("token");
-+		expect(frames[1]).toEqual({
-+			v: 1,
-+			op: "authenticate",
-+			proof: authProof(token, "omp-session-gateway.registry.client.v1", binding as AuthBinding),
-+		});
-+		expect(frames[2]?.op).toBe("upsert");
-+		expect(frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+		expect(JSON.stringify(frames)).not.toContain(token);
-+		publisher.shutdown(record.generation);
-+	} finally {
-+		server.stop(true);
-+		await cleanupPublisherFixture(fixture);
-+	}
-+}, PUBLISHER_TEST_TIMEOUT_MS);
++		const reconnectScheduled = Promise.withResolvers<() => void>();
++		try {
++			await prepareServerEndpoint(fixture.endpoint);
++			publisher.publish(record);
++			await first.upsertReceived;
++			const firstBinding = first.binding();
++			expect(firstBinding).toBeDefined();
++			expect(first.frames[1]).toHaveProperty(
++				"proof",
++				authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
++			);
++			expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++			expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", false);
++			publisher.publish({ ...record, inputRequired: true });
++			expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", true);
 +
-+test("publisher token path override preserves the ambient XDG configuration", async () => {
-+	const fixture = await createPublisherFixture("explicit-token-path");
-+	const token = "A".repeat(43);
-+	const explicitTokenPath = join(fixture.root, "publisher-token");
-+	await writeFile(explicitTokenPath, `${token}\n`, { mode: 0o600 });
-+	await secureWindowsPublisherToken(explicitTokenPath);
-+	await writeFile(fixture.tokenPath, `${"B".repeat(43)}\n`, { mode: 0o600 });
-+	const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
-+	await prepareServerEndpoint(fixture.endpoint);
-+	const subprocess = Bun.spawn(
-+		[process.execPath, join(import.meta.dir, "registry-publisher-explicit-token.fixture.ts")],
-+		{
-+			env: {
-+				...process.env,
-+				OMP_GATEWAY_PUBLISHER_TOKEN_PATH: explicitTokenPath,
-+				OMP_GATEWAY_TEST_ENDPOINT: fixture.endpoint,
-+			},
-+			stdin: "ignore",
-+			stdout: "ignore",
-+			stderr: "pipe",
-+		},
-+	);
-+	try {
-+		await beforeTimeout(server.upsertReceived, "publisher ignored the explicit token path");
-+		expect(server.frames.at(-1)?.op).toBe("upsert");
-+	} finally {
-+		subprocess.kill();
-+		await subprocess.exited;
-+		server.server.stop(true);
-+		await cleanupPublisherFixture(fixture);
-+	}
-+}, PUBLISHER_TEST_TIMEOUT_MS);
++			const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
++				callback: (...callbackArguments: unknown[]) => void,
++				_delay?: number,
++				...callbackArguments: unknown[]
++			) => {
++				reconnectScheduled.resolve(() => callback(...callbackArguments));
++				return undefined as never;
++			}) as unknown as typeof setTimeout);
++			first.disconnect();
++			const reconnect = await reconnectScheduled.promise;
++			first.server.stop(true);
++			firstStopped = true;
++			timeoutSpy.mockRestore();
 +
-+test("publisher reconnects after registry restart and rereads the rotated token", async () => {
-+	const fixture = await createPublisherFixture("restart-token");
-+	const initialToken = "A".repeat(43);
-+	const rotatedToken = "B".repeat(43);
-+	const first = startAuthenticatedRegistryServer(fixture.endpoint, initialToken, "C".repeat(43));
-+	let firstStopped = false;
-+	let second: AuthenticatedRegistryServer | undefined;
-+	const warnings: string[] = [];
-+	const publisher = new CollabRegistryPublisher({
-+		instanceId: record.instanceId,
-+		pid: record.pid,
-+		endpointSetting: fixture.endpoint,
-+		onSecurityError: message => warnings.push(message),
-+	});
-+	const reconnectScheduled = Promise.withResolvers<() => void>();
-+	try {
-+		await prepareServerEndpoint(fixture.endpoint);
-+		publisher.publish(record);
-+		await first.upsertReceived;
-+		const firstBinding = first.binding();
-+		expect(firstBinding).toBeDefined();
-+		expect(first.frames[1]).toHaveProperty(
-+			"proof",
-+			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
-+		);
-+		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++			if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
++			await writeFile(fixture.tokenPath, `${rotatedToken}\n`, { mode: 0o600 });
++			await secureWindowsPublisherToken(fixture.tokenPath);
++			second = startAuthenticatedRegistryServer(fixture.endpoint, rotatedToken, "D".repeat(43));
++			await prepareServerEndpoint(fixture.endpoint);
 +
-+		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-+			callback: (...callbackArguments: unknown[]) => void,
-+			_delay?: number,
-+			...callbackArguments: unknown[]
-+		) => {
-+			reconnectScheduled.resolve(() => callback(...callbackArguments));
-+			return undefined as never;
-+		}) as unknown as typeof setTimeout);
-+		first.disconnect();
-+		const reconnect = await reconnectScheduled.promise;
-+		first.server.stop(true);
-+		firstStopped = true;
-+		timeoutSpy.mockRestore();
-+
-+		if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
-+		await writeFile(fixture.tokenPath, `${rotatedToken}\n`, { mode: 0o600 });
-+		await secureWindowsPublisherToken(fixture.tokenPath);
-+		second = startAuthenticatedRegistryServer(fixture.endpoint, rotatedToken, "D".repeat(43));
-+		await prepareServerEndpoint(fixture.endpoint);
-+
-+		reconnect();
-+		await second.upsertReceived;
-+		const secondBinding = second.binding();
-+		expect(secondBinding).toBeDefined();
-+		expect(secondBinding?.clientNonce).not.toBe(firstBinding?.clientNonce);
-+		expect(second.frames[0]?.op).toBe("hello");
-+		expect(second.frames[1]).toHaveProperty(
-+			"proof",
-+			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
-+		);
-+		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+		expect(warnings).toEqual([]);
-+		const wire = JSON.stringify([...first.frames, ...second.frames]);
-+		expect(wire).not.toContain(initialToken);
-+		expect(wire).not.toContain(rotatedToken);
-+	} finally {
-+		publisher.shutdown(record.generation);
-+		if (!firstStopped) first.server.stop(true);
-+		second?.server.stop(true);
-+		vi.restoreAllMocks();
-+		await cleanupPublisherFixture(fixture);
-+	}
-+}, PUBLISHER_TEST_TIMEOUT_MS);
++			reconnect();
++			await second.upsertReceived;
++			const secondBinding = second.binding();
++			expect(secondBinding).toBeDefined();
++			expect(secondBinding?.clientNonce).not.toBe(firstBinding?.clientNonce);
++			expect(second.frames[0]?.op).toBe("hello");
++			expect(second.frames[1]).toHaveProperty(
++				"proof",
++				authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
++			);
++			expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
++			expect(second.frames[2]).toHaveProperty("session.inputRequired", true);
++			expect(warnings).toEqual([]);
++			const wire = JSON.stringify([...first.frames, ...second.frames]);
++			expect(wire).not.toContain(initialToken);
++			expect(wire).not.toContain(rotatedToken);
++		} finally {
++			publisher.shutdown(record.generation);
++			if (!firstStopped) first.server.stop(true);
++			second?.server.stop(true);
++			vi.restoreAllMocks();
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
 +
 +test("invalid publisher configuration fails safely without exposing capabilities", async () => {
 +	const warning = Promise.withResolvers<string>();
@@ -2593,8 +3095,118 @@ index 000000000..83332b59f
 +	publisher.publish(record);
 +	publisher.shutdown(record.generation);
 +});
++
++test(
++	"a transient publisher token failure retries instead of latching off",
++	async () => {
++		if (process.platform === "win32") return;
++		const fixture = await createPublisherFixture("transient-token");
++		const token = "A".repeat(43);
++		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
++		const warnings: string[] = [];
++		const publisher = new CollabRegistryPublisher({
++			instanceId: record.instanceId,
++			pid: record.pid,
++			endpointSetting: fixture.endpoint,
++			onSecurityError: message => warnings.push(message),
++		});
++		const reconnectScheduled = Promise.withResolvers<() => void>();
++		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
++			callback: (...callbackArguments: unknown[]) => void,
++			_delay?: number,
++			...callbackArguments: unknown[]
++		) => {
++			reconnectScheduled.resolve(() => callback(...callbackArguments));
++			return undefined as never;
++		}) as unknown as typeof setTimeout);
++		try {
++			await prepareServerEndpoint(fixture.endpoint);
++			// A token file caught mid-rewrite: the byte length is briefly wrong. The
++			// gateway is healthy, so this must not mute the session permanently.
++			await writeFile(fixture.tokenPath, "A".repeat(46), { mode: 0o600 });
++			publisher.publish(record);
++			const reconnect = await beforeTimeout(reconnectScheduled.promise, "publisher did not schedule a retry");
++			timeoutSpy.mockRestore();
++			expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
++			expect(publisher.publicationState()).toEqual({
++				kind: "retrying",
++				attempt: 1,
++				reason: "invalid OMP Session Gateway publisher token",
++			});
++
++			await writeFile(fixture.tokenPath, `${token}\n`, { mode: 0o600 });
++			reconnect();
++			await beforeTimeout(server.upsertReceived, "publisher never recovered after the token became readable");
++			expect(server.frames.at(-1)).toHaveProperty("session.viewLink", record.viewLink);
++			expect(publisher.publicationState()).toEqual({ kind: "publishing" });
++			expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
++		} finally {
++			vi.restoreAllMocks();
++			publisher.shutdown(record.generation);
++			server.server.stop(true);
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
++
++test(
++	"a genuine endpoint violation latches publication until an explicit resume",
++	async () => {
++		if (process.platform === "win32") return;
++		const fixture = await createPublisherFixture("latched-endpoint");
++		const token = "A".repeat(43);
++		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
++		const warnings: string[] = [];
++		const violation = Promise.withResolvers<string>();
++		const publisher = new CollabRegistryPublisher({
++			instanceId: record.instanceId,
++			pid: record.pid,
++			endpointSetting: fixture.endpoint,
++			onSecurityError: message => {
++				warnings.push(message);
++				violation.resolve(message);
++			},
++		});
++		try {
++			// A world-readable socket is a real privacy violation: no retry can fix it.
++			await chmod(fixture.endpoint, 0o666);
++			publisher.publish(record);
++			expect(await beforeTimeout(violation.promise, "publisher accepted a world-readable endpoint")).toBe(
++				"unsafe OMP Session Gateway registry endpoint",
++			);
++			expect(publisher.publicationState()).toEqual({
++				kind: "disabled",
++				reason: "unsafe OMP Session Gateway registry endpoint",
++			});
++
++			// Latched means latched: the connect guard rejects a further publish
++			// synchronously, so nothing can reach the endpoint.
++			publisher.publish({ ...record, inputRequired: true });
++			expect(publisher.publicationState().kind).toBe("disabled");
++			expect(server.frames).toEqual([]);
++
++			// An explicit /collab is unambiguous intent and re-arms publication.
++			await prepareServerEndpoint(fixture.endpoint);
++			publisher.resume();
++			await beforeTimeout(server.upsertReceived, "an explicit resume did not restore publication");
++			expect(publisher.publicationState()).toEqual({ kind: "publishing" });
++			// One handshake only — the frame log proves the latched publish never
++			// opened a connection, without waiting on a clock to say so.
++			expect(server.frames[0]?.op).toBe("hello");
++			expect(server.frames.at(-1)).toHaveProperty("session.inputRequired", true);
++			expect(warnings).toEqual(["unsafe OMP Session Gateway registry endpoint"]);
++			expect(JSON.stringify(server.frames)).not.toContain(token);
++		} finally {
++			publisher.shutdown(record.generation);
++			server.server.stop(true);
++			await cleanupPublisherFixture(fixture);
++		}
++	},
++	PUBLISHER_TEST_TIMEOUT_MS,
++);
 diff --git a/packages/coding-agent/test/collab/replication-shrink.test.ts b/packages/coding-agent/test/collab/replication-shrink.test.ts
-index 9087cbfa7..3f5196133 100644
+index 9087cbf..3f51961 100644
 --- a/packages/coding-agent/test/collab/replication-shrink.test.ts
 +++ b/packages/coding-agent/test/collab/replication-shrink.test.ts
 @@ -178,7 +178,6 @@ function makeHostContext(snapshot: OversizedSnapshot): HostHarness {
@@ -2606,7 +3218,7 @@ index 9087cbfa7..3f5196133 100644
  	return { ctx, statusMessages };
  }
 diff --git a/packages/coding-agent/test/collab/steer-queue.test.ts b/packages/coding-agent/test/collab/steer-queue.test.ts
-index 0f76299fd..1dc189e26 100644
+index 0f76299..1dc189e 100644
 --- a/packages/coding-agent/test/collab/steer-queue.test.ts
 +++ b/packages/coding-agent/test/collab/steer-queue.test.ts
 @@ -127,7 +127,6 @@ function makeStreamingHostContext(): StreamingHostHarness {
@@ -2619,7 +3231,7 @@ index 0f76299fd..1dc189e26 100644
  		const { promise, resolve } = Promise.withResolvers<CapturedPrompt>();
 diff --git a/packages/coding-agent/test/config/collab-settings.test.ts b/packages/coding-agent/test/config/collab-settings.test.ts
 new file mode 100644
-index 000000000..ac6c9bf01
+index 0000000..ac6c9bf
 --- /dev/null
 +++ b/packages/coding-agent/test/config/collab-settings.test.ts
 @@ -0,0 +1,8 @@
@@ -2632,10 +3244,10 @@ index 000000000..ac6c9bf01
 +	expect(getDefault("collab.registryEndpoint")).toBe("auto");
 +});
 diff --git a/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts b/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
-index 70e851270..aa4e0c4da 100644
+index 771f1a4..48c1ee3 100644
 --- a/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
 +++ b/packages/coding-agent/test/modes/controllers/extension-ui-controller.test.ts
-@@ -45,6 +45,10 @@ function makeHarness() {
+@@ -55,6 +55,10 @@ function makeHarness() {
  			extensionRunner: undefined,
  			setUsageFallbackConfirmer: vi.fn(),
  		},
@@ -2647,7 +3259,7 @@ index 70e851270..aa4e0c4da 100644
  			expect(hasUI).toBe(true);
  			uiContext = context;
 diff --git a/packages/coding-agent/test/session-manager-branch-order.test.ts b/packages/coding-agent/test/session-manager-branch-order.test.ts
-index 435927e66..365fc67b8 100644
+index 435927e..365fc67 100644
 --- a/packages/coding-agent/test/session-manager-branch-order.test.ts
 +++ b/packages/coding-agent/test/session-manager-branch-order.test.ts
 @@ -55,4 +55,18 @@ describe("SessionManager branch ordering", () => {
@@ -2670,7 +3282,7 @@ index 435927e66..365fc67b8 100644
 +	});
  });
 diff --git a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-index 8a63482d0..65c08959d 100644
+index a3cb5b1..24973ab 100644
 --- a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 +++ b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 @@ -1,5 +1,6 @@
@@ -2705,7 +3317,7 @@ index 8a63482d0..65c08959d 100644
  	const setText = vi.fn();
  	const showStatus = vi.fn();
  	const showError = vi.fn();
-@@ -47,16 +45,38 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+@@ -47,16 +45,39 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
  		if (key === "collab.webUrl") return "";
  		return "";
  	});
@@ -2736,6 +3348,7 @@ index 8a63482d0..65c08959d 100644
 +			});
 +			return Promise.resolve();
 +		},
++		resumePublication: vi.fn().mockResolvedValue(undefined),
 +		stop: vi.fn(),
 +	} as unknown as CollabController;
 +	Object.assign(ctx, { collabController });
@@ -2745,7 +3358,7 @@ index 8a63482d0..65c08959d 100644
  		setText,
  		showStatus,
  		showError,
-@@ -65,30 +85,19 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
+@@ -65,30 +86,19 @@ function createRuntimeHarness(options?: { collabHost?: NonNullable<InteractiveMo
  	};
  }
  
@@ -2781,7 +3394,7 @@ index 8a63482d0..65c08959d 100644
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-full");
  		const presented = harness.present.mock.calls[0]?.[0] as readonly unknown[];
-@@ -100,14 +109,16 @@ describe("/collab slash command QR code rendering", () => {
+@@ -100,14 +110,16 @@ describe("/collab slash command QR code rendering", () => {
  	});
  
  	it("starts hosting and prints a one-shot read-only QR", async () => {
@@ -2801,9 +3414,9 @@ index 8a63482d0..65c08959d 100644
  		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
  		expect(statusText).toContain("my.omp.sh/#started-view");
  		expect(statusText).not.toContain("my.omp.sh/#started-full");
-@@ -151,4 +162,18 @@ describe("/collab slash command QR code rendering", () => {
- 		expect(component.url).toBe(webViewLink);
- 		expect(component.render(10).join("\n")).toContain("QR code hidden");
+@@ -168,6 +180,20 @@ describe("/collab slash command QR code rendering", () => {
+ 		expect(firstRow).toContain("Join in browser");
+ 		expect(firstRow).toContain(webLink);
  	});
 +
 +	it("forces replacement when an explicit relay matches the active relay", async () => {
@@ -2820,14 +3433,15 @@ index 8a63482d0..65c08959d 100644
 +		});
 +	});
  });
+ 
+ describe("CollabQrCodeComponent transcript height clipping", () => {
 -- 
 2.50.1 (Apple Git-155)
 
-
-From d837e8b712268384ad0bd221ba509d298112cd85 Mon Sep 17 00:00:00 2001
+From c47228ffed146e6a82112a351c9a5b4845436ca8 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:25:56 -0400
-Subject: [PATCH 2/6] fix(collab): retain UI requests until a writer joins
+Subject: [PATCH 2/4] fix(collab): retain UI requests until a writer joins
 
 ---
  packages/coding-agent/src/collab/host.ts      | 11 +--
@@ -2836,10 +3450,10 @@ Subject: [PATCH 2/6] fix(collab): retain UI requests until a writer joins
  3 files changed, 104 insertions(+), 12 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index 668677455..fc5346cba 100644
+index dd61ec9..124ae15 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -111,6 +111,7 @@ const TRANSCRIPT_ENTRY_TOO_LARGE_ERROR = `transcript entry exceeds transcript fe
+@@ -112,6 +112,7 @@ const TRANSCRIPT_ENTRY_TOO_LARGE_ERROR = `transcript entry exceeds transcript fe
   * ship in a chunk of their own.
   */
  const SNAPSHOT_CHUNK_BYTES = 512 * 1024;
@@ -2847,7 +3461,7 @@ index 668677455..fc5346cba 100644
  /**
   * Outcome of {@link CollabHost.requestGuestUi}. `answered` carries the guest's
   * response (an `undefined` value is a genuine guest cancel); `unavailable`
-@@ -174,7 +175,7 @@ export class CollabHost {
+@@ -175,7 +176,7 @@ export class CollabHost {
  	}
  
  	requestGuestUi(request: CollabUiRequestDraft, signal?: AbortSignal): Promise<CollabGuestUiResult> | null {
@@ -2856,7 +3470,7 @@ index 668677455..fc5346cba 100644
  		const reqId = ++this.#uiReqSeq;
  		const fullRequest: CollabUiRequest = { ...request, reqId };
  		const { promise, resolve } = Promise.withResolvers<CollabGuestUiResult>();
-@@ -188,20 +189,12 @@ export class CollabHost {
+@@ -189,20 +190,12 @@ export class CollabHost {
  			resolve(result);
  		};
  		const onAbort = (): void => settle({ kind: "unavailable" });
@@ -2878,7 +3492,7 @@ index 668677455..fc5346cba 100644
  		const socket = this.#socket;
  		if (!socket) return;
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 281512a61..7716a720c 100644
+index 4bf066c..a8557ab 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -529,10 +529,14 @@ describe("collab proto handshake (#4049)", () => {
@@ -2900,7 +3514,7 @@ index 281512a61..7716a720c 100644
  			guest.socket.close();
  			await host.stop("test done");
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 0f78dd47d..9778f4fe1 100644
+index 0f78dd4..9778f4f 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
 @@ -168,6 +168,101 @@ afterAll(async () => {
@@ -3008,377 +3622,34 @@ index 0f78dd47d..9778f4fe1 100644
 -- 
 2.50.1 (Apple Git-155)
 
-
-From d961e5c3cfd3ebe782f09ef54331953e465487d0 Mon Sep 17 00:00:00 2001
-From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
-Date: Tue, 21 Jul 2026 11:31:08 -0400
-Subject: [PATCH 3/6] feat(collab): publish response-required state
-
----
- .../coding-agent/src/collab/controller.ts     | 49 ++++++++++++
- .../src/collab/registry-publisher.ts          |  1 +
- .../test/collab/controller.test.ts            | 76 ++++++++++++++++++-
- ...gistry-publisher-explicit-token.fixture.ts |  1 +
- .../test/collab/registry-publisher.test.ts    | 19 +++++
- 5 files changed, 145 insertions(+), 1 deletion(-)
-
-diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
-index 7f838661f..fb60f06cd 100644
---- a/packages/coding-agent/src/collab/controller.ts
-+++ b/packages/coding-agent/src/collab/controller.ts
-@@ -66,6 +66,9 @@ export class CollabController {
- 	#capabilities: CollabCapabilities | undefined;
- 	#queue: Promise<void> = Promise.resolve();
- 	#generation = 0;
-+	#inputRequired = false;
-+	#inputRequiredLeaseCount = 0;
-+	#inputRequiredEpoch = 0;
- 	#manualSuspended = false;
- 	#restartAfterSessionReplacement = false;
- 	#state: CollabControllerState = "stopped";
-@@ -103,6 +106,20 @@ export class CollabController {
- 		listeners.add(listener);
- 		return () => listeners?.delete(listener);
- 	}
-+	beginInputRequired(): () => void {
-+		if (this.#state !== "running" || !this.#capabilities) return () => {};
-+		const epoch = this.#inputRequiredEpoch;
-+		this.#inputRequiredLeaseCount += 1;
-+		if (this.#inputRequiredLeaseCount === 1) this.#transitionInputRequired(epoch, true);
-+		let released = false;
-+		return () => {
-+			if (released) return;
-+			released = true;
-+			if (epoch !== this.#inputRequiredEpoch || this.#inputRequiredLeaseCount === 0) return;
-+			this.#inputRequiredLeaseCount -= 1;
-+			if (this.#inputRequiredLeaseCount === 0) this.#transitionInputRequired(epoch, false);
-+		};
-+	}
- 
- 	start(
- 		options: {
-@@ -238,8 +255,11 @@ export class CollabController {
- 	async #stop(reason: string, publisherReason: "stopped" | "shutdown" | "session_changed" | "faulted"): Promise<void> {
- 		const host = this.#host;
- 		const capabilities = this.#capabilities;
-+		const publicationMode = this.#publicationMode;
-+		this.#resetInputRequired(capabilities, publicationMode);
- 		if (!host || !capabilities) {
- 			this.#state = "stopped";
-+			this.#publicationMode = "off";
- 			return;
- 		}
- 		this.#state = "stopping";
-@@ -273,6 +293,7 @@ export class CollabController {
- 					}
- 				: {}),
- 			startedAt: capabilities.startedAt,
-+			inputRequired: this.#inputRequired,
- 			viewLink: capabilities.viewLink,
- 			...(mode === "control" ? { controlLink: capabilities.controlLink } : {}),
- 		});
-@@ -285,14 +306,42 @@ export class CollabController {
- 	#handleFatal(host: HostLike, generation: number, _reason: string): Promise<void> {
- 		return this.#serialize(async () => {
- 			if (this.#host !== host || this.#capabilities?.generation !== generation) return;
-+			const capabilities = this.#capabilities;
-+			this.#resetInputRequired(capabilities, this.#publicationMode);
- 			this.#publisher?.remove(generation, "faulted");
- 			this.#host = undefined;
- 			this.#capabilities = undefined;
-+			this.#publicationMode = "off";
- 			this.#state = "faulted";
- 			this.#emit("faulted");
- 		});
- 	}
- 
-+	#transitionInputRequired(epoch: number, desired: boolean): void {
-+		if (epoch !== this.#inputRequiredEpoch || desired === this.#inputRequired) return;
-+		this.#inputRequired = desired;
-+		void this.#serialize(async () => {
-+			const capabilities = this.#capabilities;
-+			const mode = this.#publicationMode;
-+			if (epoch !== this.#inputRequiredEpoch || this.#inputRequired !== desired || !capabilities || mode === "off") {
-+				return;
-+			}
-+			this.#publish(capabilities, mode);
-+			this.#emit("updated", capabilities);
-+		});
-+	}
-+
-+	#resetInputRequired(capabilities: CollabCapabilities | undefined, mode: PublishedCapabilityMode): void {
-+		const changed = this.#inputRequired;
-+		this.#inputRequiredEpoch += 1;
-+		this.#inputRequiredLeaseCount = 0;
-+		this.#inputRequired = false;
-+		if (changed && capabilities && mode !== "off") {
-+			this.#publish(capabilities, mode);
-+			this.#emit("updated", capabilities);
-+		}
-+	}
-+
- 	#emit(event: CollabControllerEvent, capabilities?: CollabCapabilities): void {
- 		for (const listener of this.#listeners.get(event) ?? []) listener(capabilities);
- 	}
-diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
-index d68c1615b..55c34e7aa 100644
---- a/packages/coding-agent/src/collab/registry-publisher.ts
-+++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -22,6 +22,7 @@ export interface CollabPublisherRecord {
- 	readonly cwdLabel?: string;
- 	readonly model?: string;
- 	readonly startedAt: string;
-+	readonly inputRequired: boolean;
- 	readonly viewLink: string;
- 	readonly controlLink?: string;
- }
-diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
-index eafda3952..514db763c 100644
---- a/packages/coding-agent/test/collab/controller.test.ts
-+++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -55,6 +55,9 @@ function harness(autoStart: "off" | "view" | "control") {
- 	const hosts: FakeHost[] = [];
- 	const events: Array<{ type: string; generation: number }> = [];
- 	const published: CollabPublisherRecord[] = [];
-+	const operations: Array<
-+		{ type: "publish"; record: CollabPublisherRecord } | { type: "remove"; generation: number }
-+	> = [];
- 	const controller = new CollabController(context, {
- 		instanceId: "test-instance-id",
- 		hostFactory: () => {
-@@ -65,6 +68,7 @@ function harness(autoStart: "off" | "view" | "control") {
- 		publisherFactory: () => ({
- 			publish(record: CollabPublisherRecord) {
- 				published.push({ ...record });
-+				operations.push({ type: "publish", record: { ...record } });
- 				events.push({
- 					type: record.controlLink ? "publish-control" : "publish-view",
- 					generation: record.generation,
-@@ -72,6 +76,7 @@ function harness(autoStart: "off" | "view" | "control") {
- 			},
- 			remove(generation: number) {
- 				events.push({ type: "remove", generation });
-+				operations.push({ type: "remove", generation });
- 			},
- 			shutdown() {},
- 		}),
-@@ -82,6 +87,7 @@ function harness(autoStart: "off" | "view" | "control") {
- 		hosts,
- 		events,
- 		published,
-+		operations,
- 		warnings,
- 		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
- 			if ("sessionName" in next) sessionName = next.sessionName;
-@@ -90,6 +96,15 @@ function harness(autoStart: "off" | "view" | "control") {
- 		},
- 	};
- }
-+function nextUpdated(controller: InstanceType<typeof CollabController>): Promise<void> {
-+	const { promise, resolve } = Promise.withResolvers<void>();
-+	let unsubscribe = (): void => {};
-+	unsubscribe = controller.on("updated", () => {
-+		unsubscribe();
-+		resolve();
-+	});
-+	return promise;
-+}
- 
- describe("CollabController", () => {
- 	test("off preserves startup behavior", async () => {
-@@ -110,6 +125,53 @@ describe("CollabController", () => {
- 		await controller.autoStart();
- 		expect(events).toEqual([{ type: "publish-view", generation: 1 }]);
- 	});
-+	test("publishes only first and last generation-scoped input-required lease transitions", async () => {
-+		const { controller, published } = harness("control");
-+		await controller.autoStart();
-+		expect(published.map(record => record.inputRequired)).toEqual([false]);
-+
-+		const required = nextUpdated(controller);
-+		const releaseFirst = controller.beginInputRequired();
-+		const releaseSecond = controller.beginInputRequired();
-+		await required;
-+		expect(published.map(record => record.inputRequired)).toEqual([false, true]);
-+
-+		await controller.refreshMetadata();
-+		expect(published.at(-1)?.inputRequired).toBe(true);
-+		const beforeIntermediateRelease = published.length;
-+		releaseFirst();
-+		expect(published).toHaveLength(beforeIntermediateRelease);
-+
-+		const cleared = nextUpdated(controller);
-+		releaseSecond();
-+		await cleared;
-+		expect(published.at(-1)?.inputRequired).toBe(false);
-+		const afterClear = published.length;
-+		releaseSecond();
-+		expect(published).toHaveLength(afterClear);
-+	});
-+
-+	test("clears before replacement removal and ignores a stale generation lease release", async () => {
-+		const { controller, operations, published } = harness("control");
-+		await controller.autoStart();
-+		const required = nextUpdated(controller);
-+		const staleRelease = controller.beginInputRequired();
-+		await required;
-+
-+		await controller.prepareActiveSessionReplacement();
-+		expect(published.map(record => record.inputRequired)).toEqual([false, true, false]);
-+		expect(operations.at(-2)).toMatchObject({
-+			type: "publish",
-+			record: { generation: 1, inputRequired: false },
-+		});
-+		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
-+
-+		await controller.restoreActiveSession();
-+		expect(published.at(-1)).toMatchObject({ generation: 2, inputRequired: false });
-+		const beforeStaleRelease = published.length;
-+		staleRelease();
-+		expect(published).toHaveLength(beforeStaleRelease);
-+	});
- 
- 	test("refreshes same-generation title, cwd, and model metadata without rotating capabilities", async () => {
- 		const { controller, events, published, setMetadata } = harness("control");
-@@ -233,13 +295,25 @@ describe("CollabController", () => {
- 	});
- 
- 	test("fatal host closure unregisters immediately", async () => {
--		const { controller, hosts, events } = harness("control");
-+		const { controller, hosts, events, operations, published } = harness("control");
- 		await controller.autoStart();
-+		const required = nextUpdated(controller);
-+		const staleRelease = controller.beginInputRequired();
-+		await required;
- 		const faulted = Promise.withResolvers<void>();
- 		controller.on("faulted", () => faulted.resolve());
- 		hosts[0]?.onFatal?.("relay failed");
- 		await faulted.promise;
-+		expect(published.at(-1)?.inputRequired).toBe(false);
-+		expect(operations.at(-2)).toMatchObject({
-+			type: "publish",
-+			record: { generation: 1, inputRequired: false },
-+		});
-+		expect(operations.at(-1)).toEqual({ type: "remove", generation: 1 });
- 		expect(events.at(-1)).toEqual({ type: "remove", generation: 1 });
- 		expect(controller.state).toBe("faulted");
-+		const beforeStaleRelease = published.length;
-+		staleRelease();
-+		expect(published).toHaveLength(beforeStaleRelease);
- 	});
- });
-diff --git a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
-index 32674dbd8..0f27bf06b 100644
---- a/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
-+++ b/packages/coding-agent/test/collab/registry-publisher-explicit-token.fixture.ts
-@@ -19,6 +19,7 @@ publisher.publish({
- 	pid: process.pid,
- 	sessionId: "publisher-explicit-token-session",
- 	startedAt: "2026-07-21T00:00:00.000Z",
-+	inputRequired: false,
- 	viewLink: "VIEW_CAPABILITY_FIXTURE",
- 	controlLink: "CONTROL_CAPABILITY_FIXTURE",
- });
-diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
-index 83332b59f..5936e3792 100644
---- a/packages/coding-agent/test/collab/registry-publisher.test.ts
-+++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -20,6 +20,7 @@ const record = {
- 	pid: process.pid,
- 	sessionId: "publisher-test-session",
- 	startedAt: "2026-07-19T00:00:00.000Z",
-+	inputRequired: false,
- 	viewLink: "VIEW_CAPABILITY_FIXTURE",
- 	controlLink: "CONTROL_CAPABILITY_FIXTURE",
- };
-@@ -36,6 +37,7 @@ interface AuthenticatedRegistryServer {
- 	readonly frames: Array<Record<string, unknown>>;
- 	readonly binding: () => AuthBinding | undefined;
- 	readonly upsertReceived: Promise<void>;
-+	readonly nextUpsert: () => Promise<Record<string, unknown>>;
- }
- 
- interface PublisherFixture {
-@@ -117,6 +119,15 @@ function startAuthenticatedRegistryServer(
- ): AuthenticatedRegistryServer {
- 	const frames: Array<Record<string, unknown>> = [];
- 	const upsertReceived = Promise.withResolvers<void>();
-+	const upserts: Array<Record<string, unknown>> = [];
-+	const upsertWaiters: Array<(frame: Record<string, unknown>) => void> = [];
-+	const nextUpsert = (): Promise<Record<string, unknown>> => {
-+		const queued = upserts.shift();
-+		if (queued) return Promise.resolve(queued);
-+		const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
-+		upsertWaiters.push(resolve);
-+		return promise;
-+	};
- 	let binding: AuthBinding | undefined;
- 	let activeSocket: Bun.Socket<{ buffer: string }> | undefined;
- 	const server = Bun.listen<{ buffer: string }>({
-@@ -153,6 +164,9 @@ function startAuthenticatedRegistryServer(
- 						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
- 					} else if (frame.op === "upsert") {
- 						upsertReceived.resolve();
-+						const waiter = upsertWaiters.shift();
-+						if (waiter) waiter(frame);
-+						else upserts.push(frame);
- 					}
- 				}
- 			},
-@@ -167,6 +181,7 @@ function startAuthenticatedRegistryServer(
- 		frames,
- 		binding: () => binding,
- 		upsertReceived: upsertReceived.promise,
-+		nextUpsert,
- 	};
- }
- 
-@@ -391,6 +406,9 @@ test("publisher reconnects after registry restart and rereads the rotated token"
- 			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
- 		);
- 		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", false);
-+		publisher.publish({ ...record, inputRequired: true });
-+		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", true);
- 
- 		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
- 			callback: (...callbackArguments: unknown[]) => void,
-@@ -423,6 +441,7 @@ test("publisher reconnects after registry restart and rereads the rotated token"
- 			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
- 		);
- 		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+		expect(second.frames[2]).toHaveProperty("session.inputRequired", true);
- 		expect(warnings).toEqual([]);
- 		const wire = JSON.stringify([...first.frames, ...second.frames]);
- 		expect(wire).not.toContain(initialToken);
--- 
-2.50.1 (Apple Git-155)
-
-
-From 7700032471649ebfe40cab27e3fc543597afd97c Mon Sep 17 00:00:00 2001
+From 8174dbe911fbb620b592f634e17d0cf8288eda8d Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Tue, 21 Jul 2026 11:45:28 -0400
-Subject: [PATCH 4/6] feat(collab): mirror response UI safely
+Subject: [PATCH 3/4] feat(collab): mirror response UI safely
+
+Adaptation: Rerolled onto v18.1.8: upstream now lifts the composer's bootstrap submit gate at the end of init(), so only the relocated autoStart() call is removed from that tail and the gate lift stays.
 
 Adaptation: Rerolled safe guest UI mirroring onto the v17.2.11 extension controller while preserving upstream provider lifecycle changes.
 
 Adaptation: Rerolled onto v17.3.2, keeping upstream's awaited renderInitialMessages and the "tui" extension-runner surface, and placing the collaboration-ordering test after upstream's startupDecisionHarness helper.
 Adaptation: Re-anchored onto v17.3.5: the interactive-mode pi-utils import context is now sanitizeText instead of prompt; guest UI mirroring behavior is unchanged.
+
+Adaptation: Rerolled onto v18.0.0: upstream relocated the status-line watchBranch registration earlier in interactive setup, so this patch only moves collabController.autoStart() ahead of initHooksAndCustomTools() and no longer rewrites the watchBranch block.
 ---
  packages/coding-agent/src/collab/guest.ts     |  14 +-
  .../controllers/extension-ui-controller.ts    | 237 ++++++++++++------
- .../src/modes/interactive-mode.ts             |  23 +-
+ .../src/modes/interactive-mode.ts             |  24 +-
  packages/coding-agent/src/modes/types.ts      |  10 +-
  .../test/collab/guest-ui-request.test.ts      | 204 ++++++++++++++-
  .../coding-agent/test/hook-editor.test.ts     |   3 +-
  ...interactive-mode-default-plan-mode.test.ts |  15 ++
- 7 files changed, 404 insertions(+), 102 deletions(-)
+ 7 files changed, 405 insertions(+), 102 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/guest.ts b/packages/coding-agent/src/collab/guest.ts
-index 26b7dde57..f76cae0ac 100644
+index 300c637..520b632 100644
 --- a/packages/coding-agent/src/collab/guest.ts
 +++ b/packages/coding-agent/src/collab/guest.ts
-@@ -658,18 +658,8 @@ export class CollabGuestLink {
+@@ -671,18 +671,8 @@ export class CollabGuestLink {
  		if (this.#readOnly || this.#pendingUiRequests.has(request.reqId)) return;
  		const abort = new AbortController();
  		this.#pendingUiRequests.set(request.reqId, abort);
@@ -3400,7 +3671,7 @@ index 26b7dde57..f76cae0ac 100644
  				// Identity check: only the presentation that still owns the reqId
  				// may respond. An abort from #endUiRequest / #clearUiRequests
 diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
-index 1e8f79506..b9a6fbebb 100644
+index 1d7c73f..f5d940f 100644
 --- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 +++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
 @@ -1,6 +1,6 @@
@@ -3411,7 +3682,7 @@ index 1e8f79506..b9a6fbebb 100644
  import { KeybindingsManager } from "../../config/keybindings";
  import type {
  	CompactOptions,
-@@ -122,7 +122,7 @@ export class ExtensionUiController {
+@@ -123,7 +123,7 @@ export class ExtensionUiController {
  			},
  			getEditorText: () => this.ctx.editor.getText(),
  			editor: (title, prefill, dialogOptions, editorOptions) =>
@@ -3420,7 +3691,7 @@ index 1e8f79506..b9a6fbebb 100644
  			addAutocompleteProvider: factory => this.ctx.addAutocompleteProvider(factory),
  			get theme() {
  				return theme;
-@@ -577,60 +577,46 @@ export class ExtensionUiController {
+@@ -578,60 +578,46 @@ export class ExtensionUiController {
  		this.ctx.ui.requestRender();
  	}
  
@@ -3514,7 +3785,7 @@ index 1e8f79506..b9a6fbebb 100644
  	}
  
  	#showLocalAskDialog(
-@@ -743,34 +729,41 @@ export class ExtensionUiController {
+@@ -745,34 +731,41 @@ export class ExtensionUiController {
  		signal: AbortSignal | undefined,
  		local: (signal: AbortSignal | undefined) => Promise<string | undefined>,
  	): Promise<string | undefined> {
@@ -3576,7 +3847,7 @@ index 1e8f79506..b9a6fbebb 100644
  			if (result === "unavailable" || result === undefined) return result;
  			if (result === "chat") return { kind: "chat" };
  			results.push(result);
-@@ -781,6 +774,7 @@ export class ExtensionUiController {
+@@ -783,6 +776,7 @@ export class ExtensionUiController {
  	async #runGuestAskQuestion(
  		question: ExtensionAskDialogQuestion,
  		signal: AbortSignal,
@@ -3584,7 +3855,7 @@ index 1e8f79506..b9a6fbebb 100644
  	): Promise<ExtensionAskDialogResultItem | "chat" | "unavailable" | undefined> {
  		const selected = new Set<string>();
  		let customInput: string | undefined;
-@@ -814,6 +808,7 @@ export class ExtensionUiController {
+@@ -816,6 +810,7 @@ export class ExtensionUiController {
  							: "up/down navigate  enter toggle  esc cancel",
  					},
  					signal,
@@ -3592,7 +3863,7 @@ index 1e8f79506..b9a6fbebb 100644
  				);
  				if (choice.kind === "unavailable") return "unavailable";
  				if (choice.kind === "cancelled") return undefined;
-@@ -823,6 +818,7 @@ export class ExtensionUiController {
+@@ -825,6 +820,7 @@ export class ExtensionUiController {
  					const input = await this.#requestGuestUiString(
  						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
  						signal,
@@ -3600,7 +3871,7 @@ index 1e8f79506..b9a6fbebb 100644
  					);
  					if (input.kind === "unavailable") return "unavailable";
  					// Guest cancelled the Other editor: keep the ask open and
-@@ -852,6 +848,7 @@ export class ExtensionUiController {
+@@ -854,6 +850,7 @@ export class ExtensionUiController {
  						helpText: "up/down navigate  enter select  esc cancel",
  					},
  					signal,
@@ -3608,7 +3879,7 @@ index 1e8f79506..b9a6fbebb 100644
  				);
  				if (choice.kind === "unavailable") return "unavailable";
  				if (choice.kind === "cancelled") return undefined;
-@@ -860,6 +857,7 @@ export class ExtensionUiController {
+@@ -862,6 +859,7 @@ export class ExtensionUiController {
  					const input = await this.#requestGuestUiString(
  						{ kind: "editor", title: boundPromptTitle("Custom answer: ", question.question) },
  						signal,
@@ -3616,7 +3887,7 @@ index 1e8f79506..b9a6fbebb 100644
  					);
  					if (input.kind === "unavailable") return "unavailable";
  					// Guest cancelled the Other editor: re-show the select list
-@@ -882,11 +880,16 @@ export class ExtensionUiController {
+@@ -884,11 +882,16 @@ export class ExtensionUiController {
  		};
  	}
  
@@ -3634,7 +3905,7 @@ index 1e8f79506..b9a6fbebb 100644
  		const result = await remote;
  		if (result.kind === "unavailable") return { kind: "unavailable" };
  		return typeof result.value === "string" ? { kind: "answered", value: result.value } : { kind: "cancelled" };
-@@ -900,6 +903,61 @@ export class ExtensionUiController {
+@@ -902,6 +905,61 @@ export class ExtensionUiController {
  		options: ExtensionUISelectItem[],
  		dialogOptions?: InteractiveSelectorDialogOptions,
  		extra?: { slider?: HookSelectorSlider },
@@ -3696,7 +3967,7 @@ index 1e8f79506..b9a6fbebb 100644
  	): Promise<string | undefined> {
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			const maxVisible = Math.max(4, Math.min(15, this.ctx.ui.terminal.rows - 12));
-@@ -972,6 +1030,17 @@ export class ExtensionUiController {
+@@ -974,6 +1032,17 @@ export class ExtensionUiController {
  		title: string,
  		placeholder?: string,
  		dialogOptions?: ExtensionUIDialogOptions,
@@ -3714,7 +3985,7 @@ index 1e8f79506..b9a6fbebb 100644
  	): Promise<string | undefined> {
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			this.ctx.hookInput = new HookInputComponent(
-@@ -1013,6 +1082,34 @@ export class ExtensionUiController {
+@@ -1015,6 +1084,34 @@ export class ExtensionUiController {
  		prefill?: string,
  		dialogOptions?: ExtensionUIDialogOptions,
  		editorOptions?: { promptStyle?: boolean },
@@ -3750,10 +4021,18 @@ index 1e8f79506..b9a6fbebb 100644
  		return this.#presentDialog(dialogOptions?.signal, settle => {
  			this.ctx.hookEditor = new HookEditorComponent(
 diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
-index 1cf06897f..fdd6a21b9 100644
+index 9dbd662..cc697a4 100644
 --- a/packages/coding-agent/src/modes/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive-mode.ts
-@@ -1174,6 +1174,10 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -53,6 +53,7 @@ import {
+ 	setProjectDir,
+ } from "@oh-my-pi/pi-utils";
+ import chalk from "@oh-my-pi/pi-utils/chalk";
++import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
+ import { reset as resetCapabilities } from "../capability";
+ import { restartArgv } from "../cli/flag-tables";
+ import { CollabController } from "../collab/controller";
+@@ -1304,6 +1305,10 @@ export class InteractiveMode implements InteractiveModeContext {
  			}
  		});
  
@@ -3762,19 +4041,19 @@ index 1cf06897f..fdd6a21b9 100644
 +		await this.collabController.autoStart();
 +
  		// Initialize hooks with TUI-based UI context
- 		await this.initHooksAndCustomTools();
+ 		await logger.time("InteractiveMode.init:hooks", () => this.initHooksAndCustomTools());
  
-@@ -1322,9 +1326,6 @@ export class InteractiveMode implements InteractiveModeContext {
- 		this.statusLine.watchBranch(() => {
- 			this.ui.requestRender();
- 		});
+@@ -1461,9 +1466,6 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		// `streamingBehavior: "steer"`, so whichever lands second queues into the
+ 		// other's turn instead of dying.
+ 		this.editor.disableSubmit = false;
 -
 -		// Collaboration starts only after the interactive context and session are ready.
 -		await this.collabController.autoStart();
  	}
  
  	/** Reload the title-generation system prompt override for the provided working
-@@ -5168,8 +5169,8 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -5806,8 +5808,8 @@ export class InteractiveMode implements InteractiveModeContext {
  		return runProviderSetupWizard(this);
  	}
  
@@ -3785,7 +4064,7 @@ index 1cf06897f..fdd6a21b9 100644
  	}
  
  	// Input handling
-@@ -5397,8 +5398,12 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -6036,8 +6038,12 @@ export class InteractiveMode implements InteractiveModeContext {
  		this.#extensionUiController.hideHookSelector();
  	}
  
@@ -3800,7 +4079,7 @@ index 1cf06897f..fdd6a21b9 100644
  	}
  
  	hideHookInput(): void {
-@@ -5414,6 +5419,10 @@ export class InteractiveMode implements InteractiveModeContext {
+@@ -6053,6 +6059,10 @@ export class InteractiveMode implements InteractiveModeContext {
  		return this.#extensionUiController.showHookEditor(title, prefill, dialogOptions, editorOptions);
  	}
  
@@ -3812,27 +4091,27 @@ index 1cf06897f..fdd6a21b9 100644
  		this.#extensionUiController.hideHookEditor();
  	}
 diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
-index 38df3f804..af743a8b8 100644
+index 8949cd5..bb49168 100644
 --- a/packages/coding-agent/src/modes/types.ts
 +++ b/packages/coding-agent/src/modes/types.ts
 @@ -2,6 +2,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
  import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
- import type { AssistantMessage, ImageContent, Message, Usage, UsageReport } from "@oh-my-pi/pi-ai";
+ import type { AssistantMessage, ImageContent, Message, Model, Usage, UsageReport } from "@oh-my-pi/pi-ai";
  import type { Component, Container, EditorTheme, Loader, Spacer, Text, TUI } from "@oh-my-pi/pi-tui";
 +import type { CollabUiRequest } from "@oh-my-pi/pi-wire";
  import type { CollabController } from "../collab/controller";
  import type { CollabGuestLink } from "../collab/guest";
  import type { KeybindingsManager } from "../config/keybindings";
-@@ -419,7 +420,7 @@ export interface InteractiveModeContext {
+@@ -456,7 +457,7 @@ export interface InteractiveModeContext {
  	showSessionPinSelector(): Promise<void>;
  	showResetUsageSelector(): Promise<void>;
  	showProviderSetup(): Promise<void>;
 -	showHookConfirm(title: string, message: string): Promise<boolean>;
 +	showHookConfirm(title: string, message: string, dialogOptions?: ExtensionUIDialogOptions): Promise<boolean>;
  	showDebugSelector(): Promise<void>;
- 	showAgentHub(options?: { requireContent?: boolean; armCloseTap?: boolean }): void;
+ 	showAgentHub(options?: AgentHubOpenOptions): void;
  	resetObserverRegistry(): void;
-@@ -498,7 +499,11 @@ export interface InteractiveModeContext {
+@@ -537,7 +538,11 @@ export interface InteractiveModeContext {
  		dialogOptions?: InteractiveSelectorDialogOptions,
  	): Promise<string | undefined>;
  	hideHookSelector(): void;
@@ -3845,7 +4124,7 @@ index 38df3f804..af743a8b8 100644
  	hideHookInput(): void;
  	showHookEditor(
  		title: string,
-@@ -506,6 +511,7 @@ export interface InteractiveModeContext {
+@@ -545,6 +550,7 @@ export interface InteractiveModeContext {
  		dialogOptions?: ExtensionUIDialogOptions,
  		editorOptions?: { promptStyle?: boolean },
  	): Promise<string | undefined>;
@@ -3854,7 +4133,7 @@ index 38df3f804..af743a8b8 100644
  	showHookNotify(message: string, type?: "info" | "warning" | "error"): void;
  	showHookCustom<T>(
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 7716a720c..6e82777cb 100644
+index a8557ab..c0ddf66 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -11,10 +11,10 @@
@@ -4199,7 +4478,7 @@ index 7716a720c..6e82777cb 100644
  			if (settled?.kind === "submit") {
  				expect(settled.results[0]?.selectedOptions).toEqual(["Option A"]);
 diff --git a/packages/coding-agent/test/hook-editor.test.ts b/packages/coding-agent/test/hook-editor.test.ts
-index b5f8f5502..9c486427e 100644
+index 0109387..5f50bd0 100644
 --- a/packages/coding-agent/test/hook-editor.test.ts
 +++ b/packages/coding-agent/test/hook-editor.test.ts
 @@ -65,7 +65,7 @@ function createControllerContext() {
@@ -4220,10 +4499,10 @@ index b5f8f5502..9c486427e 100644
  	} as unknown as TestContext;
  
 diff --git a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
-index 4a45e7b99..304da889f 100644
+index b7f2f9a..78c91d1 100644
 --- a/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
 +++ b/packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts
-@@ -140,6 +140,21 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
+@@ -158,6 +158,21 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
  		);
  	}
  
@@ -4248,11 +4527,10 @@ index 4a45e7b99..304da889f 100644
 -- 
 2.50.1 (Apple Git-155)
 
-
-From 1564b4a3698bb465e912e3273ffb92e401da9e14 Mon Sep 17 00:00:00 2001
+From b56e4da12d00322e54ac80da5da95a8d4d408dd0 Mon Sep 17 00:00:00 2001
 From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
 Date: Sun, 26 Jul 2026 22:48:20 -0400
-Subject: [PATCH 5/6] feat(collab): acknowledge web health and responses
+Subject: [PATCH 4/4] feat(collab): acknowledge web health and responses
 
 ---
  packages/coding-agent/src/collab/host.ts      | 20 ++++++++--
@@ -4261,10 +4539,10 @@ Subject: [PATCH 5/6] feat(collab): acknowledge web health and responses
  3 files changed, 47 insertions(+), 11 deletions(-)
 
 diff --git a/packages/coding-agent/src/collab/host.ts b/packages/coding-agent/src/collab/host.ts
-index fc5346cba..1d915fbd4 100644
+index 124ae15..a81abd4 100644
 --- a/packages/coding-agent/src/collab/host.ts
 +++ b/packages/coding-agent/src/collab/host.ts
-@@ -120,6 +120,9 @@ const MAX_PENDING_UI_REQUESTS = 64;
+@@ -121,6 +121,9 @@ const MAX_PENDING_UI_REQUESTS = 64;
   */
  export type CollabGuestUiResult = { kind: "answered"; value: CollabUiResponseValue } | { kind: "unavailable" };
  
@@ -4274,7 +4552,7 @@ index fc5346cba..1d915fbd4 100644
  export class CollabHost {
  	#ctx: InteractiveModeContext;
  	#socket: CollabSocket | null = null;
-@@ -228,7 +231,7 @@ export class CollabHost {
+@@ -229,7 +232,7 @@ export class CollabHost {
  				firstOpen.resolve();
  			}
  		};
@@ -4283,7 +4561,7 @@ index fc5346cba..1d915fbd4 100644
  		socket.onControl = msg => {
  			if (msg.t === "peer-left") this.#handlePeerLeft(msg.peer);
  		};
-@@ -324,7 +327,7 @@ export class CollabHost {
+@@ -331,7 +334,7 @@ export class CollabHost {
  		this.#socket.send(frame);
  	}
  
@@ -4292,7 +4570,7 @@ index fc5346cba..1d915fbd4 100644
  		switch (frame.t) {
  			case "hello":
  				this.#handleHello(frame.name, frame.proto, frame.writeToken, fromPeer);
-@@ -341,6 +344,9 @@ export class CollabHost {
+@@ -348,6 +351,9 @@ export class CollabHost {
  			case "ui-response":
  				this.#handleUiResponse(frame.reqId, frame.value, fromPeer);
  				break;
@@ -4302,7 +4580,7 @@ index fc5346cba..1d915fbd4 100644
  			case "fetch-transcript":
  				void this.#handleFetchTranscript(frame.reqId, frame.agentId, frame.fromByte, fromPeer);
  				break;
-@@ -402,6 +408,7 @@ export class CollabHost {
+@@ -409,6 +415,7 @@ export class CollabHost {
  			fromPeer,
  		);
  		this.#sendSnapshotChunks(entries, fromPeer);
@@ -4310,7 +4588,7 @@ index fc5346cba..1d915fbd4 100644
  		if (canWrite) {
  			for (const pending of this.#pendingUi.values()) {
  				socket.send({ t: "ui-request", request: pending.request }, fromPeer);
-@@ -451,13 +458,20 @@ export class CollabHost {
+@@ -458,13 +465,20 @@ export class CollabHost {
  		}
  	}
  
@@ -4333,7 +4611,7 @@ index fc5346cba..1d915fbd4 100644
  
  	#handlePrompt(text: string, images: ImageContent[] | undefined, fromPeer: number): void {
 diff --git a/packages/coding-agent/test/collab/guest-ui-request.test.ts b/packages/coding-agent/test/collab/guest-ui-request.test.ts
-index 6e82777cb..14fa8a606 100644
+index c0ddf66..a1adbdb 100644
 --- a/packages/coding-agent/test/collab/guest-ui-request.test.ts
 +++ b/packages/coding-agent/test/collab/guest-ui-request.test.ts
 @@ -538,6 +538,7 @@ async function joinRawGuest(
@@ -4345,7 +4623,7 @@ index 6e82777cb..14fa8a606 100644
  	socket.onFrame = frame => {
  		if (filtered[frame.t]) return;
 diff --git a/packages/coding-agent/test/collab/read-only.test.ts b/packages/coding-agent/test/collab/read-only.test.ts
-index 9778f4fe1..39097ee19 100644
+index 9778f4f..39097ee 100644
 --- a/packages/coding-agent/test/collab/read-only.test.ts
 +++ b/packages/coding-agent/test/collab/read-only.test.ts
 @@ -84,9 +84,11 @@ function makeHostContext(): HostHarness {
@@ -4429,1214 +4707,6 @@ index 9778f4fe1..39097ee19 100644
  		} finally {
  			abort.abort();
  		}
--- 
-2.50.1 (Apple Git-155)
-
-
-From fd8237acb222a66efbd7d154cb1dfb691aa718c7 Mon Sep 17 00:00:00 2001
-From: Sunil Srivatsa <sunilsrivatsa@gmail.com>
-Date: Wed, 19 Aug 2026 20:48:51 -0700
-Subject: [PATCH 6/6] fix(collab): recover publication after transient registry
- faults
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The registry publisher latched off permanently on any setup failure that was
-not ENOENT/ECONNREFUSED, and the controller built it once with `??=`, so a
-transient token read — EACCES, EMFILE, or a torn rewrite during a gateway
-restart — silently dropped a live session from the directory for the rest of
-the process lifetime. The only recovery was restarting OMP.
-
-Latching is now reserved for deterministic local violations: a non-IPC
-endpoint setting and a world-readable socket both throw
-PublisherSecurityViolation, and handshake protocol violations keep their
-existing behavior. Every other setup failure retries with backoff, reporting
-once unless it is the routine "registry is not running" state; failing open
-there is safe because the handshake still authenticates against the real
-token.
-
-Publication state is now observable via `/collab status` as publishing,
-retrying (attempt N: reason), or disabled with its reason, and an explicit
-`/collab` clears a latch — including on an already-hosting session, which
-returned early without ever reaching the controller.
----
- .../coding-agent/src/collab/controller.ts     |  26 +
- .../src/collab/registry-publisher.ts          | 116 +++-
- .../slash-commands/builtin-collaboration.ts   |  31 +-
- .../collab/collab-command-publication.test.ts |  79 +++
- .../test/collab/controller.test.ts            |  55 +-
- .../test/collab/registry-publisher.test.ts    | 576 +++++++++++-------
- .../test/slash-commands/collab-qrcode.test.ts |   5 +
- 7 files changed, 645 insertions(+), 243 deletions(-)
- create mode 100644 packages/coding-agent/test/collab/collab-command-publication.test.ts
-
-diff --git a/packages/coding-agent/src/collab/controller.ts b/packages/coding-agent/src/collab/controller.ts
-index fb60f06cd..4ea8b7210 100644
---- a/packages/coding-agent/src/collab/controller.ts
-+++ b/packages/coding-agent/src/collab/controller.ts
-@@ -3,6 +3,7 @@ import { basename } from "node:path";
- import type { InteractiveModeContext } from "../modes/types";
- import { CollabHost } from "./host";
- import {
-+	type CollabPublicationState,
- 	type CollabPublisherRecord,
- 	CollabRegistryPublisher,
- 	type PublishedCapabilityMode,
-@@ -42,6 +43,8 @@ interface PublisherLike {
- 	publish(record: CollabPublisherRecord): void;
- 	remove(generation: number, reason: "stopped" | "shutdown" | "session_changed" | "faulted"): void;
- 	shutdown(generation: number | undefined): void;
-+	resume(): void;
-+	publicationState(): CollabPublicationState;
- }
- 
- export interface CollabControllerOptions {
-@@ -97,6 +100,11 @@ export class CollabController {
- 		return this.#capabilities;
- 	}
- 
-+	/** Directory publication state for `/collab status`. */
-+	publicationState(): CollabPublicationState {
-+		return this.#publisher?.publicationState() ?? { kind: "off" };
-+	}
-+
- 	on(event: CollabControllerEvent, listener: (capabilities?: CollabCapabilities) => void): () => void {
- 		let listeners = this.#listeners.get(event);
- 		if (!listeners) {
-@@ -131,6 +139,9 @@ export class CollabController {
- 	): Promise<CollabCapabilities> {
- 		return this.#serialize(async () => {
- 			this.#manualSuspended = false;
-+			// An explicit start is unambiguous intent: clear a latched publisher so a
-+			// transient token or socket fault cannot mute this session for good.
-+			this.#publisher?.resume();
- 			return this.#start(options);
- 		});
- 	}
-@@ -142,6 +153,21 @@ export class CollabController {
- 		});
- 	}
- 
-+	/**
-+	 * Manual `/collab` on a session that is already hosting: clear a latched
-+	 * publisher and re-announce the current capabilities without restarting the
-+	 * host. That is the path a user whose session went silent actually takes, and
-+	 * it never reaches `start()`.
-+	 */
-+	resumePublication(): Promise<void> {
-+		return this.#serialize(async () => {
-+			this.#publisher?.resume();
-+			const capabilities = this.#capabilities;
-+			const mode = this.#publicationMode;
-+			if (capabilities && mode !== "off") this.#publish(capabilities, mode);
-+		});
-+	}
-+
- 	autoStart(): Promise<void> {
- 		return this.#serialize(async () => {
- 			const mode = this.#autoMode();
-diff --git a/packages/coding-agent/src/collab/registry-publisher.ts b/packages/coding-agent/src/collab/registry-publisher.ts
-index 55c34e7aa..067f0df82 100644
---- a/packages/coding-agent/src/collab/registry-publisher.ts
-+++ b/packages/coding-agent/src/collab/registry-publisher.ts
-@@ -13,6 +13,31 @@ const WINDOWS_PIPE_PREFIX = "\\\\.\\pipe\\";
- 
- export type PublishedCapabilityMode = "off" | "view" | "control";
- 
-+/**
-+ * Observable publication state. A publisher that has stopped announcing itself
-+ * must be diagnosable from `/collab status` rather than from a warning that has
-+ * long since scrolled away.
-+ */
-+export type CollabPublicationState =
-+	| { readonly kind: "off" }
-+	| { readonly kind: "publishing" }
-+	| { readonly kind: "retrying"; readonly attempt: number; readonly reason: string }
-+	| { readonly kind: "disabled"; readonly reason: string };
-+
-+/**
-+ * A local-configuration violation: the endpoint setting is not local IPC, or the
-+ * socket is observable by another user. Both are deterministic properties of this
-+ * machine, so no retry can clear them and publication latches off.
-+ *
-+ * Every other setup failure stays on the retry path — a registry that is not
-+ * running yet, a token file torn by an in-flight rewrite, EACCES/EMFILE/EINTR
-+ * while the runtime directory is recreated. Failing open on those is safe because
-+ * the handshake still has to authenticate against the real token, and latching on
-+ * them silently drops a live session out of the directory for the rest of the
-+ * process lifetime.
-+ */
-+class PublisherSecurityViolation extends Error {}
-+
- export interface CollabPublisherRecord {
- 	readonly instanceId: string;
- 	readonly generation: number;
-@@ -204,16 +229,18 @@ export function resolveCollabRegistryEndpoint(setting: string): string | undefin
- 	if (setting === "off") return undefined;
- 	if (setting === "auto") return automaticEndpoint();
- 	if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(setting)) {
--		throw new Error("collab.registryEndpoint must be local IPC, not a network URL");
-+		throw new PublisherSecurityViolation("collab.registryEndpoint must be local IPC, not a network URL");
- 	}
- 	if (process.platform === "win32") {
- 		const name = setting.startsWith(WINDOWS_PIPE_PREFIX) ? setting.slice(WINDOWS_PIPE_PREFIX.length) : "";
- 		if (!WINDOWS_PIPE_NAME_PATTERN.test(name)) {
--			throw new Error("collab.registryEndpoint must be a local Windows named pipe");
-+			throw new PublisherSecurityViolation("collab.registryEndpoint must be a local Windows named pipe");
- 		}
- 		return setting;
- 	}
--	if (!isAbsolute(setting)) throw new Error("collab.registryEndpoint must be an absolute local socket path");
-+	if (!isAbsolute(setting)) {
-+		throw new PublisherSecurityViolation("collab.registryEndpoint must be an absolute local socket path");
-+	}
- 	return setting;
- }
- 
-@@ -232,7 +259,7 @@ async function assertPublisherEndpointPrivate(endpoint: string): Promise<void> {
- 		parentInfo.uid !== uid ||
- 		(parentInfo.mode & 0o077) !== 0
- 	) {
--		throw new Error("unsafe OMP Session Gateway registry endpoint");
-+		throw new PublisherSecurityViolation("unsafe OMP Session Gateway registry endpoint");
- 	}
- }
- 
-@@ -356,8 +383,9 @@ export class CollabRegistryPublisher {
- 	#reconnectTimer: Timer | undefined;
- 	#connecting = false;
- 	#stopping = false;
--	#securityDisabled = false;
--	#securityWarningShown = false;
-+	#disabledReason: string | undefined;
-+	#retryReason: string | undefined;
-+	#concernReported = false;
- 	#attempt = 0;
- 
- 	constructor(options: {
-@@ -409,8 +437,34 @@ export class CollabRegistryPublisher {
- 		this.#current = undefined;
- 	}
- 
-+	/** Publication state for `/collab status`; a latched publisher reports why. */
-+	publicationState(): CollabPublicationState {
-+		const disabled = this.#disabledReason;
-+		if (disabled !== undefined) return { kind: "disabled", reason: disabled };
-+		if (this.#socket) return { kind: "publishing" };
-+		if (!this.#current) return { kind: "off" };
-+		return { kind: "retrying", attempt: this.#attempt, reason: this.#retryReason ?? "connecting" };
-+	}
-+
-+	/**
-+	 * Clear a latched publisher and reconnect immediately. An explicit `/collab` is
-+	 * unambiguous user intent and the only recovery short of restarting OMP, so it
-+	 * also re-arms the one-shot warning: if the condition persists, say so again.
-+	 */
-+	resume(): void {
-+		this.#disabledReason = undefined;
-+		this.#retryReason = undefined;
-+		this.#concernReported = false;
-+		this.#attempt = 0;
-+		clearTimeout(this.#reconnectTimer);
-+		this.#reconnectTimer = undefined;
-+		if (this.#current && !this.#stopping) void this.#connect();
-+	}
-+
- 	async #connect(): Promise<void> {
--		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#securityDisabled) return;
-+		if (this.#connecting || this.#socket || !this.#current || this.#stopping || this.#disabledReason !== undefined) {
-+			return;
-+		}
- 		this.#connecting = true;
- 		let endpoint: string;
- 		let token: Buffer | undefined;
-@@ -431,12 +485,8 @@ export class CollabRegistryPublisher {
- 		} catch (error) {
- 			token?.fill(0);
- 			this.#connecting = false;
--			const code =
--				typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
--					? error.code
--					: undefined;
--			if (code === "ENOENT" || code === "ECONNREFUSED") this.#scheduleReconnect();
--			else this.#disableForSecurity(error);
-+			if (error instanceof PublisherSecurityViolation) this.#disableForSecurity(error);
-+			else this.#retryAfterFailure(error);
- 			return;
- 		}
- 		if (token === undefined) {
-@@ -538,6 +588,7 @@ export class CollabRegistryPublisher {
- 							owner.#connecting = false;
- 							owner.#socket = socket;
- 							owner.#attempt = 0;
-+							owner.#retryReason = undefined;
- 							socket.data.buffer = "";
- 							const current = owner.#current;
- 							if (current) owner.#sendUpsert(socket, current);
-@@ -555,6 +606,7 @@ export class CollabRegistryPublisher {
- 						if (owner.#socket === socket) owner.#socket = undefined;
- 						clearInterval(owner.#heartbeatTimer);
- 						owner.#heartbeatTimer = undefined;
-+						owner.#retryReason = "connection closed";
- 						owner.#scheduleReconnect();
- 					},
- 					error() {},
-@@ -584,7 +636,7 @@ export class CollabRegistryPublisher {
- 	}
- 
- 	#scheduleReconnect(): void {
--		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#securityDisabled) return;
-+		if (this.#reconnectTimer || !this.#current || this.#stopping || this.#disabledReason !== undefined) return;
- 		const base = Math.min(30_000, 250 * 2 ** Math.min(this.#attempt, 7));
- 		const delay = Math.floor(base * (0.75 + Math.random() * 0.5));
- 		this.#attempt += 1;
-@@ -594,11 +646,37 @@ export class CollabRegistryPublisher {
- 		}, delay);
- 	}
- 
-+	/**
-+	 * Transient setup failure: keep retrying, and say so once unless this is the
-+	 * routine "registry is not running" state. Reporting without latching is what
-+	 * keeps a token-file hiccup from muting a live session permanently.
-+	 */
-+	#retryAfterFailure(error: unknown): void {
-+		const code =
-+			typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-+				? error.code
-+				: undefined;
-+		this.#retryReason = code ?? (error instanceof Error ? error.message : "unknown publication failure");
-+		if (code !== "ENOENT" && code !== "ECONNREFUSED") this.#reportConcern(error);
-+		this.#scheduleReconnect();
-+	}
-+
- 	#disableForSecurity(error: unknown): void {
--		this.#securityDisabled = true;
--		if (this.#securityWarningShown) return;
--		this.#securityWarningShown = true;
--		const message = error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
--		this.#onSecurityError(message);
-+		const alreadyLatched = this.#disabledReason !== undefined;
-+		this.#disabledReason =
-+			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration";
-+		// Latching is the severe state and always speaks once, even when a retryable
-+		// concern already consumed the warning slot.
-+		if (alreadyLatched) return;
-+		this.#concernReported = true;
-+		this.#onSecurityError(this.#disabledReason);
-+	}
-+
-+	#reportConcern(error: unknown): void {
-+		if (this.#concernReported) return;
-+		this.#concernReported = true;
-+		this.#onSecurityError(
-+			error instanceof Error ? error.message : "unsafe OMP Session Gateway publisher configuration",
-+		);
- 	}
- }
-diff --git a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
-index a106d93f4..6c4e9ae69 100644
---- a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
-+++ b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
-@@ -2,6 +2,7 @@ import { Spacer } from "@oh-my-pi/pi-tui";
- import { APP_NAME } from "@oh-my-pi/pi-utils";
- import { CollabGuestLink } from "../collab/guest";
- import type { CollabHost } from "../collab/host";
-+import type { CollabPublicationState } from "../collab/registry-publisher";
- import type { SettingPath, SettingValue } from "../config/settings";
- import { settings } from "../config/settings";
- import { parseExportArgs } from "../export/html/args";
-@@ -22,6 +23,27 @@ function collabWebLinkClickable(webLink: string): string {
- 	return urlHyperlinkAlways(webLink, display);
- }
- 
-+/**
-+ * Directory publication line for `/collab status`. A host can be perfectly
-+ * healthy on the relay while its gateway publication is retrying or latched off,
-+ * and that state is otherwise invisible.
-+ */
-+function collabPublicationHint(state: CollabPublicationState): string {
-+	const bullet = theme.fg("accent", theme.format.bullet);
-+	const label = theme.fg("muted", "Session directory:");
-+	if (state.kind === "publishing") return ` ${bullet} ${label} publishing`;
-+	if (state.kind === "retrying") {
-+		return ` ${bullet} ${label} retrying (attempt ${state.attempt}: ${state.reason})`;
-+	}
-+	if (state.kind === "disabled") {
-+		return [
-+			` ${bullet} ${label} ${theme.fg("warning", `disabled — ${state.reason}`)}`,
-+			theme.fg("dim", "Run /collab to clear it and retry publication."),
-+		].join("\n");
-+	}
-+	return ` ${bullet} ${label} not published`;
-+}
-+
- /** Join hint printed by /collab: compact terminal link + clickable browser deep link. */
- function collabLinkHint(host: CollabHost, heading: string, view = false): string {
- 	const bullet = theme.fg("accent", theme.format.bullet);
-@@ -288,7 +310,11 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
- 						p.role === "host" ? `${p.name} (host)` : p.readOnly ? `${p.name} (view-only)` : p.name,
- 					);
- 					ctx.showStatus(
--						`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
-+						[
-+							`Collab: ${names.join(", ")} — ${collabWebLinkClickable(ctx.collabController.host.webLink)}`,
-+							collabPublicationHint(ctx.collabController.publicationState()),
-+						].join("\n"),
-+						{ dim: false },
- 					);
- 				} else if (ctx.collabGuest) {
- 					ctx.showStatus(
-@@ -310,6 +336,9 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
- 			const explicitUrl = knownStartVerb ? rest : args;
- 			const existingHost = ctx.collabController.host;
- 			if (existingHost && !explicitUrl) {
-+				// A latched publisher is only recoverable through an explicit /collab,
-+				// and an already-hosting session lands here rather than in start().
-+				await ctx.collabController.resumePublication();
- 				showCollabLink(ctx, existingHost, view ? "Read-only collab session active" : "Collab session active", view);
- 				return;
- 			}
-diff --git a/packages/coding-agent/test/collab/collab-command-publication.test.ts b/packages/coding-agent/test/collab/collab-command-publication.test.ts
-new file mode 100644
-index 000000000..046ed9658
---- /dev/null
-+++ b/packages/coding-agent/test/collab/collab-command-publication.test.ts
-@@ -0,0 +1,79 @@
-+import { beforeAll, expect, test } from "bun:test";
-+import type { CollabPublicationState } from "../../src/collab/registry-publisher";
-+import { initTheme } from "../../src/modes/theme/theme";
-+import type { InteractiveModeContext } from "../../src/modes/types";
-+import { lookupBuiltinSlashCommand } from "../../src/slash-commands/builtin-registry";
-+
-+/**
-+ * A host can be perfectly healthy on the relay while its gateway publication is
-+ * retrying or latched off. `/collab status` is the only place that state is
-+ * observable — the publisher's single warning is long gone from scrollback — and
-+ * a bare `/collab` on an already-hosting session is the only recovery short of
-+ * restarting OMP, so it must reach the controller rather than return early.
-+ */
-+
-+// Resolved through the registry: importing the collab module directly trips the
-+// builtin-modes import cycle before the registry finishes initializing.
-+const collabCommand = lookupBuiltinSlashCommand("collab");
-+const SGR_PATTERN = /\x1b\[[0-9;]*m/gu;
-+
-+function harness(publication: CollabPublicationState) {
-+	const statuses: string[] = [];
-+	let resumes = 0;
-+	const ctx = {
-+		editor: { setText() {} },
-+		present() {},
-+		showStatus: (message: string) => statuses.push(message.replace(SGR_PATTERN, "")),
-+		showError: (message: string) => statuses.push(`ERROR ${message}`),
-+		settings: { get: () => "" },
-+		collabController: {
-+			host: {
-+				participants: [{ name: "host", role: "host" as const }],
-+				link: "CONTROL_CAPABILITY_FIXTURE",
-+				viewLink: "VIEW_CAPABILITY_FIXTURE",
-+				webLink: "https://example.invalid/client",
-+				webViewLink: "https://example.invalid/client-view",
-+			},
-+			publicationState: () => publication,
-+			resumePublication: async () => {
-+				resumes += 1;
-+			},
-+		},
-+	} as unknown as InteractiveModeContext;
-+	return {
-+		statuses,
-+		resumeCount: () => resumes,
-+		run: async (args: string) => {
-+			await collabCommand?.handleTui?.({ name: "collab", args, text: `/collab ${args}`.trimEnd() }, {
-+				ctx,
-+			} as never);
-+			return statuses.join("\n");
-+		},
-+	};
-+}
-+
-+beforeAll(async () => {
-+	await initTheme();
-+});
-+
-+test("/collab status names a latched publisher and how to clear it", async () => {
-+	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
-+	const rendered = await collab.run("status");
-+	expect(rendered).toContain("Session directory: disabled — unsafe OMP Session Gateway registry endpoint");
-+	expect(rendered).toContain("Run /collab to clear it and retry publication.");
-+});
-+
-+test("/collab status distinguishes publishing from retrying", async () => {
-+	expect(await harness({ kind: "publishing" }).run("status")).toContain("Session directory: publishing");
-+	expect(await harness({ kind: "retrying", attempt: 3, reason: "EACCES" }).run("status")).toContain(
-+		"Session directory: retrying (attempt 3: EACCES)",
-+	);
-+	expect(await harness({ kind: "off" }).run("status")).toContain("Session directory: not published");
-+});
-+
-+test("a bare /collab on a hosting session clears the latch instead of only reprinting the link", async () => {
-+	const collab = harness({ kind: "disabled", reason: "unsafe OMP Session Gateway registry endpoint" });
-+	const rendered = await collab.run("");
-+	expect(collab.resumeCount()).toBe(1);
-+	expect(rendered).toContain("Collab session active");
-+});
-diff --git a/packages/coding-agent/test/collab/controller.test.ts b/packages/coding-agent/test/collab/controller.test.ts
-index 514db763c..2c9d94013 100644
---- a/packages/coding-agent/test/collab/controller.test.ts
-+++ b/packages/coding-agent/test/collab/controller.test.ts
-@@ -1,5 +1,5 @@
- import { describe, expect, mock, test } from "bun:test";
--import type { CollabPublisherRecord } from "../../src/collab/registry-publisher";
-+import type { CollabPublicationState, CollabPublisherRecord } from "../../src/collab/registry-publisher";
- import type { InteractiveModeContext } from "../../src/modes/types";
- 
- // Load after the host mock so controller lifecycle tests never open a relay.
-@@ -58,6 +58,9 @@ function harness(autoStart: "off" | "view" | "control") {
- 	const operations: Array<
- 		{ type: "publish"; record: CollabPublisherRecord } | { type: "remove"; generation: number }
- 	> = [];
-+	let publication: CollabPublicationState = { kind: "off" };
-+	let lastPublished: CollabPublisherRecord | undefined;
-+	let resumes = 0;
- 	const controller = new CollabController(context, {
- 		instanceId: "test-instance-id",
- 		hostFactory: () => {
-@@ -67,6 +70,8 @@ function harness(autoStart: "off" | "view" | "control") {
- 		},
- 		publisherFactory: () => ({
- 			publish(record: CollabPublisherRecord) {
-+				lastPublished = { ...record };
-+				publication = { kind: "publishing" };
- 				published.push({ ...record });
- 				operations.push({ type: "publish", record: { ...record } });
- 				events.push({
-@@ -79,6 +84,14 @@ function harness(autoStart: "off" | "view" | "control") {
- 				operations.push({ type: "remove", generation });
- 			},
- 			shutdown() {},
-+			resume() {
-+				resumes += 1;
-+				// The real publisher retains its last record and reconnects on resume.
-+				publication = lastPublished ? { kind: "publishing" } : { kind: "off" };
-+			},
-+			publicationState() {
-+				return publication;
-+			},
- 		}),
- 	});
- 	return {
-@@ -89,6 +102,10 @@ function harness(autoStart: "off" | "view" | "control") {
- 		published,
- 		operations,
- 		warnings,
-+		latchPublisher(reason: string) {
-+			publication = { kind: "disabled", reason };
-+		},
-+		resumeCount: () => resumes,
- 		setMetadata(next: { sessionName?: string; cwd?: string; model?: { provider: string; id: string } | undefined }) {
- 			if ("sessionName" in next) sessionName = next.sessionName;
- 			if ("cwd" in next && next.cwd !== undefined) cwd = next.cwd;
-@@ -316,4 +333,40 @@ describe("CollabController", () => {
- 		staleRelease();
- 		expect(published).toHaveLength(beforeStaleRelease);
- 	});
-+
-+	test("publication state is reported and only a manual start clears a latch", async () => {
-+		const { controller, latchPublisher, resumeCount } = harness("control");
-+		expect(controller.publicationState()).toEqual({ kind: "off" });
-+		await controller.autoStart();
-+		expect(controller.publicationState()).toEqual({ kind: "publishing" });
-+
-+		latchPublisher("unsafe OMP Session Gateway registry endpoint");
-+		expect(controller.publicationState()).toEqual({
-+			kind: "disabled",
-+			reason: "unsafe OMP Session Gateway registry endpoint",
-+		});
-+
-+		// Auto-start keeps its caution: it must not clear a latch on its own.
-+		await controller.autoStart();
-+		expect(resumeCount()).toBe(0);
-+		expect(controller.publicationState().kind).toBe("disabled");
-+
-+		await controller.start({ publish: "control" });
-+		expect(resumeCount()).toBe(1);
-+		expect(controller.publicationState()).toEqual({ kind: "publishing" });
-+	});
-+
-+	test("resumePublication re-announces a hosting session without restarting the host", async () => {
-+		const { controller, hosts, latchPublisher, resumeCount, operations } = harness("control");
-+		await controller.autoStart();
-+		latchPublisher("unsafe OMP Session Gateway registry endpoint");
-+		const before = operations.length;
-+
-+		await controller.resumePublication();
-+		expect(resumeCount()).toBe(1);
-+		expect(hosts).toHaveLength(1);
-+		expect(hosts[0]?.stops).toBe(0);
-+		expect(operations.slice(before)).toMatchObject([{ type: "publish", record: { generation: 1 } }]);
-+		expect(controller.publicationState()).toEqual({ kind: "publishing" });
-+	});
- });
-diff --git a/packages/coding-agent/test/collab/registry-publisher.test.ts b/packages/coding-agent/test/collab/registry-publisher.test.ts
-index 5936e3792..b4d420121 100644
---- a/packages/coding-agent/test/collab/registry-publisher.test.ts
-+++ b/packages/coding-agent/test/collab/registry-publisher.test.ts
-@@ -103,7 +103,11 @@ async function cleanupPublisherFixture(fixture: PublisherFixture): Promise<void>
- 	await rm(fixture.root, { recursive: true, force: true });
- }
- 
--async function beforeTimeout<T>(promise: Promise<T>, message: string, timeoutMilliseconds = HANDSHAKE_TIMEOUT_MS): Promise<T> {
-+async function beforeTimeout<T>(
-+	promise: Promise<T>,
-+	message: string,
-+	timeoutMilliseconds = HANDSHAKE_TIMEOUT_MS,
-+): Promise<T> {
- 	return await Promise.race([
- 		promise,
- 		Bun.sleep(timeoutMilliseconds).then(() => {
-@@ -216,109 +220,193 @@ test("registry endpoint accepts only qualified local IPC", () => {
- 	expect(() => resolveCollabRegistryEndpoint("relative.sock")).toThrow("absolute");
- });
- 
--test("publisher sends no token, proof, or capability to a named-pipe squatter", async () => {
--	const fixture = await createPublisherFixture("squatter");
--	const frames: Array<Record<string, unknown>> = [];
--	const server = Bun.listen<{ buffer: string; challenged: boolean }>({
--		unix: fixture.endpoint,
--		data: { buffer: "", challenged: false },
--		socket: {
--			data(socket, data) {
--				socket.data.buffer += Buffer.from(data).toString("utf8");
--				while (socket.data.buffer.includes("\n")) {
--					const newline = socket.data.buffer.indexOf("\n");
--					const line = socket.data.buffer.slice(0, newline);
--					socket.data.buffer = socket.data.buffer.slice(newline + 1);
--					frames.push(JSON.parse(line) as Record<string, unknown>);
--					if (!socket.data.challenged) {
--						socket.data.challenged = true;
--						socket.write(
--							`${JSON.stringify({
--								v: 1,
--								op: "challenge",
--								serverNonce: "C".repeat(43),
--								proof: "X".repeat(43),
--							})}\n`,
--						);
-+test(
-+	"publisher sends no token, proof, or capability to a named-pipe squatter",
-+	async () => {
-+		const fixture = await createPublisherFixture("squatter");
-+		const frames: Array<Record<string, unknown>> = [];
-+		const server = Bun.listen<{ buffer: string; challenged: boolean }>({
-+			unix: fixture.endpoint,
-+			data: { buffer: "", challenged: false },
-+			socket: {
-+				data(socket, data) {
-+					socket.data.buffer += Buffer.from(data).toString("utf8");
-+					while (socket.data.buffer.includes("\n")) {
-+						const newline = socket.data.buffer.indexOf("\n");
-+						const line = socket.data.buffer.slice(0, newline);
-+						socket.data.buffer = socket.data.buffer.slice(newline + 1);
-+						frames.push(JSON.parse(line) as Record<string, unknown>);
-+						if (!socket.data.challenged) {
-+							socket.data.challenged = true;
-+							socket.write(
-+								`${JSON.stringify({
-+									v: 1,
-+									op: "challenge",
-+									serverNonce: "C".repeat(43),
-+									proof: "X".repeat(43),
-+								})}\n`,
-+							);
-+						}
- 					}
--				}
-+				},
-+				error() {},
- 			},
--			error() {},
--		},
--	});
--	try {
--		await prepareServerEndpoint(fixture.endpoint);
--		const warning = Promise.withResolvers<string>();
--		const publisher = new CollabRegistryPublisher({
--			instanceId: record.instanceId,
--			pid: record.pid,
--			endpointSetting: fixture.endpoint,
--			onSecurityError: warning.resolve,
- 		});
--		publisher.publish(record);
--		const message = await beforeTimeout(warning.promise, "publisher accepted an unauthenticated registry server");
--		publisher.shutdown(record.generation);
--		expect(message).toContain("server authentication failed");
--		expect(frames).toHaveLength(1);
--		expect(frames[0]?.op).toBe("hello");
--		expect(frames[0]).not.toHaveProperty("token");
--		const wire = JSON.stringify(frames);
--		expect(wire).not.toContain("A".repeat(43));
--		expect(wire).not.toContain(record.viewLink);
--		expect(wire).not.toContain(record.controlLink);
--		expect(wire).not.toContain('"authenticate"');
--		expect(wire).not.toContain('"upsert"');
--	} finally {
--		server.stop(true);
--		await cleanupPublisherFixture(fixture);
--	}
--}, PUBLISHER_TEST_TIMEOUT_MS);
-+		try {
-+			await prepareServerEndpoint(fixture.endpoint);
-+			const warning = Promise.withResolvers<string>();
-+			const publisher = new CollabRegistryPublisher({
-+				instanceId: record.instanceId,
-+				pid: record.pid,
-+				endpointSetting: fixture.endpoint,
-+				onSecurityError: warning.resolve,
-+			});
-+			publisher.publish(record);
-+			const message = await beforeTimeout(warning.promise, "publisher accepted an unauthenticated registry server");
-+			publisher.shutdown(record.generation);
-+			expect(message).toContain("server authentication failed");
-+			expect(frames).toHaveLength(1);
-+			expect(frames[0]?.op).toBe("hello");
-+			expect(frames[0]).not.toHaveProperty("token");
-+			const wire = JSON.stringify(frames);
-+			expect(wire).not.toContain("A".repeat(43));
-+			expect(wire).not.toContain(record.viewLink);
-+			expect(wire).not.toContain(record.controlLink);
-+			expect(wire).not.toContain('"authenticate"');
-+			expect(wire).not.toContain('"upsert"');
-+		} finally {
-+			server.stop(true);
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
- 
--test("publisher authenticates the registry server before releasing capabilities", async () => {
--	const fixture = await createPublisherFixture("mutual-auth");
--	const token = "A".repeat(43);
--	const frames: Array<Record<string, unknown>> = [];
--	const upsertReceived = Promise.withResolvers<void>();
--	let binding: AuthBinding | undefined;
--	const server = Bun.listen<{ buffer: string }>({
--		unix: fixture.endpoint,
--		data: { buffer: "" },
--		socket: {
--			data(socket, data) {
--				socket.data.buffer += Buffer.from(data).toString("utf8");
--				while (socket.data.buffer.includes("\n")) {
--					const newline = socket.data.buffer.indexOf("\n");
--					const line = socket.data.buffer.slice(0, newline);
--					socket.data.buffer = socket.data.buffer.slice(newline + 1);
--					const frame = JSON.parse(line) as Record<string, unknown>;
--					frames.push(frame);
--					if (frames.length === 1) {
--						binding = {
--							clientNonce: String(frame.clientNonce),
--							serverNonce: "C".repeat(43),
--							instanceId: String(frame.instanceId),
--							pid: Number(frame.pid),
--						};
--						socket.write(
--							`${JSON.stringify({
--								v: 1,
--								op: "challenge",
--								serverNonce: binding.serverNonce,
--								proof: authProof(token, "omp-session-gateway.registry.server.v1", binding),
--							})}\n`,
--						);
--					} else if (frames.length === 2) {
--						socket.write(`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`);
--					} else if (frame.op === "upsert") {
--						upsertReceived.resolve();
-+test(
-+	"publisher authenticates the registry server before releasing capabilities",
-+	async () => {
-+		const fixture = await createPublisherFixture("mutual-auth");
-+		const token = "A".repeat(43);
-+		const frames: Array<Record<string, unknown>> = [];
-+		const upsertReceived = Promise.withResolvers<void>();
-+		let binding: AuthBinding | undefined;
-+		const server = Bun.listen<{ buffer: string }>({
-+			unix: fixture.endpoint,
-+			data: { buffer: "" },
-+			socket: {
-+				data(socket, data) {
-+					socket.data.buffer += Buffer.from(data).toString("utf8");
-+					while (socket.data.buffer.includes("\n")) {
-+						const newline = socket.data.buffer.indexOf("\n");
-+						const line = socket.data.buffer.slice(0, newline);
-+						socket.data.buffer = socket.data.buffer.slice(newline + 1);
-+						const frame = JSON.parse(line) as Record<string, unknown>;
-+						frames.push(frame);
-+						if (frames.length === 1) {
-+							binding = {
-+								clientNonce: String(frame.clientNonce),
-+								serverNonce: "C".repeat(43),
-+								instanceId: String(frame.instanceId),
-+								pid: Number(frame.pid),
-+							};
-+							socket.write(
-+								`${JSON.stringify({
-+									v: 1,
-+									op: "challenge",
-+									serverNonce: binding.serverNonce,
-+									proof: authProof(token, "omp-session-gateway.registry.server.v1", binding),
-+								})}\n`,
-+							);
-+						} else if (frames.length === 2) {
-+							socket.write(
-+								`${JSON.stringify({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 })}\n`,
-+							);
-+						} else if (frame.op === "upsert") {
-+							upsertReceived.resolve();
-+						}
- 					}
--				}
-+				},
-+				error() {},
- 			},
--			error() {},
--		},
--	});
--	try {
-+		});
-+		try {
-+			await prepareServerEndpoint(fixture.endpoint);
-+			const warnings: string[] = [];
-+			const publisher = new CollabRegistryPublisher({
-+				instanceId: record.instanceId,
-+				pid: record.pid,
-+				endpointSetting: fixture.endpoint,
-+				onSecurityError: message => warnings.push(message),
-+			});
-+			publisher.publish(record);
-+			await beforeTimeout(upsertReceived.promise, "publisher did not complete mutual authentication");
-+			expect(warnings).toEqual([]);
-+			expect(binding).toBeDefined();
-+			expect(frames[0]?.op).toBe("hello");
-+			expect(frames[0]).not.toHaveProperty("token");
-+			expect(frames[1]).toEqual({
-+				v: 1,
-+				op: "authenticate",
-+				proof: authProof(token, "omp-session-gateway.registry.client.v1", binding as AuthBinding),
-+			});
-+			expect(frames[2]?.op).toBe("upsert");
-+			expect(frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+			expect(JSON.stringify(frames)).not.toContain(token);
-+			publisher.shutdown(record.generation);
-+		} finally {
-+			server.stop(true);
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
-+
-+test(
-+	"publisher token path override preserves the ambient XDG configuration",
-+	async () => {
-+		const fixture = await createPublisherFixture("explicit-token-path");
-+		const token = "A".repeat(43);
-+		const explicitTokenPath = join(fixture.root, "publisher-token");
-+		await writeFile(explicitTokenPath, `${token}\n`, { mode: 0o600 });
-+		await secureWindowsPublisherToken(explicitTokenPath);
-+		await writeFile(fixture.tokenPath, `${"B".repeat(43)}\n`, { mode: 0o600 });
-+		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
- 		await prepareServerEndpoint(fixture.endpoint);
-+		const subprocess = Bun.spawn(
-+			[process.execPath, join(import.meta.dir, "registry-publisher-explicit-token.fixture.ts")],
-+			{
-+				env: {
-+					...process.env,
-+					OMP_GATEWAY_PUBLISHER_TOKEN_PATH: explicitTokenPath,
-+					OMP_GATEWAY_TEST_ENDPOINT: fixture.endpoint,
-+				},
-+				stdin: "ignore",
-+				stdout: "ignore",
-+				stderr: "pipe",
-+			},
-+		);
-+		try {
-+			await beforeTimeout(server.upsertReceived, "publisher ignored the explicit token path");
-+			expect(server.frames.at(-1)?.op).toBe("upsert");
-+		} finally {
-+			subprocess.kill();
-+			await subprocess.exited;
-+			server.server.stop(true);
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
-+
-+test(
-+	"publisher reconnects after registry restart and rereads the rotated token",
-+	async () => {
-+		const fixture = await createPublisherFixture("restart-token");
-+		const initialToken = "A".repeat(43);
-+		const rotatedToken = "B".repeat(43);
-+		const first = startAuthenticatedRegistryServer(fixture.endpoint, initialToken, "C".repeat(43));
-+		let firstStopped = false;
-+		let second: AuthenticatedRegistryServer | undefined;
- 		const warnings: string[] = [];
- 		const publisher = new CollabRegistryPublisher({
- 			instanceId: record.instanceId,
-@@ -326,134 +414,68 @@ test("publisher authenticates the registry server before releasing capabilities"
- 			endpointSetting: fixture.endpoint,
- 			onSecurityError: message => warnings.push(message),
- 		});
--		publisher.publish(record);
--		await beforeTimeout(upsertReceived.promise, "publisher did not complete mutual authentication");
--		expect(warnings).toEqual([]);
--		expect(binding).toBeDefined();
--		expect(frames[0]?.op).toBe("hello");
--		expect(frames[0]).not.toHaveProperty("token");
--		expect(frames[1]).toEqual({
--			v: 1,
--			op: "authenticate",
--			proof: authProof(token, "omp-session-gateway.registry.client.v1", binding as AuthBinding),
--		});
--		expect(frames[2]?.op).toBe("upsert");
--		expect(frames[2]).toHaveProperty("session.viewLink", record.viewLink);
--		expect(JSON.stringify(frames)).not.toContain(token);
--		publisher.shutdown(record.generation);
--	} finally {
--		server.stop(true);
--		await cleanupPublisherFixture(fixture);
--	}
--}, PUBLISHER_TEST_TIMEOUT_MS);
--
--test("publisher token path override preserves the ambient XDG configuration", async () => {
--	const fixture = await createPublisherFixture("explicit-token-path");
--	const token = "A".repeat(43);
--	const explicitTokenPath = join(fixture.root, "publisher-token");
--	await writeFile(explicitTokenPath, `${token}\n`, { mode: 0o600 });
--	await secureWindowsPublisherToken(explicitTokenPath);
--	await writeFile(fixture.tokenPath, `${"B".repeat(43)}\n`, { mode: 0o600 });
--	const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
--	await prepareServerEndpoint(fixture.endpoint);
--	const subprocess = Bun.spawn(
--		[process.execPath, join(import.meta.dir, "registry-publisher-explicit-token.fixture.ts")],
--		{
--			env: {
--				...process.env,
--				OMP_GATEWAY_PUBLISHER_TOKEN_PATH: explicitTokenPath,
--				OMP_GATEWAY_TEST_ENDPOINT: fixture.endpoint,
--			},
--			stdin: "ignore",
--			stdout: "ignore",
--			stderr: "pipe",
--		},
--	);
--	try {
--		await beforeTimeout(server.upsertReceived, "publisher ignored the explicit token path");
--		expect(server.frames.at(-1)?.op).toBe("upsert");
--	} finally {
--		subprocess.kill();
--		await subprocess.exited;
--		server.server.stop(true);
--		await cleanupPublisherFixture(fixture);
--	}
--}, PUBLISHER_TEST_TIMEOUT_MS);
-+		const reconnectScheduled = Promise.withResolvers<() => void>();
-+		try {
-+			await prepareServerEndpoint(fixture.endpoint);
-+			publisher.publish(record);
-+			await first.upsertReceived;
-+			const firstBinding = first.binding();
-+			expect(firstBinding).toBeDefined();
-+			expect(first.frames[1]).toHaveProperty(
-+				"proof",
-+				authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
-+			);
-+			expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+			expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", false);
-+			publisher.publish({ ...record, inputRequired: true });
-+			expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", true);
- 
--test("publisher reconnects after registry restart and rereads the rotated token", async () => {
--	const fixture = await createPublisherFixture("restart-token");
--	const initialToken = "A".repeat(43);
--	const rotatedToken = "B".repeat(43);
--	const first = startAuthenticatedRegistryServer(fixture.endpoint, initialToken, "C".repeat(43));
--	let firstStopped = false;
--	let second: AuthenticatedRegistryServer | undefined;
--	const warnings: string[] = [];
--	const publisher = new CollabRegistryPublisher({
--		instanceId: record.instanceId,
--		pid: record.pid,
--		endpointSetting: fixture.endpoint,
--		onSecurityError: message => warnings.push(message),
--	});
--	const reconnectScheduled = Promise.withResolvers<() => void>();
--	try {
--		await prepareServerEndpoint(fixture.endpoint);
--		publisher.publish(record);
--		await first.upsertReceived;
--		const firstBinding = first.binding();
--		expect(firstBinding).toBeDefined();
--		expect(first.frames[1]).toHaveProperty(
--			"proof",
--			authProof(initialToken, "omp-session-gateway.registry.client.v1", firstBinding as AuthBinding),
--		);
--		expect(first.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
--		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", false);
--		publisher.publish({ ...record, inputRequired: true });
--		expect(await first.nextUpsert()).toHaveProperty("session.inputRequired", true);
-+			const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-+				callback: (...callbackArguments: unknown[]) => void,
-+				_delay?: number,
-+				...callbackArguments: unknown[]
-+			) => {
-+				reconnectScheduled.resolve(() => callback(...callbackArguments));
-+				return undefined as never;
-+			}) as unknown as typeof setTimeout);
-+			first.disconnect();
-+			const reconnect = await reconnectScheduled.promise;
-+			first.server.stop(true);
-+			firstStopped = true;
-+			timeoutSpy.mockRestore();
- 
--		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
--			callback: (...callbackArguments: unknown[]) => void,
--			_delay?: number,
--			...callbackArguments: unknown[]
--		) => {
--			reconnectScheduled.resolve(() => callback(...callbackArguments));
--			return undefined as never;
--		}) as unknown as typeof setTimeout);
--		first.disconnect();
--		const reconnect = await reconnectScheduled.promise;
--		first.server.stop(true);
--		firstStopped = true;
--		timeoutSpy.mockRestore();
-+			if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
-+			await writeFile(fixture.tokenPath, `${rotatedToken}\n`, { mode: 0o600 });
-+			await secureWindowsPublisherToken(fixture.tokenPath);
-+			second = startAuthenticatedRegistryServer(fixture.endpoint, rotatedToken, "D".repeat(43));
-+			await prepareServerEndpoint(fixture.endpoint);
- 
--		if (process.platform !== "win32") await rm(fixture.endpoint, { force: true });
--		await writeFile(fixture.tokenPath, `${rotatedToken}\n`, { mode: 0o600 });
--		await secureWindowsPublisherToken(fixture.tokenPath);
--		second = startAuthenticatedRegistryServer(fixture.endpoint, rotatedToken, "D".repeat(43));
--		await prepareServerEndpoint(fixture.endpoint);
--
--		reconnect();
--		await second.upsertReceived;
--		const secondBinding = second.binding();
--		expect(secondBinding).toBeDefined();
--		expect(secondBinding?.clientNonce).not.toBe(firstBinding?.clientNonce);
--		expect(second.frames[0]?.op).toBe("hello");
--		expect(second.frames[1]).toHaveProperty(
--			"proof",
--			authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
--		);
--		expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
--		expect(second.frames[2]).toHaveProperty("session.inputRequired", true);
--		expect(warnings).toEqual([]);
--		const wire = JSON.stringify([...first.frames, ...second.frames]);
--		expect(wire).not.toContain(initialToken);
--		expect(wire).not.toContain(rotatedToken);
--	} finally {
--		publisher.shutdown(record.generation);
--		if (!firstStopped) first.server.stop(true);
--		second?.server.stop(true);
--		vi.restoreAllMocks();
--		await cleanupPublisherFixture(fixture);
--	}
--}, PUBLISHER_TEST_TIMEOUT_MS);
-+			reconnect();
-+			await second.upsertReceived;
-+			const secondBinding = second.binding();
-+			expect(secondBinding).toBeDefined();
-+			expect(secondBinding?.clientNonce).not.toBe(firstBinding?.clientNonce);
-+			expect(second.frames[0]?.op).toBe("hello");
-+			expect(second.frames[1]).toHaveProperty(
-+				"proof",
-+				authProof(rotatedToken, "omp-session-gateway.registry.client.v1", secondBinding as AuthBinding),
-+			);
-+			expect(second.frames[2]).toHaveProperty("session.viewLink", record.viewLink);
-+			expect(second.frames[2]).toHaveProperty("session.inputRequired", true);
-+			expect(warnings).toEqual([]);
-+			const wire = JSON.stringify([...first.frames, ...second.frames]);
-+			expect(wire).not.toContain(initialToken);
-+			expect(wire).not.toContain(rotatedToken);
-+		} finally {
-+			publisher.shutdown(record.generation);
-+			if (!firstStopped) first.server.stop(true);
-+			second?.server.stop(true);
-+			vi.restoreAllMocks();
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
- 
- test("invalid publisher configuration fails safely without exposing capabilities", async () => {
- 	const warning = Promise.withResolvers<string>();
-@@ -599,3 +621,113 @@ test("disabled publication is a no-op", () => {
- 	publisher.publish(record);
- 	publisher.shutdown(record.generation);
- });
-+
-+test(
-+	"a transient publisher token failure retries instead of latching off",
-+	async () => {
-+		if (process.platform === "win32") return;
-+		const fixture = await createPublisherFixture("transient-token");
-+		const token = "A".repeat(43);
-+		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
-+		const warnings: string[] = [];
-+		const publisher = new CollabRegistryPublisher({
-+			instanceId: record.instanceId,
-+			pid: record.pid,
-+			endpointSetting: fixture.endpoint,
-+			onSecurityError: message => warnings.push(message),
-+		});
-+		const reconnectScheduled = Promise.withResolvers<() => void>();
-+		const timeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-+			callback: (...callbackArguments: unknown[]) => void,
-+			_delay?: number,
-+			...callbackArguments: unknown[]
-+		) => {
-+			reconnectScheduled.resolve(() => callback(...callbackArguments));
-+			return undefined as never;
-+		}) as unknown as typeof setTimeout);
-+		try {
-+			await prepareServerEndpoint(fixture.endpoint);
-+			// A token file caught mid-rewrite: the byte length is briefly wrong. The
-+			// gateway is healthy, so this must not mute the session permanently.
-+			await writeFile(fixture.tokenPath, "A".repeat(46), { mode: 0o600 });
-+			publisher.publish(record);
-+			const reconnect = await beforeTimeout(reconnectScheduled.promise, "publisher did not schedule a retry");
-+			timeoutSpy.mockRestore();
-+			expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
-+			expect(publisher.publicationState()).toEqual({
-+				kind: "retrying",
-+				attempt: 1,
-+				reason: "invalid OMP Session Gateway publisher token",
-+			});
-+
-+			await writeFile(fixture.tokenPath, `${token}\n`, { mode: 0o600 });
-+			reconnect();
-+			await beforeTimeout(server.upsertReceived, "publisher never recovered after the token became readable");
-+			expect(server.frames.at(-1)).toHaveProperty("session.viewLink", record.viewLink);
-+			expect(publisher.publicationState()).toEqual({ kind: "publishing" });
-+			expect(warnings).toEqual(["invalid OMP Session Gateway publisher token"]);
-+		} finally {
-+			vi.restoreAllMocks();
-+			publisher.shutdown(record.generation);
-+			server.server.stop(true);
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
-+
-+test(
-+	"a genuine endpoint violation latches publication until an explicit resume",
-+	async () => {
-+		if (process.platform === "win32") return;
-+		const fixture = await createPublisherFixture("latched-endpoint");
-+		const token = "A".repeat(43);
-+		const server = startAuthenticatedRegistryServer(fixture.endpoint, token, "C".repeat(43));
-+		const warnings: string[] = [];
-+		const violation = Promise.withResolvers<string>();
-+		const publisher = new CollabRegistryPublisher({
-+			instanceId: record.instanceId,
-+			pid: record.pid,
-+			endpointSetting: fixture.endpoint,
-+			onSecurityError: message => {
-+				warnings.push(message);
-+				violation.resolve(message);
-+			},
-+		});
-+		try {
-+			// A world-readable socket is a real privacy violation: no retry can fix it.
-+			await chmod(fixture.endpoint, 0o666);
-+			publisher.publish(record);
-+			expect(await beforeTimeout(violation.promise, "publisher accepted a world-readable endpoint")).toBe(
-+				"unsafe OMP Session Gateway registry endpoint",
-+			);
-+			expect(publisher.publicationState()).toEqual({
-+				kind: "disabled",
-+				reason: "unsafe OMP Session Gateway registry endpoint",
-+			});
-+
-+			// Latched means latched: the connect guard rejects a further publish
-+			// synchronously, so nothing can reach the endpoint.
-+			publisher.publish({ ...record, inputRequired: true });
-+			expect(publisher.publicationState().kind).toBe("disabled");
-+			expect(server.frames).toEqual([]);
-+
-+			// An explicit /collab is unambiguous intent and re-arms publication.
-+			await prepareServerEndpoint(fixture.endpoint);
-+			publisher.resume();
-+			await beforeTimeout(server.upsertReceived, "an explicit resume did not restore publication");
-+			expect(publisher.publicationState()).toEqual({ kind: "publishing" });
-+			// One handshake only — the frame log proves the latched publish never
-+			// opened a connection, without waiting on a clock to say so.
-+			expect(server.frames[0]?.op).toBe("hello");
-+			expect(server.frames.at(-1)).toHaveProperty("session.inputRequired", true);
-+			expect(warnings).toEqual(["unsafe OMP Session Gateway registry endpoint"]);
-+			expect(JSON.stringify(server.frames)).not.toContain(token);
-+		} finally {
-+			publisher.shutdown(record.generation);
-+			server.server.stop(true);
-+			await cleanupPublisherFixture(fixture);
-+		}
-+	},
-+	PUBLISHER_TEST_TIMEOUT_MS,
-+);
-diff --git a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-index 65c08959d..31316e0f3 100644
---- a/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-+++ b/packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
-@@ -54,6 +54,7 @@ function createRuntimeHarness(options?: { collabHost?: CollabHost }) {
- 		settings: { get: settingsGet },
- 	} as unknown as InteractiveModeContext;
- 	const start = vi.fn();
-+	const resumePublication = vi.fn();
- 	const collabController = {
- 		get host() {
- 			return collabHost;
-@@ -71,12 +72,14 @@ function createRuntimeHarness(options?: { collabHost?: CollabHost }) {
- 			});
- 			return Promise.resolve();
- 		},
-+		resumePublication,
- 		stop: vi.fn(),
- 	} as unknown as CollabController;
- 	Object.assign(ctx, { collabController });
- 	return {
- 		ctx,
- 		start,
-+		resumePublication,
- 		setText,
- 		showStatus,
- 		showError,
-@@ -135,6 +138,7 @@ describe("/collab slash command QR code rendering", () => {
- 		const handled = await executeBuiltinSlashCommand("/collab", harness.runtime);
- 
- 		expect(handled).toBe(true);
-+		expect(harness.resumePublication).toHaveBeenCalledTimes(1);
- 		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
- 		expect(statusText).toContain("my.omp.sh/#full-control");
- 		const presented = harness.present.mock.calls[0]?.[0] as readonly unknown[];
-@@ -152,6 +156,7 @@ describe("/collab slash command QR code rendering", () => {
- 		const handled = await executeBuiltinSlashCommand("/collab view", harness.runtime);
- 
- 		expect(handled).toBe(true);
-+		expect(harness.resumePublication).toHaveBeenCalledTimes(1);
- 		const statusText = harness.showStatus.mock.calls[0]?.[0] as string;
- 		expect(statusText).toContain(webViewLink);
- 		expect(statusText).not.toContain(webLink);
 -- 
 2.50.1 (Apple Git-155)
 

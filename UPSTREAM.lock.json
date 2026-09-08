@@ -1,17 +1,17 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-08-21",
+  "observedAt": "2026-09-08",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v17.4.1",
-  "commit": "9350b7990d26ebf69a604edc82d8558ef04adf30",
-  "packageVersion": "17.4.1",
+  "tag": "v18.1.14",
+  "commit": "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e",
+  "packageVersion": "18.1.14",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "17.4.1",
-    "@oh-my-pi/pi-wire": "17.4.1",
+    "@oh-my-pi/pi-coding-agent": "18.1.14",
+    "@oh-my-pi/pi-wire": "18.1.14",
     "@oh-my-pi/collab-web": "16.3.6"
   },
-  "bunVersion": "1.3.14",
+  "bunVersion": "1.4.0",
   "relevantPaths": [
     "docs/collab.md",
     "docs/extensions.md",
@@ -27,10 +27,10 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Pinned to upstream tag v17.4.1 as observed on 2026-08-21; the previous pin was v17.3.8 / 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55.",
-    "The shipped six-commit mbox is regenerated from the maintained v17.4.1 gateway-collaboration series plus the carried gateway-health commit. The v17.4.1 slash-command fixture is adapted to exercise manual publication recovery.",
+    "Pinned to upstream tag v18.1.14 as observed on 2026-09-08; the previous gateway pin was v17.4.1 / 9350b7990d26ebf69a604edc82d8558ef04adf30. Published releases retain their original pins and qualification.",
+    "The standalone mbox uses the maintained v18.1.14 gateway-collaboration series and carries the gateway-specific encrypted health probes and response acknowledgements. See patches/oh-my-pi/README.md for exact patch provenance and verification.",
     "No supported extension collaboration controller exists at this commit; the slash command directly owns CollabHost.",
     "The collab-web connect path writes the capability to location.hash, so the gateway integration requires a reviewed in-memory bootstrap patch.",
-    "The collab-web source is unchanged from v17.3.8; only upstream package authorship metadata changed. The vendored client keeps npm marked so the bundled runtime closure stays pure JavaScript instead of pulling @oh-my-pi/pi-natives and its per-platform binaries."
+    "The vendored client preserves the gateway in-memory bootstrap and local browser patches recorded in packages/collab-client/upstream/UPSTREAM.json. It keeps npm marked so the bundled runtime closure stays pure JavaScript instead of pulling @oh-my-pi/pi-natives and its per-platform binaries."
   ]
 }

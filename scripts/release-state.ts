@@ -1,7 +1,10 @@
+import { releasePolicy } from "./release-policy.ts";
+
 function expectedAssets(tag: string): readonly string[] {
-  const match = /^v([0-9]+[.][0-9]+[.][0-9]+)(?:-|$)/u.exec(tag);
-  if (match === null) throw new Error("release tag does not contain a numeric version");
-  const version = match[1];
+  const match = /^(?:provenance-test-)?v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag);
+  const version = match?.[1];
+  if (version === undefined) throw new Error("release tag does not contain a numeric version");
+  releasePolicy(tag, version);
   return [
     "SHA256SUMS",
     "SHA256SUMS.sigstore.json",

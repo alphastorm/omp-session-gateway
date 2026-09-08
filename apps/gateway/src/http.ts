@@ -85,15 +85,7 @@ function problem(status: number, code: string, message: string): Response {
     true,
   );
 }
-function isValidClientBootstrap(url: URL): boolean {
-  if (url.pathname !== "/client/") return false;
-  const entries = [...url.searchParams.entries()];
-  return (
-    entries.length === 1 &&
-    entries[0]?.[0] === "handoff" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(entries[0][1])
-  );
-}
+
 function isValidRequestBootstrap(url: URL): boolean {
   const match = /^\/collab\/([^/]{1,384})$/u.exec(url.pathname);
   if (match === null) return false;
@@ -113,8 +105,6 @@ function isValidRequestBootstrap(url: URL): boolean {
     return false;
   }
 }
-
-
 
 async function readBoundedBody(request: Request, maximumBytes: number): Promise<Uint8Array> {
   const declared = request.headers.get("Content-Length");
@@ -291,10 +281,9 @@ export function createHttpHandler(options: {
       return problem(400, "bad_request", "Invalid request");
     }
     const clientRoute = request.method === "GET" && url.pathname === "/client/";
-    const clientBootstrap = clientRoute && isValidClientBootstrap(url);
     const requestBootstrap = request.method === "GET" && isValidRequestBootstrap(url);
     const updateBootstrap = request.method === "GET" && url.pathname === "/update/";
-    if (url.search !== "" && !clientBootstrap && !requestBootstrap) {
+    if (url.search !== "" && !requestBootstrap) {
       return problem(400, "bad_request", "Query parameters are not accepted");
     }
 

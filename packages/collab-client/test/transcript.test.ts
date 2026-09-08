@@ -18,7 +18,7 @@ import {
 // store, which both need browser globals while their modules initialize, so the
 // harness above has to be in place before either module is loaded.
 const { TRANSCRIPT_WINDOW, TRANSCRIPT_WINDOW_STEP, Transcript } = await import(
-  "../upstream/src/components/transcript/Transcript"
+  "../upstream/src/components/transcript/Transcript",
 );
 const { Composer } = await import("../upstream/src/components/shell/Composer");
 const { Session } = await import("../upstream/src/app");
@@ -312,6 +312,31 @@ describe("photo source chooser", () => {
 });
 
 describe("embedded session first paint", () => {
+  test("returns a reader to the transcript tail when a recovered connection becomes live", async () => {
+    const guest = new FakeGuest(guestSnapshot({ phase: "live", entries: userEntries(200) }));
+    const tree = await mount(
+      createElement(Session, {
+        client: guest.client,
+        onLeave: () => {},
+        onRejoin: () => {},
+        embedOptions: { shellOwnsLifecycle: true },
+      }),
+    );
+    const root = query(tree.container, "tr-root");
+    if (root === null) throw new Error("live transcript did not render");
+    expect(root.scrollTop).toBe(root.scrollHeight);
+
+    root.scrollTop = 0;
+    await act(async () => {
+      for (const listener of root.listeners.get("scroll") ?? []) listener({ type: "scroll", target: root });
+    });
+    await guest.publish({ phase: "reconnecting" });
+    expect(root.scrollTop).toBe(0);
+
+    await guest.publish({ phase: "live" });
+    expect(root.scrollTop).toBe(root.scrollHeight);
+  });
+
   test("defers the transcript until the guest snapshot completes, then keeps it across a reconnect", async () => {
     const guest = new FakeGuest(guestSnapshot({ entries: userEntries(1200) }));
     const tree = await mount(

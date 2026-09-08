@@ -1,19 +1,27 @@
 {
   "repository": "https://github.com/can1357/oh-my-pi",
-  "commit": "9350b7990d26ebf69a604edc82d8558ef04adf30",
-  "tag": "v17.4.1",
+  "commit": "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e",
+  "tag": "v18.1.14",
   "package": "@oh-my-pi/collab-web",
   "packageVersion": "16.3.6",
   "sourcePath": "packages/collab-web",
-  "observedAt": "2026-08-21",
-  "bunVersion": "1.3.14",
+  "additionalSources": [
+    {
+      "package": "@oh-my-pi/pi-utils",
+      "packageVersion": "18.1.14",
+      "sourcePath": "packages/utils/src/math-delimiters.ts"
+    }
+  ],
+  "observedAt": "2026-09-08",
+  "bunVersion": "1.4.0",
   "localPatches": [
+    "Validate Markdown link schemes through the browser URL parser, including control-character normalization",
     "Direct in-memory App capability prop; no capability URL/hash writes",
     "Installed-PWA same-document mount through a reusable in-memory bootstrap",
-    "One-time same-origin MessageChannel bootstrap",
     "Return to the gateway directory on leave or reload",
     "Force a fresh relay transport after mobile foreground and online transitions",
     "Recover established guests across bounded relay room replacement",
+    "Use a metadata-free same-origin gateway health probe to replace relay transport once after an observed outage recovers",
     "Preserve strict exact-optional typing for view links without a write token",
     "Redact invalid capability input from collaboration-link errors",
     "Correlate active Ask requests with explicit tool-call recommendation metadata",
@@ -26,6 +34,10 @@
     "Enforce view-link read-only state inside every mutating guest-client method",
     "Capture active composer pointers so status-row layout changes cannot cancel mobile actions",
     "Keep the npm marked dependency instead of @oh-my-pi/pi-utils/marked so the bundled runtime closure stays pure JavaScript",
+    "Vendor the pure v18.1.14 math delimiter grammar instead of adding @oh-my-pi/pi-utils and its native dependency closure",
+    "Render upstream LaTeX delimiters through CSP-safe native MathML without KaTeX stylesheet or font assets",
+    "Preserve upstream rejected-currency and half-streamed delimiter semantics across the retained npm marked parser",
+    "Force the transcript to its tail when an initial or recovered connection becomes live without discarding transcript windowing",
     "Window a long transcript to its tail behind a Show earlier control that reveals older entries without moving the reader",
     "Defer the first transcript render until the guest snapshot completes and keep it mounted across reconnects (Session exported for coverage)"
   ]

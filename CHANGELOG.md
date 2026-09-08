@@ -6,8 +6,29 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.3.0-prealpha.3] — 2026-09-08
+
+### Changed
+
+- Refresh the engineering OMP baseline to exact v18.1.14, including the standalone controller/publisher
+  patch, wire package, browser source, native hashes, and Bun 1.4.0 toolchain. Published v0.2.1 and
+  v0.3.0-prealpha.2 retain their original v17.4.1 evidence; no qualification transfers.
+- Carry upstream native-MathML rendering and reconnect tail recovery into the pinned client, without
+  KaTeX fonts, stylesheets, third-party runtime assets, or changes to the memory-only capability path.
+
 ### Fixed
 
+- Reject browser-normalized unsafe Markdown link schemes, including tab-obfuscated JavaScript links.
+- Repair provenance-rehearsal asset parsing and remove historical qualification claims from prerelease notes.
+- Remove qualification-owned patched-OMP symlinks during Mac cleanup and detect dangling residue.
+- Preserve existing managed-install configuration unless explicitly overridden; malformed configuration
+  fails closed rather than being replaced with defaults.
+- Remove the unshipped standalone client bootstrap and its process-wide React mock, closing the
+  Linux ARM64 test-order leak without changing the shipped embedded client.
+- Derive Mac qualification checks from the exact OMP pin and reject a stale Bun toolchain before
+  host lanes; bind stable promotion to its qualified GitHub Latest predecessor.
+- Align standalone Mac, Linux migration, and rollback helpers with the current candidate and
+  predecessor so a manual invocation cannot silently qualify an obsolete pair.
 - Keep Codecov's project status green across Bun's observed same-tree LCOV variance while retaining
   a blocking project gate for coverage drops beyond the two-point reporter-noise allowance.
 

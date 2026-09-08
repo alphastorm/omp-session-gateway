@@ -1,11 +1,59 @@
 # Release status
 
-**Updated:** 2026-08-29<br>
+**Updated:** 2026-09-08<br>
 **Repository version:** `0.3.0`; unqualified engineering track after **`v0.2.1`**<br>
 **Qualified stable candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
 **Classification:** 0.3.0 is pre-alpha engineering work; published stable `v0.2.1` retains the
 exact qualified combinations below and no broader production claim<br>
 **Stable decision:** **GO, approved for v0.2.1 only**, for the named support boundary and nothing else.
+
+### Current source — OMP v18.1.14 engineering integration
+
+Stable target: **v0.3.0**, using `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled. Publication
+and published-byte provenance verification are pending; the local source evidence below is not
+evidence for a not-yet-published archive.
+
+The current `0.3.0` source targets upstream `v18.1.14` at
+`daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` with its exact gateway patch and pinned browser
+client. This change is not a published release and does not transfer the historical stable matrix.
+Published `v0.3.0-prealpha.2` remains the latest engineering prerelease; `v0.2.1` remains GitHub
+Latest. Their artifacts and v17.4.1 OMP baselines are immutable.
+
+Initial Darwin arm64 engineering proof on 2026-09-08: the exact mbox reconstructed patched tree
+`17f84676442ee103564d01755ed1f76bbc51820e`; 138 focused OMP tests and upstream
+`bun run ci:check:full` passed under Bun 1.4.0. Gateway `bun run check` passed in a clean
+source snapshot (522 tests, both leak scans); all 24 browser regressions passed. A real patched-host
+fixture proved View/read-only, native MathML, retained Ask confirmation with host acknowledgement,
+relay reconnect, and publisher removal. The browser URL stayed query/fragment-free, cookies were
+empty, storage held only the existing guest-name preference, and caches held four immutable shell
+assets. No provider call or live transcript inspection was used. These checks do not qualify Linux,
+Windows, physical Android, background Push, or a stable release.
+
+Subsequent prequalification fixes preserve custom managed-upgrade configuration, remove the
+unshipped standalone bootstrap that polluted React tests, and derive Mac checks from the exact OMP
+pin. The config regression reproduced a reset and malformed-file overwrite, then passed 67 config
+tests, 44 CLI tests, and an isolated real systemd install. The bootstrap order regression reproduced
+12 failures, then passed all 65 remaining client tests and four installed-PWA/BFCache browser cases.
+The stable matrix now also exercises physical View/Control and prompt acknowledgement before its
+forbidden-sink sweep. No signed-candidate matrix result is claimed yet.
+
+The prepublication council also identified browser-normalized unsafe Markdown links, a broken
+provenance-rehearsal tag parser, stale prerelease notes, and dangling Mac cleanup symlinks.
+The Markdown regression failed before correction and passed afterward; real Chromium rendered the
+unsafe label without a link while retaining an ordinary HTTPS link. Physical Pixel 10 Pro /
+Android 17 / Chrome 152.0.7977.75 preflight opened both the native Google Camera capture activity
+and system PhotoPicker, canceled each, and retained usable Control input. No photograph was taken,
+selected, or uploaded. This source-built preflight is not signed-candidate qualification.
+
+The source-built gateway then activated locally as `0.3.0-3d42814812ff` under persistent Bun
+1.4.0. Status was active/ready/non-diverged and doctor passed 17/17. Config, publisher-token,
+Tailscale Serve, and ordinary `omp` bytes/selection were unchanged; the existing live publisher
+repopulated. The verified predecessor `0.3.0-d259ea06c7fe` remains the recorded rollback target
+(lookup checked without activating rollback). `omp-gateway-patched` now runs the exact v18.1.14
+binary, SHA-256 `b0c0f6f80021241df931724fa82d146c814028a3bd8a270aeca64f4d52bfdf13`, with
+source retained at `~/src/oh-my-pi-gateway-v18.1.14`; the old patched binary remains available.
+The installed pair also passed a synthetic Ask acknowledgement and MathML flow through the real
+Tailscale Serve origin, followed by publisher removal. No public release was created.
 
 ### 0.3.0 engineering track — unqualified
 

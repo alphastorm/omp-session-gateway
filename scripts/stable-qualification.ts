@@ -786,12 +786,22 @@ function macEnvironment(
   };
 }
 
-function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
+export function assertMacBuildOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
   for (const expected of [
     `release-info commit:                   ${candidate.sourceCommit}`,
     candidate.archiveSha256,
-    "hardware:                              Mac14,3",
     "doctor                                 17/17 true",
+    `"version":"${pins.version}"`,
+    `"nativeSha256":"${pins.nativeBinarySha256}"`,
+  ]) {
+    if (!output.includes(expected)) throw new Error(`Mac build output missed required evidence: ${expected}`);
+  }
+}
+
+function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
+  assertMacBuildOutput(output, candidate, pins);
+  for (const expected of [
+    "hardware:                              Mac14,3",
     "doctor false checks                    (none)",
     "token bytes in bundle:                 0",
     "login in bundle:                       0",
@@ -800,8 +810,6 @@ function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, 
     "backend at ssh address:                refused",
     "gateway returned after:",
     "20/20 invariants PASS",
-    '"version":"17.4.1"',
-    `"nativeSha256":"${pins.nativeBinarySha256}"`,
   ]) {
     if (!output.includes(expected)) throw new Error(`Mac lifecycle output missed required evidence: ${expected}`);
   }
@@ -898,15 +906,7 @@ async function prepareMacFixture(
     ["omp-clean", "uninstall", "install", "omp-build"],
     45 * 60 * 1_000,
   );
-  for (const expected of [
-    `release-info commit:                   ${candidate.sourceCommit}`,
-    candidate.archiveSha256,
-    "doctor                                 17/17 true",
-    '"version":"17.4.1"',
-    `"nativeSha256":"${pins.nativeBinarySha256}"`,
-  ]) {
-    if (!run.output.includes(expected)) throw new Error(`Mac fixture preparation missed required evidence: ${expected}`);
-  }
+  assertMacBuildOutput(run.output, candidate, pins);
   return run.context;
 }
 
@@ -1082,6 +1082,14 @@ async function runAndroidAcceptance(
   if (!model.startsWith("Pixel ") || androidRelease === "" || buildId === "") {
     throw new Error("physical Android acceptance did not run on an identified Pixel build");
   }
+  const collaboration = await runCommand(
+    [process.execPath, "scripts/android-collab-smoke.ts", context.publicOrigin, options.sessionLabel],
+    { env: androidEnvironment, timeoutMs: 5 * 60 * 1_000, echo: true },
+  );
+  const collaborationSummary = JSON.parse(collaboration.stdout) as Record<string, unknown>;
+  for (const field of ["viewReadOnly", "controlWritable", "promptAccepted", "returnedToDirectory"] as const) {
+    if (collaborationSummary[field] !== true) throw new Error(`physical Android collaboration missed ${field}`);
+  }
   const leak = await runCommand(
     [process.execPath, "scripts/android-leak-sweep.ts", context.publicOrigin, options.sessionLabel],
     { env: androidEnvironment, timeoutMs: 5 * 60 * 1_000, echo: true },
@@ -1102,6 +1110,7 @@ async function runAndroidAcceptance(
     airplaneRecoveredMs: summary.airplaneRecoveredMs,
     dozeRecoveredMs: summary.dozeRecoveredMs,
     acceptanceOutputSha256: sha256(`${acceptance.stdout}${acceptance.stderr}`),
+    collaboration: collaborationSummary,
     leakSweepOutputSha256: sha256(leakOutput),
     forbiddenSinkSweep: "7/7 detectable; clean",
   };

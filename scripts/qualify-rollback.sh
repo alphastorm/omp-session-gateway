@@ -43,14 +43,14 @@
 # printed, or copied.
 #
 # Usage:
-#   OMP_ROLLBACK_OLD_TAG=v0.1.0-alpha.1 OMP_ROLLBACK_NEW_TAG=v0.1.0-prealpha.20 \
+#   OMP_ROLLBACK_OLD_TAG=v0.2.1 OMP_ROLLBACK_NEW_TAG=v0.3.0-prealpha.3 \
 #     scripts/qualify-rollback.sh run   # full qualification; prints an invariant table
 #   scripts/qualify-rollback.sh clean   # remove leftover scratch roots from earlier runs
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
-OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.1.0}"
-NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.2.0-prealpha.1}"
+OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.2.1}"
+NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.3.0-prealpha.3}"
 LABEL="omp-session-gateway"
 QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"

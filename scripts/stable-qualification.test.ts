@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import {
+  assertMacBuildOutput,
   assertProtectedFilesUnchanged,
   createReceiptPersister,
   createStableQualificationReceipt,
@@ -77,6 +78,34 @@ describe("stable qualification arguments", () => {
   });
 });
 
+test.skipIf(process.platform === "win32").each([
+  ["qualify-macos-host.sh", 'printf "PAIR:%s -> %s\\n" "$PREVIOUS_TAG" "$TAG"'],
+  ["qualify-rollback.sh", 'printf "PAIR:%s -> %s\\n" "$OLD_TAG" "$NEW_TAG"'],
+  ["provision-linux-qual.sh", 'require_dns_name() { printf fixture.invalid; }; measure() { printf "PAIR:%s\\n" "$2"; exit 0; }; lane_migration'],
+])("standalone %s selects the current qualification pair before effects", async (script, probe) => {
+  const candidate = "v0.3.0-prealpha.3";
+  const child = Bun.spawn(["/bin/bash", "-c", `source "$1"; ${probe}`, "probe", join(REPOSITORY_ROOT, "scripts", script)], {
+    cwd: REPOSITORY_ROOT,
+    env: {
+      ...process.env,
+      OMP_MAC_HOST: "synthetic@example.invalid",
+      OMP_MAC_LOGIN: "synthetic@example.invalid",
+      OMP_MAC_ARCHIVE_SHA256: "a".repeat(64),
+      OMP_MAC_TAG: candidate,
+      OMP_QUAL_RELEASE_TAG: candidate,
+      OMP_MAC_PREVIOUS_TAG: "",
+      OMP_QUAL_PREVIOUS_TAG: "",
+      OMP_ROLLBACK_OLD_TAG: "",
+      OMP_ROLLBACK_NEW_TAG: "",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+  expect(stdout).toContain(`PAIR:${PREVIOUS_TAG} -> ${candidate}`);
+});
+
 describe("shared OMP qualification pin", () => {
   test("parses the exact source, tree, runtime, Bun, and native-byte contract", () => {
     expect(
@@ -102,6 +131,20 @@ OMP_PIN_NATIVE_BINARY_SHA256=${"4".repeat(64)}
   test("fails closed when any pin is absent or malformed", () => {
     expect(() => parseQualificationPins("OMP_PIN_BUN_VERSION=1.3.14\n")).toThrow("pin is invalid");
   });
+});
+
+test("Mac evidence follows the exact OMP pin and rejects a stale build", async () => {
+  const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "patches/oh-my-pi/qualification.env"), "utf8"));
+  const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+  const output = [
+    `release-info commit:                   ${candidate.sourceCommit}`,
+    candidate.archiveSha256,
+    "doctor                                 17/17 true",
+    JSON.stringify({ version: pins.version, nativeSha256: pins.nativeBinarySha256 }),
+  ].join("\n");
+  assertMacBuildOutput(output, candidate, pins);
+  expect(() => assertMacBuildOutput(output.replace(pins.version, "17.4.1"), candidate, pins)).toThrow("version");
+  expect(() => assertMacBuildOutput(output.replace(pins.nativeBinarySha256, "c".repeat(64)), candidate, pins)).toThrow("nativeSha256");
 });
 
 describe("resumable receipt lanes", () => {

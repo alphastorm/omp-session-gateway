@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Check out pinned OMP source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: 9350b7990d26ebf69a604edc82d8558ef04adf30
+          ref: daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Apply and test the Windows OMP publisher
@@ -44,7 +44,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "OMP dependencies failed to install" }
             bun test packages/coding-agent/test/collab/registry-publisher.test.ts
             if ($LASTEXITCODE -ne 0) { throw "OMP Windows publisher tests failed" }
-            bunx tsc --noEmit -p packages/coding-agent/tsconfig.json
+            bun run ci:check:full
             if ($LASTEXITCODE -ne 0) { throw "patched OMP coding-agent typecheck failed" }
           } finally {
             Pop-Location
@@ -232,7 +232,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
       - name: Assert the runner is native aarch64
         run: |
           set -euo pipefail
@@ -273,7 +273,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: 9350b7990d26ebf69a604edc82d8558ef04adf30
+          ref: daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Apply the OMP patch and run its collab fixtures on aarch64
@@ -289,37 +289,22 @@ jobs:
           patch="$GITHUB_WORKSPACE/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
           git apply --check "$patch" ||
             fail "OMP patch does not apply" \
-              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at 9350b799. This is patch/pin drift, not an architecture result."
+              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at daf07999. This is patch/pin drift, not an architecture result."
           git apply "$patch"
-          printf 'patch applied to pin 9350b7990d26ebf69a604edc82d8558ef04adf30\n'
+          printf 'patch applied to pin daf07999c2fee9b22edc7bf8fea1fb6272e0df5e\n'
 
-          # The step most likely to fail for a genuinely architectural reason. UPSTREAM.lock.json
-          # records that `@oh-my-pi/pi-natives` ships per-platform binaries — it is why the vendored
-          # collab client keeps npm `marked` — so a missing linux-arm64 build would surface right
-          # here. That is a finding worth having rather than a reason to skip the lane, which is why
-          # this job attempts the install instead of asserting in a comment that it would work.
-          bun install --frozen-lockfile ||
-            fail "OMP dependencies did not install on linux-arm64" \
-              "bun install --frozen-lockfile failed in the pinned OMP checkout on aarch64. Check whether a per-platform native dependency publishes no linux-arm64 build; that is an architecture finding, not a flake."
+          bun install --frozen-lockfile
 
-          # MEASURED on run 32399852609: of the ten fixtures patches/oh-my-pi/README.md prescribes,
-          # nine fail at import on aarch64 with "Cannot find module pi_natives.linux-arm64.node".
-          # `bun install` succeeds; the pinned OMP release simply publishes no linux-arm64 build of
-          # @oh-my-pi/pi-natives. That is an upstream packaging gap, not a defect in this repository
-          # and not something to paper over, so the list is split by what the gap actually blocks.
+          # v18.1.14 publishes the ARM64 addon. Stage it because the source workspace shadows npm.
+          native_fixture="$(mktemp -d)"
+          trap 'rm -rf "$native_fixture"' EXIT
+          printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-linux-arm64":"18.1.14"}}' >"$native_fixture/package.json"
+          (cd "$native_fixture" && bun install --ignore-scripts)
+          cp "$native_fixture/node_modules/@oh-my-pi/pi-natives-linux-arm64/pi_natives.linux-arm64.node" \
+            packages/natives/native/pi_natives.linux-arm64.node
 
-          # Required. registry-publisher.test.ts is the one fixture that loads without the native
-          # module, and it is also the one that matters most here: it drives the POSIX Unix-socket
-          # owner, mode, and mutual-HMAC paths this project owns. 13/13 passed on aarch64.
-          bun test packages/coding-agent/test/collab/registry-publisher.test.ts ||
-            fail "Patched OMP publisher fixtures failed on aarch64" \
-              "registry-publisher.test.ts failed on linux-arm64. It needs no native module, so this is a real architecture result rather than the known pi-natives packaging gap. Compare against a local run at the same pin."
-
-          # Attempted, not required — but a failure is only tolerated when it is the known native gap.
-          # Any other failure still fails the job, so this cannot silently absorb a genuine aarch64
-          # regression the way a blanket `|| true` would.
-          native_blocked=0
-          if ! bun test packages/coding-agent/test/collab/controller.test.ts \
+          bun test packages/coding-agent/test/collab/registry-publisher.test.ts \
+            packages/coding-agent/test/collab/controller.test.ts \
             packages/coding-agent/test/collab/collab-command-publication.test.ts \
             packages/coding-agent/test/config/collab-settings.test.ts \
             packages/coding-agent/test/collab/guest-ui-request.test.ts \
@@ -328,19 +313,5 @@ jobs:
             packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts \
             packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
             packages/coding-agent/test/session-manager-branch-order.test.ts \
-            packages/coding-agent/test/slash-commands/collab-qrcode.test.ts \
-            >"$RUNNER_TEMP/native-dependent.log" 2>&1; then
-            native_blocked=1
-          fi
-          if [ "$native_blocked" -eq 1 ]; then
-            grep -q 'pi_natives.linux-arm64.node' "$RUNNER_TEMP/native-dependent.log" ||
-              { tail -40 "$RUNNER_TEMP/native-dependent.log"
-                fail "Native-dependent OMP fixtures failed for an unexpected reason on aarch64" \
-                  "These fixtures failed without mentioning pi_natives.linux-arm64.node, so this is not the known upstream packaging gap. Read the tail above before dismissing it."; }
-            printf '::notice::%s\n' "9 OMP collab fixtures cannot run on linux-arm64: the pin publishes no pi_natives.linux-arm64.node. Recorded as an upstream packaging gap; registry-publisher.test.ts passed."
-          else
-            printf '::notice::%s\n' "Native-dependent OMP fixtures now pass on linux-arm64 - the upstream pi-natives gap appears closed. Promote them to the required list above."
-          fi
-          bunx tsc --noEmit -p packages/coding-agent/tsconfig.json ||
-            fail "Patched OMP coding-agent typecheck failed" \
-              "bunx tsc --noEmit -p packages/coding-agent/tsconfig.json failed on linux-arm64."
+            packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
+          bun run ci:check:full

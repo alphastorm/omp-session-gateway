@@ -1,21 +1,15 @@
 import { Marked } from "marked";
 import type { ReactNode } from "react";
 import { memo, useMemo } from "react";
+import { escapeHtml } from "../../lib/format";
+import { mathExtension } from "./math";
 
-function escapeHtml(s: string): string {
-	return s
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
-}
 function unescapeHtml(raw: string): string {
 	const parseCodePoint = (value: number): string => {
 		if (Number.isFinite(value) && value >= 0 && value <= 0x10ffff) {
 			try {
 				return String.fromCodePoint(value);
-			} catch (_) {}
+			} catch {}
 		}
 		return "";
 	};
@@ -49,9 +43,13 @@ function unescapeHtml(raw: string): string {
 }
 function safeHref(href: string): string | null {
 	const trimmed = href.trim();
-	if (/^(?:https?:|mailto:)/i.test(trimmed)) return trimmed;
-	if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null; // unknown scheme (javascript:, data:, …)
-	return trimmed; // relative / fragment
+	try {
+		// Match browser normalization, including tabs/newlines inside a scheme.
+		const { protocol } = new URL(trimmed, "https://relative.invalid/");
+		return protocol === "https:" || protocol === "http:" || protocol === "mailto:" ? trimmed : null;
+	} catch {
+		return null;
+	}
 }
 
 const md = new Marked({
@@ -73,6 +71,7 @@ const md = new Marked({
 	},
 	breaks: true,
 });
+md.use(mathExtension);
 
 export const Markdown = memo(function Markdown({ text }: { text: string }): ReactNode {
 	const html = useMemo(() => {

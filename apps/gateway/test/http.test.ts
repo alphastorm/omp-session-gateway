@@ -841,22 +841,23 @@ describe("HTTP boundary", () => {
     }
   });
 
-  test("rejects query-bearing assets and maps every client route to the PWA shell", async () => {
+  test("rejects query-bearing assets and client routes while mapping clean client routes to the PWA shell", async () => {
     const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const rejected = await handler(request(`/assets/app.0123456789ab.js?token=${viewCapability}`), peer);
     expect(rejected.status).toBe(400);
     expect(rejected.headers.get("Cache-Control")).toContain("no-store");
 
-    for (const clientPath of [
-      "/client/",
-      "/client/?handoff=7a2cadc8-c634-4a4e-9045-bc7001a034a7",
-    ]) {
-      const client = await handler(request(clientPath), peer);
-      expect(client.status).toBe(200);
-      expect(client.headers.get("Cache-Control")).toContain("no-store");
-      expect(await client.text()).toContain("OMP Sessions");
-    }
-    expect((await handler(request("/client/?handoff=not-a-uuid"), peer)).status).toBe(400);
+    const rejectedClient = await handler(
+      request("/client/?handoff=7a2cadc8-c634-4a4e-9045-bc7001a034a7"),
+      peer,
+    );
+    expect(rejectedClient.status).toBe(400);
+    expect(rejectedClient.headers.get("Cache-Control")).toContain("no-store");
+
+    const client = await handler(request("/client/"), peer);
+    expect(client.status).toBe(200);
+    expect(client.headers.get("Cache-Control")).toContain("no-store");
+    expect(await client.text()).toContain("OMP Sessions");
     const update = await handler(request("/update/"), peer);
     expect(update.status).toBe(200);
     expect(update.headers.get("Cache-Control")).toContain("no-store");

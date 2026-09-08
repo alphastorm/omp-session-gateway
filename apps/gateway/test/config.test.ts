@@ -1002,11 +1002,10 @@ describe("production config authoring", () => {
     const written = await writeGatewayConfigFile({
       publicOrigin: "https://gateway.example.ts.net",
       allowedLogins: [" User@Example.COM ", "user@example.com", "Other@example.com"],
-      port: 4319,
     });
     expect(written.http).toEqual({
       hostname: "127.0.0.1",
-      port: 4319,
+      port: 4317,
       publicOrigin: "https://gateway.example.ts.net",
     });
     expect(written.auth.mode).toBe("tailscale-serve");
@@ -1025,6 +1024,85 @@ describe("production config authoring", () => {
       "registry",
     ]);
     expect(await loadGatewayConfig({ configPath: paths.configPath })).toEqual(written);
+  }, 20_000);
+
+  test("preserves supported prior settings unless an install option overrides them", async () => {
+    const paths = await isolatedHome();
+    await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
+    const priorDocument = {
+      http: { hostname: "::1", port: 5432, publicOrigin: "https://old-gateway.example.ts.net" },
+      auth: {
+        mode: "tailscale-serve",
+        allowedLogins: ["prior@example.com"],
+        trustIdentityWithoutTailnetDevice: true,
+      },
+      registry: { heartbeatSeconds: 7, ttlSeconds: 23, maxPublishers: 37, maxSessions: 83 },
+    };
+    const priorText = JSON.stringify(priorDocument) + "\n";
+    await writePrivateTextFile(paths.configPath, priorText);
+
+    const unchanged = await writeGatewayConfigFile({
+      publicOrigin: priorDocument.http.publicOrigin,
+      allowedLogins: priorDocument.auth.allowedLogins,
+    });
+    expect(unchanged.http.port).toBe(5432);
+    expect(unchanged.auth.trustIdentityWithoutTailnetDevice).toBe(true);
+    expect(unchanged.registry).toEqual(priorDocument.registry);
+    expect(await readFile(paths.configPath, "utf8")).toBe(priorText);
+
+    const preserved = await writeGatewayConfigFile({
+      publicOrigin: "https://new-gateway.example.ts.net",
+      allowedLogins: [" New@Example.COM "],
+    });
+    expect(preserved.http).toEqual({
+      hostname: "::1",
+      port: 5432,
+      publicOrigin: "https://new-gateway.example.ts.net",
+    });
+    expect(preserved.auth).toEqual({
+      mode: "tailscale-serve",
+      allowedLogins: ["new@example.com"],
+      trustIdentityWithoutTailnetDevice: true,
+    });
+    expect(preserved.registry).toEqual(priorDocument.registry);
+    expect(JSON.parse(await readFile(paths.configPath, "utf8"))).toEqual({
+      http: preserved.http,
+      auth: preserved.auth,
+      registry: preserved.registry,
+    });
+    if (process.platform !== "win32") expect((await lstat(paths.configPath)).mode & 0o777).toBe(0o600);
+
+    const overridden = await writeGatewayConfigFile({
+      publicOrigin: "https://new-gateway.example.ts.net",
+      allowedLogins: ["new@example.com"],
+      port: 6432,
+    });
+    expect(overridden.http.port).toBe(6432);
+    expect(overridden.auth.trustIdentityWithoutTailnetDevice).toBe(true);
+    expect(overridden.registry).toEqual(priorDocument.registry);
+  }, 20_000);
+
+  test("refuses malformed or unsafe prior config without replacing it", async () => {
+    const paths = await isolatedHome();
+    await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
+    const options = {
+      publicOrigin: "https://gateway.example.ts.net",
+      allowedLogins: ["user@example.com"],
+    } as const;
+    const malformed = "{not valid JSON\n";
+    await writePrivateTextFile(paths.configPath, malformed);
+    await expect(writeGatewayConfigFile(options)).rejects.toThrow();
+    expect(await readFile(paths.configPath, "utf8")).toBe(malformed);
+
+    if (process.platform === "win32") return;
+    const unsafe = JSON.stringify(serveDocument()) + "\n";
+    await writePrivateTextFile(paths.configPath, unsafe);
+    await chmod(paths.configPath, 0o644);
+    await expect(writeGatewayConfigFile(options)).rejects.toThrow(
+      "unsafe private file permissions: " + paths.configPath,
+    );
+    expect(await readFile(paths.configPath, "utf8")).toBe(unsafe);
+    expect((await lstat(paths.configPath)).mode & 0o777).toBe(0o644);
   }, 20_000);
 
   test("refuses an origin or an allowlist it must not persist, and writes nothing when it refuses", async () => {

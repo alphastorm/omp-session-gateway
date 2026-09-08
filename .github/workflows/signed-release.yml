@@ -36,7 +36,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.0
 
       - name: Validate signed release tag and derive its channel
         env:
@@ -63,8 +63,9 @@ jobs:
             candidate_source="$(jq -er '.candidateSourceCommit' STABLE_RELEASE.lock.json)"
             candidate_digest="sha256:$(jq -er '.candidateArchiveSha256' STABLE_RELEASE.lock.json)"
             candidate_previous="$(jq -er '.previousTag' STABLE_RELEASE.lock.json)"
-            if [[ "$candidate_previous" != "v0.2.0" ]]; then
-              echo "Stable 0.2.1 qualification must use v0.2.0 as its rollback predecessor." >&2
+            published_previous="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            if [[ "$candidate_previous" != "$published_previous" ]]; then
+              echo "Qualified rollback predecessor must match GitHub Latest." >&2
               exit 1
             fi
             if ! git merge-base --is-ancestor "$candidate_source" "$GITHUB_SHA"; then
@@ -81,6 +82,7 @@ jobs:
             {
               echo "QUALIFIED_CANDIDATE_TAG=$candidate_tag"
               echo "QUALIFIED_CANDIDATE_SHA256=${candidate_digest#sha256:}"
+              echo "QUALIFIED_PREVIOUS_TAG=$candidate_previous"
             } >> "$GITHUB_ENV"
           fi
           archive="dist/release/omp-session-gateway-$version-bun.tar"
@@ -210,7 +212,7 @@ jobs:
 
           - Source commit: \`$GITHUB_SHA\`
           - OMP baseline: \`$upstream_commit\` (tag $upstream_tag)
-          - Runtime: Bun 1.3.14 or newer
+          - Runtime: Bun 1.4.0 or newer
           - Registry protocol: 1
           - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
@@ -218,14 +220,14 @@ jobs:
             cat > "$notes" <<EOF
           ## v$PACKAGE_VERSION — narrowly supported stable release
 
-          This release supersedes v0.2.0 as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+          This release supersedes $QUALIFIED_PREVIOUS_TAG as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
 
-          ### Highlights since v0.2.0
+          ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Working cards give titles the full row and use one compact uptime, project, and model-slug line without wasteful gaps; the reversible device-local action now says Hide instead of looking destructive.
-          - The all-clear state uses the same compact left-aligned information grid as the directory and no longer repeats counts already present in the masthead.
-          - Long session titles receive a dedicated mobile shell row and cannot collide with Back, Control, or connection state.
-          - Managed installs, status, diagnostics, and CLI help report the true 0.2.1 product version.
+          - Exact patched OMP $upstream_tag integration and Bun 1.4.0 toolchain.
+          - Native MathML formula rendering without external fonts, stylesheets, or a weaker CSP.
+          - Transcript tail recovery when collaboration reconnects; View, Ask, and photo-composer boundaries remain intact.
+          - Managed upgrades preserve existing configuration unless an option is explicitly overridden.
 
           ### Advertised combinations
 
@@ -253,115 +255,25 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.2.0 stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed $QUALIFIED_PREVIOUS_TAG stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
 
           - Source commit: $GITHUB_SHA
           - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
-          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
+          - Runtime: Bun 1.4.0; registry protocol 1; Push API 2
           - Verification: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md
-          EOF
-          elif [[ "$GITHUB_REF_NAME" == *-beta* ]]; then
-            cat > "$notes" <<EOF
-          ## Beta release, qualified for two hosts and one client
-
-          Beta here names a closed release channel, not a stability promise: this release is **not stable or production-qualified**. It is supported only for the combinations recorded at this exact source commit, and only against the exact patched OMP baseline named below. Everything outside that boundary is unqualified, and repository commits remain preferred there.
-
-          ### Advertised combinations
-
-          Unchanged from the published alpha, and advertised only because the ledger at this source commit records the evidence behind each lane.
-
-          | role | combination |
-          |---|---|
-          | host | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 |
-          | host | macOS 26.6.1 arm64 (Mac14,3) |
-          | client | Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro) |
-
-          Nothing outside that table is advertised, and passing a platform permits advertising only that exact platform and version. Per-lane evidence and the qualifying candidate are recorded in [docs/RELEASE_STATUS.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE_STATUS.md) and [docs/COMPATIBILITY.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/COMPATIBILITY.md) at this source commit; this release records its own exact source commit and provenance below.
-
-          ### Required deployment preconditions
-
-          - Run OMP $upstream_tag at $upstream_commit with the patch included in this archive. Stock OMP is not sufficient at any version: the patch carries the collaboration controller, autostart, and registry publication seam the gateway depends on, and an unpatched or differently pinned OMP is unsupported. Paired OMP packaging is not provided; build and activate the versioned omp-gateway-patched executable using [the exact prerequisite route](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
-          - Run Tailscale's **TUN-mode** client. Userspace-networking mode does not establish the listener-identity trust boundary and is refused. Never enable Tailscale Funnel.
-
-          ### Known limitations
-
-          - Android Chrome may require force-stop/reopen after a browser-process network wedge; the PWA keeps bounded retries and opens in-shell help after uninterrupted visible failure, but network-change recovery is not claimed.
-          - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
-          - Windows is implemented and tested but **not advertised**.
-          - Self-hosted or proxied relay modes remain unsupported; Tailscale Serve over tailnet HTTPS is the only supported remote path.
-
-          ### Install or upgrade
-
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
-
-          ### Rollback
-
-          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.2.0\` archive with the deployment's existing origin and allowlist.
-
-          - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
-          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
-          - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
-          EOF
-          elif [[ "$GITHUB_REF_NAME" == *-alpha* ]]; then
-            cat > "$notes" <<EOF
-          ## Alpha point release, qualified for two hosts and one client
-
-          This point release supersedes \`v0.1.0-alpha\` with lifecycle, capability-revocation, notification, and cross-install service hardening. Everything outside the combinations below remains unqualified.
-
-          ### Fixed
-
-          - Registry/SSE admission is atomic and reentrant observer failures cannot interrupt capability revocation.
-          - A stale Web Push delivery cannot delete a concurrently renewed subscription.
-          - A disposed collaboration client restored from Android's back/forward cache returns to the live directory without reusing its capability.
-          - Install, stop, uninstall, and publisher-token rotation fail closed for foreign or unverifiable service ownership.
-          - Launch rate windows are isolated by authenticated identity rather than caller-selected session IDs.
-
-          ### Qualified
-
-          | host | evidence |
-          |---|---|
-          | Debian 13 (trixie) x86-64, systemd 257, kernel 6.12.94+deb13-amd64 | signed-candidate install, upgrade/rollback, readiness, identity isolation, reboot persistence, and uninstall lanes |
-          | macOS 26.6.1 arm64 (Mac14,3) | signed-candidate install, active reinstall, token rotation, identity isolation, reboot persistence, and uninstall |
-
-          Client: Chrome 151.0.7922.171 on Android 17 (Pixel 10 Pro). The advertised hosts and client were last qualified against signed candidate `v0.1.0-prealpha.21`; this release records its own exact source commit and provenance below.
-
-          ### Required deployment precondition
-
-          Run Tailscale's **TUN-mode** client. Userspace-networking mode does not establish the listener-identity trust boundary and is refused. Never enable Tailscale Funnel.
-
-          ### Known limitations
-
-          - Recovery after an abrupt radio transition on Android may require force-stopping Chrome; network-change and reconnect are not proven.
-          - Preview notification detail currently falls back to Session detail because the OMP publisher carries no bounded preview field.
-          - Windows is implemented and tested but **not advertised**.
-          - Self-hosted or proxied relay modes remain unsupported.
-
-          ### Install or upgrade
-
-          Extract \`omp-session-gateway-${PACKAGE_VERSION}-bun.tar\`, then run \`bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com\` with the deployment's real values. Repeat \`--allow\` for additional identities. Active reinstall preserves configuration and the publisher token.
-
-          ### Rollback
-
-          Run \`bun apps/gateway/src/cli.js rollback\` when the predecessor is present in managed installation history. Otherwise reinstall the signed \`v0.2.0\` archive with the deployment's existing origin and allowlist.
-
-          - Source commit: \`$GITHUB_SHA\`
-          - OMP baseline: \`$upstream_commit\` (tag $upstream_tag) with the included patch
-          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2
-          - Verification: [docs/RELEASE.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md)
           EOF
           else
             cat > "$notes" <<EOF
-          ## Engineering test candidate
+          ## Engineering candidate ($OMP_RELEASE_CHANNEL channel)
 
-          This is a signed pre-alpha build from current development source. It is not an advertised or supported successor to v0.2.0, does not replace GitHub Latest, and does not widen the stable support matrix.
+          This is a signed $OMP_RELEASE_CHANNEL build from current development source. It is not an advertised or supported successor to stable v0.2.1, does not replace GitHub Latest, and does not widen the stable support matrix.
 
           ### Changes to test
 
-          - Phone directory polish: compact left-aligned all-clear status, full-width titles, balanced uptime/project/model-slug metadata, and a clear device-local Hide action.
-          - Mobile collaboration shell titles occupy their own row and cannot collide with Back, Control, or connection state.
-          - Managed installs, status, diagnostics, and CLI help report the true 0.2.1 product version.
-          - Other unreleased repository changes are recorded in CHANGELOG.md at this source commit.
+          - Exact OMP v18.1.14 integration: refreshed standalone controller/publisher patch, pinned browser source and wire package, native hashes, and Bun 1.4.0 toolchain.
+          - Native MathML formula rendering without KaTeX fonts, stylesheets, third-party runtime assets, or a weaker CSP.
+          - Transcript tail recovery when a collaboration connection returns live; existing View, Ask, and photo-composer boundaries remain intact.
+          - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
           ### Required OMP prerequisite
 
@@ -370,13 +282,15 @@ jobs:
           ### Qualification boundary
 
           - Source commit: $GITHUB_SHA
-          - Runtime: Bun 1.3.14; registry protocol 1; Push API 2.
+          - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
           - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), and Chrome on the physical Pixel must pass against these exact signed bytes before stable promotion.
           - The Chrome process-wide network wedge remains a disclosed environment limitation; Windows, background Push qualification, Portal Tunnel, and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.2.0 stable archive with the deployment's existing origin and allowlist.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the selected predecessor archive with its matching OMP prerequisite. Gateway rollback does not switch the separately installed OMP executable.
+
+          Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, and registry settings; unchanged configuration bytes are not rewritten.
 
           Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF
@@ -426,6 +340,11 @@ jobs:
           set -euo pipefail
           bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
           if [[ "$RELEASE_IS_LATEST" == "true" ]]; then
+            published_previous="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            if [[ "$published_previous" != "$QUALIFIED_PREVIOUS_TAG" ]]; then
+              echo "GitHub Latest changed after qualification validation; refusing promotion." >&2
+              exit 1
+            fi
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest
           else
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false

@@ -169,11 +169,16 @@ clean() {
     done <<<"$process_ids"
     sleep 1
   fi
+  if [ -L "$symlink" ] && [ "$(readlink "$symlink")" = "$binary" ]; then
+    rm -f "$symlink"
+  fi
   rm -rf "$version_dir" "$omp_root" "$fixture" "$qualification_cwd"
   rm -f "$build_log"
-  local process_count symlink_present source_present
+  local process_count symlink_present=false source_present
   process_count="$( (pgrep -f 'omp-gateway-patched.*--api-key qualification-synthetic-never-sent' || true) | wc -l | tr -d ' ')"
-  symlink_present="$([ -e "$symlink" ] && echo true || echo false)"
+  if [ -e "$symlink" ] || [ -L "$symlink" ]; then
+    symlink_present=true
+  fi
   source_present="$([ -e "$omp_root" ] && echo true || echo false)"
   printf '{"patchedOmpProcessCount":%s,"symlinkPresent":%s,"sourcePresent":%s}\n' \
     "$process_count" "$symlink_present" "$source_present"

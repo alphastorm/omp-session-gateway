@@ -14,7 +14,7 @@ userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every u
 remain unsupported.
 
 The supported OMP procedure is the
-[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
+[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route).
 Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Every participating OMP
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
@@ -24,6 +24,31 @@ retains the same exact v17.4.1 patched OMP prerequisite; use managed gateway rol
 predecessor archive remains in installation history, otherwise reinstall the signed v0.2.0
 archive. Any change to the active OMP binary or symlink remains the separate documented manual
 operation.
+
+## Prospective v0.3.0 qualification
+
+Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle,
+not a supported successor until the new matrix passes. The candidate uses exact patched OMP
+v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
+does not transfer. The retained Mac must have the exact pinned Bun before any host lane runs.
+
+Land the complete candidate changes on `main`, confirm the final source commit, then create and
+push the signed annotated candidate tag at that commit. From the clean published Darwin-arm64
+checkout, run:
+
+```sh
+bun run qualify:stable --tag v0.3.0-prealpha.3
+```
+
+Review every lane in the passed receipt before updating `STABLE_RELEASE.lock.json`. The stable
+workflow requires the qualified predecessor to remain GitHub Latest, rechecks it immediately before
+promotion, and byte-compares the stable runtime against the signed candidate. Do not publish bare
+`v0.3.0` with the historical v0.2.1 lock. Gateway rollback does not switch the separately installed
+OMP binary; v0.2.1 retains its exact v17.4.1 prerequisite.
+
+Managed candidate upgrades retain hostname, omitted port, identity-trust, and registry settings.
+Continue supplying the production origin and allowlist on both installation and upgrade; unchanged
+configuration bytes are not rewritten.
 
 ## Release gates
 
@@ -52,7 +77,8 @@ environment limitation: after 45 uninterrupted visible failure seconds, the load
 retry and force-stop/reopen help without a third-party probe or a claim that JavaScript repaired
 Chrome.
 
-Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
+The historical v0.2.1 qualification ran this sequence from its clean, published Darwin-arm64 branch
+(use the prospective v0.3.0 command above for current source):
 
 ```sh
 bun run qualify:stable --tag v0.2.1-prealpha.2
@@ -60,7 +86,7 @@ bun run qualify:stable --tag v0.2.1-prealpha.2
 
 The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, stable-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
 
-The receipt resumes only for the same candidate, exact orchestrator commit, and v0.2.0 rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
+The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 
 Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked; concurrent invocations can dispatch two billed Debian runs and contend for the retained Mac.
 
@@ -86,7 +112,10 @@ origin. The Android qualification PIN stays in the documented macOS Keychain ser
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
 fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
 
-For the current stable, run:
+For the current stable, run from the `v0.2.1` checkout with its own Bun and OMP pins.
+Current engineering source uses Bun 1.4.0 and OMP v18.1.14; do not mix those bytes with this
+historical stable smoke:
+
 
 ```sh
 bunx bun@1.3.14 run smoke:release -- \
