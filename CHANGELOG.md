@@ -18,6 +18,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Reject browser-normalized unsafe Markdown link schemes, including tab-obfuscated JavaScript links.
+- Repair provenance-rehearsal asset parsing and remove historical qualification claims from prerelease notes.
+- Remove qualification-owned patched-OMP symlinks during Mac cleanup and detect dangling residue.
 - Preserve existing managed-install configuration unless explicitly overridden; malformed configuration
   fails closed rather than being replaced with defaults.
 - Remove the unshipped standalone client bootstrap and its process-wide React mock, closing the

@@ -37,6 +37,14 @@ tests, 44 CLI tests, and an isolated real systemd install. The bootstrap order r
 The stable matrix now also exercises physical View/Control and prompt acknowledgement before its
 forbidden-sink sweep. No signed-candidate matrix result is claimed yet.
 
+The prepublication council also identified browser-normalized unsafe Markdown links, a broken
+provenance-rehearsal tag parser, stale prerelease notes, and dangling Mac cleanup symlinks.
+The Markdown regression failed before correction and passed afterward; real Chromium rendered the
+unsafe label without a link while retaining an ordinary HTTPS link. Physical Pixel 10 Pro /
+Android 17 / Chrome 152.0.7977.75 preflight opened both the native Google Camera capture activity
+and system PhotoPicker, canceled each, and retained usable Control input. No photograph was taken,
+selected, or uploaded. This source-built preflight is not signed-candidate qualification.
+
 The source-built gateway then activated locally as `0.3.0-3d42814812ff` under persistent Bun
 1.4.0. Status was active/ready/non-diverged and doctor passed 17/17. Config, publisher-token,
 Tailscale Serve, and ordinary `omp` bytes/selection were unchanged; the existing live publisher

@@ -15,6 +15,7 @@
   "observedAt": "2026-09-08",
   "bunVersion": "1.4.0",
   "localPatches": [
+    "Validate Markdown link schemes through the browser URL parser, including control-character normalization",
     "Direct in-memory App capability prop; no capability URL/hash writes",
     "Installed-PWA same-document mount through a reusable in-memory bootstrap",
     "Return to the gateway directory on leave or reload",

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -69,6 +69,80 @@ ${runStep(step)}
     await rm(root, { recursive: true, force: true });
   }
 }
+
+async function emitCandidateNote(
+  channel: "pre-alpha" | "alpha" | "beta",
+  tag: string,
+): Promise<{ code: number; note: string; stderr: string }> {
+  const root = await mkdtemp(join(tmpdir(), "omp-release-notes-"));
+  try {
+    const child = Bun.spawn([
+      "bash",
+      "-c",
+      `
+gh() {
+  if [ "$1 $2" = "release view" ]; then return 1;
+  elif [ "$1 $2" = "release create" ]; then return 0;
+  else return 91; fi
+}
+bun() { return 0; }
+jq() {
+  if [ "$2" = ".commit" ]; then printf "%s\n" "${"a".repeat(40)}";
+  elif [ "$2" = ".tag" ]; then printf "%s\n" "v18.1.14";
+  else return 92; fi
+}
+${runStep("Create complete draft release")}
+`,
+    ], {
+      cwd: root,
+      env: {
+        ...process.env,
+        RUNNER_TEMP: root,
+        GITHUB_SHA: "a".repeat(40),
+        GITHUB_REPOSITORY: "example/gateway",
+        GITHUB_REF_NAME: tag,
+        OMP_RELEASE_CHANNEL: channel,
+        PACKAGE_VERSION: "0.3.0",
+        ARCHIVE_PATH: join(root, "archive.tar"),
+        SBOM_PATH: join(root, "sbom.json"),
+        CHECKSUM_PATH: join(root, "SHA256SUMS"),
+        RELEASE_IS_PRERELEASE: "true",
+      },
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    const note = await readFile(join(root, "release-notes.md"), "utf8");
+    return { code, note, stderr };
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test.skipIf(process.platform === "win32")("candidate channels emit one conservative channel-truthful note", async () => {
+  const channels = [
+    ["alpha", "v0.3.0-alpha.1"],
+    ["beta", "v0.3.0-beta.1"],
+    ["pre-alpha", "v0.3.0-prealpha.1"],
+  ] as const;
+  const normalizedNotes: string[] = [];
+  for (const [channel, tag] of channels) {
+    const emitted = await emitCandidateNote(channel, tag);
+    expect(emitted.code, emitted.stderr).toBe(0);
+    expect(emitted.note).toContain(`## Engineering candidate (${channel} channel)`);
+    expect(emitted.note).toContain(`This is a signed ${channel} build from current development source.`);
+    expect(emitted.note).toContain("Historical platform evidence does not transfer.");
+    expect(emitted.note).not.toContain("qualified for two hosts and one client");
+    expect(emitted.note).not.toContain("last qualified against signed candidate");
+    expect(emitted.note).not.toContain("reinstall the signed `v0.2.0` archive");
+    normalizedNotes.push(
+      emitted.note
+        .replace(`Engineering candidate (${channel} channel)`, "Engineering candidate (CHANNEL channel)")
+        .replace(`signed ${channel} build`, "signed CHANNEL build"),
+    );
+  }
+  expect(new Set(normalizedNotes).size).toBe(1);
+});
 
 test.skipIf(process.platform === "win32")("stable admission accepts the qualified current predecessor, not a hardcoded release", async () => {
   const accepted = await exerciseGate("Validate signed release tag and derive its channel", "v0.2.1");

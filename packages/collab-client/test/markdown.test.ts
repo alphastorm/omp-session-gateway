@@ -8,6 +8,17 @@ function renderMarkdown(text: string): string {
 }
 
 describe("transcript Markdown", () => {
+  test("rejects unsafe schemes after browser URL normalization", () => {
+    for (const href of ["javascript:alert(1)", "java\tscript:alert(1)", "data:text/html,probe"]) {
+      const html = renderMarkdown(`[probe](<${href}>)`);
+      expect(html).toContain("probe");
+      expect(html).not.toContain("<a ");
+    }
+    for (const href of ["https://example.com/x", "mailto:user@example.com", "/sessions", "#tail"]) {
+      expect(renderMarkdown(`[probe](${href})`)).toContain(`href="${href}"`);
+    }
+  });
+
   test("preserves assistant soft line breaks for tree-shaped prose", () => {
     const html = renderMarkdown(
       "요청 요지\n├── 현재 collab guest는 텍스트 prompt는 보낼 수 있음\n└── 빠진 것은 guest → host 방향의 이미지 업로드/첨부 입력 경로임",

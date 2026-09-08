@@ -23,6 +23,8 @@ the pure delimiter grammar from `@oh-my-pi/pi-utils` `18.1.14` at the same commi
 that package's native dependency closure. Initial and recovered `live` transitions return the main
 transcript to its tail, while the compact agent transcript remains independent. Upstream's retired
 `inspect_image` renderer is removed.
+Markdown links use the browser URL parser before the HTTP(S)/mailto allowlist, preventing
+control-character-obfuscated unsafe schemes while retaining relative links and fragments.
 
 Long histories no longer stall the first paint. The transcript waits behind a `loading transcript…`
 placeholder until the guest snapshot completes, then mounts only its newest 150 entries; a
