@@ -781,6 +781,7 @@ describe("private text files", () => {
     const root = await privateRoot();
     const path = join(root, "push-state.json");
     await writeFile(path, "world-readable original\n", { mode: 0o644 });
+    if (process.platform !== "win32") await chmod(path, 0o644);
     await writePrivateTextFile(path, "replacement\n");
     expect(await readFile(path, "utf8")).toBe("replacement\n");
     if (process.platform !== "win32") expect((await lstat(path)).mode & 0o777).toBe(0o600);
@@ -815,6 +816,7 @@ describe("config snapshot restore", () => {
     if (process.platform === "win32") return;
     const permissive = join(root, "permissive.json");
     await writeFile(permissive, "{}\n", { mode: 0o644 });
+    await chmod(permissive, 0o644);
     await expect(captureGatewayConfigFile(permissive)).rejects.toThrow(
       `unsafe private file permissions: ${permissive}`,
     );
@@ -848,6 +850,7 @@ describe("config snapshot restore", () => {
     if (process.platform === "win32") return;
     const directory = join(await privateRoot(), "config");
     await mkdir(directory, { mode: 0o755 });
+    await chmod(directory, 0o755);
     const path = join(directory, "config.json");
     await expect(restoreGatewayConfigFile({ path, content: "{}\n" })).rejects.toThrow(
       `unsafe private directory: ${directory}`,
