@@ -9,15 +9,24 @@ exact qualified combinations below and no broader production claim<br>
 
 ### Current source — OMP v18.1.14 engineering integration
 
-Stable target: **v0.3.0**, using `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled. Publication
-and published-byte provenance verification are pending; the local source evidence below is not
-evidence for a not-yet-published archive.
+Stable target: **v0.3.0**, using published `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled.
+Release run [34254684458](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254684458)
+passed at source `2c89d8280059a2bb638901d413df44b35593ddd4`. Archive SHA-256:
+`05c8a8f4001612d7e10c52139bf5b7aa53dca42e64fa2c262592cf6c4d932ec5`.
+The independent artifact lane verified the signed tag, six asset digests, checksums, three GitHub
+attestations, and three Sigstore bundles. Stable `v0.2.1` remains GitHub Latest.
+
+The first Debian run [34254831201](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254831201)
+failed when upstream coding-agent `tsgo` was killed (exit 137) on the 4 GiB host. Droplet and
+ephemeral SSH-key teardown passed; no Mac lane began. The unchanged exact patched OMP/Bun check
+then passed in a two-CPU local Linux container capped at 6 GiB, with peak memory 4,186,173,440 bytes
+and no OOM events. Qualification defaults now reserve 8 GiB on two CPUs; the 50-minute deadline
+and always-run teardown remain unchanged. This is a tooling correction, not changed candidate bytes.
 
 The current `0.3.0` source targets upstream `v18.1.14` at
 `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` with its exact gateway patch and pinned browser
-client. This change is not a published release and does not transfer the historical stable matrix.
-Published `v0.3.0-prealpha.2` remains the latest engineering prerelease; `v0.2.1` remains GitHub
-Latest. Their artifacts and v17.4.1 OMP baselines are immutable.
+client. The published candidate does not inherit the historical stable matrix. Prior engineering
+and stable artifacts retain their original v17.4.1 OMP baselines unchanged.
 
 Initial Darwin arm64 engineering proof on 2026-09-08: the exact mbox reconstructed patched tree
 `17f84676442ee103564d01755ed1f76bbc51820e`; 138 focused OMP tests and upstream

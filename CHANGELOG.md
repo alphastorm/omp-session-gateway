@@ -6,6 +6,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+- Give full patched-OMP qualification 8 GiB of RAM after the unchanged upstream TypeScript check
+  exhausted the 4 GiB host; retain two CPUs, bounded execution, and mandatory teardown.
+
 ## [v0.3.0-prealpha.3] — 2026-09-08
 
 ### Changed

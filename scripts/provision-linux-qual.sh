@@ -51,7 +51,7 @@
 # §10 for the import procedure; no OpenRC service backend is implemented here and none should be
 # inferred from this lane passing.
 #
-# Cost. One `s-1vcpu-2gb` droplet, one fixed name, reused rather than duplicated. The EXIT trap
+# Cost. One `s-2vcpu-8gb-amd` droplet, one fixed name, reused rather than duplicated. The EXIT trap
 # always reprints the destroy command, because the only way this lane becomes expensive is by being
 # forgotten. An imported custom image is a *second* billable resource and `destroy` deliberately does
 # not delete it, so `destroy` lists every user image in the account and names the delete command.
@@ -81,7 +81,7 @@ readonly REPO_SLUG="alphastorm/omp-session-gateway"
 readonly TAILNET_TAG="${OMP_QUAL_TAG:-tag:omp-session-gateway}"
 readonly DROPLET_NAME="${OMP_QUAL_NAME:-omp-gateway-qual}"
 readonly DROPLET_REGION="${OMP_QUAL_REGION:-sfo3}"
-readonly DROPLET_SIZE="${OMP_QUAL_SIZE:-s-1vcpu-2gb}"
+readonly DROPLET_SIZE="${OMP_QUAL_SIZE:-s-2vcpu-8gb-amd}"
 readonly DROPLET_IMAGE="${OMP_QUAL_IMAGE:-debian-13-x64}"
 readonly SSH_KEY_ID="${OMP_QUAL_SSH_KEY_ID:-11924832}"
 readonly QUAL_USER="${OMP_QUAL_USER:-ompqual}"

@@ -633,7 +633,7 @@ export async function qualifyDebian(
         "-f",
         "lanes=",
         "-f",
-        "droplet_size=s-2vcpu-4gb",
+        "droplet_size=s-2vcpu-8gb-amd",
       ]);
     }
     discovered ??= await waitForDebianRun(qualificationRef, dispatchId, receipt.orchestratorCommit, runtime);

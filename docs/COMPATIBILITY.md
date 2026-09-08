@@ -3,14 +3,14 @@
 ## Current claim
 
 **Current source:** gateway `0.3.0` targets exact patched OMP `v18.1.14`; this is an
-engineering integration prepared for `v0.3.0-prealpha.3` (publication pending), the qualification vehicle for stable **v0.3.0**, not a new stable qualification. Upstream now publishes
+engineering integration published as `v0.3.0-prealpha.3`, the qualification vehicle for stable **v0.3.0**, not a new stable qualification. Upstream now publishes
 `pi-natives-linux-arm64@18.1.14`; the current source-checkout lane stages that addon and requires
 its native-dependent fixtures, but no Linux ARM64 runtime qualification is claimed here.<br>
 **Current stable release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
 **Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
-**Engineering release:** published `v0.3.0-prealpha.2` adds explicit direct-camera and
-existing-photo choices to the phone photo composer and has only the exact local
-Darwin/desktop/Pixel-viewport smoke recorded below; none of the stable evidence transfers.<br>
+**Engineering release:** published `v0.3.0-prealpha.3` adds exact OMP v18.1.14, MathML, reconnect
+tail recovery, and release corrections to the phone photo work. Signed provenance passed; the
+first Debian attempt stopped at a killed upstream typecheck, and stable qualification remains pending.<br>
 **0.3.0 engineering/qualification predecessor:** published stable `v0.2.1`.<br>
 **v0.2.1 stable campaign rollback predecessor:** published stable `v0.2.0`.<br>
 **Qualification predecessor:** signed stable candidate `v0.2.1-prealpha.2`.<br>
