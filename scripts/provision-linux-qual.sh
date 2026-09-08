@@ -882,7 +882,7 @@ lane_artifact() {
   local tag version archive sbom local_dir asset attestation_mode asset_digest
   tag="${OMP_QUAL_RELEASE_TAG:-}"
   [ -n "$tag" ] ||
-    die "set OMP_QUAL_RELEASE_TAG to the signed candidate tag, for example v0.1.0-prealpha.14"
+    die "set OMP_QUAL_RELEASE_TAG to the signed candidate tag, for example v0.3.0-prealpha.3"
   version="$(release_version)"
   archive="omp-session-gateway-${version}-bun.tar"
   sbom="omp-session-gateway-${version}.spdx.json"
@@ -1499,7 +1499,7 @@ REMOTE
 lane_migration() {
   local previous_tag successor_tag version archive sbom local_dir dns_name
   successor_tag="${OMP_QUAL_RELEASE_TAG:-}"
-  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.1.0-alpha.1}"
+  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.2.1}"
   [ -n "$successor_tag" ] || die "set OMP_QUAL_RELEASE_TAG to the successor candidate tag"
 
   step "Lane 4: explicit upgrade and rollback"

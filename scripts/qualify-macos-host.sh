@@ -57,13 +57,13 @@
 #     so it needs a physically accessible Mac.
 #
 # Usage:
-#   OMP_MAC_HOST=user@host OMP_MAC_TAG=v0.1.0-prealpha.21 OMP_MAC_ARCHIVE_SHA256=<sha256> scripts/qualify-macos-host.sh [lane...]
+#   OMP_MAC_HOST=user@host OMP_MAC_TAG=v0.3.0-prealpha.3 OMP_MAC_ARCHIVE_SHA256=<sha256> scripts/qualify-macos-host.sh [lane...]
 #
 # Environment:
 #   OMP_MAC_HOST           required, ssh destination (`user@host`)
 #   OMP_MAC_TAG            required, signed release tag to qualify
 #   OMP_MAC_ARCHIVE_SHA256 required, exact lowercase archive digest verified by the orchestrator
-#   OMP_MAC_PREVIOUS_TAG   optional, exact predecessor for rollback; defaults to v0.1.0-beta.1
+#   OMP_MAC_PREVIOUS_TAG   optional, exact predecessor for rollback; defaults to v0.2.1
 #   OMP_MAC_LOGIN          required, tailnet login to allowlist
 #   OMP_MAC_SUDO_PW        optional, sudo password piped to `sudo -S`; omit if sudo is passwordless
 #   OMP_MAC_SSH_KEY        optional, identity file
@@ -87,7 +87,7 @@ die() {
 
 readonly HOST="${OMP_MAC_HOST:-}"
 readonly TAG="${OMP_MAC_TAG:-}"
-readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.1.0}"
+readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.2.1}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly EXPECTED_ARCHIVE_SHA256="${OMP_MAC_ARCHIVE_SHA256:-}"
 readonly SESSION_LABEL="${OMP_MAC_SESSION_LABEL:-omp-stable-pixel-qualification}"

@@ -24,6 +24,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
   Linux ARM64 test-order leak without changing the shipped embedded client.
 - Derive Mac qualification checks from the exact OMP pin and reject a stale Bun toolchain before
   host lanes; bind stable promotion to its qualified GitHub Latest predecessor.
+- Align standalone Mac, Linux migration, and rollback helpers with the current candidate and
+  predecessor so a manual invocation cannot silently qualify an obsolete pair.
 - Keep Codecov's project status green across Bun's observed same-tree LCOV variance while retaining
   a blocking project gate for coverage drops beyond the two-point reporter-noise allowance.
 
