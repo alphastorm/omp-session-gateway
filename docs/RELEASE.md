@@ -14,7 +14,7 @@ userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every u
 remain unsupported.
 
 The supported OMP procedure is the
-[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#supported-01-prerequisite-route-linux-and-macos).
+[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route).
 Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Every participating OMP
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
@@ -86,7 +86,10 @@ origin. The Android qualification PIN stays in the documented macOS Keychain ser
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
 fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
 
-For the current stable, run:
+For the current stable, run from the `v0.2.1` checkout with its own Bun and OMP pins.
+Current engineering source uses Bun 1.4.0 and OMP v18.1.14; do not mix those bytes with this
+historical stable smoke:
+
 
 ```sh
 bunx bun@1.3.14 run smoke:release -- \

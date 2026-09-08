@@ -6,15 +6,15 @@ workspace roots in the distributed `bun.lock`; development-only packages are not
 package integrity values are preserved in `bun.lock` and `SBOM.spdx.json`; `release-info.json`
 records the SHA-256 of the distributed lockfile.
 
-The npm packages listed below are not locally modified. Bun 1.3.14 bundles their imported runtime
+The npm packages listed below are not locally modified. Bun 1.4.0 bundles their imported runtime
 code into either the gateway executable or the web assets. Their distributed license notices,
 source locations, and required attributions are included at the stated archive paths.
 
 ## Bundled runtime dependencies
 
-### @oh-my-pi/pi-wire@17.4.1
+### @oh-my-pi/pi-wire@18.1.14
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/v17.4.1/packages/wire>
+- Source: <https://github.com/can1357/oh-my-pi/tree/v18.1.14/packages/wire>
 - License: MIT
 - Copyright: Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/runtime/@oh-my-pi__pi-wire/LICENSE`
@@ -46,6 +46,13 @@ source locations, and required attributions are included at the stated archive p
 - License: BSD-3-Clause
 - Copyright: Copyright (c) 2013, GoInstant Inc., a salesforce.com company
 - License text: `licenses/runtime/buffer-equal-constant-time/LICENSE`
+
+### commander@15.0.0
+
+- Source: <https://github.com/tj/commander.js/tree/v15.0.0>
+- License: MIT
+- Copyright: Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>
+- License text: `licenses/runtime/commander/LICENSE`
 
 ### debug@4.4.3
 
@@ -96,6 +103,12 @@ source locations, and required attributions are included at the stated archive p
 - Copyright: Copyright (c) 2013 Brian J. Brennan
 - License text: `licenses/runtime/jws/LICENSE`
 
+### katex@0.18.5
+
+- Source: <https://github.com/KaTeX/KaTeX/tree/v0.18.5>
+- License: MIT
+- Copyright: Copyright (c) 2013-2020 Khan Academy and other contributors
+- License text: `licenses/runtime/katex/LICENSE`
 
 ### lucide-react@1.31.0
 
@@ -181,25 +194,29 @@ source locations, and required attributions are included at the stated archive p
 
 ### @oh-my-pi/collab-web@16.3.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/9350b7990d26ebf69a604edc82d8558ef04adf30/packages/collab-web>
-- Pinned source: tag `v17.4.1`, commit `9350b7990d26ebf69a604edc82d8558ef04adf30`
+- Source: <https://github.com/can1357/oh-my-pi/tree/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/collab-web>
+- Additional source: `@oh-my-pi/pi-utils@18.1.14` delimiter grammar from
+  <https://github.com/can1357/oh-my-pi/blob/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/utils/src/math-delimiters.ts>
+- Pinned source: tag `v18.1.14`, commit `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/collab-web/LICENSE`
 - Distributed code: `apps/web/dist/assets/collab-client.<content-hash>.js` and
   `apps/web/dist/assets/collab-client.<content-hash>.css`
-- Local modifications: direct in-memory capability input with no capability URL/hash writes;
-  one-time same-origin `MessageChannel` bootstrap; secret-free direct-entry, reload, and BFCache
-  recovery; fresh relay transport after mobile foreground and online transitions; generation-bound
-  send queues with a fresh hello before application frames; exact-optional typing for view links;
-  and redaction of invalid capability input from collaboration-link errors.
+- Local modifications: memory-only capability bootstrap with no URL/hash/storage writes; embedded
+  gateway chrome and sole Ask-aware composer; strict read-only mutation guards; photo capture,
+  metadata stripping, bounds, volatile previews, transcript acknowledgements, and retry; foreground,
+  online, relay-room, and gateway-health transport recovery; generation-bound sends with fresh hello;
+  long-transcript windowing; exact-optional view-link typing; and redacted capability errors. The pure
+  delimiter grammar is vendored instead of adding `@oh-my-pi/pi-utils` and its native dependency
+  closure; the renderer retains the existing npm `marked` integration.
 
 ## Distributed OMP integration patch
 
-### @oh-my-pi/pi-coding-agent patch@17.4.1
+### @oh-my-pi/pi-coding-agent patch@18.1.14
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/9350b7990d26ebf69a604edc82d8558ef04adf30/packages/coding-agent>
-- Pinned source: tag `v17.4.1`, commit `9350b7990d26ebf69a604edc82d8558ef04adf30`
+- Source: <https://github.com/can1357/oh-my-pi/tree/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/coding-agent>
+- Pinned source: tag `v18.1.14`, commit `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/oh-my-pi/LICENSE`

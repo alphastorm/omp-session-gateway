@@ -6,6 +6,16 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.3.0-prealpha.3] — 2026-09-08
+
+### Changed
+
+- Refresh the engineering OMP baseline to exact v18.1.14, including the standalone controller/publisher
+  patch, wire package, browser source, native hashes, and Bun 1.4.0 toolchain. Published v0.2.1 and
+  v0.3.0-prealpha.2 retain their original v17.4.1 evidence; no qualification transfers.
+- Carry upstream native-MathML rendering and reconnect tail recovery into the pinned client, without
+  KaTeX fonts, stylesheets, third-party runtime assets, or changes to the memory-only capability path.
+
 ### Fixed
 
 - Keep Codecov's project status green across Bun's observed same-tree LCOV variance while retaining

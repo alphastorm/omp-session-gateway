@@ -474,6 +474,14 @@ exact alpha/beta builds also passed symlink/version/config reversal. This proves
 manual primitive; it does not create a coupled gateway/OMP updater or weaken the paired-packaging
 deferral.
 
+**Engineering baseline update (2026-09-08):** Accept exact upstream v18.1.14
+(`daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`) plus the refreshed standalone gateway patch for
+the current 0.3.0 source. Reuse the maintained downstream collaboration series and preserve the
+gateway-only encrypted health/acknowledgement seam. The versioned build, in-memory client
+bootstrap, manual rollback, stock-OMP exclusion, and paired-packaging deferral remain unchanged.
+This supersedes the source baseline only: published v0.2.1 qualification stays bound to v17.4.1;
+v18.1.14 needs its own exact evidence before a stable claim.
+
 ## ADR-025 — Publish stable 0.1 against a narrow matrix and bound browser-process failure
 
 **Status:** Accepted

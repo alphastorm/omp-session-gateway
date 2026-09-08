@@ -21,11 +21,11 @@ const DEFAULT_RELAY_HEALTH_URL = "https://my.omp.sh";
 /**
  * Expected upstream identity of the shipped compatibility artifacts. These duplicate
  * `UPSTREAM.lock.json` deliberately: the check exists to notice a tampered or mismatched lock, so
- * reading the expectation out of the same file would make it tautological. `pin contract` in
- * `apps/gateway/test/doctor.test.ts` fails whenever the two drift, so refresh both together.
+ * reading the expectation out of the same file would make it tautological. The doctor test
+ * asserts the observable compatibility report, so refresh these alongside the shipped artifacts.
  */
-export const EXPECTED_UPSTREAM_COMMIT = "9350b7990d26ebf69a604edc82d8558ef04adf30";
-export const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "17.4.1";
+const EXPECTED_UPSTREAM_COMMIT = "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e";
+const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "18.1.14";
 
 function property(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;

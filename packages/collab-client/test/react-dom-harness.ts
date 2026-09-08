@@ -193,6 +193,7 @@ export class MiniElement extends MiniNode {
 export class MiniDocument extends MiniNode {
   override nodeType = 9;
   readonly nodeName = "#document";
+  readonly compatMode = "CSS1Compat";
   readonly documentElement: MiniElement;
   readonly body: MiniElement;
   activeElement: MiniElement | null;

@@ -1,33 +1,48 @@
 # OMP patch handoff
 
 `0001-collab-controller-autostart-registry.patch` is based on OMP commit
-`9350b7990d26ebf69a604edc82d8558ef04adf30` (tag: v17.4.1).
-The artifact is one mbox containing six reviewable commits:
+`daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` (tag: v18.1.14, upstream tree
+`2de2fa56660883822c1b07dc6c754511475c5878`). The artifact is one mbox containing four
+reviewable commits:
 
-- `adbe1d48b` — shared collaboration controller, auto-start, lifecycle, and authenticated registry publisher;
-- `d837e8b71` — bounded, replayable host UI requests retained before a writable guest joins;
-- `d961e5c3c` — generation-scoped `inputRequired` publication;
-- `770003247` — safe response-UI mirroring, race cleanup, and startup ordering;
-- `1564b4a36` — optional encrypted health probes and idempotent response acknowledgement; and
-- `fd8237acb` — publication recovery after transient registry faults.
+- `729f42c4eadfdb0e7841d92e142511dadcf239fb` — shared collaboration controller, auto-start, lifecycle, generation-scoped attention, publication recovery, and authenticated registry publisher;
+- `c47228ffed146e6a82112a351c9a5b4845436ca8` — bounded, replayable host UI requests retained before a writable guest joins;
+- `8174dbe911fbb620b592f634e17d0cf8288eda8d` — safe response-UI mirroring, race cleanup, and startup ordering; and
+- `b56e4da12d00322e54ac80da5da95a8d4d408dd0` — optional encrypted health probes and idempotent response acknowledgement.
 
-Commits one through four and six come from the maintained downstream `gateway-collaboration`
-series in its authoritative order (`0006 → 0002 → 0003 → 0004 → 0007`) on the exact v17.4.1
-base. Commit one preserves upstream's immediate `Closing session…` status and starts its bounded
-slow-close timer before collaboration teardown. Commit six adapts upstream's QR-command fixture to
-assert publication recovery when an already-hosting session runs `/collab`. Commit five is carried
-only here: no `gateway-health` seam
-exists in upstream v17.4.1, but the pinned collab client requires it. `#relayProbeSupported`
-becomes true only when the host sends a seed `gateway-health-pong`; without this commit the
-browser's relay probes never start and relay liveness silently degrades to passive traffic only.
-Re-apply it on every refresh.
+The first three commits reconstruct only the active maintained downstream
+`gateway-collaboration` topic, in authoritative order `0006 → 0002 → 0004`. Their source
+sha256 values are `416856f5abc7ba6fa2e9202ef6520f4cc25150b233abfe353794abe0dd85e79e`,
+`5061a09b0ce4d9703a807b35569b64da5529c0b8c8403e00c0fe8cfd1741da48`, and
+`badb01bb3572bc409b3526dad1d3e325eca28a7696279b33d55925c4b906d481`. Historical
+`0003` (response-required publication) and `0007` (publication recovery) are already folded
+into `0006` and are not re-applied; no unrelated downstream patch is included.
 
-The resulting mbox is 232,346 bytes with sha256
-`abcc8866f76fc82485a42c0ce51ca19aec3b928afcddf0af1c25c35dd10ad4e2`.
-Plain `git am` on pristine v17.4.1 reproduces tree
-`a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`.
+The v18.1.14 reroll restores one existing shutdown-order contract around `0006`. The raw active
+patch awaited controller teardown before displaying upstream's immediate `Closing session…` status,
+which failed `interactive-mode-still-closing.test.ts`. This handoff puts controller cleanup under
+upstream's already bounded slow-close timer, preserving the prior gateway mbox behavior without
+widening the subsystem.
 
-The sixth commit returns to the maintained series as `0007`. It fixes
+Commit four is the standalone `1564b4a3698bb465e912e3273ffb92e401da9e14` lineage carried from
+the previous gateway mbox. Pristine v18.1.14 has the `ui-request-end` grammar and broadcasts that
+frame when an admitted request settles, but `CollabHost.#handleUiResponse` still silently drops a
+duplicate or late response, and no `gateway-health` frame or seed advertisement exists. The carry
+therefore remains required: `#relayProbeSupported` becomes true only after the host sends a seed
+`gateway-health-pong`, and a duplicate writable response receives a targeted idempotent
+`ui-request-end` acknowledgement. Older v3 hosts remain compatible and fall back to passive relay
+traffic.
+
+The resulting mbox is 195,644 bytes with sha256
+`7e11924670c0e703e86ac4e4c0ce7aa52e99c48bb7cf847f58b9318fda08870b`. Plain `git am` on
+pristine v18.1.14 reproduces tree `17f84676442ee103564d01755ed1f76bbc51820e`.
+
+The patched workspace reports `@oh-my-pi/pi-coding-agent@18.1.14`,
+`@oh-my-pi/pi-wire@18.1.14`, `@oh-my-pi/pi-natives@18.1.14`, and
+`@oh-my-pi/collab-web@16.3.6`. Its wire constant remains `COLLAB_PROTO = 3`; the optional
+health frames are an extension of that compatible encrypted channel, not a protocol-major bump.
+
+Publication recovery is folded into the first commit from maintained `0007`. It fixes
 [#61](https://github.com/alphastorm/omp-session-gateway/issues/61): `CollabRegistryPublisher`
 latched publication off in one place and never reset it, and its setup `catch` treated every error
 that was not `ENOENT`/`ECONNREFUSED` as a security event, so a transient token read — `EACCES`,
@@ -39,7 +54,7 @@ healthy. The fix splits the classification rather than widening the retry: a non
 `collab.registryEndpoint` and a world-readable socket raise `PublisherSecurityViolation` and still
 latch, since both are deterministic properties of the machine that no retry can clear, while every
 other setup failure retries with backoff. `publisher.resume()` clears a latch on an explicit manual
-`/collab` only, never on auto-start, and `/collab status` now reports
+`/collab` only, never on auto-start, and `/collab status` reports
 `off`/`publishing`/`retrying`/`disabled` so the state is diagnosable instead of silent.
 
 It:
@@ -56,15 +71,13 @@ It:
 10. bounds and cancels pending publisher handshakes, scrubs mutable key/frame buffers, reconnects with a freshly reread token after gateway replacement or lost heartbeat state, permits an absolute launcher-scoped token path without replacing ambient XDG configuration, and adds controller, metadata, publisher mutual-authentication/squatter-resistance/reconnect, setting-default, session-mutation, retained-request, response-race, health-probe, and startup-ordering tests.
 
 An older v3 host remains joinable and supplies passive relay liveness through ordinary frames, but
-the browser's pending `Sending…` action can converge after reconnect only with commit 5 applied: the
+the browser's pending `Sending…` action can converge after reconnect only with commit 4 applied: the
 host must acknowledge a duplicate or late response after the original request has already settled.
 
 Apply from the OMP repository root:
 
 ```sh
 git apply --check /path/to/0001-collab-controller-autostart-registry.patch
-git apply /path/to/0001-collab-controller-autostart-registry.patch
-# Or preserve the six reviewable commits:
 git am /path/to/0001-collab-controller-autostart-registry.patch
 bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/collab/registry-publisher.test.ts \
@@ -76,46 +89,50 @@ bun test packages/coding-agent/test/collab/controller.test.ts \
   packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts \
   packages/coding-agent/test/interactive-mode-still-closing.test.ts \
   packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
-  packages/coding-agent/test/session-manager-branch-order.test.ts
-bun test packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
+  packages/coding-agent/test/session-manager-branch-order.test.ts \
+  packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
 ```
 
-The v17.4.1 attention-path verification suite covers same-generation metadata refresh and
-protocol-label bounds, generation-scoped nested and concurrent attention leases, pre-writer
-retention, the 64-request admission cap, View exclusion, multi-writer exactly-once settlement,
-symmetric response-race cleanup, mutual authentication, reconnect/token reread,
-explicit-token-path isolation, collaboration-before-hooks ordering, immediate and bounded shutdown
-status, optional read-only health probes, and duplicate response acknowledgement. Run all 122
-focused tests, the complete coding-agent test buckets, `bun run ci:check:full`, and the applicable
-platform lanes against the exact pin before release qualification.
+On Bun 1.4.0, that exact clean reconstruction passed 138 focused tests across the 12 files above
+(628 assertions). They cover same-generation metadata refresh and protocol-label bounds,
+generation-scoped nested and concurrent attention leases, pre-writer retention, the 64-request
+admission cap, View exclusion, multi-writer exactly-once settlement, symmetric response-race
+cleanup, mutual authentication, reconnect/token reread, explicit-token-path isolation,
+collaboration-before-hooks ordering, immediate and bounded shutdown status, optional read-only
+health probes, and duplicate response acknowledgement. `bun run ci:check:full` also passed on the
+clean Darwin arm64 reconstruction; the complete coding-agent test buckets and applicable platform
+lanes remain release gates rather than evidence silently inherited by this refresh.
 
-## Supported 0.1 prerequisite route (Linux and macOS)
+## Current v18.1.14 gateway prerequisite route
 
-Stock OMP v17.4.1 is not sufficient. Until the controller/publication seam lands upstream, every
+Stock OMP v18.1.14 is not sufficient. Until the controller/publication seam lands upstream, every
 OMP process expected to appear automatically must run a binary built from the exact source and
-mbox above. The supported 0.1 route is versioned and deliberately does not overwrite the user's
-ordinary `omp` command:
+mbox above. This is the current v18.1.14 development/support route; the last completed stable
+gateway qualification remains OMP v17.4.1, and none of that historical qualification is transferred
+to this refresh. The route is versioned and deliberately does not overwrite the user's ordinary
+`omp` command:
 
 ```sh
 export GATEWAY_ROOT=/absolute/path/to/omp-session-gateway
-export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v17.4.1"
+export OMP_ROOT="$HOME/src/oh-my-pi-gateway-v18.1.14"
 
-git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
-git -C "$OMP_ROOT" checkout --detach 9350b7990d26ebf69a604edc82d8558ef04adf30
-test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = 9350b7990d26ebf69a604edc82d8558ef04adf30
+git clone --filter=blob:none --branch v18.1.14 --single-branch \
+  https://github.com/can1357/oh-my-pi.git "$OMP_ROOT"
+git -C "$OMP_ROOT" checkout --detach daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
+test "$(git -C "$OMP_ROOT" rev-parse HEAD)" = daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
 git -C "$OMP_ROOT" -c user.name=omp-session-gateway -c user.email=qual@example.invalid \
   am "$GATEWAY_ROOT/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
-test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7
+test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = 17f84676442ee103564d01755ed1f76bbc51820e
 
 (
   cd "$OMP_ROOT"
-  test "$(bun --version)" = 1.3.14
+  test "$(bun --version)" = 1.4.0
   bun install --frozen-lockfile
 
   # Fresh source workspaces shadow the npm package, so stage the exact official native addon.
   native_fixture="$(mktemp -d)"
   trap 'rm -rf "$native_fixture"' EXIT
-  printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives":"17.4.1"}}' \
+  printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives":"18.1.14"}}' \
     > "$native_fixture/package.json"
   (cd "$native_fixture" && bun install)
   case "$(uname -s)-$(uname -m)" in
@@ -127,20 +144,28 @@ test "$(git -C "$OMP_ROOT" rev-parse 'HEAD^{tree}')" = a5cfc80fcc0df1ca6e430c125
       native_package=pi-natives-linux-x64
       native_file=pi_natives.linux-x64-baseline.node
       ;;
+    Linux-aarch64|Linux-arm64)
+      native_package=pi-natives-linux-arm64
+      native_file=pi_natives.linux-arm64.node
+      ;;
     *)
-      echo "unsupported 0.1 build host: $(uname -s)-$(uname -m)" >&2
+      echo "unsupported v18.1.14 build host: $(uname -s)-$(uname -m)" >&2
       exit 1
       ;;
   esac
   cp "$native_fixture/node_modules/@oh-my-pi/$native_package/$native_file" \
     "packages/natives/native/$native_file"
+  if [ "$native_file" = pi_natives.darwin-arm64.node ]; then
+    test "$(shasum -a 256 "packages/natives/native/$native_file" | cut -d' ' -f1)" = \
+      21e96210267275212d9555481d38b48deb37289dc08cab4f9c9f8c74c99675bc
+  fi
 
   bun run ci:check:full
   bun --cwd=packages/coding-agent run build
-  test "$(packages/coding-agent/dist/omp --version)" = omp/17.4.1
+  test "$(packages/coding-agent/dist/omp --version)" = omp/18.1.14
 )
 
-version_dir="$HOME/.local/lib/omp-session-gateway/omp/v17.4.1-a5cfc80f"
+version_dir="$HOME/.local/lib/omp-session-gateway/omp/v18.1.14-17f84676"
 mkdir -p "$version_dir" "$HOME/.local/bin"
 install -m 0755 "$OMP_ROOT/packages/coding-agent/dist/omp" "$version_dir/omp"
 ln -sfn "$version_dir/omp" "$HOME/.local/bin/omp-gateway-patched"
@@ -159,10 +184,20 @@ fi
 The native step consumes OMP's exact official npm package and matching platform addon rather than
 requiring a local Rust toolchain. A fresh workspace shadows that package with `packages/natives`,
 which is why `bun install` alone does not place the `.node` file where the binary builder can embed
-it. `bun setup` remains upstream's source-development route when Rust/Cargo is installed. The beta
-binary path above passed on advertised macOS arm64 and Debian 13 x86-64; Linux
-[run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211)
-also exercised real publication, no-store View/Control launch, revocation, and cleanup.
+it. `bun setup` remains upstream's source-development route when Rust/Cargo is installed. For the
+Darwin arm64 package used in this refresh, the official
+`pi-natives-darwin-arm64-18.1.14.tgz` sha256 is
+`d640ae8ea3679d2b3c6ea89b1b64d978e4cc793212cb67dc8badff10937bc7cc` and its
+`pi_natives.darwin-arm64.node` sha256 is
+`21e96210267275212d9555481d38b48deb37289dc08cab4f9c9f8c74c99675bc`.
+
+The previously recorded macOS arm64 and Debian 13 x86-64 beta evidence, including Linux
+[run `32537603211`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32537603211),
+qualifies the historical v17.4.1 route only. It is intentionally not claimed for v18.1.14. This
+refresh has local Darwin arm64 patch application, focused-test, full-check, and standalone-build
+evidence. The 2026-09-08 isolated real-host Chromium smoke also passed publication, View launch and
+read-only controls, MathML rendering, retained Ask confirmation and host acknowledgement, relay
+reconnect, and publisher removal. Linux, Windows, and physical-device qualification remain outstanding.
 
 Launch sessions that should publish with `omp-gateway-patched`, not stock `omp`. Keep the source
 checkout: its exact commit/tree plus a SHA-256 of the installed binary are the local provenance
@@ -172,12 +207,12 @@ separate OMP executable, so the `readlink`, version, and source-tree assertions 
 For rollback, stop every process launched from `omp-gateway-patched` before changing the symlink;
 running processes retain their original executable and capabilities. Repoint the symlink to a
 previously retained, exact qualified patched version and re-run the source-tree, readlink, version,
-and config assertions. Exact alpha v17.3.8 → beta v17.4.1 → alpha symlink/version/config reversal
-passed in an isolated macOS home; the gateway archive must be restored separately. This is a manual
-primitive, not paired packaging. If returning to stock OMP instead, first set `collab.autoStart` to
-`off`, remove only the `omp-gateway-patched` symlink, and accept that zero-touch gateway enrollment
-is disabled. Never silently point it at an unpatched or loosely versioned binary.
-
+and config assertions. The historical exact alpha v17.3.8 → beta v17.4.1 → alpha
+symlink/version/config reversal passed in an isolated macOS home; the gateway archive must be
+restored separately. This is a manual primitive, not paired packaging. If returning to stock OMP
+instead, first set `collab.autoStart` to `off`, remove only the `omp-gateway-patched` symlink, and
+accept that zero-touch gateway enrollment is disabled. Never silently point it at an unpatched or
+loosely versioned binary.
 On Windows every publisher-token fixture is secured, and the publisher's own token ACL is
 validated, by spawning `powershell.exe`. Hosted runner images have made that spawn cost seconds
 rather than milliseconds, and the first test in `registry-publisher.test.ts` pays two cold starts.
@@ -197,7 +232,7 @@ Discussion: [can1357/oh-my-pi#6460 — Seamlessly connect all oh-my-pi collab se
 | --- | --- |
 | Bounded pending host UI retention (`0002` lineage) | Submitted as [PR #9031](https://github.com/can1357/oh-my-pi/pull/9031) from `alphastorm:contrib/collab-retain-pending-ui`. Published head `c8779270beec79caee25136971f6dfc5d0132fa9` became dirty when upstream advanced. A clean two-commit replacement from exact base `969a94c1eeccb1b7528cd5621934bca1908ab622` is prepared locally at source `a07a2c3f2192bebb2e1c51baae00029188da9f6b` and tip `c80cc9c07c089ae6fe593ddc50085b54a910362a`, pending exact publication authority. The source patch remains behavior-identical; unchanged relevant base files preserve the 4-failure reproduction, while the branch passes 23/23 focused tests, typecheck, Biome, changelog, and whitespace checks. |
 | Controller, auto-start, and registry publisher | Not submitted. It is a new subsystem spanning several packages, which upstream `CONTRIBUTING.md` requires be discussed in Discord *before* implementation; it also overlaps [#6354](https://github.com/can1357/oh-my-pi/pull/6354) and [#6171](https://github.com/can1357/oh-my-pi/issues/6171). |
-| Optional encrypted `gateway-health` probes (commit five) | Not submitted; no upstream seam exists at `v17.4.1`. Flagged in the discussion because it fails inert rather than loudly. |
+| Optional encrypted `gateway-health` probes and duplicate-response acknowledgement (commit four) | Not submitted. Pristine v18.1.14 has `ui-request-end`, but still has neither the health seam nor an acknowledgement for a duplicate or late writable response; the standalone carry remains required. |
 | Gateway daemon, PWA, Tailscale identity, capability broker | Out of scope for upstream by design. |
 
 Do not open an upstream issue for work that is about to be submitted: upstream `CONTRIBUTING.md` treats actionable issues as work its bot may pick up in parallel. Link an existing issue from the pull request instead. Every pull request body must also contain at least one sentence written by the human contributor.

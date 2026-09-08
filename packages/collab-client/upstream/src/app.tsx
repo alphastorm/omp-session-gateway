@@ -312,6 +312,7 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 										activeTools={snap.activeTools}
 										working={snap.working}
 										host={toolHost}
+										phase={snap.phase}
 										suppressAskTool
 									/>
 								) : (
@@ -330,6 +331,7 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 									activeTools={snap.activeTools}
 									working={snap.working}
 									host={toolHost}
+									phase={snap.phase}
 								/>
 							) : (
 								TRANSCRIPT_LOADING
