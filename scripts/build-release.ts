@@ -398,7 +398,7 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
  * signed-release.yml delegates exact tag classification to release-policy.ts and exports one of these
  * keys as OMP_RELEASE_CHANNEL. A tag selects a claim but never writes one. Pre-alpha covers both
  * engineering candidates and provenance exercises; alpha and beta retain their deliberately
- * bounded claims; stable names the supported 0.1 matrix without widening it to stock OMP,
+ * bounded claims; stable names the recorded support matrix without widening it to stock OMP,
  * unadvertised platforms, alternate relays, or browser-process failures outside the PWA.
  */
 export const RELEASE_QUALIFICATIONS = {
@@ -408,7 +408,7 @@ export const RELEASE_QUALIFICATIONS = {
   beta:
     "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
   stable:
-    "qualified stable 0.2; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
+    "qualified stable; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;

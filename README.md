@@ -45,7 +45,8 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 > **Current source: gateway 0.3.0 with patched OMP v18.1.14.**
 > Latest published engineering release: [v0.3.0-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.2),
 > with phone **Take photo** / **Choose existing** actions. The v18.1.14 integration is
-> prepared for `v0.3.0-prealpha.3`; publication is pending and no stable qualification transfers.
+> prepared for `v0.3.0-prealpha.3`, the qualification candidate for stable **v0.3.0**.
+> Candidate publication and the new stable matrix are pending; no historical qualification transfers.
 >
 > **Qualified stable: v0.2.1.**
 > [v0.2.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1) is the

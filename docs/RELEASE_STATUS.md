@@ -9,7 +9,7 @@ exact qualified combinations below and no broader production claim<br>
 
 ### Current source — OMP v18.1.14 engineering integration
 
-Release target: `v0.3.0-prealpha.3`, an engineering prerelease with Latest disabled. Publication
+Stable target: **v0.3.0**, using `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled. Publication
 and published-byte provenance verification are pending; the local source evidence below is not
 evidence for a not-yet-published archive.
 
@@ -19,7 +19,7 @@ client. This change is not a published release and does not transfer the histori
 Published `v0.3.0-prealpha.2` remains the latest engineering prerelease; `v0.2.1` remains GitHub
 Latest. Their artifacts and v17.4.1 OMP baselines are immutable.
 
-Local Darwin arm64 engineering proof on 2026-09-08: the exact mbox reconstructed patched tree
+Initial Darwin arm64 engineering proof on 2026-09-08: the exact mbox reconstructed patched tree
 `17f84676442ee103564d01755ed1f76bbc51820e`; 138 focused OMP tests and upstream
 `bun run ci:check:full` passed under Bun 1.4.0. Gateway `bun run check` passed in a clean
 source snapshot (522 tests, both leak scans); all 24 browser regressions passed. A real patched-host
@@ -28,6 +28,14 @@ relay reconnect, and publisher removal. The browser URL stayed query/fragment-fr
 empty, storage held only the existing guest-name preference, and caches held four immutable shell
 assets. No provider call or live transcript inspection was used. These checks do not qualify Linux,
 Windows, physical Android, background Push, or a stable release.
+
+Subsequent prequalification fixes preserve custom managed-upgrade configuration, remove the
+unshipped standalone bootstrap that polluted React tests, and derive Mac checks from the exact OMP
+pin. The config regression reproduced a reset and malformed-file overwrite, then passed 67 config
+tests, 44 CLI tests, and an isolated real systemd install. The bootstrap order regression reproduced
+12 failures, then passed all 65 remaining client tests and four installed-PWA/BFCache browser cases.
+The stable matrix now also exercises physical View/Control and prompt acknowledgement before its
+forbidden-sink sweep. No signed-candidate matrix result is claimed yet.
 
 The source-built gateway then activated locally as `0.3.0-3d42814812ff` under persistent Bun
 1.4.0. Status was active/ready/non-diverged and doctor passed 17/17. Config, publisher-token,

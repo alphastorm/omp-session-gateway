@@ -470,6 +470,10 @@ export async function writeGatewayConfigFile(options: {
   readonly port?: number;
   readonly mode?: AuthMode;
 }): Promise<GatewayConfig> {
+  const paths = defaultGatewayPaths();
+  const snapshot = await captureGatewayConfigFile(paths.configPath);
+  const priorConfig =
+    snapshot.content === undefined ? undefined : await loadGatewayConfig({ configPath: paths.configPath });
   const mode = options.mode ?? "tailscale-serve";
   const origin = new URL(options.publicOrigin);
   if (origin.origin !== options.publicOrigin || (mode === "tailscale-serve" && origin.protocol !== "https:")) {
@@ -479,14 +483,46 @@ export async function writeGatewayConfigFile(options: {
   if (mode === "tailscale-serve" && allowedLogins.length === 0) {
     throw new Error("at least one allowed Tailscale login is required");
   }
-  const paths = defaultGatewayPaths();
   await assertPrivateDirectory(paths.configDir, true);
   await assertPrivateDirectory(paths.stateDir, true);
-  const configDocument = {
-    http: { hostname: "127.0.0.1", port: validatePort(options.port ?? 4317), publicOrigin: origin.origin },
-    auth: { mode, allowedLogins },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 },
+  const configDocument: Pick<GatewayConfig, "http" | "auth" | "registry"> = {
+    http: {
+      hostname: priorConfig?.http.hostname ?? "127.0.0.1",
+      port: validatePort(options.port ?? priorConfig?.http.port ?? 4317),
+      publicOrigin: origin.origin,
+    },
+    auth: {
+      mode,
+      allowedLogins,
+      ...(priorConfig?.auth.trustIdentityWithoutTailnetDevice === true
+        ? { trustIdentityWithoutTailnetDevice: true }
+        : {}),
+    },
+    registry:
+      priorConfig === undefined
+        ? { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 }
+        : {
+            heartbeatSeconds: priorConfig.registry.heartbeatSeconds,
+            ttlSeconds: priorConfig.registry.ttlSeconds,
+            maxPublishers: priorConfig.registry.maxPublishers,
+            maxSessions: priorConfig.registry.maxSessions,
+          },
   };
+  const authoredConfig = parseConfigObject(configDocument, { ...configDocument, paths });
+  const unchanged =
+    priorConfig !== undefined &&
+    authoredConfig.http.hostname === priorConfig.http.hostname &&
+    authoredConfig.http.port === priorConfig.http.port &&
+    authoredConfig.http.publicOrigin === priorConfig.http.publicOrigin &&
+    authoredConfig.auth.mode === priorConfig.auth.mode &&
+    authoredConfig.auth.allowedLogins.length === priorConfig.auth.allowedLogins.length &&
+    authoredConfig.auth.allowedLogins.every((login, index) => login === priorConfig.auth.allowedLogins[index]) &&
+    authoredConfig.auth.trustIdentityWithoutTailnetDevice === priorConfig.auth.trustIdentityWithoutTailnetDevice &&
+    authoredConfig.registry.heartbeatSeconds === priorConfig.registry.heartbeatSeconds &&
+    authoredConfig.registry.ttlSeconds === priorConfig.registry.ttlSeconds &&
+    authoredConfig.registry.maxPublishers === priorConfig.registry.maxPublishers &&
+    authoredConfig.registry.maxSessions === priorConfig.registry.maxSessions;
+  if (unchanged) return priorConfig;
   await writePrivateTextFile(paths.configPath, `${JSON.stringify(configDocument, null, 2)}\n`);
   return loadGatewayConfig({ configPath: paths.configPath });
 }

@@ -8,6 +8,11 @@ continues running on the same machine. Defaults are `v0.1.0-alpha.1` → `v0.1.0
 This document is the operating manual for that lane. It does not promote any ledger row. Every
 command below prints numbers; the lead decides what those numbers mean.
 
+The prospective v0.3.0 campaign passes explicit tags: `v0.2.1` → `v0.3.0-prealpha.3`.
+Current candidate upgrades preserve existing configuration unless an install option explicitly
+overrides it, including custom registry limits and identity-trust settings. Historical predecessor
+installers retain their original behavior; keep their matching configuration available for recovery.
+
 ## 1. Why rollback needs its own lane
 
 The first-class `omp-gateway rollback` path has live systemd and focused unit coverage. This macOS

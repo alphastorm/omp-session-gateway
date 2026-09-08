@@ -203,7 +203,12 @@ show "hardware" "$(sysctl -n hw.model 2>/dev/null || echo unknown)"
 show "user / shell" "$(whoami) / $SHELL"
 # Same PATH the lanes export. Probing a bare login shell reported `bun: MISSING` on a host where bun
 # was installed and every lane worked, which is a misleading preflight rather than a real finding.
-show "bun" "$(PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
+actual_bun="$(PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
+show "bun" "$actual_bun"
+if [ "$actual_bun" != "$BUN_VERSION" ]; then
+  printf 'Mac qualification requires Bun %s; found %s. Update the retained host before running lanes.\n' "$BUN_VERSION" "$actual_bun" >&2
+  exit 1
+fi
 show "sudo" "$(S true >/dev/null 2>&1 && echo available || echo UNAVAILABLE)"
 REMOTE
 

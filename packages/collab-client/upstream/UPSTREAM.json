@@ -17,7 +17,6 @@
   "localPatches": [
     "Direct in-memory App capability prop; no capability URL/hash writes",
     "Installed-PWA same-document mount through a reusable in-memory bootstrap",
-    "One-time same-origin MessageChannel bootstrap",
     "Return to the gateway directory on leave or reload",
     "Force a fresh relay transport after mobile foreground and online transitions",
     "Recover established guests across bounded relay room replacement",

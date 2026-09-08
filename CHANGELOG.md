@@ -18,6 +18,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Preserve existing managed-install configuration unless explicitly overridden; malformed configuration
+  fails closed rather than being replaced with defaults.
+- Remove the unshipped standalone client bootstrap and its process-wide React mock, closing the
+  Linux ARM64 test-order leak without changing the shipped embedded client.
+- Derive Mac qualification checks from the exact OMP pin and reject a stale Bun toolchain before
+  host lanes; bind stable promotion to its qualified GitHub Latest predecessor.
 - Keep Codecov's project status green across Bun's observed same-tree LCOV variance while retaining
   a blocking project gate for coverage drops beyond the two-point reporter-noise allowance.
 

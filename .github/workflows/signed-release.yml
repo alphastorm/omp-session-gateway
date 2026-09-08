@@ -63,8 +63,9 @@ jobs:
             candidate_source="$(jq -er '.candidateSourceCommit' STABLE_RELEASE.lock.json)"
             candidate_digest="sha256:$(jq -er '.candidateArchiveSha256' STABLE_RELEASE.lock.json)"
             candidate_previous="$(jq -er '.previousTag' STABLE_RELEASE.lock.json)"
-            if [[ "$candidate_previous" != "v0.2.0" ]]; then
-              echo "Stable 0.2.1 qualification must use v0.2.0 as its rollback predecessor." >&2
+            published_previous="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            if [[ "$candidate_previous" != "$published_previous" ]]; then
+              echo "Qualified rollback predecessor must match GitHub Latest." >&2
               exit 1
             fi
             if ! git merge-base --is-ancestor "$candidate_source" "$GITHUB_SHA"; then
@@ -81,6 +82,7 @@ jobs:
             {
               echo "QUALIFIED_CANDIDATE_TAG=$candidate_tag"
               echo "QUALIFIED_CANDIDATE_SHA256=${candidate_digest#sha256:}"
+              echo "QUALIFIED_PREVIOUS_TAG=$candidate_previous"
             } >> "$GITHUB_ENV"
           fi
           archive="dist/release/omp-session-gateway-$version-bun.tar"
@@ -218,14 +220,14 @@ jobs:
             cat > "$notes" <<EOF
           ## v$PACKAGE_VERSION — narrowly supported stable release
 
-          This release supersedes v0.2.0 as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+          This release supersedes $QUALIFIED_PREVIOUS_TAG as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
 
-          ### Highlights since v0.2.0
+          ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Working cards give titles the full row and use one compact uptime, project, and model-slug line without wasteful gaps; the reversible device-local action now says Hide instead of looking destructive.
-          - The all-clear state uses the same compact left-aligned information grid as the directory and no longer repeats counts already present in the masthead.
-          - Long session titles receive a dedicated mobile shell row and cannot collide with Back, Control, or connection state.
-          - Managed installs, status, diagnostics, and CLI help report the true 0.2.1 product version.
+          - Exact patched OMP $upstream_tag integration and Bun 1.4.0 toolchain.
+          - Native MathML formula rendering without external fonts, stylesheets, or a weaker CSP.
+          - Transcript tail recovery when collaboration reconnects; View, Ask, and photo-composer boundaries remain intact.
+          - Managed upgrades preserve existing configuration unless an option is explicitly overridden.
 
           ### Advertised combinations
 
@@ -253,7 +255,7 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed v0.2.0 stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed $QUALIFIED_PREVIOUS_TAG stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
 
           - Source commit: $GITHUB_SHA
           - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
@@ -378,7 +380,7 @@ jobs:
 
           Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the selected predecessor archive with its matching OMP prerequisite. Gateway rollback does not switch the separately installed OMP executable.
 
-          Installation currently rewrites configuration from its flags and documented defaults. Preserve the existing origin, allowlist, and explicit --port; installations with custom registry or identity-trust settings require configuration review before upgrading.
+          Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, and registry settings; unchanged configuration bytes are not rewritten.
 
           Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF
@@ -428,6 +430,11 @@ jobs:
           set -euo pipefail
           bun scripts/release-tag-state.ts "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
           if [[ "$RELEASE_IS_LATEST" == "true" ]]; then
+            published_previous="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            if [[ "$published_previous" != "$QUALIFIED_PREVIOUS_TAG" ]]; then
+              echo "GitHub Latest changed after qualification validation; refusing promotion." >&2
+              exit 1
+            fi
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest
           else
             gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false

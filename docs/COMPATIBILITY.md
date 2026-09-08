@@ -3,7 +3,7 @@
 ## Current claim
 
 **Current source:** gateway `0.3.0` targets exact patched OMP `v18.1.14`; this is an
-engineering integration prepared for `v0.3.0-prealpha.3` (publication pending), not a new stable qualification. Upstream now publishes
+engineering integration prepared for `v0.3.0-prealpha.3` (publication pending), the qualification vehicle for stable **v0.3.0**, not a new stable qualification. Upstream now publishes
 `pi-natives-linux-arm64@18.1.14`; the current source-checkout lane stages that addon and requires
 its native-dependent fixtures, but no Linux ARM64 runtime qualification is claimed here.<br>
 **Current stable release:** stable-qualified `v0.2.1` for the exact matrix below.<br>

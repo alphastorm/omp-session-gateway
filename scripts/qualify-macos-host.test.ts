@@ -47,6 +47,23 @@ async function runHarness(
   return { exitCode, stdout, stderr };
 }
 
+test.skipIf(!POSIX)("Mac preflight rejects a stale Bun before staging any lane", async () => {
+  const result = await runHarness(`
+set -euo pipefail
+source "$1"
+need_command() { :; }
+remote() { eval "$(cat)"; }
+bun() { printf '0.0.0\\n'; }
+PW=""
+preflight
+printf 'LANE_REACHED\\n'
+`, [], environment("a".repeat(64)));
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Mac qualification requires Bun");
+  expect(result.stderr).toContain("found 0.0.0");
+  expect(result.stdout).not.toContain("LANE_REACHED");
+});
+
 test.skipIf(!POSIX)("Mac reboot keeps the sudo password in NUL-framed SSH stdin", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-reboot-secret-"));
   const argvPath = join(temporaryRoot, "argv");

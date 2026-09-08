@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import {
+  assertMacBuildOutput,
   assertProtectedFilesUnchanged,
   createReceiptPersister,
   createStableQualificationReceipt,
@@ -102,6 +103,20 @@ OMP_PIN_NATIVE_BINARY_SHA256=${"4".repeat(64)}
   test("fails closed when any pin is absent or malformed", () => {
     expect(() => parseQualificationPins("OMP_PIN_BUN_VERSION=1.3.14\n")).toThrow("pin is invalid");
   });
+});
+
+test("Mac evidence follows the exact OMP pin and rejects a stale build", async () => {
+  const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "patches/oh-my-pi/qualification.env"), "utf8"));
+  const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+  const output = [
+    `release-info commit:                   ${candidate.sourceCommit}`,
+    candidate.archiveSha256,
+    "doctor                                 17/17 true",
+    JSON.stringify({ version: pins.version, nativeSha256: pins.nativeBinarySha256 }),
+  ].join("\n");
+  assertMacBuildOutput(output, candidate, pins);
+  expect(() => assertMacBuildOutput(output.replace(pins.version, "17.4.1"), candidate, pins)).toThrow("version");
+  expect(() => assertMacBuildOutput(output.replace(pins.nativeBinarySha256, "c".repeat(64)), candidate, pins)).toThrow("nativeSha256");
 });
 
 describe("resumable receipt lanes", () => {

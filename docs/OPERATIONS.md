@@ -41,6 +41,12 @@ It should:
 7. print the Tailscale Serve and policy steps without exposing secrets;
 8. show the PWA URL after Serve is configured.
 
+On current 0.3.0 source, an upgrade reads and validates the existing private configuration first.
+Continue passing the production `--origin` and `--allow` values on install and upgrade. An omitted
+`--port` preserves the existing port; hostname, identity-trust, and registry settings are retained.
+A malformed existing configuration fails closed instead of being replaced with defaults. The
+publisher token is retained, and an unchanged configuration is not rewritten.
+
 Platform targets:
 
 - Linux: systemd user service named `omp-session-gateway.service`, with an explicit support policy for non-systemd systems;

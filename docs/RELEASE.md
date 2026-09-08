@@ -25,6 +25,31 @@ predecessor archive remains in installation history, otherwise reinstall the sig
 archive. Any change to the active OMP binary or symlink remains the separate documented manual
 operation.
 
+## Prospective v0.3.0 qualification
+
+Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle,
+not a supported successor until the new matrix passes. The candidate uses exact patched OMP
+v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
+does not transfer. The retained Mac must have the exact pinned Bun before any host lane runs.
+
+Land the complete candidate changes on `main`, confirm the final source commit, then create and
+push the signed annotated candidate tag at that commit. From the clean published Darwin-arm64
+checkout, run:
+
+```sh
+bun run qualify:stable --tag v0.3.0-prealpha.3
+```
+
+Review every lane in the passed receipt before updating `STABLE_RELEASE.lock.json`. The stable
+workflow requires the qualified predecessor to remain GitHub Latest, rechecks it immediately before
+promotion, and byte-compares the stable runtime against the signed candidate. Do not publish bare
+`v0.3.0` with the historical v0.2.1 lock. Gateway rollback does not switch the separately installed
+OMP binary; v0.2.1 retains its exact v17.4.1 prerequisite.
+
+Managed candidate upgrades retain hostname, omitted port, identity-trust, and registry settings.
+Continue supplying the production origin and allowlist on both installation and upgrade; unchanged
+configuration bytes are not rewritten.
+
 ## Release gates
 
 The current decision and exact evidence live in RELEASE_STATUS.md; compatibility claims live in
@@ -52,7 +77,8 @@ environment limitation: after 45 uninterrupted visible failure seconds, the load
 retry and force-stop/reopen help without a third-party probe or a claim that JavaScript repaired
 Chrome.
 
-Run the exact host/client sequence from a clean, published Darwin-arm64 branch:
+The historical v0.2.1 qualification ran this sequence from its clean, published Darwin-arm64 branch
+(use the prospective v0.3.0 command above for current source):
 
 ```sh
 bun run qualify:stable --tag v0.2.1-prealpha.2
