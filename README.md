@@ -45,8 +45,9 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 > **Current source: gateway 0.3.0 with patched OMP v18.1.14.**
 > Latest published engineering release: [v0.3.0-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3),
 > with phone **Take photo** / **Choose existing**, native MathML, and reconnect tail recovery.
-> Signed provenance is verified. The new stable **v0.3.0** matrix remains pending after the
-> first Debian check exceeded its host memory envelope; no historical qualification transfers.
+> Signed provenance, Debian/macOS lifecycle, physical Pixel recovery and capability isolation,
+> and candidate-to-stable runtime equivalence passed. Stable **v0.3.0** is held for a fresh
+> eight-hour relay soak; no historical qualification transfers.
 >
 > **Qualified stable: v0.2.1.**
 > [v0.2.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1) is the

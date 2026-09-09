@@ -1,6 +1,6 @@
 # Release status
 
-**Updated:** 2026-09-08<br>
+**Updated:** 2026-09-09<br>
 **Repository version:** `0.3.0`; unqualified engineering track after **`v0.2.1`**<br>
 **Qualified stable candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
 **Classification:** 0.3.0 is pre-alpha engineering work; published stable `v0.2.1` retains the
@@ -16,12 +16,65 @@ passed at source `2c89d8280059a2bb638901d413df44b35593ddd4`. Archive SHA-256:
 The independent artifact lane verified the signed tag, six asset digests, checksums, three GitHub
 attestations, and three Sigstore bundles. Stable `v0.2.1` remains GitHub Latest.
 
+**Current decision: HOLD for fresh eight-hour relay endurance.** The seven-lane orchestrator
+passed, but its 60-second relay smoke does not satisfy the separately documented 28,800-second
+long-lived scenario. OMP v18.1.14 changes the client/host baseline, so historical endurance cannot
+transfer. The stable lock remains unchanged until that last gate passes.
+
+The signed-candidate receipt at
+`~/.local/share/omp-session-gateway/qualification/v0.3.0-prealpha.3-8g/stable-qualification.json`
+completed on 2026-09-08 at 17:59:07 UTC, bound to orchestrator
+`cfbba3ca78bf94555a916bc53143335d6b030d39` and predecessor `v0.2.1`:
+
+- Debian 13 x86-64 passed the complete disposable-host lane in
+  [run 34258230589](https://github.com/alphastorm/omp-session-gateway/actions/runs/34258230589),
+  including the predecessor upgrade/rollback pair and paid-resource teardown.
+- `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback invariants 20/20,
+  persistence, exact artifact/native-addon checks, exposure/identity checks, and uninstall.
+- Pixel 10 Pro / Android 17 build `CP2A.260805.005` / Chrome `152.0.7977.75` passed
+  View/read-only, Control, prompt acknowledgement, and same-page lock (9,451 ms), Airplane
+  (8,481 ms), and forced-Doze (8,799 ms) recovery. All seven forbidden capability sinks were
+  detectable and clean. The exact application asset was `/assets/app.32115375c6b5.js`.
+- Exact patched OMP v18.1.14 published generation-1 View and Control with `200 no-store`,
+  then revoked the owned session. The 60-second default-relay smoke finished live with two
+  transitions. Final cleanup measured zero gateway processes/listeners and zero patched-OMP
+  processes on the retained Mac.
+- An offline prospective stable build at `ca6c2f7213e9d8ad5d3c46e2277b919138a60483` matched
+  all 49 non-metadata candidate archive files by name, bytes, and mode. Only `release-info.json`,
+  `SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json` are
+  excluded, matching the publication gate. Recheck the final promotion tree before tagging.
+
+Additional signed-byte physical media smoke on 2026-09-09 used the installed WebAPK on the same
+Pixel after Chrome updated to `152.0.7977.82`. The native Google Camera captured one authorized
+covered-lens photo; the composer normalized it to 1,542 × 2,048, sent it with a synthetic note,
+observed the host transcript acknowledgement, and cleared the draft without changing
+`performance.timeOrigin`. The native `com.google.android.photopicker` opened and was canceled
+without selecting personal media. No model-analysis claim is made: the synthetic credential
+produced the expected authentication error after delivery. This is a named media smoke, not a
+transfer of the `.75` full matrix to `.82`. The owned page, ADB forward, process, and workspace
+were removed; metadata-only evidence is `pixel-camera-smoke.json` beside the matrix receipt.
+
 The first Debian run [34254831201](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254831201)
 failed when upstream coding-agent `tsgo` was killed (exit 137) on the 4 GiB host. Droplet and
 ephemeral SSH-key teardown passed; no Mac lane began. The unchanged exact patched OMP/Bun check
 then passed in a two-CPU local Linux container capped at 6 GiB, with peak memory 4,186,173,440 bytes
 and no OOM events. Qualification defaults now reserve 8 GiB on two CPUs; the 50-minute deadline
 and always-run teardown remain unchanged. This is a tooling correction, not changed candidate bytes.
+
+The first retained-Mac pre-cleanup then correctly refused a dangling qualification symlink to
+`v17.4.1-a5cfc80f/omp`. Its exact target, current-user ownership, and absent destination were
+verified before removing that link only. Direct cleanup passed, and the same receipt resumed
+without redispatching Debian. A separate Windows CI timeout was closed by reusing one private
+token fixture and removing a redundant privacy read, not widening the timeout; all checks passed
+in [run 34324545432](https://github.com/alphastorm/omp-session-gateway/actions/runs/34324545432).
+
+The fresh endurance run uses the signed candidate gateway, exact patched OMP v18.1.14, Bun 1.4.0,
+one owned synthetic host, and idle-sleep inhibition. Its state-faithful 60-second local preflight
+passed. The detached process is `omp-v030-relay-endurance`; its final metadata will be
+`relay-soak-8h.json` beside the receipt. An initial harness-timeout interruption is retained as
+`relay-soak-interrupted-launch.json` and is not qualification evidence.
+
+### Historical prequalification source checks
 
 The current `0.3.0` source targets upstream `v18.1.14` at
 `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` with its exact gateway patch and pinned browser
@@ -44,7 +97,7 @@ pin. The config regression reproduced a reset and malformed-file overwrite, then
 tests, 44 CLI tests, and an isolated real systemd install. The bootstrap order regression reproduced
 12 failures, then passed all 65 remaining client tests and four installed-PWA/BFCache browser cases.
 The stable matrix now also exercises physical View/Control and prompt acknowledgement before its
-forbidden-sink sweep. No signed-candidate matrix result is claimed yet.
+forbidden-sink sweep. These source checks preceded the signed-candidate results above.
 
 The prepublication council also identified browser-normalized unsafe Markdown links, a broken
 provenance-rehearsal tag parser, stale prerelease notes, and dangling Mac cleanup symlinks.
