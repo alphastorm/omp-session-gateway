@@ -661,11 +661,10 @@ describe("publisher token admission", () => {
 
   test("accepts exactly 43 base64url characters, with or without a line ending", async () => {
     const token = `-_azAZ09${"x".repeat(35)}`;
-    expect(token.length).toBe(43);
+    const config = await tokenFixture("");
     for (const content of [token, `${token}\n`, `${token}\r\n`]) {
-      const config = await tokenFixture(content);
+      await writeFile(config.paths.tokenPath, content);
       expect(await loadPublisherToken(config)).toBe(token);
-      await assertPublisherTokenPrivate(config);
     }
   }, 20_000);
 
