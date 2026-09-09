@@ -9,9 +9,10 @@
 - a tailnet policy restricting the gateway host's HTTPS service to the intended user/device posture;
 - an Android browser supported by the release compatibility matrix.
 
-Published stable `v0.2.1` retains its exact patched OMP v17.4.1 prerequisite; use the
-[operations guide at that tag](https://github.com/alphastorm/omp-session-gateway/blob/v0.2.1/docs/OPERATIONS.md)
-for the qualified stable path. The current v18.1.14 integration does not inherit that qualification.
+The v0.3.0 qualified path uses Bun 1.4.0 and the exact patched OMP v18.1.14 prerequisite above.
+Historical `v0.2.1` retains exact patched OMP v17.4.1; use its
+[matching operations guide](https://github.com/alphastorm/omp-session-gateway/blob/v0.2.1/docs/OPERATIONS.md)
+when rolling back. Gateway rollback does not switch the separately installed OMP executable.
 
 The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login, gateway installation, and OMP configuration happen once.
 

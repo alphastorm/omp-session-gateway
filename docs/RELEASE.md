@@ -3,8 +3,8 @@
 ## Pre-alpha, alpha, beta, and stable artifacts
 
 The repository produces working Bun-runtime engineering candidates and advertised alpha, beta,
-and stable releases. v0.2.1 is the current stable publication and GitHub Latest. Its support claim
-is bound to the signed predecessor and exact evidence in `STABLE_RELEASE.lock.json` and
+and stable releases. The v0.3.0 stable line is bound to signed candidate v0.3.0-prealpha.3,
+rollback predecessor v0.2.1, and the exact evidence in `STABLE_RELEASE.lock.json` and
 `RELEASE_STATUS.md`; generated artifacts never promote themselves.
 
 Stable is a bounded support claim, not an expansion to platform families. It covers only the
@@ -28,8 +28,8 @@ operation.
 ## v0.3.0 qualification and promotion
 
 Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle.
-The host/client matrix and runtime equivalence passed; fresh eight-hour relay endurance remains
-required before promotion. The candidate uses exact patched OMP
+The host/client matrix, runtime equivalence, and fresh eight-hour relay endurance passed.
+The candidate uses exact patched OMP
 v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
 does not transfer. The retained Mac must have the exact pinned Bun before any host lane runs.
 
