@@ -43,10 +43,10 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 </div>
 
 > **Current source: gateway 0.3.0 with patched OMP v18.1.14.**
-> Latest published engineering release: [v0.3.0-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.2),
-> with phone **Take photo** / **Choose existing** actions. The v18.1.14 integration is
-> prepared for `v0.3.0-prealpha.3`, the qualification candidate for stable **v0.3.0**.
-> Candidate publication and the new stable matrix are pending; no historical qualification transfers.
+> Latest published engineering release: [v0.3.0-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3),
+> with phone **Take photo** / **Choose existing**, native MathML, and reconnect tail recovery.
+> Signed provenance is verified. The new stable **v0.3.0** matrix remains pending after the
+> first Debian check exceeded its host memory envelope; no historical qualification transfers.
 >
 > **Qualified stable: v0.2.1.**
 > [v0.2.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1) is the
@@ -156,8 +156,8 @@ engineering prerelease are distinct from the qualified stable release:
 
 | | Current claim |
 |---|---|
-| Current source | `0.3.0`, exact patched OMP `v18.1.14`; `v0.3.0-prealpha.3` publication pending |
-| Latest engineering release | [`v0.3.0-prealpha.2`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.2); published 2026-08-30, not stable-qualified |
+| Current source | `0.3.0`, exact patched OMP `v18.1.14`; stable qualification pending |
+| Latest engineering release | [`v0.3.0-prealpha.3`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3); published 2026-09-08, not stable-qualified |
 | Qualified stable release | [`v0.2.1`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1), GitHub Latest |
 | Stable qualification | Runtime-equivalent to independently qualified signed candidate `v0.2.1-prealpha.2` |
 | Stable hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |

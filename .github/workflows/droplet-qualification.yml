@@ -53,13 +53,13 @@ on:
         required: false
         default: ""
       droplet_size:
-        description: DigitalOcean size slug; full patched-OMP qualification needs two vCPUs
+        description: DigitalOcean size slug; full patched-OMP qualification needs two vCPUs and 8 GiB RAM
         required: false
-        default: s-2vcpu-4gb
+        default: s-2vcpu-8gb-amd
   schedule:
     # Weekly. Off the hour because GitHub's shared cron queue is congested at :00, and early Monday so
     # a failure is visible at the start of a week rather than discovered during a release attempt.
-    # Weekly is also the cost decision: one billed droplet-hour per week is about $0.93 a year.
+    # Weekly is also the cost decision: one billed droplet-hour per week is about $3.25 a year.
     - cron: "17 11 * * 1"
   # Deliberately no `pull_request` and no `push`. This job spends money and needs three long-lived
   # secrets. A fork's pull request receives none of them, so it would fail for a confusing reason, and
@@ -84,7 +84,7 @@ jobs:
     name: Qualify on disposable droplet
     runs-on: ubuntu-24.04
     # The gateway-only sequence is about twenty-five minutes. The exact OMP source suite/build has an
-    # independent 25-minute hard deadline and is faster on the optional two-vCPU dispatch size. Fifty
+    # independent 25-minute hard deadline and needs memory headroom beyond the measured 3.90 GiB check. Fifty
     # minutes keeps the normal path and teardown inside one billed hour while still failing a stalled
     # upstream build before the job-level deadline.
     timeout-minutes: 50
@@ -96,7 +96,7 @@ jobs:
       # step: the input default is what a human sees in the dispatch form, this is what cron uses.
       OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.3.0-prealpha.3' }}
       OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.2.1' }}
-      OMP_QUAL_SIZE: ${{ inputs.droplet_size || 's-2vcpu-4gb' }}
+      OMP_QUAL_SIZE: ${{ inputs.droplet_size || 's-2vcpu-8gb-amd' }}
       QUAL_LANES: ${{ inputs.lanes || '' }}
       # Pinned here rather than left to the script's default so the droplet name this workflow checks
       # for, refuses to adopt, and destroys is the same string in every step.
