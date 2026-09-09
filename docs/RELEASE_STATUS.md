@@ -1,13 +1,14 @@
 # Release status
 
 **Updated:** 2026-09-09<br>
-**Repository version:** `0.3.0`; unqualified engineering track after **`v0.2.1`**<br>
-**Qualified stable candidate:** **`v0.2.1-prealpha.2`**, independently verified<br>
-**Classification:** 0.3.0 is pre-alpha engineering work; published stable `v0.2.1` retains the
-exact qualified combinations below and no broader production claim<br>
-**Stable decision:** **GO, approved for v0.2.1 only**, for the named support boundary and nothing else.
+**Repository version:** `0.3.0`<br>
+**Qualified stable candidate:** **`v0.3.0-prealpha.3`**, independently verified<br>
+**Classification:** qualified for stable v0.3.0 on the exact combinations below; publication is
+recorded separately from qualification<br>
+**Stable decision:** **GO for v0.3.0**, using exact patched OMP v18.1.14 and Bun 1.4.0, with no
+historical qualification transfer or broader platform claim.
 
-### Current source — OMP v18.1.14 engineering integration
+### Stable v0.3.0 — qualified for publication
 
 Stable target: **v0.3.0**, using published `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled.
 Release run [34254684458](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254684458)
@@ -16,10 +17,10 @@ passed at source `2c89d8280059a2bb638901d413df44b35593ddd4`. Archive SHA-256:
 The independent artifact lane verified the signed tag, six asset digests, checksums, three GitHub
 attestations, and three Sigstore bundles. Stable `v0.2.1` remains GitHub Latest.
 
-**Current decision: HOLD for fresh eight-hour relay endurance.** The seven-lane orchestrator
-passed, but its 60-second relay smoke does not satisfy the separately documented 28,800-second
-long-lived scenario. OMP v18.1.14 changes the client/host baseline, so historical endurance cannot
-transfer. The stable lock remains unchanged until that last gate passes.
+**Current decision: GO.** The seven-lane signed-candidate matrix, independent 28,800-second
+endurance run, provenance verification, and runtime-byte comparison all passed. The stable lock
+binds v0.3.0 to this candidate and the still-current v0.2.1 rollback predecessor. The release
+workflow must compare the final runtime again and recheck GitHub Latest before promotion.
 
 The signed-candidate receipt at
 `~/.local/share/omp-session-gateway/qualification/v0.3.0-prealpha.3-8g/stable-qualification.json`
@@ -68,13 +69,27 @@ without redispatching Debian. A separate Windows CI timeout was closed by reusin
 token fixture and removing a redundant privacy read, not widening the timeout; all checks passed
 in [run 34324545432](https://github.com/alphastorm/omp-session-gateway/actions/runs/34324545432).
 
-The fresh endurance run uses the signed candidate gateway, exact patched OMP v18.1.14, Bun 1.4.0,
-one owned synthetic host, and idle-sleep inhibition. Its state-faithful 60-second local preflight
-passed. The detached process is `omp-v030-relay-endurance`; its final metadata will be
-`relay-soak-8h.json` beside the receipt. An initial harness-timeout interruption is retained as
-`relay-soak-interrupted-launch.json` and is not qualification evidence.
+The fresh endurance run passed **28,800 seconds**, from 2026-09-09 07:48:21 to 15:48:23 UTC,
+with six phase transitions, `finalPhase: "live"`, exit 0, and no process restart. It used the
+signed candidate gateway, exact patched OMP v18.1.14, Bun 1.4.0, one synthetic host, and idle-sleep
+inhibition on `Mac16,5` / macOS 26.6.2 arm64 (Darwin 25.6.0). The client was the pinned
+`GuestClient` under Bun, not an emulated browser. This endurance environment adds no host/browser
+support claim to the separately qualified Mac14,3/Pixel matrix.
 
-### Historical prequalification source checks
+The same gateway PID's RSS moved from 44,880 to 57,792 KiB (43.8 to 56.4 MiB). These are measured
+start/end values under ordinary workstation traffic, not an isolated heap-leak proof. The
+state-faithful 60-second preflight passed before the long run. The owned host and workspace were
+removed after completion; the sleep inhibitor exited with the runner. Evidence beside the matrix
+receipt: `relay-soak-8h.json`, `relay-soak-bindings.json`, and the supervised process's final JSON.
+The earlier harness-timeout interruption remains in `relay-soak-interrupted-launch.json` and is
+not qualification evidence.
+
+## Historical records
+
+All remaining entries describe their named historical snapshots. They neither change the v0.3.0
+decision above nor transfer qualification to its new OMP baseline.
+
+### Prequalification source checks
 
 The current `0.3.0` source targets upstream `v18.1.14` at
 `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` with its exact gateway patch and pinned browser

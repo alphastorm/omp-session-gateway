@@ -2,55 +2,50 @@
 
 ## Current claim
 
-**Current source:** gateway `0.3.0` targets exact patched OMP `v18.1.14`; this is an
-engineering integration published as `v0.3.0-prealpha.3`, the qualification vehicle for stable **v0.3.0**, not a new stable qualification. Upstream now publishes
-`pi-natives-linux-arm64@18.1.14`; the current source-checkout lane stages that addon and requires
-its native-dependent fixtures, but no Linux ARM64 runtime qualification is claimed here.<br>
-**Current stable release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
-**Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
-**Engineering release:** published `v0.3.0-prealpha.3` adds exact OMP v18.1.14, MathML, reconnect
-tail recovery, and release corrections to the phone photo work. Signed provenance, the complete
-Debian/macOS/Pixel matrix, and 49-file runtime equivalence passed. A fresh eight-hour relay soak
-remains required before stable promotion; the historical long-window result does not transfer.<br>
-**0.3.0 engineering/qualification predecessor:** published stable `v0.2.1`.<br>
-**v0.2.1 stable campaign rollback predecessor:** published stable `v0.2.0`.<br>
-**Qualification predecessor:** signed stable candidate `v0.2.1-prealpha.2`.<br>
-**Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 hosts, with Chrome
-151.0.7922.173 on Android 17 (Pixel 10 Pro). Nothing else is advertised.
+**Qualified stable target:** `v0.3.0`, exact patched OMP `v18.1.14`, Bun `1.4.0`.<br>
+**Signed candidate:** `v0.3.0-prealpha.3`, independently qualified and approved.<br>
+**Rollback predecessor:** published stable `v0.2.1`, retaining its own exact patched OMP v17.4.1.<br>
+**Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 (`Mac14,3`) hosts,
+with Chrome `152.0.7977.75` on Android 17 (Pixel 10 Pro). Nothing else is advertised.
+
+Fresh signed-artifact provenance, Debian/macOS/Pixel qualification, 49-file runtime equivalence,
+and 28,800-second default-relay endurance passed. Historical qualification does not transfer.
+The current Linux ARM64 source-checkout lane stages `pi-natives-linux-arm64@18.1.14` and requires
+its native fixtures, but it does not qualify a Linux ARM64 runtime.
 
 Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
 and Tailscale must run its TUN-mode client; userspace-networking tailscaled does not establish the
 required loopback/identity boundary and is refused
-([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). The published alpha requires
-exact OMP v17.3.8 at 858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55 plus its recorded patch. Beta and
-the narrow stable target require exact OMP v17.4.1 at
-9350b7990d26ebf69a604edc82d8558ef04adf30, patch tree
-a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7, and the versioned omp-gateway-patched activation
-route. Stock OMP is unsupported. Upstreaming and paired packaging are not gates for this exact
-matrix under ADR-024 and ADR-025.
+([#98](https://github.com/alphastorm/omp-session-gateway/issues/98)). Stable v0.3.0 requires
+OMP v18.1.14 at `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`, patched tree
+`17f84676442ee103564d01755ed1f76bbc51820e`, and the versioned `omp-gateway-patched` activation
+route. Stock OMP is unsupported. Older releases retain the immutable baselines recorded below.
+Upstreaming and paired packaging are not gates for this exact matrix under ADR-024 and ADR-025.
 
 The stable support claim comes from one exact signed-candidate qualification, not row counts or
-transferred labels. Candidate `v0.2.1-prealpha.2` at source
-`f09e3566c238ad76e220bea093d06d0124f924d9` passed the complete matrix through one resumable
+transferred labels. Candidate `v0.3.0-prealpha.3` at source
+`2c89d8280059a2bb638901d413df44b35593ddd4` passed the complete matrix through one resumable
 receipt:
 
-- release run [`33206359784`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33206359784)
+- release run [`34254684458`](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254684458)
   verified the signed tag, six assets, checksums, three GitHub attestations, three Sigstore bundles,
-  and archive SHA-256 `9fd5e49b9819ab4dfc82f978fcd9e8382b83d5b821bb341c6b6e6979ff42c7fa`;
-- Debian run [`33207184350`](https://github.com/alphastorm/omp-session-gateway/actions/runs/33207184350)
-  passed the complete disposable Debian 13 lifecycle and the published `v0.2.0` predecessor pair;
-- `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback 20/20 against published `v0.2.0`,
+  and archive SHA-256 `05c8a8f4001612d7e10c52139bf5b7aa53dca42e64fa2c262592cf6c4d932ec5`;
+- Debian run [`34258230589`](https://github.com/alphastorm/omp-session-gateway/actions/runs/34258230589)
+  passed the complete disposable Debian 13 lifecycle and the published `v0.2.1` predecessor pair;
+- `Mac14,3` / macOS 26.6.1 arm64 passed `doctor` 17/17, rollback 20/20 against published `v0.2.1`,
   persistence, exact artifact checks, patched-OMP publication/revocation, uninstall, and cleanup;
 - the physical Pixel passed same-page lock, Airplane, and forced-Doze recovery with a clean
   seven-sink capability sweep after explicit ADB authorization;
-- exact patched OMP v17.4.1 published and revoked generation-1 View and Control with `200 no-store`;
-- the default relay finished a 60-second smoke live with two transitions; and
+- exact patched OMP v18.1.14 published and revoked generation-1 View and Control with `200 no-store`;
+- the default relay finished a 60-second smoke and a fresh 28,800-second endurance run live; and
 - final cleanup measured zero gateway/OMP processes and zero gateway listeners.
 
 Windows source/lifecycle checks pass, but Windows remains unadvertised and outside this stable
-matrix. No prior release evidence substitutes for a missing v0.2.1 candidate lane.
+matrix. No prior release evidence substitutes for a v0.3.0 candidate lane. Supplemental physical
+camera delivery on Chrome `152.0.7977.82` and endurance on `Mac16,5` / macOS 26.6.2 are named
+smokes/scenarios, not additional supported host/browser combinations.
 
-Known limits remain part of the claim. Exact candidate `v0.2.0-prealpha.1` recovered same-page automatically
+Known limits remain part of the claim. Exact candidate `v0.3.0-prealpha.3` recovered same-page automatically
 after the qualified lock, Airplane, and forced-Doze transitions. Chrome for Android can still wedge
 its process-wide network state after some abrupt transitions while Android remains healthy. Native
 EventSource reconnection and the bounded snapshot fallback recover the proven cases; after 45
@@ -77,6 +72,7 @@ explicit, and the 0.2 campaign adds its own row:
 | `v0.2.1-prealpha.2` | `0.2.1-f09e3566c238` | **Qualified and approved for `v0.2.1`.** Final phone hierarchy, coherent product versioning, predecessor-bound receipts, and stable runtime equivalence gate. | Archive SHA-256 `9fd5e49b9819ab4dfc82f978fcd9e8382b83d5b821bb341c6b6e6979ff42c7fa`; release run `33206359784`, Debian `33207184350`, macOS `doctor` 17/17 and rollback 20/20 from v0.2.0, physical Pixel recovery/leak sweep, patched-OMP publication/revocation, 60s relay smoke, and cleanup passed. |
 | `v0.3.0-prealpha.1` | `0.3.0-1a8a3212e195` | **Published pre-alpha; locally smoke-tested, not qualified.** Phone photo chooser/composer using existing OMP v3 image prompts. | Archive SHA-256 `60750b2b5f21d4e99dbd1a4d05230f4aa3f4d79b15c113d08aa68042a54c5fed`; release run `33281549543`; checksums, six immutable assets, three attestations, and three bundles verified; local Darwin install/doctor 17/17 and real patched-host desktop plus measured Pixel-viewport sends passed. No physical Android run. |
 | `v0.3.0-prealpha.2` | `0.3.0-d259ea06c7fe` | **Published pre-alpha direct-camera follow-up; locally smoke-tested, not qualified.** Explicit Take photo and Choose existing paths. | Archive SHA-256 `ca05549aecdf0d2e01f2b5d6820729222e29b38e92aa4ee1582c009e195c6fff`; release run `33283594409`; provenance and six assets verified; local Darwin install/doctor 17/17 and real patched-host Pixel-viewport camera-input JPEG plus library-input PNG sends passed. Native Android camera launch not exercised. |
+| `v0.3.0-prealpha.3` | `0.3.0-17a8de62547e` | **Qualified for stable v0.3.0.** Exact patched OMP v18.1.14, Bun 1.4.0, phone photos, native MathML, reconnect tail recovery, and configuration preservation. | Archive SHA-256 `05c8a8f4001612d7e10c52139bf5b7aa53dca42e64fa2c262592cf6c4d932ec5`; release run 34254684458, Debian run 34258230589, Mac doctor 17/17 and rollback 20/20 from v0.2.1, physical Pixel recovery/isolation, OMP publication/revocation, fresh 28,800-second endurance, cleanup, and 49-file runtime equivalence passed. |
 
 [`RELEASE_STATUS.md`](RELEASE_STATUS.md) is the source of truth for evidence and release decisions.
 This document defines the supported boundary. Where they disagree, the ledger is authoritative.
@@ -103,7 +99,7 @@ Published releases and unreleased development targets use separate immutable ups
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
 |---|---|---|---|---|---:|---|
-| `0.3.0`, current unreleased source | `can1357/oh-my-pi@daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` | `v18.1.14` | coding-agent `18.1.14`; wire `18.1.14` | collab-web `16.3.6` from the same source commit, with gateway patches | 1 | Engineering target only; no inherited stable qualification |
+| `0.3.0`, qualified stable v0.3.0 | `can1357/oh-my-pi@daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` | `v18.1.14` | coding-agent `18.1.14`; wire `18.1.14` | collab-web `16.3.6` from the same source commit, with gateway patches | 1 | Fresh signed v0.3.0-prealpha.3 matrix and endurance; exact patched tree `17f84676442ee103564d01755ed1f76bbc51820e` |
 | `0.3.0`, published as `v0.3.0-prealpha.2` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit, with photo composer patches | 1 | Published engineering prerelease; exact local smoke only |
 | `0.1.0`, published as `v0.1.0-alpha.1` | `can1357/oh-my-pi@858f7dd91fff9b84cf8a2c6a6bb85aa0e6d03a55` | `v17.3.8` | coding-agent `17.3.8`; wire `17.3.8` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit alpha qualification only |
 | `0.1.0`, published as `v0.1.0-beta.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit beta qualification through the versioned patched-binary route |
@@ -111,10 +107,9 @@ Published releases and unreleased development targets use separate immutable ups
 | `0.2.0`, published as `v0.2.0` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7` through the versioned patched-binary route |
 | `0.2.1`, published as `v0.2.1` | `can1357/oh-my-pi@9350b7990d26ebf69a604edc82d8558ef04adf30` | `v17.4.1` | coding-agent `17.4.1`; wire `17.4.1` | collab-web `16.3.6` from the same source commit | 1 | Exact-commit stable qualification with unchanged patch tree `a5cfc80fcc0df1ca6e430c125371bcae43d5e5f7`; UI/version point release only |
 
-v17.3.8 remains the immutable alpha baseline. Exact v17.4.1 source and patch tree are independently
-qualified for beta and stable through the versioned executable route. Current engineering source
-targets only the exact patched v18.1.14 pin in `UPSTREAM.lock.json`; it does not widen the stable
-claim. No loose semver range, stock binary, or arbitrary fork is supported.
+v17.3.8 remains the immutable alpha baseline; the older beta and stable lines retain exact v17.4.1.
+Stable v0.3.0 independently qualifies the exact patched v18.1.14 pin in `UPSTREAM.lock.json`.
+No loose semver range, stock binary, or arbitrary fork is supported.
 
 **Pin refreshed 2026-08-21, from `v17.3.8` to `v17.4.1`.** The maintained
 `gateway-collaboration` series already targeted the new exact base. The carried health-probe commit
@@ -135,13 +130,14 @@ Android, browser, or signed-artifact qualification. Any platform row whose evide
 2026-08-19 is therefore **NOT RUN** for this pin until re-executed, and an unchanged row is never
 coverage of `v17.3.8`.
 
-Re-execution is current at stable candidate `v0.2.1-prealpha.2`. On 2026-08-28 it passed the
+Historical v0.2.1 qualification used candidate `v0.2.1-prealpha.2`. On 2026-08-28 it passed the
 complete Debian signed-artifact lifecycle including the published `v0.2.0` predecessor
 migration; the complete macOS install, persistence, rollback, and cleanup sequence; exact v17.4.1
 patched-OMP publication/revocation; physical Pixel same-page lock, Airplane, and forced-Doze
 recovery; the seven-sink capability sweep; and the bounded relay smoke. The protected
-28,800-second long-window result remains transferable because relay host/client, collab-web, and
-wire bytes are unchanged. Issue #65 stays open for other process-wide Chrome failures, not as a
+28,800-second long-window result transferred within that unchanged historical relay/client/wire
+baseline only; it does not transfer to v0.3.0. The current candidate repeated endurance independently.
+Issue #65 stays open for other process-wide Chrome failures, not as a
 qualification exception for the transitions the candidate actually passed.
 
 The immutable source paths, versions, observation date, and upstream findings live in
@@ -153,8 +149,8 @@ The immutable source paths, versions, observation date, and upstream findings li
   [`packages/collab-client/upstream/UPSTREAM.json`](../packages/collab-client/upstream/UPSTREAM.json);
 - the reviewed in-memory client bootstrap, because upstream collab-web writes a
   capability to `location.hash`; and
-- exact Bun `1.4.0` for the current engineering build and test baseline. Current archives declare
-  Bun `>=1.4.0`; stable v0.2.1 qualification remains specific to Bun `1.3.14`.
+- exact Bun `1.4.0` for the v0.3.0 qualified build/runtime. Archives declare Bun `>=1.4.0`, but
+  no broader version range is qualified. Historical v0.2.1 remains specific to Bun `1.3.14`.
 
 ## Versioned interfaces
 
@@ -173,8 +169,8 @@ cross-version tests exist.
 ## Host and client matrix
 
 The following describes code, evidence, and each row's support boundary. Debian 13 x86-64, macOS
-26.6.1 arm64, and Chrome 151.0.7922.171 on the Android 17 Pixel have exact stable-candidate `.23`
-qualification. Earlier rows remain historical evidence, not substitutes for the stable result.
+26.6.1 arm64, and Chrome 152.0.7977.75 on the Android 17 Pixel have exact `v0.3.0-prealpha.3`
+qualification. Historical evidence never substitutes for this result.
 Windows passes persistent source acceptance through reboot-to-interactive-login and the complete
 gateway/OMP path, but remains unadvertised until signed Windows gateway and patched-OMP artifacts
 repeat it. This Windows-only gap does not block the narrower stable matrix. Desktop Chromium is
@@ -182,10 +178,10 @@ smoke only.
 
 | Platform | Implemented path | Recorded evidence | Qualification | Support claim |
 |---|---|---|---|---|
-| Linux host | User-only Unix-domain socket; systemd user service | Exact signed candidate `.23` passed the complete Debian 13 trixie x86-64 install/readiness, permission, rotation, diagnostics, rollback, identity-denial, lingering, refusal-safe uninstall, cleanup, and disposable-host teardown lane in [run `32586459902`](https://github.com/alphastorm/omp-session-gateway/actions/runs/32586459902). The orchestrator also qualified exact patched OMP v17.4.1 publication/revocation. | Qualified for Debian 13 x86-64 with TUN-mode Tailscale Serve. Other Linux releases, architectures, init systems, and userspace networking remain unqualified. | Stable `v0.1.0`: Debian 13 x86-64 only |
-| macOS host | User-only Unix-domain socket; LaunchAgent | Exact signed candidate `.23` on `Mac14,3` / macOS 26.6.1 arm64 passed archive and native-addon verification, private install, loopback readiness, `doctor` 17/17, rotation/persistence, control-plane restart, rollback 20/20, exact patched-OMP v17.4.1 build/publication/revocation, uninstall, Serve reset, source cleanup, and zero-process/listener cleanup. | Qualified only for macOS 26.6.1 arm64 on `Mac14,3` with TUN-mode Tailscale Serve. | Stable `v0.1.0`: named macOS combination only |
+| Linux host | User-only Unix-domain socket; systemd user service | Signed `v0.3.0-prealpha.3` passed the complete Debian 13 x86-64 lifecycle in [run 34258230589](https://github.com/alphastorm/omp-session-gateway/actions/runs/34258230589): install/readiness, permissions, rotation, diagnostics, v0.2.1 upgrade/rollback, identity denial, persistence, refusal-safe uninstall, cleanup, and disposable-host teardown. Exact patched OMP v18.1.14 built and published. | Qualified with TUN-mode Tailscale Serve; no other Linux release, architecture, or init-system claim. | Stable v0.3.0: Debian 13 x86-64 only |
+| macOS host | User-only Unix-domain socket; LaunchAgent | Signed `v0.3.0-prealpha.3` on Mac14,3 / macOS 26.6.1 arm64 passed exact archive/native-addon checks, private install, doctor 17/17, rotation/persistence, control-plane restart, v0.2.1 rollback 20/20, identity/exposure, exact patched OMP v18.1.14 build/publication/revocation, uninstall, Serve reset, and zero-process/listener cleanup. | Qualified only for macOS 26.6.1 arm64 on Mac14,3 with TUN-mode Tailscale Serve; interactive-login startup. | Stable v0.3.0: named macOS combination only |
 | Windows host | Current-user named pipe and Scheduled Task with `LogonTrigger` + `InteractiveToken`; paired OMP publisher uses nonce-bound mutual HMAC before releasing capabilities | Hosted run `29791906104` passed publisher mutual authentication, ACLs, cross-user denial, service lifecycle, rotation, and uninstall. A persistent Windows Server 2025 source lane on 2026-08-21 then passed exact-source install in 77,498 ms, reboot with task installed but no pre-login listener, automatic first-RDP-login startup without `/Run`, config/token continuity, rotation, active upgrade, history-selected rollback, TUN-mode Serve, `doctor` 17/17, and clean uninstall. Exact patched OMP `v17.4.1` built on the host, auto-published View and Control, returned `200 no-store` launches, denied a mismatched generation `409`, and revoked within 374 ms after forced exit. | **PARTIAL for release.** The persistent source lane accepts #90 and the reboot/login contract, but its gateway archive and OMP binary were unsigned. A Windows-only hang in the complete `read-only.test.ts` fixture also remains to be dispositioned; the publisher suite passed 13/13 and production publication/revocation passed. Repeat the entire lane with paired signed artifacts. | None; Windows remains unadvertised. If later promoted, the promise is “starts at interactive login,” not unattended boot. |
-| Android client | Installable HTTPS PWA through Tailscale Serve | Physical Pixel 10 Pro / Android 17 / Chrome `151.0.7922.171` loaded exact candidate asset `/assets/app.2127b031d191.js`. It recovered the same page automatically after secure lock (8,972 ms), a visible Airplane outage (8,998 ms plus ten settled seconds), and forced Doze (8,291 ms), with unchanged `performance.timeOrigin`, no recovery fetch probe, and no reload. The seven forbidden capability sinks were detectable and clean. | Qualified only for the named device/OS/browser through TUN-mode Tailscale Serve. Issue #65 remains a process-wide Chrome limitation outside these proven transitions. | Stable `v0.1.0`: named Pixel combination only |
+| Android client | Installable HTTPS PWA through Tailscale Serve | Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 152.0.7977.75 loaded signed candidate asset `/assets/app.32115375c6b5.js`. View/read-only, Control, and prompt acknowledgement passed. Same-page lock (9,451 ms), Airplane (8,481 ms), and forced Doze (8,799 ms) recovered without a reload; all seven forbidden capability sinks were detectable and clean. | Qualified only for the named device/OS/browser. Issue #65 remains a process-wide Chrome limitation outside the proven transitions. | Stable v0.3.0: named Pixel combination only |
 | Desktop Chromium | Development/smoke client | Serve access as the current node's allowed identity, loopback-backend identity rejection, three real OMP cards, View/Control/interrupt, SSE, URL scrub, browser-store/cache checks, process removal, foreground/online reconnect, and live `/new` generation revocation (`409` for the stale generation) passed | Not a release target, and never a substitute for physical Android qualification: emulating a device's viewport and pixel ratio is not a result from that device. The denied-identity evidence in this document comes from a tagged droplet and the physical Pixel, not from desktop Chromium. | Smoke only |
 
 No other Linux init system, macOS deployment mode, Windows service mechanism, iOS browser,

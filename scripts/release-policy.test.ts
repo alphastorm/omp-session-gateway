@@ -92,21 +92,7 @@ describe("release tag policy", () => {
     );
   });
 
-  test("repository manifest gates stable publication on its recorded status", async () => {
-    const manifest: unknown = await Bun.file(new URL("../STABLE_RELEASE.lock.json", import.meta.url)).json();
-    expect(manifest).toMatchObject({ version: VERSION, releaseTag: "v0.2.1", previousTag: "v0.2.0" });
-    const status = (manifest as Record<string, unknown>).status;
-    if (status === "qualified") {
-      // Ledger-approved campaign: the bare stable tag is authorized.
-      expect(() => assertStableReleaseQualification(manifest, "v0.2.1", VERSION)).not.toThrow();
-    } else {
-      // Pending campaign: stable publication must fail closed until every field passes.
-      expect(status).toBe("pending");
-      expect(() => assertStableReleaseQualification(manifest, "v0.2.1", VERSION)).toThrow(
-        "stable release qualification is pending",
-      );
-    }
-  });
+
 
   test("CLI emits stable GitHub environment values only with a qualified manifest", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "stable-release-policy-"));

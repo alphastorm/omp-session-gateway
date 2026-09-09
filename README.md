@@ -42,21 +42,18 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Current source: gateway 0.3.0 with patched OMP v18.1.14.**
-> Latest published engineering release: [v0.3.0-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3),
-> with phone **Take photo** / **Choose existing**, native MathML, and reconnect tail recovery.
-> Signed provenance, Debian/macOS lifecycle, physical Pixel recovery and capability isolation,
-> and candidate-to-stable runtime equivalence passed. Stable **v0.3.0** is held for a fresh
-> eight-hour relay soak; no historical qualification transfers.
+> **Qualified for stable v0.3.0 — exact patched OMP v18.1.14.**
+> Phone **Take photo** / **Choose existing**, native MathML, reconnect tail recovery, and
+> configuration-preserving upgrades are qualified through signed candidate
+> [v0.3.0-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3).
+> Fresh Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 152 / Android 17 Pixel qualification,
+> eight-hour relay endurance, and candidate-to-stable runtime equivalence passed.
+> No historical qualification transfers. Stable publication is recorded on the
+> [v0.3.0 release page](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0).
 >
-> **Qualified stable: v0.2.1.**
-> [v0.2.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1) is the
-> current GitHub Latest release. It was promoted from exact signed candidate
-> `v0.2.1-prealpha.2` after the recorded Debian 13 x86-64, macOS 26.6.1 arm64, and Chrome 151 /
-> Android 17 Pixel matrix passed and candidate-to-stable runtime equivalence was verified.
-> Tailscale Serve with the TUN-mode client, Funnel disabled, and exact patched OMP v17.4.1 remain
-> mandatory. Windows, background Push qualification, Portal Tunnel, userspace networking, and
-> self-hosted/proxied relays stay outside the stable support claim. Details:
+> Tailscale Serve with the TUN-mode client, Funnel disabled, exact patched OMP v18.1.14, and
+> Bun 1.4.0 are mandatory. Windows, background Push qualification, Portal Tunnel, userspace
+> networking, and self-hosted/proxied relays remain outside the stable support claim. Details:
 > [Compatibility and release status](#compatibility-and-release-status) ·
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 
@@ -152,19 +149,17 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-Support is qualified for exact combinations, not platform families. Current source and the latest
-engineering prerelease are distinct from the qualified stable release:
+Support is qualified for exact combinations, not platform families. The v0.3.0 support boundary is:
 
 | | Current claim |
 |---|---|
-| Current source | `0.3.0`, exact patched OMP `v18.1.14`; stable qualification pending |
-| Latest engineering release | [`v0.3.0-prealpha.3`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0-prealpha.3); published 2026-09-08, not stable-qualified |
-| Qualified stable release | [`v0.2.1`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.2.1), GitHub Latest |
-| Stable qualification | Runtime-equivalent to independently qualified signed candidate `v0.2.1-prealpha.2` |
-| Stable hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 |
-| Stable client | Chrome `151.0.7922.173` on Android 17 (Pixel 10 Pro) |
+| Qualified release | [`v0.3.0`](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0) |
+| Signed qualification candidate | `v0.3.0-prealpha.3`; independently qualified, runtime-equivalent |
+| Stable hosts | Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 (`Mac14,3`) |
+| Stable client | Chrome `152.0.7977.75` on Android 17 (Pixel 10 Pro) |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
-| Stable OMP baseline | Exact patched `v17.4.1` from the `v0.2.1` tag; historical qualification only |
+| Stable OMP baseline | Exact patched `v18.1.14`, Bun `1.4.0`; stock OMP is insufficient |
+| Rollback predecessor | `v0.2.1`, with its separately activated exact patched OMP `v17.4.1` |
 
 **Current upstream baseline.** This checkout targets [OMP v18.1.14](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.14),
 commit `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`, observed **2026-09-08**.
@@ -172,9 +167,9 @@ Stock OMP is insufficient: use the exact controller/publisher patch and versione
 [patches/oh-my-pi/README.md](patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route).
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json).
 
-Stable `v0.2.1` and published `v0.3.0-prealpha.2` retain their recorded patched `v17.4.1` baseline.
-For the qualified stable installation, use the [v0.2.1 source and instructions](https://github.com/alphastorm/omp-session-gateway/tree/v0.2.1),
-not the current patch. No historical platform or relay evidence transfers to the new pin.
+Historical `v0.2.1` and `v0.3.0-prealpha.2` retain their recorded patched `v17.4.1` baseline.
+Use each release's matching source and instructions when rolling back; gateway rollback does not
+switch the OMP binary. The v18.1.14 matrix and endurance evidence were rerun independently.
 
 Known limits are part of the claim — read them before installing:
 
@@ -209,10 +204,10 @@ authoritative where they disagree.
 
 ## Build and run
 
-These commands build the current engineering source, not the qualified stable release.
-
-Current source uses exact **Bun 1.4.0**, matching OMP v18.1.14. Historical stable `v0.2.1`
-was qualified with Bun 1.3.14; that qualification does not transfer to this build:
+Use the [signed v0.3.0 archive](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0)
+for a qualified installation, or check out the exact `v0.3.0` source tag before building.
+Unreleased changes on `main` do not inherit qualification. Both routes require **Bun 1.4.0**
+and the exact patched OMP v18.1.14 prerequisite:
 
 ```sh
 bun install --frozen-lockfile
@@ -336,7 +331,7 @@ maintainers, and OMP itself may grow first-party enrollment and session listing
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
 | Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
-| Install maturity and support | **Stable v0.2.1; engineering v0.3.0-prealpha.2; current source targets OMP v18.1.14**. Stable support remains limited to its recorded matrix; current source requires its own pinned OMP patch and qualification | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP integration PR [#1143](https://github.com/siteboon/claudecodeui/pull/1143) is closed, unmerged as of 2026-09-08** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
+| Install maturity and support | **Qualified stable v0.3.0, exact patched OMP v18.1.14**. Fresh Debian/macOS/Pixel qualification and eight-hour endurance; support limited to the recorded matrix | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP integration PR [#1143](https://github.com/siteboon/claudecodeui/pull/1143) is closed, unmerged as of 2026-09-08** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
 | Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |
 
 Where each one shines:

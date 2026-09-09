@@ -6,12 +6,31 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
-- Give full patched-OMP qualification 8 GiB of RAM after the unchanged upstream TypeScript check
-  exhausted the 4 GiB host; retain two CPUs, bounded execution, and mandatory teardown.
-- Make unsafe-file fixtures independent of the caller's umask and reuse the private token fixture
-  to avoid redundant Windows ACL subprocess work without widening the test timeout.
-- Record the fresh signed-candidate Debian/macOS/Pixel matrix, real camera acknowledgement, and
-  49-file runtime equivalence. Stable promotion remains held for fresh eight-hour relay endurance.
+## [v0.3.0] — 2026-09-09
+
+### Added
+
+- Phone-first Take photo / Choose existing composer in Control, with bounded metadata-free JPEG
+  preparation, optional notes, previews retained until host acknowledgement, and read-only enforcement.
+
+### Changed
+
+- Require exact patched OMP v18.1.14 and Bun 1.4.0; carry native MathML and reconnect tail recovery.
+- Qualify signed candidate v0.3.0-prealpha.3 independently on Debian 13 x86-64, Mac14,3 / macOS
+  26.6.1 arm64, and Pixel 10 Pro / Android 17 / Chrome 152.0.7977.75. Fresh eight-hour relay
+  endurance and 49-file runtime equivalence passed; no historical qualification transfers.
+- Use v0.2.1 as the qualified gateway upgrade/rollback predecessor. Its separately activated OMP
+  v17.4.1 prerequisite is not changed by gateway rollback.
+
+### Fixed
+
+- Preserve existing managed-install configuration unless explicitly overridden; fail closed on
+  malformed configuration and reject browser-normalized unsafe Markdown link schemes.
+- Correct provenance rehearsal parsing, stale prerelease notes, and ownership-safe Mac cleanup.
+- Give patched-OMP qualification 8 GiB after the unchanged upstream check exhausted the 4 GiB
+  host, retaining two CPUs, bounded execution, and mandatory teardown.
+- Make unsafe-file fixtures independent of umask and remove redundant Windows ACL fixture work
+  without widening the test timeout.
 
 ## [v0.3.0-prealpha.3] — 2026-09-08
 
