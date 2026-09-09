@@ -8,6 +8,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 - Give full patched-OMP qualification 8 GiB of RAM after the unchanged upstream TypeScript check
   exhausted the 4 GiB host; retain two CPUs, bounded execution, and mandatory teardown.
+- Make unsafe-file fixtures independent of the caller's umask and reuse the private token fixture
+  to avoid redundant Windows ACL subprocess work without widening the test timeout.
+- Record the fresh signed-candidate Debian/macOS/Pixel matrix, real camera acknowledgement, and
+  49-file runtime equivalence. Stable promotion remains held for fresh eight-hour relay endurance.
 
 ## [v0.3.0-prealpha.3] — 2026-09-08
 

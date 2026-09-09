@@ -2,7 +2,7 @@
 
 ## 1. One-time prerequisites
 
-- the exact OMP v18.1.14 gateway patch for current engineering source, built and activated through the
+- the exact OMP v18.1.14 gateway patch for gateway 0.3.0, built and activated through the
   [versioned prerequisite route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route);
 - Tailscale installed and signed into the same tailnet on the desktop and Android phone;
 - tailnet HTTPS/DNS enabled as required by Tailscale Serve;

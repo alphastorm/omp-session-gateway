@@ -9,8 +9,9 @@ its native-dependent fixtures, but no Linux ARM64 runtime qualification is claim
 **Current stable release:** stable-qualified `v0.2.1` for the exact matrix below.<br>
 **Stable candidate:** signed `v0.2.1-prealpha.2`, fully qualified and approved.<br>
 **Engineering release:** published `v0.3.0-prealpha.3` adds exact OMP v18.1.14, MathML, reconnect
-tail recovery, and release corrections to the phone photo work. Signed provenance passed; the
-first Debian attempt stopped at a killed upstream typecheck, and stable qualification remains pending.<br>
+tail recovery, and release corrections to the phone photo work. Signed provenance, the complete
+Debian/macOS/Pixel matrix, and 49-file runtime equivalence passed. A fresh eight-hour relay soak
+remains required before stable promotion; the historical long-window result does not transfer.<br>
 **0.3.0 engineering/qualification predecessor:** published stable `v0.2.1`.<br>
 **v0.2.1 stable campaign rollback predecessor:** published stable `v0.2.0`.<br>
 **Qualification predecessor:** signed stable candidate `v0.2.1-prealpha.2`.<br>

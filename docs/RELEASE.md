@@ -7,7 +7,7 @@ and stable releases. v0.2.1 is the current stable publication and GitHub Latest.
 is bound to the signed predecessor and exact evidence in `STABLE_RELEASE.lock.json` and
 `RELEASE_STATUS.md`; generated artifacts never promote themselves.
 
-Stable 0.2 is a bounded support claim, not an expansion to platform families. It covers only the
+Stable is a bounded support claim, not an expansion to platform families. It covers only the
 hosts, Android client, TUN-mode Tailscale Serve path, and exact patched OMP baseline recorded in
 COMPATIBILITY.md at the release commit. Windows, background Push qualification, Portal Tunnel,
 userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every unnamed combination
@@ -19,18 +19,23 @@ Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Ever
 process must use the exact verified binary; the gateway release alone cannot add the missing stock
 OMP controller/publication seam.
 
-Gateway rollback does not implicitly switch OMP. A rollback to the v0.2.0 stable predecessor
-retains the same exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
-predecessor archive remains in installation history, otherwise reinstall the signed v0.2.0
+Gateway rollback does not implicitly switch OMP. The v0.3.0 campaign's v0.2.1 stable predecessor
+requires its exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
+predecessor archive remains in installation history, otherwise reinstall the signed v0.2.1
 archive. Any change to the active OMP binary or symlink remains the separate documented manual
 operation.
 
-## Prospective v0.3.0 qualification
+## v0.3.0 qualification and promotion
 
-Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle,
-not a supported successor until the new matrix passes. The candidate uses exact patched OMP
+Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle.
+The host/client matrix and runtime equivalence passed; fresh eight-hour relay endurance remains
+required before promotion. The candidate uses exact patched OMP
 v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
 does not transfer. The retained Mac must have the exact pinned Bun before any host lane runs.
+
+The seven-lane orchestrator includes a bounded relay smoke, not the eight-hour endurance gate.
+When the pinned client/host path changes, run the full-duration default-relay procedure below;
+do not copy a historical long-window pass into the new release decision.
 
 Land the complete candidate changes on `main`, confirm the final source commit, then create and
 push the signed annotated candidate tag at that commit. From the clean published Darwin-arm64
@@ -67,7 +72,7 @@ Every advertised release requires:
 - complete checksums, SBOM, GitHub attestations, Cosign bundles, signed tag, and reproducible build
   verification.
 
-Stable v0.2.1 additionally requires that the exact signed tag's tree contain a fully passed
+Stable publication additionally requires that the exact signed tag's tree contain a fully passed
 STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
 retained Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence.
 The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
@@ -78,7 +83,7 @@ retry and force-stop/reopen help without a third-party probe or a claim that Jav
 Chrome.
 
 The historical v0.2.1 qualification ran this sequence from its clean, published Darwin-arm64 branch
-(use the prospective v0.3.0 command above for current source):
+(use the v0.3.0 command above for current source):
 
 ```sh
 bun run qualify:stable --tag v0.2.1-prealpha.2

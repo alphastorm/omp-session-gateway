@@ -321,7 +321,7 @@ jobs:
             doctl compute droplet list --output json |
               jq -r --arg name "$OMP_QUAL_NAME" \
                 '.[] | select(.name == $name) | "existing droplet: id \(.id), created \(.created_at), region \(.region.slug)"'
-            printf '::error title=Droplet %s already exists::Refusing to adopt it. If a previous run leaked it, it is still billing at USD 0.01786 per hour: run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation. If the lead is running this lane by hand, wait for that run to finish.\n' \
+            printf '::error title=Droplet %s already exists::Refusing to adopt it. If a previous run leaked it, it is still billing at the selected size rate: run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation. If the lead is running this lane by hand, wait for that run to finish.\n' \
               "$OMP_QUAL_NAME"
             exit 1
           fi
@@ -428,7 +428,7 @@ jobs:
                 printf 'teardown: droplet destroyed and tailnet record deleted\n' >>"$GITHUB_STEP_SUMMARY"
               else
                 status=1
-                printf '::error title=Teardown failed::%s may still exist and may still be billing at USD 0.01786 per hour. Run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation, and check the DigitalOcean console for a droplet tagged %s.\n' \
+                printf '::error title=Teardown failed::%s may still exist and may still be billing at the selected size rate. Run ./scripts/provision-linux-qual.sh destroy from an authenticated workstation, and check the DigitalOcean console for a droplet tagged %s.\n' \
                   "$OMP_QUAL_NAME" "$OMP_QUAL_NAME"
                 printf 'teardown: FAILED, %s may still be billing\n' "$OMP_QUAL_NAME" >>"$GITHUB_STEP_SUMMARY"
               fi
