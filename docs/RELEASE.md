@@ -27,7 +27,7 @@ operation.
 
 ## v0.3.0 qualification and promotion
 
-Stable **v0.3.0** is the target; **v0.3.0-prealpha.3** is its signed qualification vehicle.
+Stable **v0.3.0** is published as immutable GitHub Latest; **v0.3.0-prealpha.3** is its signed qualification vehicle.
 The host/client matrix, runtime equivalence, and fresh eight-hour relay endurance passed.
 The candidate uses exact patched OMP
 v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
@@ -138,7 +138,9 @@ creates only the configured Serve mapping while comparing every unrelated mappin
 The OMP lane reuses an already exact source/runtime or builds the archived patch and pins without
 deleting a changed checkout. It starts one uniquely named `omp-post-release-*` tmux fixture carrying
 only the synthetic qualification credential, then runs physical View-to-Control prompt/interrupt,
-forbidden-sink, lock/Airplane/Doze same-page recovery, and installed-WebAPK launch checks. Target
+forbidden-sink, lock/Airplane/Doze same-page recovery, and installed-WebAPK launch checks. The
+installed WebAPK may resume either the directory or its existing collaboration route; the launch
+check preserves that page instead of requiring the directory title. Target
 eligibility is checked before touching the device; protected, soak, old, missing, ambiguous, or
 non-Control fixtures fail closed.
 

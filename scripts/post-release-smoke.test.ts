@@ -7,6 +7,7 @@ import {
   assertReleaseArchiveIdentity,
   createSmokeLabel,
   findWebApkForHost,
+  isWebApkAppTarget,
   formatCommandFailure,
   parsePostReleaseSmokeArgs,
   releaseAssetNames,
@@ -145,6 +146,24 @@ describe("disposable fixture safety", () => {
 });
 
 describe("physical Android release target", () => {
+  test("accepts a WebAPK resuming collaboration rather than the directory title", () => {
+    expect(isWebApkAppTarget(
+      { type: "page", title: "Ongoing session · omp collab", url: "https://gateway.example.ts.net/client/" },
+      "https://gateway.example.ts.net",
+    )).toBe(true);
+    expect(isWebApkAppTarget(
+      { type: "page", title: "OMP Sessions", url: "https://gateway.example.ts.net/" },
+      "https://gateway.example.ts.net",
+    )).toBe(true);
+  });
+
+  test("rejects non-app targets and URLs outside the capability-free application routes", () => {
+    const origin = "https://gateway.example.ts.net";
+    for (const url of ["not a URL", "https://other.example.ts.net/", `${origin}/api/v1/sessions`, `${origin}/client/?unexpected=1`, `${origin}/client/#unexpected`]) {
+      expect(isWebApkAppTarget({ type: "page", title: "OMP Sessions", url }, origin)).toBe(false);
+    }
+    expect(isWebApkAppTarget({ type: "service_worker", url: `${origin}/` }, origin)).toBe(false);
+  });
   test("parses exact app binding and explicit old-fixture acknowledgement", () => {
     expect(
       parseAndroidCollabSmokeArgs([

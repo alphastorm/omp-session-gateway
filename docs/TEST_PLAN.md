@@ -235,5 +235,6 @@ Initial targets, to revise with measurements:
 - after stable publication, run `bun run smoke:release` against the published digest on the configured
   local Darwin-arm64 Mac and physical Android client; require exact asset/provenance binding,
   config/token preservation, unrelated Serve preservation, View/Control, forbidden-sink,
-  same-page recovery, installed-WebAPK, revocation, and owned-fixture cleanup evidence;
+  same-page recovery, installed-WebAPK (including resumption on `/client/` with a session-specific
+  title), revocation, and owned-fixture cleanup evidence;
 - documentation tells users how to revoke a lost phone and rotate the local token.

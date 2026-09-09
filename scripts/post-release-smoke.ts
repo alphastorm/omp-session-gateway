@@ -943,6 +943,18 @@ async function chooseLoopbackPort(): Promise<number> {
   });
 }
 
+export function isWebApkAppTarget(
+  target: { readonly type?: string; readonly title?: string; readonly url?: string },
+  origin: string,
+): boolean {
+  if (target.type !== "page" || target.url === undefined || !URL.canParse(target.url)) return false;
+  const url = new URL(target.url);
+  // Android resumes the existing app route; a collaboration page has a session-specific title.
+  return url.origin === origin &&
+    (url.pathname === "/" || url.pathname === "/client/") &&
+    url.username === "" && url.password === "" && url.search === "" && url.hash === "";
+}
+
 async function verifyInstalledWebApk(origin: string): Promise<void> {
   const host = new URL(origin).hostname;
   const packageList = await commandOutput("installed WebAPK list", ["adb", "shell", "cmd", "package", "list", "packages", "org.chromium.webapk"]);
@@ -972,7 +984,7 @@ async function verifyInstalledWebApk(origin: string): Promise<void> {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`);
     if (!response.ok) throw new Error("WebAPK DevTools target list was unavailable");
     const targets = (await response.json()) as Array<{ type?: string; title?: string; url?: string }>;
-    if (!targets.some(target => target.type === "page" && target.title === "OMP Sessions" && target.url?.startsWith(`${origin}/`))) {
+    if (!targets.some(target => isWebApkAppTarget(target, origin))) {
       throw new Error("installed WebAPK did not render the OMP Sessions origin");
     }
   } finally {
