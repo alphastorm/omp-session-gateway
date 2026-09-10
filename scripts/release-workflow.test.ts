@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -19,11 +19,16 @@ function runStep(name: string): string {
   return run;
 }
 
-// Execute the shipped shell, substituting only external GitHub/git verification boundaries.
+// Execute the shipped shell with controlled external-command fixtures, not ambient tools.
 // Release policy and signature verification have their own behavioral suites.
 async function exerciseGate(step: string, latest: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const root = await mkdtemp(join(tmpdir(), "omp-release-gate-"));
   try {
+    for (const command of ["bash", "cat"]) {
+      const executable = Bun.which(command);
+      if (executable === null) throw new Error("missing shell fixture prerequisite: " + command);
+      await symlink(executable, join(root, command));
+    }
     await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.3.0" }));
     await writeFile(join(root, "STABLE_RELEASE.lock.json"), JSON.stringify({
       candidateTag: "v0.3.0-prealpha.3",
@@ -34,6 +39,14 @@ async function exerciseGate(step: string, latest: string): Promise<{ code: numbe
     const child = Bun.spawn(["bash", "-c", `
 git() { if [ "$1" = rev-parse ]; then printf '%s\\n' "$GITHUB_SHA"; fi; }
 bun() { if [ "$1" = scripts/release-policy.ts ]; then printf 'OMP_RELEASE_CHANNEL=stable\\n'; fi; }
+jq() {
+  [ "$1" = -er ] || return 92
+  "$TEST_BUN" -e '
+    const value = (await Bun.file(process.argv[2]).json())[process.argv[1].slice(1)];
+    if (typeof value !== "string") process.exit(1);
+    console.log(value);
+  ' "$2" "$3"
+}
 gh() {
   if [ "$1" = api ]; then printf '%s\\n' "$TEST_LATEST";
   elif [ "$1 $2" = 'release view' ]; then printf 'sha256:%s\\n' "$TEST_DIGEST";
@@ -45,6 +58,8 @@ ${runStep(step)}
       cwd: root,
       env: {
         ...process.env,
+        PATH: root,
+        TEST_BUN: process.execPath,
         RUNNER_TEMP: root,
         GITHUB_ENV: join(root, "github-env"),
         GITHUB_SHA: "a".repeat(40),
@@ -146,7 +161,7 @@ test.skipIf(process.platform === "win32")("candidate channels emit one conservat
 
 test.skipIf(process.platform === "win32")("stable admission accepts the qualified current predecessor, not a hardcoded release", async () => {
   const accepted = await exerciseGate("Validate signed release tag and derive its channel", "v0.2.1");
-  expect(accepted.code).toBe(0);
+  expect(accepted.code, accepted.stderr).toBe(0);
   const stale = await exerciseGate("Validate signed release tag and derive its channel", "v0.2.2");
   expect(stale.code).not.toBe(0);
   expect(stale.stderr).toContain("Qualified rollback predecessor must match GitHub Latest");
@@ -157,6 +172,6 @@ test.skipIf(process.platform === "win32")("stable publication refuses predecesso
   expect(drifted.code).not.toBe(0);
   expect(drifted.stdout).not.toContain("PUBLICATION_EFFECT");
   const accepted = await exerciseGate("Publish release once", "v0.2.1");
-  expect(accepted.code).toBe(0);
+  expect(accepted.code, accepted.stderr).toBe(0);
   expect(accepted.stdout).toContain("PUBLICATION_EFFECT");
 });

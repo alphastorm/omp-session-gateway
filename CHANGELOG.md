@@ -10,6 +10,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 - Install the repository-pinned Bun in every CI job, including ephemeral fleet runners whose
   shared base image may carry an older runtime. Check this contract before running the suite.
+- Run release-workflow shell fixtures without an undeclared host `jq` dependency, while preserving
+  the shipped admission and publication decisions under a controlled command path.
 - Accept an installed Android WebAPK resuming the collaboration route during post-release smoke,
   rather than incorrectly requiring the directory title or navigating away from the existing session.
 
