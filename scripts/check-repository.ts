@@ -93,9 +93,21 @@ for (const rel of [
   }
 }
 
-const packageJson = JSON.parse(await readFile(join(rootPath, "package.json"), "utf8")) as { name?: string };
+const packageJson = JSON.parse(await readFile(join(rootPath, "package.json"), "utf8")) as { name?: string; packageManager: string };
 if (packageJson.name !== "omp-session-gateway") {
   errors.push(`package.json: expected name omp-session-gateway, got ${String(packageJson.name)}`);
+}
+
+// Fleet images are shared across repositories and may carry an older Bun. Every CI job
+// must establish this repository's runtime, independently of the runner environment.
+const ci = Bun.YAML.parse(await readFile(join(rootPath, ".github/workflows/ci.yml"), "utf8")) as {
+  jobs: Record<string, { steps: Array<{ uses?: string; if?: unknown; with?: Record<string, unknown> }> }>;
+};
+for (const [name, job] of Object.entries(ci.jobs)) {
+  const setup = job.steps.find(step => step.uses?.startsWith("oven-sh/setup-bun@"));
+  if (setup === undefined || setup.if !== undefined || setup.with?.["bun-version"] !== packageJson.packageManager.replace(/^bun@/, "")) {
+    errors.push(`ci.yml: ${name} must unconditionally install the packageManager Bun version`);
+  }
 }
 
 const canonicalChecks: Array<[string, string]> = [

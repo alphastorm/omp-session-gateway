@@ -200,6 +200,19 @@ long-lived relay scenario. Record the gateway commit, pinned OMP commit/patch, o
 gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
 required before claiming bounded memory growth.
 
+## Fleet CI runtime
+
+Fleet CI is optional shadow verification, not a substitute for required GitHub-hosted checks or
+release qualification. Each job installs and verifies the `packageManager` Bun version; the
+shared appliance image is not the repository runtime contract. `bun run check:repository` rejects
+jobs that skip runtime setup on self-hosted runners or select a different Bun version.
+
+The fleet controller pins the complete workflow digest. After an intentional workflow change,
+review and update that profile binding without rewriting historical qualification evidence.
+A successful controller dry-run does not prove host readiness; validate the configured appliance
+and run a bounded shadow against the exact clean, pushed checkpoint. Do not bypass workload guards
+or replace the shared runner image merely to satisfy this repository's Bun pin.
+
 ## Build and keyless provenance
 
 The release workflow accepts only tags matching the current package.json version:

@@ -80,12 +80,10 @@ jobs:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Set up Bun
-        if: ${{ runner.environment == 'github-hosted' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
-      - name: Verify appliance Bun
-        if: ${{ runner.environment == 'self-hosted' }}
+      - name: Verify pinned Bun
         run: test "$(bun --version)" = 1.4.0
       - run: bun install --frozen-lockfile
         if: ${{ hashFiles('bun.lock', 'bun.lockb') != '' }}
@@ -130,12 +128,10 @@ jobs:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Set up Bun
-        if: ${{ runner.environment == 'github-hosted' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
-      - name: Verify appliance Bun
-        if: ${{ runner.environment == 'self-hosted' }}
+      - name: Verify pinned Bun
         run: test "$(bun --version)" = 1.4.0
       - run: bun install --frozen-lockfile
         if: ${{ hashFiles('bun.lock', 'bun.lockb') != '' }}
@@ -189,12 +185,10 @@ jobs:
           TARGET_SHA: ${{ inputs.target_sha }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Set up Bun
-        if: ${{ runner.environment == 'github-hosted' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
-      - name: Verify appliance Bun
-        if: ${{ runner.environment == 'self-hosted' }}
+      - name: Verify pinned Bun
         run: test "$(bun --version)" = 1.4.0
       - run: bun install --frozen-lockfile
       # No --with-deps: the ubuntu-24.04 runner image already ships Chromium's shared libraries, and
