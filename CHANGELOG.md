@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Accept an installed Android WebAPK resuming the collaboration route during post-release smoke,
+  rather than incorrectly requiring the directory title or navigating away from the existing session.
+
 ## [v0.3.0] — 2026-09-09
 
 ### Added

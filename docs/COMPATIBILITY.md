@@ -2,7 +2,7 @@
 
 ## Current claim
 
-**Qualified stable target:** `v0.3.0`, exact patched OMP `v18.1.14`, Bun `1.4.0`.<br>
+**Published qualified stable:** `v0.3.0` (immutable GitHub Latest), exact patched OMP `v18.1.14`, Bun `1.4.0`.<br>
 **Signed candidate:** `v0.3.0-prealpha.3`, independently qualified and approved.<br>
 **Rollback predecessor:** published stable `v0.2.1`, retaining its own exact patched OMP v17.4.1.<br>
 **Advertised combinations:** Debian 13 (trixie) x86-64 and macOS 26.6.1 arm64 (`Mac14,3`) hosts,

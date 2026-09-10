@@ -3,24 +3,44 @@
 **Updated:** 2026-09-09<br>
 **Repository version:** `0.3.0`<br>
 **Qualified stable candidate:** **`v0.3.0-prealpha.3`**, independently verified<br>
-**Classification:** qualified for stable v0.3.0 on the exact combinations below; publication is
-recorded separately from qualification<br>
+**Classification:** published immutable GitHub Latest v0.3.0, qualified on the exact combinations below<br>
 **Stable decision:** **GO for v0.3.0**, using exact patched OMP v18.1.14 and Bun 1.4.0, with no
 historical qualification transfer or broader platform claim.
 
-### Stable v0.3.0 — qualified for publication
+### Stable v0.3.0 — published
 
-Stable target: **v0.3.0**, using published `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled.
+**Release:** [v0.3.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0),
+published 2026-09-09 at 23:39:08 UTC as immutable, non-prerelease GitHub Latest with six assets.<br>
+**Signed source:** `8a699ee3446b2aa7a6db9243e525e549040dca1c`.<br>
+**Archive SHA-256:** `e026cb5c437793dbe7813e028d8344ef7fa1724cdd388263aabe6cb3c43ac975`.<br>
+**Release run:** [34417806278](https://github.com/alphastorm/omp-session-gateway/actions/runs/34417806278), passed.
+
+The published-archive post-release smoke passed on the configured Darwin-arm64 workstation and
+physical Pixel. It verified release provenance and the exact source/archive/application asset,
+reused the already exact gateway and patched OMP v18.1.14, passed doctor 17/17, and preserved
+config, publisher-token bytes, and all Serve mappings. Physical View/Control, prompt/interrupt,
+forbidden capability sinks, same-page lock/Airplane/Doze recovery, installed-WebAPK launch, owned
+session revocation, and staging cleanup passed. The gateway, patched OMP, and WebAPK remain
+installed. This named post-release smoke does not broaden the qualified platform matrix.
+Metadata-only output is `post-release-smoke.json` beside the candidate qualification receipt below.
+
+The first post-release run stopped at a harness assertion: Android correctly resumed an existing
+`/client/` page with its session-specific title, while the check required the directory title.
+The corrected check accepts only the exact origin and capability-free application routes. A
+regression failed before the fix and passed afterward; a direct physical launch proved the resumed
+route, then the complete corrected smoke passed. Published runtime bytes were unchanged.
+
+Stable **v0.3.0** uses published `v0.3.0-prealpha.3` as its signed qualification candidate with Latest disabled.
 Release run [34254684458](https://github.com/alphastorm/omp-session-gateway/actions/runs/34254684458)
 passed at source `2c89d8280059a2bb638901d413df44b35593ddd4`. Archive SHA-256:
 `05c8a8f4001612d7e10c52139bf5b7aa53dca42e64fa2c262592cf6c4d932ec5`.
 The independent artifact lane verified the signed tag, six asset digests, checksums, three GitHub
-attestations, and three Sigstore bundles. Stable `v0.2.1` remains GitHub Latest.
+attestations, and three Sigstore bundles. Stable `v0.2.1` is the rollback predecessor.
 
 **Current decision: GO.** The seven-lane signed-candidate matrix, independent 28,800-second
 endurance run, provenance verification, and runtime-byte comparison all passed. The stable lock
-binds v0.3.0 to this candidate and the still-current v0.2.1 rollback predecessor. The release
-workflow must compare the final runtime again and recheck GitHub Latest before promotion.
+binds v0.3.0 to this candidate and the v0.2.1 rollback predecessor. The release workflow
+rechecked GitHub Latest and final runtime equivalence before publishing.
 
 The signed-candidate receipt at
 `~/.local/share/omp-session-gateway/qualification/v0.3.0-prealpha.3-8g/stable-qualification.json`
@@ -43,7 +63,8 @@ completed on 2026-09-08 at 17:59:07 UTC, bound to orchestrator
 - An offline prospective stable build at `ca6c2f7213e9d8ad5d3c46e2277b919138a60483` matched
   all 49 non-metadata candidate archive files by name, bytes, and mode. Only `release-info.json`,
   `SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json` are
-  excluded, matching the publication gate. Recheck the final promotion tree before tagging.
+  excluded, matching the publication gate. The final promotion tree and release workflow also
+  passed this comparison before publication.
 
 Additional signed-byte physical media smoke on 2026-09-09 used the installed WebAPK on the same
 Pixel after Chrome updated to `152.0.7977.82`. The native Google Camera captured one authorized
