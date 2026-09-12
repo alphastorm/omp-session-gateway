@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#060809">
+<title>OMP Session Gateway — every live OMP session, one private mobile page</title>
+<meta name="description" content="An Android-first PWA and loopback-only broker that auto-discovers running Oh My Pi sessions, alerts you when one needs input, and opens OMP's own encrypted collaboration client — without QR codes or copied links.">
+<link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/">
+<link rel="stylesheet" href="site.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="OMP Session Gateway — every live OMP session, one private mobile page">
+<meta property="og:description" content="Auto-discovers running Oh My Pi sessions, alerts you when one needs input, and opens OMP's own encrypted collaboration client from your phone — private tailnet only, memory-only capabilities, no transcript storage.">
+<meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareApplication",
+ "name": "OMP Session Gateway",
+ "applicationCategory": "DeveloperApplication",
+ "operatingSystem": "Linux, macOS (gateway host); Android (client)",
+ "description": "Secure, zero-touch mobile access to every running Oh My Pi session: a loopback-only directory and just-in-time View/Control capability broker behind Tailscale Serve, with an Android-first PWA that opens OMP's own encrypted collaboration client.",
+ "url": "https://alphastorm.github.io/omp-session-gateway/",
+ "codeRepository": "https://github.com/alphastorm/omp-session-gateway",
+ "license": "https://github.com/alphastorm/omp-session-gateway/blob/main/LICENSE"}
+</script>
+</head>
+<body>
+<header class="site">
+  <img src="logo.svg" alt="" aria-hidden="true">
+  <a class="brand" href="">OMP Session Gateway</a>
+  <nav>
+      <a href="" aria-current="page">Overview</a>
+      <a href="compare/">Compare</a>
+      <a href="status/">Status</a>
+      <a href="security/">Security</a>
+  </nav>
+</header>
+<main>
+<p class="eyebrow">Private mobile access to live OMP sessions</p>
+<h1>Every live OMP session. One private mobile&nbsp;page.</h1>
+<p class="lede"><strong>OMP Session Gateway</strong> is an Android-first PWA and loopback-only broker for
+<a href="https://github.com/can1357/oh-my-pi">Oh My Pi</a> (a coding-agent client). It auto-discovers
+every running interactive OMP session, tells you when one is waiting for input, and opens OMP's own
+encrypted collaboration client on that exact session — without QR codes, copied links, or a second
+chat surface. The terminal stays the source of truth.</p>
+
+<div class="receipt">
+<strong>Stable v0.3.0 · exact patched OMP v18.1.14:</strong><br>
+<span class="n">Debian 13</span> x86-64 · <span class="n">macOS 26.6.1</span> arm64 ·
+<span class="n">Chrome 152</span> on Android 17 (Pixel 10 Pro) ·
+<span class="n">28,800&nbsp;s</span> relay endurance · signed candidate <span class="n">v0.3.0-prealpha.3</span>
+runtime-equivalent.
+<div class="verified">Fresh qualification, no historical transfer · approved 2026-09-09 ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a></div>
+</div>
+
+<a class="cta" href="https://github.com/alphastorm/omp-session-gateway#build-and-run">Build and run</a>
+<a class="cta secondary" href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">Download v0.3.0</a>
+
+<figure>
+<img src="product-flow.png" width="1600" height="980" alt="Three-step product flow: discover every live OMP session automatically, triage the oldest request that needs attention, and open the exact encrypted OMP collaboration session with View or Control.">
+<figcaption>Captured from the built PWA and pinned collaboration client with seeded synthetic fixtures — no real
+sessions, hosts, accounts, or capabilities.</figcaption>
+</figure>
+
+<h2>Use it when</h2>
+<ul>
+<li>You keep several interactive OMP sessions open in terminals and want each one reachable from your phone without a per-session command, QR scan, or link copy.</li>
+<li>Your hosts are on a Tailscale tailnet and you can run Tailscale Serve with the TUN-mode client, Funnel disabled.</li>
+<li>You want OMP's existing encrypted <code>collab-web</code> client, and you want collaboration links kept out of logs, URLs, notifications, and browser storage.</li>
+</ul>
+
+<h2>Use something else when</h2>
+<p>You want a browser-first cockpit that hosts its own sessions (<code>omp-deck</code>), raw terminal access
+from a phone across many agents (<code>oh-my-portal</code>), or an established multi-agent web UI
+(<code>claudecodeui</code>). The <a href="compare/">comparison</a> is candid about this — the narrow job is
+what makes the recommendation credible.</p>
+
+<h2>How it fits together</h2>
+<p>Each interactive <code>omp</code> process registers over user-only IPC with <code>omp-gatewayd</code>, a
+loopback-only daemon. Tailscale Serve exposes that loopback listener to allowlisted tailnet identities
+over tailnet HTTPS, and the <strong>OMP Sessions</strong> PWA lists every live process as bounded metadata.
+Tapping <strong>View</strong> or <strong>Control</strong> fetches one <code>no-store</code> capability and hands
+off to OMP's end-to-end-encrypted relay; the gateway never stores or renders transcripts.
+Full detail: <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/ARCHITECTURE.md">architecture</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/PROTOCOL.md">protocol</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OPERATIONS.md">operations</a>.</p>
+</main>
+<footer>
+  Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+  Evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway">repository</a>:
+  every claim on this site is bound to a versioned release ledger entry.
+</footer>
+</body>
+</html>

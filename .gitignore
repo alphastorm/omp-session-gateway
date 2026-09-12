@@ -23,3 +23,9 @@ publisher-token
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# Staged into site/ from their canonical sources by .github/workflows/pages.yml; never commit copies.
+site/logo.svg
+site/favicon.svg
+site/og.png
+site/product-flow.png
