@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#060809">
+<title>OMP Session Gateway status — current qualified release and support boundary</title>
+<meta name="description" content="Current stable release v0.3.0 with exact patched OMP v18.1.14: qualified hosts, client, remote path, rollback predecessor, and the known limits that are part of the claim.">
+<link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
+<link rel="stylesheet" href="../site.css">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
+<meta property="og:description" content="Current stable release v0.3.0 with exact patched OMP v18.1.14: qualified hosts, client, remote path, and known limits.">
+<meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<header class="site">
+  <img src="../logo.svg" alt="" aria-hidden="true">
+  <a class="brand" href="../">OMP Session Gateway</a>
+  <nav>
+      <a href="../">Overview</a>
+      <a href="../compare/">Compare</a>
+      <a href="../status/" aria-current="page">Status</a>
+      <a href="../security/">Security</a>
+  </nav>
+</header>
+<main>
+<p class="eyebrow">Status</p>
+<h1>Current qualified release</h1>
+<p class="lede"><strong>v0.3.0</strong> — support is qualified for exact combinations, not platform families.
+Historical qualification does not transfer; a build from <code>main</code> carries no qualification.</p>
+<table>
+<tr><th>Claim</th><th>Current</th></tr>
+<tr><td>Qualified release</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">v0.3.0</a>, immutable GitHub Latest</td></tr>
+<tr><td>Signed qualification candidate</td><td><code>v0.3.0-prealpha.3</code>; independently qualified, runtime-equivalent</td></tr>
+<tr><td>Stable hosts</td><td>Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 (<code>Mac14,3</code>)</td></tr>
+<tr><td>Stable client</td><td>Chrome <code>152.0.7977.75</code> on Android 17 (Pixel 10 Pro)</td></tr>
+<tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled</td></tr>
+<tr><td>OMP baseline</td><td>Exact patched <code>v18.1.14</code>, Bun <code>1.4.0</code>; stock OMP is insufficient</td></tr>
+<tr><td>Rollback predecessor</td><td><code>v0.2.1</code>, with its separately activated exact patched OMP <code>v17.4.1</code></td></tr>
+</table>
+<h2>Known limits — part of the claim</h2>
+<ul>
+<li><strong>TUN mode is mandatory.</strong> With userspace-networking <code>tailscaled</code> every tailnet peer arrives as a loopback peer, and the gateway fails closed rather than believing an identity header.</li>
+<li><strong>Never enable Tailscale Funnel.</strong> There is no supported public-Internet path.</li>
+<li><strong>Android radio transitions</strong> can wedge Chrome's process-wide network stack while Android stays healthy; the PWA retries and, after 45 s of visible failure, opens force-stop/reopen help.</li>
+<li><strong>Background Web Push</strong> is implemented and capability-free but outside the stable core claim.</li>
+<li><strong>Windows</strong> passes source acceptance but is not advertised until exact signed artifacts repeat the lane.</li>
+<li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
+<li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>
+</ul>
+<p>Machine-readable truth:
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json">stable release lock</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json">upstream lock</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md">compatibility matrix</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a> (authoritative where they disagree)</p>
+<p class="verified">Stable v0.3.0 approved 2026-09-09; OMP v18.1.14 baseline observed 2026-09-08.</p>
+</main>
+<footer>
+  Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+  Evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway">repository</a>:
+  every claim on this site is bound to a versioned release ledger entry.
+</footer>
+</body>
+</html>

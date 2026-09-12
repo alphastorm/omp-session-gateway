@@ -1,0 +1,26 @@
+# OMP Session Gateway
+
+> Secure, zero-touch mobile access to every running Oh My Pi (OMP) session. An Android-first
+> PWA plus a loopback-only directory and just-in-time View/Control capability broker behind
+> Tailscale Serve; opening a session hands off to OMP's own end-to-end-encrypted collab-web
+> client. Stable v0.3.0 requires exact patched OMP v18.1.14. Community project; not affiliated
+> with or endorsed by the Oh My Pi maintainers.
+
+## Canonical documents
+
+- [README](https://github.com/alphastorm/omp-session-gateway#readme): problem, user experience, build and run, how it compares
+- [Compatibility](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md): qualified host/client/OMP combinations and support policy
+- [Release status](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md): per-candidate qualification evidence, authoritative where docs disagree
+- [Security](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/SECURITY.md): threat model, capability handling, acceptance gates
+- [Architecture](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/ARCHITECTURE.md): trust boundaries and components
+- [Protocol](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/PROTOCOL.md): IPC and HTTP contracts
+- [Operations](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OPERATIONS.md): install, Tailscale Serve, doctor, upgrade
+- [OMP patch route](https://github.com/alphastorm/omp-session-gateway/blob/main/patches/oh-my-pi/README.md): exact controller/publisher patch for the pinned OMP
+- [Stable release lock](https://github.com/alphastorm/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json) and [upstream lock](https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json): machine-readable current claim
+
+## Web pages
+
+- [Overview](https://alphastorm.github.io/omp-session-gateway/)
+- [Compare](https://alphastorm.github.io/omp-session-gateway/compare/)
+- [Status](https://alphastorm.github.io/omp-session-gateway/status/)
+- [Security](https://alphastorm.github.io/omp-session-gateway/security/)

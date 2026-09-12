@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#060809">
+<title>OMP Session Gateway security — private by design, fail-closed by default</title>
+<meta name="description" content="Release-blocking security invariants of OMP Session Gateway: loopback-only listeners, allowlisted tailnet identity, memory-only View/Control capabilities, metadata-only APIs, and no transcript storage.">
+<link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/security/">
+<link rel="stylesheet" href="../site.css">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="OMP Session Gateway security — private by design, fail-closed by default">
+<meta property="og:description" content="Loopback-only listeners, allowlisted tailnet identity, memory-only View/Control capabilities, metadata-only APIs, and no transcript storage.">
+<meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/security/">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<header class="site">
+  <img src="../logo.svg" alt="" aria-hidden="true">
+  <a class="brand" href="../">OMP Session Gateway</a>
+  <nav>
+      <a href="../">Overview</a>
+      <a href="../compare/">Compare</a>
+      <a href="../status/">Status</a>
+      <a href="../security/" aria-current="page">Security</a>
+  </nav>
+</header>
+<main>
+<p class="eyebrow">Security</p>
+<h1>Private by design, fail-closed by default</h1>
+<p class="lede">OMP collaboration links are bearer capabilities. The gateway treats both View and Control
+links as secrets, and the invariants below block a release when they regress.</p>
+<ul>
+<li><strong>Loopback-only listeners</strong> — the production HTTP server binds only to <code>127.0.0.1</code> and optionally <code>::1</code>; Tailscale Serve is the only supported remote path and Funnel is never enabled.</li>
+<li><strong>Allowlisted tailnet identity</strong> — production requires a verified <code>Tailscale-User-Login</code> that matches an exact allowlist, and identity headers are believed only while Tailscale's tunnel device is present. A userspace-networking client makes every peer look local, so the daemon returns <code>403</code> rather than trusting the header.</li>
+<li><strong>Memory-only capabilities</strong> — View and Control links exist only in the live OMP process, authenticated local IPC request memory, the gateway's in-memory store, one <code>no-store</code> launch response, and volatile client JavaScript. Never in files, logs, diagnostics, URLs, cookies, push payloads, browser storage, or service-worker caches.</li>
+<li><strong>Metadata-only APIs</strong> — session-list and SSE responses carry bounded metadata; a capability is fetched only after an explicit tap and only for the expected generation, so stale cards fail instead of receiving a newer secret.</li>
+<li><strong>Authenticated local IPC</strong> — each OMP process registers over a user-only Unix socket (or current-user named pipe on Windows) with a random per-install token of at least 256 bits; the registry is memory-only and restarts empty.</li>
+<li><strong>Prompt revocation</strong> — generation N is revoked before N+1 is published; stop, shutdown, and fatal host failure unregister immediately, with a 35-second TTL as the crash fallback.</li>
+<li><strong>Hardened browser surface</strong> — exact <code>Origin</code> validation on state-changing requests, no wildcard CORS, strict CSP, <code>Referrer-Policy: no-referrer</code>, and a service worker that caches only immutable shell assets.</li>
+<li><strong>No transcript storage</strong> — the gateway never stores or renders transcripts; opening a session hands off to OMP's existing end-to-end-encrypted relay and client.</li>
+</ul>
+<p>Out of scope in v1: mutually untrusted local accounts on a shared shell host, Portal Tunnel, and self-hosted or
+proxied relays. Every release runs distinctive-synthetic-secret leak scans across logs, storage, caches, URLs, and
+CI artifacts before it is qualified.</p>
+<p>The full threat model, boundaries, and acceptance gates:
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/SECURITY.md">docs/SECURITY.md</a> ·
+report a vulnerability privately via the
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/SECURITY.md">security policy</a>.</p>
+<p class="verified">Invariants as qualified for stable v0.3.0 on 2026-09-09.</p>
+</main>
+<footer>
+  Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+  Evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway">repository</a>:
+  every claim on this site is bound to a versioned release ledger entry.
+</footer>
+</body>
+</html>

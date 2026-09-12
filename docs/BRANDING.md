@@ -71,13 +71,14 @@ requested only when you tap an action."). Keep the standing disclaimer:
 | `assets/logo-light.svg` | mark for light backgrounds |
 | `assets/banner.html` | README banner source (1280×320) |
 | `assets/banner.png` | rendered banner @2x (2560×640) |
-| `assets/og.png` | GitHub social preview (1280×640) |
+| `assets/og.png` | GitHub social preview and site `og:image` (1280×640) |
 | `apps/web/icon.svg` | PWA icon source (512, rx116 tile) |
 | `apps/web/favicon.svg` | favicon (96, rx22 tile) |
 | `apps/web/icon-192.png` / `icon-512.png` | manifest icons, `purpose: any` |
 | `apps/web/icon-maskable-512.png` | manifest icon, `purpose: maskable` |
 | `apps/web/apple-touch-icon-180.png` | apple-touch-icon |
 | `apps/web/src/index.html` / `styles.css` / `manifest.webmanifest` | drop-in PWA shell implementing this spec (see `HANDOFF_NOTES.md`) |
+| `site/` | canonical public site (`alphastorm.github.io/omp-session-gateway`), system font stacks only; `pages.yml` stages the mark, favicon, `og.png`, and product-flow capture from their canonical sources at deploy time, so `site/` never carries copies |
 
 Manifest snippet:
 

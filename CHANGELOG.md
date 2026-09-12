@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Publish a canonical public site at `alphastorm.github.io/omp-session-gateway` (overview, compare,
+  status, security, `llms.txt`, sitemap) from `site/` through a SHA-pinned GitHub Pages workflow that
+  stages brand and media assets from their single sources. `bun run check` now fails when the site
+  stops stating the locked stable release or OMP baseline, references a missing asset, or drifts
+  from its sitemap.
+
 ### Fixed
 
 - Install the repository-pinned Bun in every CI job, including ephemeral fleet runners whose
