@@ -2,7 +2,7 @@
 
 These files are deterministic public fixtures. Every session title, project label, request, and notification shown here is synthetic. Never replace them with a personal or production capture.
 
-**Historical synthetic demo, not current-release qualification evidence.** The captures retain the source revision, pinned client, tools, and clock recorded below; they do not depict a fresh v0.4.0 capture. Current stock-OMP integration and support claims come from the [release ledger](../RELEASE_STATUS.md) and [compatibility policy](../COMPATIBILITY.md). In particular, the notification imagery does not qualify background Web Push on the current mainline matrix.
+This is a synthetic product demonstration, not release-qualification evidence. Its source revision and browser-client provenance are recorded below. The notification toast is capture-only chrome, not a real system notification or proof of background Web Push delivery.
 
 ## Regenerate and verify
 
@@ -13,14 +13,14 @@ bun run media:capture
 bun run media:check
 ```
 
-`media:capture` builds the actual PWA and pinned collaboration client before capture. It publishes the canonical set only after staging the complete package. `media:check` verifies the binaries, manifest, public-safety rules, and root README references; it does not regenerate media.
+`media:capture` builds the actual PWA and pinned collaboration client before capture. It publishes the canonical set only after staging the complete package. `media:check` verifies the binaries, manifest, public-safety rules, and root README references; it does not regenerate media. Both use `packages/collab-client/upstream/UPSTREAM.json` for browser-client provenance, independently of the OMP host baseline.
 
-Source revision: `c0d737d5fc4497d418952999a6c6fbca8d299cdf`  
-Pinned client: `v17.4.1` / `9350b7990d26ebf69a604edc82d8558ef04adf30` (`@oh-my-pi/collab-web` 16.3.6)
+Source revision: `396995c4c35a144d48e6aff23017ff9ac7692f82`  
+Pinned client: `v18.1.14` / `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` (`@oh-my-pi/collab-web` 16.3.6)
 
 Normalized tool versions:
 
-- Bun 1.3.14
+- Bun 1.4.0
 - TypeScript 7.0.2
 - Playwright 1.62.1
 - Chromium 151.0.7922.34
@@ -49,6 +49,4 @@ The opening contains four working sessions: Release qualification, Android recon
 
 The canonical directory contains only the eight binaries, this provenance file, and `manifest.json`. The [unposted launch-copy draft](../LAUNCH_COPY.md) lives outside the synthetic-media fixture directory. The checker rejects every unexpected file, including concepts and contact sheets.
 
-The current-pin `bun run media:check` gate rejects this historical set because its recorded Bun and client pins differ from the current toolchain. Do not edit the manifest to make that gate pass; regenerate the set when a fresh capture is intended.
-
-When intentionally refreshing media for a changed PWA, pinned client, capture copy, spacing, typography, or responsive layout, regenerate the entire set and update its provenance together. A documentation-only refresh does not recapture or relabel these historical assets. Do not hand-edit a binary or reuse a concept image from the desktop media pack.
+When intentionally refreshing media for a changed PWA, pinned client, capture copy, spacing, typography, or responsive layout, regenerate the entire set and update its provenance together. A documentation-only refresh does not recapture or relabel historical assets. Do not hand-edit a binary or reuse a concept image from the desktop media pack.

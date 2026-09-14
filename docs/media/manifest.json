@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "sourceRevision": "c0d737d5fc4497d418952999a6c6fbca8d299cdf",
+  "sourceRevision": "396995c4c35a144d48e6aff23017ff9ac7692f82",
   "upstreamClient": {
-    "tag": "v17.4.1",
-    "commit": "9350b7990d26ebf69a604edc82d8558ef04adf30",
+    "tag": "v18.1.14",
+    "commit": "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e",
     "packageVersion": "16.3.6"
   },
   "generatedBy": {
     "command": "bun run media:capture",
-    "bun": "1.3.14",
+    "bun": "1.4.0",
     "typescript": "7.0.2",
     "playwright": "1.62.1",
     "chromium": "151.0.7922.34",
@@ -33,8 +33,8 @@
   },
   "assets": {
     "omp-session-gateway-demo.gif": {
-      "bytes": 339549,
-      "sha256": "da5602a3803445b947f7ca1674c0cf17049f5f4b51d05911450c69835d65096e",
+      "bytes": 351081,
+      "sha256": "4e68d02b5144cae4a2f972d8a4991062190e0003dd35d08289cebfdecbc021f7",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
@@ -45,19 +45,19 @@
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
+          "sha256": "9c663e7d5201a5e82a757635912ceead9513681d010839111dca8eed97ed060b"
         },
         {
           "id": "runtime:discovered-live-five",
-          "sha256": "bcb971613b33982df391a66d21848b36c557da8bf3a61f09a83993bf6686a113"
+          "sha256": "3945e2c0c03b2c672e553afa6d5fae90572405e2af2f24ed6e75ae86d7127b96"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
+          "sha256": "47d32261eeef60fc369200f5655bb7e5d6337c1b9ff417b24ee82413112f8d35"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
+          "sha256": "ec967f084d772abd097e7f046ecaba5600bd4fb2954c1d4a39bac27f1449537e"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -66,8 +66,8 @@
       ]
     },
     "omp-session-gateway-demo.mp4": {
-      "bytes": 380818,
-      "sha256": "8c1c2b4752d108ef83948dd772b7cfe437acda8dbb4bb48105473780a6241a79",
+      "bytes": 386235,
+      "sha256": "54586a76f49c16d58b13a3dd63b3151d6a31a2d56afbbd176a83462e70aa724f",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
@@ -79,19 +79,19 @@
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
+          "sha256": "9c663e7d5201a5e82a757635912ceead9513681d010839111dca8eed97ed060b"
         },
         {
           "id": "runtime:discovered-live-five",
-          "sha256": "bcb971613b33982df391a66d21848b36c557da8bf3a61f09a83993bf6686a113"
+          "sha256": "3945e2c0c03b2c672e553afa6d5fae90572405e2af2f24ed6e75ae86d7127b96"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
+          "sha256": "47d32261eeef60fc369200f5655bb7e5d6337c1b9ff417b24ee82413112f8d35"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
+          "sha256": "ec967f084d772abd097e7f046ecaba5600bd4fb2954c1d4a39bac27f1449537e"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -100,15 +100,15 @@
       ]
     },
     "omp-session-gateway-demo-poster.png": {
-      "bytes": 70575,
-      "sha256": "61eba8f69beb5259c9be7ae73d1b96bb3cc2758086f3262c5375289127571d84",
+      "bytes": 71320,
+      "sha256": "ae3bc6609afe7e1733c43467defa674227ba42409f61a7c832db525d0007324e",
       "width": 960,
       "height": 540,
       "provenance": "capture-only-presentation-composite",
       "compositeInputs": [
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
+          "sha256": "47d32261eeef60fc369200f5655bb7e5d6337c1b9ff417b24ee82413112f8d35"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -118,23 +118,23 @@
       "sourceFrame": 60
     },
     "omp-session-gateway-product-flow.png": {
-      "bytes": 172398,
-      "sha256": "ba2e4173326238d02e29f9bdc630aff544aff79370def9da5a86751bdc978168",
+      "bytes": 173265,
+      "sha256": "052e5d11d4a8f9c201ddd51002fc6767adab58f6e3bd19001af851c28c882c84",
       "width": 1600,
       "height": 980,
       "provenance": "capture-only-presentation-composite",
       "compositeInputs": [
         {
           "id": "runtime:01-all-clear.png",
-          "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923"
+          "sha256": "9c663e7d5201a5e82a757635912ceead9513681d010839111dca8eed97ed060b"
         },
         {
           "id": "runtime:02-needs-you.png",
-          "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0"
+          "sha256": "47d32261eeef60fc369200f5655bb7e5d6337c1b9ff417b24ee82413112f8d35"
         },
         {
           "id": "runtime:03-open-request.png",
-          "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c"
+          "sha256": "ec967f084d772abd097e7f046ecaba5600bd4fb2954c1d4a39bac27f1449537e"
         },
         {
           "id": "brand:assets/logo.svg",
@@ -143,29 +143,29 @@
       ]
     },
     "01-all-clear.png": {
-      "bytes": 74092,
-      "sha256": "7db80c2c770860f7bec2c19fc7e1d06602bfe784f68076490d6e35b698d41923",
+      "bytes": 80257,
+      "sha256": "9c663e7d5201a5e82a757635912ceead9513681d010839111dca8eed97ed060b",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
     },
     "02-needs-you.png": {
-      "bytes": 109868,
-      "sha256": "6296710451ae2e83567759bd16af678709c2420f688a2afb06002b5cce896fa0",
+      "bytes": 117271,
+      "sha256": "47d32261eeef60fc369200f5655bb7e5d6337c1b9ff417b24ee82413112f8d35",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
     },
     "03-open-request.png": {
-      "bytes": 81599,
-      "sha256": "1b8d030e2b6e463996603aea2f9622fb8d8e79721a0b2846d1a12179e560394c",
+      "bytes": 79869,
+      "sha256": "ec967f084d772abd097e7f046ecaba5600bd4fb2954c1d4a39bac27f1449537e",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime-with-pinned-collab-client"
     },
     "04-notification-settings.png": {
-      "bytes": 145882,
-      "sha256": "a70c8991019d089fa0a69868717f41656177e2bbca3e30337cff80c9345ade74",
+      "bytes": 151258,
+      "sha256": "08b5e8e3c6f0b1e8454053c53eb777e6013870ee74233e1c6195a9a321ed8861",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
