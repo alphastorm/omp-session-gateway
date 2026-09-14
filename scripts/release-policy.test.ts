@@ -92,7 +92,12 @@ describe("release tag policy", () => {
     );
   });
 
-
+  test("a complete historical approval cannot authorize a different release", () => {
+    expect(() => assertStableReleaseQualification(qualifiedManifest(), "v0.3.0", "0.3.0")).toThrow();
+    const wrongCandidate = qualifiedManifest();
+    wrongCandidate.candidateTag = "v0.3.0-prealpha.1";
+    expect(() => assertStableReleaseQualification(wrongCandidate, "v0.2.1", VERSION)).toThrow();
+  });
 
   test("CLI emits stable GitHub environment values only with a qualified manifest", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "stable-release-policy-"));

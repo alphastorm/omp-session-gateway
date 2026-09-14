@@ -993,13 +993,8 @@ describe("production config authoring", () => {
       expect((await lstat(paths.configDir)).mode & 0o077).toBe(0);
       expect((await lstat(paths.stateDir)).mode & 0o077).toBe(0);
     }
-    // Only the three admitted sections may reach the file, because an unknown key written here would
-    // fail every subsequent load rather than being ignored.
-    expect(Object.keys(JSON.parse(await readFile(paths.configPath, "utf8")) as object)).toEqual([
-      "http",
-      "auth",
-      "registry",
-    ]);
+    // A fresh config keeps environment-derived OMP defaults implicit.
+    expect(JSON.parse(await readFile(paths.configPath, "utf8")).omp).toBeUndefined();
     expect(await loadGatewayConfig({ configPath: paths.configPath })).toEqual(written);
   }, 20_000);
 
@@ -1014,6 +1009,7 @@ describe("production config authoring", () => {
         trustIdentityWithoutTailnetDevice: true,
       },
       registry: { heartbeatSeconds: 7, ttlSeconds: 23, maxSessions: 83 },
+      omp: { discoveryDir: join(paths.stateDir, "custom-hosts"), queryTimeoutMs: 2_345 },
     };
     const priorText = JSON.stringify(priorDocument) + "\n";
     await writePrivateTextFile(paths.configPath, priorText);
@@ -1042,11 +1038,7 @@ describe("production config authoring", () => {
       trustIdentityWithoutTailnetDevice: true,
     });
     expect(preserved.registry).toEqual(priorDocument.registry);
-    expect(JSON.parse(await readFile(paths.configPath, "utf8"))).toEqual({
-      http: preserved.http,
-      auth: preserved.auth,
-      registry: preserved.registry,
-    });
+    expect((await loadGatewayConfig({ configPath: paths.configPath })).omp).toEqual(priorDocument.omp);
     if (process.platform !== "win32") expect((await lstat(paths.configPath)).mode & 0o777).toBe(0o600);
 
     const overridden = await writeGatewayConfigFile({
@@ -1057,6 +1049,32 @@ describe("production config authoring", () => {
     expect(overridden.http.port).toBe(6432);
     expect(overridden.auth.trustIdentityWithoutTailnetDevice).toBe(true);
     expect(overridden.registry).toEqual(priorDocument.registry);
+    expect((await loadGatewayConfig({ configPath: paths.configPath })).omp).toEqual(priorDocument.omp);
+  }, 20_000);
+
+  test("preserves partial OMP overrides without freezing derived discovery defaults", async () => {
+    const paths = await isolatedHome();
+    await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
+    await writePrivateTextFile(paths.configPath, JSON.stringify({
+      ...serveDocument(),
+      omp: { queryTimeoutMs: 2_345 },
+    }));
+    await writeGatewayConfigFile({
+      publicOrigin: "https://new-gateway.example.ts.net",
+      allowedLogins: ["user@example.com"],
+    });
+    const previous = process.env.PI_CONFIG_DIR;
+    try {
+      process.env.PI_CONFIG_DIR = ".omp-renamed";
+      const reloaded = await loadGatewayConfig({ configPath: paths.configPath });
+      expect(reloaded.omp).toEqual({
+        discoveryDir: join(homedir(), ".omp-renamed", "run", "collab-hosts"),
+        queryTimeoutMs: 2_345,
+      });
+    } finally {
+      if (previous === undefined) delete process.env.PI_CONFIG_DIR;
+      else process.env.PI_CONFIG_DIR = previous;
+    }
   }, 20_000);
 
   test("refuses malformed or unsafe prior config without replacing it", async () => {

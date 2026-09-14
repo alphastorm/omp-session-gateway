@@ -4,11 +4,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
+import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 // Rollback predecessor: the published stable release the candidate must migrate from and roll
-// back to. A 0.3.0 candidate must prove upgrade and rollback against bare v0.2.1 stable.
-const PREVIOUS_TAG = "v0.2.1";
+// back to. The mainline candidate must prove migration from and recovery to bare v0.3.0 stable.
+const PREVIOUS_TAG = "v0.3.0";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
 const SIGNED_WORKFLOW = "signed-release.yml";
@@ -69,6 +70,7 @@ export interface StableQualificationReceipt {
 }
 
 export interface StableQualificationOptions {
+  readonly preflight: boolean;
   readonly tag: string;
   readonly previousTag: string;
   readonly receiptRoot: string;
@@ -180,14 +182,16 @@ export function parseStableQualificationArgs(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): StableQualificationOptions {
   let tag: string | undefined;
+  let preflight = false;
   let previousTag = environment.OMP_STABLE_PREVIOUS_TAG ?? PREVIOUS_TAG;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--tag") tag = argv[++index];
+    if (argument === "--preflight") preflight = true;
+    else if (argument === "--tag") tag = argv[++index];
     else if (argument === "--previous-tag") previousTag = argv[++index] ?? "";
     else throw new Error(`unknown argument: ${argument ?? ""}`);
   }
-  if (tag === undefined) throw new Error(`usage: bun run qualify:stable --tag v${VERSION}-prealpha.<n>`);
+  if (tag === undefined) throw new Error(`usage: bun run qualify:stable [--preflight] --tag v${VERSION}-prealpha.<n> [--previous-tag ${PREVIOUS_TAG}]`);
   if (!CANDIDATE_TAG_PATTERN.test(tag)) {
     throw new Error(`--tag must match v${VERSION}-prealpha.<positive integer>`);
   }
@@ -203,6 +207,7 @@ export function parseStableQualificationArgs(
     throw new Error("OMP_STABLE_SESSION_LABEL must be a safe single path component of at most 128 characters");
   }
   return {
+    preflight,
     tag,
     previousTag,
     receiptRoot,
@@ -472,14 +477,13 @@ async function verifyCandidate(
   return { tag: options.tag, sourceCommit, archiveSha256, assetDirectory, releaseUrl: release.url };
 }
 
-async function gitQualificationRef(commit: string): Promise<string> {
-  const status = await commandOutput(["git", "status", "--porcelain"]);
+async function gitQualificationRef(commit: string, output: StablePreflightRuntime["output"]): Promise<string> {
+  const status = await output(["git", "--no-optional-locks", "status", "--porcelain"]);
   if (status !== "") throw new Error("stable qualification requires a clean working tree");
-  const branch = await commandOutput(["git", "branch", "--show-current"]);
+  const branch = await output(["git", "branch", "--show-current"]);
   if (branch === "") throw new Error("stable qualification requires a published branch, not detached HEAD");
-  await runCommand(["git", "fetch", "origin", branch], { timeoutMs: 120_000 });
-  const remoteCommit = await commandOutput(["git", "rev-parse", `origin/${branch}`]);
-  if (remoteCommit !== commit) throw new Error(`origin/${branch} does not match HEAD`);
+  const remote = await output(["git", "ls-remote", "--exit-code", "origin", `refs/heads/${branch}`]);
+  if (remote !== `${commit}\trefs/heads/${branch}`) throw new Error("published qualification branch does not match HEAD");
   return branch;
 }
 
@@ -734,6 +738,7 @@ async function recoverRetainedMac(options: StableQualificationOptions): Promise<
   const endpoint = `https://api.scaleway.com/apple-silicon/v1alpha1/zones/${encodeURIComponent(options.macZone)}/servers`;
   const listResponse = await fetch(`${endpoint}?project_id=${encodeURIComponent(projectId)}`, {
     headers: { "X-Auth-Token": secretKey },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!listResponse.ok) throw new Error(`Scaleway server list failed with status ${listResponse.status}`);
   const list = (await listResponse.json()) as { servers?: unknown[] };
@@ -741,10 +746,11 @@ async function recoverRetainedMac(options: StableQualificationOptions): Promise<
     (entry): entry is Record<string, unknown> => isRecord(entry) && entry.name === options.macName,
   );
   if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
-    throw new Error(`expected exactly one retained Scaleway Mac named ${options.macName}`);
+    throw new Error("expected exactly one retained Scaleway Mac");
   }
   const detailResponse = await fetch(`${endpoint}/${encodeURIComponent(matches[0].id)}`, {
     headers: { "X-Auth-Token": secretKey },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!detailResponse.ok) throw new Error(`Scaleway server detail failed with status ${detailResponse.status}`);
   const detail = (await detailResponse.json()) as { server?: Record<string, unknown> } & Record<string, unknown>;
@@ -757,6 +763,118 @@ async function recoverRetainedMac(options: StableQualificationOptions): Promise<
     throw new Error("retained Scaleway Mac access fields are incomplete");
   }
   return { sshDestination: `${user}@${ip}`, sudoPassword };
+}
+
+export interface StablePreflightRuntime {
+  readonly platform: string;
+  readonly arch: string;
+  readonly bunVersion: string;
+  readonly environment: Readonly<Record<string, string | undefined>>;
+  readonly executable: (name: string) => string | null;
+  readonly output: (command: readonly string[]) => Promise<string>;
+  readonly recoverMac: (options: StableQualificationOptions) => Promise<MacTarget>;
+}
+
+const defaultPreflightRuntime: StablePreflightRuntime = {
+  platform: process.platform,
+  arch: process.arch,
+  bunVersion: Bun.version,
+  environment: process.env,
+  executable: Bun.which,
+  output: command => commandOutput(command, { timeoutMs: 15_000 }),
+  recoverMac: recoverRetainedMac,
+};
+
+/** Discard raw probe errors: SSH, adb and credential tools can include private identifiers or secrets. */
+async function prerequisite<T>(description: string, probe: () => Promise<T>): Promise<T> {
+  try {
+    return await probe();
+  } catch {
+    throw new Error("Stable preflight: " + description);
+  }
+}
+
+/** Admission only. No staging, receipts, dispatch, host start, or client/service mutation. */
+export async function preflightStableQualification(
+  options: StableQualificationOptions,
+  runtime: StablePreflightRuntime = defaultPreflightRuntime,
+) {
+  if (runtime.platform !== "darwin" || runtime.arch !== "arm64") {
+    throw new Error("stable qualification orchestration currently requires a Darwin-arm64 workstation");
+  }
+  const ompPins = await loadQualificationPins();
+  if (runtime.bunVersion !== ompPins.bunVersion) {
+    throw new Error("Stable preflight: local Bun must be " + ompPins.bunVersion);
+  }
+  for (const name of ["adb", "security", "git", "gh", "cosign", "shasum", "ssh", "scp", "bash", "python3", "curl"]) {
+    if (runtime.executable(name) === null) throw new Error("Stable preflight: required executable is missing: " + name);
+  }
+  const browser = resolveAndroidBrowserTarget(runtime.environment);
+  const serial = await prerequisite("attach exactly one authorized Android device; resolve absent, unauthorized or ambiguous adb devices", () =>
+    requireSingleDevice((...args) => runtime.output(["adb", ...args])),
+  );
+  await prerequisite("attached Android must be an identified Pixel with the selected browser installed", async () => {
+    const model = await runtime.output(["adb", "-s", serial, "shell", "getprop", "ro.product.model"]);
+    if (!model.startsWith("Pixel ")) throw new Error("not a Pixel");
+    for (const property of ["ro.build.version.release", "ro.build.id"]) {
+      if (await runtime.output(["adb", "-s", serial, "shell", "getprop", property]) === "") throw new Error("missing build");
+    }
+    parseAndroidPackageVersion(await runtime.output(["adb", "-s", serial, "shell", "dumpsys", "package", browser.packageName]));
+  });
+  await prerequisite("device-scoped Android qualification PIN is unavailable or invalid in the macOS Keychain", async () => {
+    const pin = await readAndroidQualificationPin(serial, async (account, service) =>
+      new TextEncoder().encode(await runtime.output(["security", "find-generic-password", "-a", account, "-s", service, "-w"])),
+    );
+    pin.fill(0);
+  });
+  const ghToken = await prerequisite("GitHub CLI authentication is unavailable", async () => {
+    const token = await runtime.output(["gh", "auth", "token"]);
+    if (token === "") throw new Error("empty token");
+    const repository = JSON.parse(await runtime.output(["gh", "api", "repos/" + REPOSITORY]));
+    if (!isRecord(repository) || !isRecord(repository.permissions) || repository.permissions.push !== true) {
+      throw new Error("repository write permission unavailable");
+    }
+    return token;
+  });
+  for (const tag of [options.tag, options.previousTag]) {
+    await prerequisite("candidate and published predecessor releases must be available with the expected release status", async () => {
+      const release = JSON.parse(await runtime.output([
+        "gh", "release", "view", tag, "--repo", REPOSITORY, "--json", "tagName,isDraft,isPrerelease",
+      ]));
+      if (!isRecord(release) || release.tagName !== tag || release.isDraft !== false || release.isPrerelease !== (tag === options.tag)) {
+        throw new Error("release metadata mismatch");
+      }
+    });
+  }
+  const orchestratorCommit = await prerequisite("cannot resolve the qualification source commit", async () => {
+    const commit = await runtime.output(["git", "rev-parse", "HEAD"]);
+    if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error("invalid commit");
+    return commit;
+  });
+  const qualificationRef = await prerequisite("qualification source must be a clean branch whose published HEAD matches locally", () =>
+    gitQualificationRef(orchestratorCommit, runtime.output),
+  );
+  const target = await prerequisite("retained Mac lookup failed; check the private Scaleway credential and exactly one ready retained host", () =>
+    runtime.recoverMac(options),
+  );
+  await prerequisite("retained Mac SSH, Darwin-arm64, pinned Bun, required tools or user-owned TUN-mode Tailscale prerequisites are unavailable", async () => {
+    // Match the qualifier's PATH; ~/qual is created later by artifact staging, not a prerequisite.
+    const probe = [
+      'set -eu',
+      'export PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"',
+      '[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]',
+      '[ "$(bun --version)" = ' + shellQuote(ompPins.bunVersion) + ' ]',
+      'for tool in bash python3 curl git shasum tar lsof launchctl sudo tailscale ifconfig; do command -v "$tool" >/dev/null; done',
+      'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip(".")'),
+      'ifconfig | python3 -c ' + shellQuote('import sys; assert "inet6 fd7a:115c:a1e0:" in sys.stdin.read()'),
+    ].join("; ");
+    await runtime.output([
+      "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
+      "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
+      "-o", "BatchMode=yes", "-q", target.sshDestination, "bash -c " + shellQuote(probe),
+    ]);
+  });
+  return { ompPins, ghToken, orchestratorCommit, qualificationRef, target };
 }
 
 function macEnvironment(
@@ -792,7 +910,7 @@ export function assertMacBuildOutput(output: string, candidate: CandidateIdentit
   }
 }
 
-function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
+export function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins) {
   assertMacBuildOutput(output, candidate, pins);
   for (const expected of [
     "hardware:                              Mac14,3",
@@ -803,10 +921,16 @@ function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, 
     "backend at tailnet address:            refused",
     "backend at ssh address:                refused",
     "gateway returned after:",
-    "20/20 invariants PASS",
   ]) {
     if (!output.includes(expected)) throw new Error(`Mac lifecycle output missed required evidence: ${expected}`);
   }
+  const doctor = output.match(/doctor\s+(([1-9][0-9]*)\/\2) true/u)?.[1];
+  const rollbackInvariants = output.match(/\b(([1-9][0-9]*)\/\2) invariants PASS\b/u)?.[1];
+  const os = output.match(/^\s*host:\s+(macOS [0-9.]+ arm64)\s*$/mu)?.[1];
+  if (doctor === undefined || rollbackInvariants === undefined || os === undefined) {
+    throw new Error("Mac lifecycle output missed a passing doctor, rollback or host summary");
+  }
+  return { doctor, rollbackInvariants, os };
 }
 async function readMacPublicOrigin(target: MacTarget): Promise<string> {
   const result = await commandOutput([
@@ -875,12 +999,10 @@ async function qualifyMacLifecycle(
     ["omp-clean", "uninstall", "install", "identity", "persistence", "rollback", "omp-build"],
     50 * 60 * 1_000,
   );
-  assertMacLifecycleOutput(run.output, candidate, pins);
+  const summaries = assertMacLifecycleOutput(run.output, candidate, pins);
   return {
     hardware: "Mac14,3",
-    os: "macOS 26.6.1 arm64",
-    doctor: "17/17",
-    rollbackInvariants: "20/20",
+    ...summaries,
     archiveSha256: candidate.archiveSha256,
     nativeAddonSha256: pins.nativeBinarySha256,
     outputSha256: sha256(run.output),
@@ -1048,12 +1170,12 @@ async function runAndroidAcceptance(
   options: StableQualificationOptions,
   context: MacContext,
 ): Promise<Record<string, unknown>> {
+  const browser = resolveAndroidBrowserTarget();
   const androidEnvironment = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
-    OMP_ANDROID_BROWSER_PACKAGE: process.env.OMP_ANDROID_BROWSER_PACKAGE ?? "com.android.chrome",
-    OMP_ANDROID_BROWSER_ACTIVITY:
-      process.env.OMP_ANDROID_BROWSER_ACTIVITY ?? "com.android.chrome/com.google.android.apps.chrome.Main",
-    OMP_ANDROID_DEVTOOLS_SOCKET: process.env.OMP_ANDROID_DEVTOOLS_SOCKET ?? "localabstract:chrome_devtools_remote",
+    OMP_ANDROID_BROWSER_PACKAGE: browser.packageName,
+    OMP_ANDROID_BROWSER_ACTIVITY: browser.activity,
+    OMP_ANDROID_DEVTOOLS_SOCKET: browser.devtoolsSocket,
   };
   const acceptance = await runCommand(
     [process.execPath, "scripts/android-acceptance.ts", context.publicOrigin, options.sessionLabel],
@@ -1231,14 +1353,32 @@ export function markMacCleanupRequired(receipt: StableQualificationReceipt): boo
   return true;
 }
 
-async function main(): Promise<void> {
-  const options = parseStableQualificationArgs(Bun.argv.slice(2));
-  if (process.platform !== "darwin" || process.arch !== "arm64") {
+export async function runStableQualification(
+  argv: readonly string[],
+  runtime: StablePreflightRuntime = defaultPreflightRuntime,
+): Promise<Record<string, unknown>> {
+  const options = parseStableQualificationArgs(argv, runtime.environment);
+  if (options.preflight) {
+    await preflightStableQualification(options, runtime);
+    return {
+      status: "preflight-passed",
+      effects: "none; bounded read-only prerequisite probes only",
+      notProven: [
+        "candidate signatures, checksums and attestations",
+        "workflow dispatch authority and hosted credentials",
+        "Debian and Mac lifecycle, migration, rollback and sudo authorization",
+        "OMP publication/revocation and physical Android acceptance",
+        "configured relay check, longer endurance coverage and cleanup",
+      ],
+    };
+  }
+  if (runtime.platform !== "darwin" || runtime.arch !== "arm64") {
     throw new Error("stable qualification orchestration currently requires a Darwin-arm64 workstation");
   }
   const receiptPath = join(options.receiptRoot, "stable-qualification.json");
-  const orchestratorCommit = await commandOutput(["git", "rev-parse", "HEAD"]);
-  const qualificationRef = await gitQualificationRef(orchestratorCommit);
+  const orchestratorCommit = await prerequisite("cannot resolve the qualification source commit", () =>
+    runtime.output(["git", "rev-parse", "HEAD"]),
+  );
   const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit, options.previousTag);
   receipt.status = "running";
   delete receipt.completedAt;
@@ -1246,7 +1386,7 @@ async function main(): Promise<void> {
   const ompPins = await loadQualificationPins();
   const protectedFiles = await captureProtectedFiles();
   const persist = createReceiptPersister(receiptPath, receipt);
-  await persist();
+  let admitted = false;
 
   let target: MacTarget | undefined;
   let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
@@ -1262,15 +1402,19 @@ async function main(): Promise<void> {
   try {
     if (cleanupRequired) {
       if (receipt.candidate === undefined) throw new Error("receipt records Mac effects without a candidate identity");
-      target = await recoverRetainedMac(options);
+      target = await prerequisite("retained Mac cleanup access is unavailable", () => runtime.recoverMac(options));
       macCleanupContext = {
         target,
         environment: macEnvironment(options, target, receipt.candidate),
       };
     }
 
-    const ghToken = await commandOutput(["gh", "auth", "token"]);
-    if (ghToken === "") throw new Error("GitHub CLI is not authenticated");
+    const admission = await preflightStableQualification(options, runtime);
+    if (admission.orchestratorCommit !== orchestratorCommit) throw new Error("qualification source changed during preflight");
+    const { ghToken, qualificationRef } = admission;
+    target = admission.target;
+    admitted = true;
+    await persist();
     const candidate = await executeReceiptLane(receipt, "artifacts", persist, async checkpoint => {
       const verified = await verifyCandidate(options, ghToken);
       if (
@@ -1309,7 +1453,6 @@ async function main(): Promise<void> {
     await executeReceiptLane(receipt, "debian", persist, checkpoint =>
       qualifyDebian(options, receipt, checkpoint, qualificationRef),
     );
-    target ??= await recoverRetainedMac(options);
     macCleanupContext ??= {
       target,
       environment: macEnvironment(options, target, candidateVerification),
@@ -1408,6 +1551,7 @@ async function main(): Promise<void> {
     if (incomplete !== undefined) primaryError = new Error(`qualification lane ${incomplete} did not pass`);
   }
   if (primaryError !== undefined) {
+    if (!admitted && !cleanupRequired) throw primaryError;
     receipt.status = "failed";
     receipt.error = "qualification failed; inspect the qualification process output";
     await persist();
@@ -1417,12 +1561,12 @@ async function main(): Promise<void> {
   receipt.completedAt = now();
   delete receipt.error;
   await persist();
-  console.log(JSON.stringify({ status: receipt.status, tag: receipt.tag, receipt: receiptPath }));
+  return { status: receipt.status, tag: receipt.tag, receipt: receiptPath };
 }
 
 if (import.meta.main) {
   try {
-    await main();
+    console.log(JSON.stringify(await runStableQualification(Bun.argv.slice(2))));
   } catch (error) {
     console.error(`stable qualification failed: ${errorMessage(error)}`);
     process.exitCode = 1;

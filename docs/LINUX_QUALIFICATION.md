@@ -2,6 +2,11 @@
 
 ## Mainline qualification — pending
 
+The current workflow is on-demand and requires an exact signed candidate tag; it does not run a
+weekly schedule or fall back to a historical fork-era candidate. The mainline `0.4.0` campaign
+uses `v0.3.0` as its explicit gateway predecessor and measures stopped-service recovery across
+the architecture boundary. Historical scheduled-run instructions below remain archival only.
+
 Current source requires stock OMP `>= 18.1.20`, with `collab.autoStart` alone.
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). The gateway reads discovery and queries hosts; it does not own a publisher
 socket or store capabilities. Mainline Linux qualification is **pending**. No historical test

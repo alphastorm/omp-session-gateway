@@ -1,4 +1,4 @@
-# Scheduled Linux qualification on a throwaway DigitalOcean droplet.
+# On-demand Linux qualification on a throwaway DigitalOcean droplet.
 #
 # `scripts/provision-linux-qual.sh` already creates one droplet under a fixed name, joins it to the
 # tailnet as a tagged node, runs the qualification lanes, and deletes the droplet again. That makes it
@@ -28,9 +28,8 @@ name: Droplet Linux qualification
 run-name: Stable qualification ${{ inputs.qualification_id || github.run_id }}
 
 on:
-  # Manual first. The candidate tag is an input with an explicit default rather than a lookup of "the
-  # newest release", because a scheduled run must qualify a decided candidate; silently following the
-  # newest tag would change what the evidence is about without anybody choosing that.
+  # Require an exact chosen candidate. Do not spend a droplet run on a stale fork-era default
+  # or silently follow the newest release while mainline qualification is pending.
   workflow_dispatch:
     inputs:
       qualification_id:
@@ -39,12 +38,11 @@ on:
         default: ""
       release_tag:
         description: Signed candidate tag to qualify
-        required: false
-        default: v0.3.0-prealpha.3
+        required: true
       previous_tag:
         description: Exact signed predecessor for gateway migration and rollback
         required: false
-        default: v0.2.1
+        default: v0.3.0
       lanes:
         description: >-
           Space-separated lane subset; empty runs the script's full default order. A subset must be
@@ -56,11 +54,6 @@ on:
         description: DigitalOcean size slug; mainline OMP qualification reserves two vCPUs and 8 GiB RAM
         required: false
         default: s-2vcpu-8gb-amd
-  schedule:
-    # Weekly. Off the hour because GitHub's shared cron queue is congested at :00, and early Monday so
-    # a failure is visible at the start of a week rather than discovered during a release attempt.
-    # Weekly is also the cost decision: one billed droplet-hour per week is about $3.25 a year.
-    - cron: "17 11 * * 1"
   # Deliberately no `pull_request` and no `push`. This job spends money and needs three long-lived
   # secrets. A fork's pull request receives none of them, so it would fail for a confusing reason, and
   # more importantly a pull request must never be able to run an arbitrary edit of this script against
@@ -92,10 +85,9 @@ jobs:
       # Checkout, plus `gh release download` and `gh attestation download` for the candidate assets.
       contents: read
     env:
-      # `inputs` is empty on a scheduled run, so each default is repeated here. Keep the copies in
-      # step: the input default is what a human sees in the dispatch form, this is what cron uses.
-      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag || 'v0.3.0-prealpha.3' }}
-      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.2.1' }}
+      # The candidate is mandatory; never substitute a historical artifact for a missing input.
+      OMP_QUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+      OMP_QUAL_PREVIOUS_TAG: ${{ inputs.previous_tag || 'v0.3.0' }}
       OMP_QUAL_SIZE: ${{ inputs.droplet_size || 's-2vcpu-8gb-amd' }}
       QUAL_LANES: ${{ inputs.lanes || '' }}
       # Pinned here rather than left to the script's default so the droplet name this workflow checks
@@ -166,7 +158,7 @@ jobs:
             fail "DigitalOcean token rejected" \
               "doctl could not authenticate. DIGITALOCEAN_ACCESS_TOKEN is missing, revoked, or expired; regenerate it at DigitalOcean > API > Tokens with read and write scope."
 
-          # The second likely scheduled-run failure: a candidate tag that no longer exists, or whose
+          # Reject a candidate tag that no longer exists, or whose
           # assets were renamed. Both would otherwise surface as "release <tag> is missing asset ..."
           # from inside the artifact lane, after a droplet had been created and paid for.
           # Asset names carry each tag's own MAJOR.MINOR.PATCH: a 0.2 candidate pairs with a v0.1.0
@@ -231,8 +223,8 @@ jobs:
           fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
           warn() { printf '::warning title=%s::%s\n' "$1" "$2"; }
 
-          # The first likely scheduled-run failure: the auth key expired since the last run. Tailscale
-          # caps auth keys at ninety days, so a weekly schedule outlives every key it is given. Without
+          # Reject an auth key that expired since the last run. Tailscale
+          # caps auth keys at ninety days, so retained credentials need revalidation. Without
           # this check an expired key surfaces as `tailscale up` failing during provision, after a
           # droplet exists, and reads like a network or policy fault.
           #
@@ -293,7 +285,7 @@ jobs:
             # a quarter and is the only reminder the rotation gets.
             if [ "$remaining" -le 14 ]; then
               warn "Tailscale auth key expires in $remaining day(s)" \
-                "Rotate TS_AUTHKEY before it lapses, or the next scheduled runs fail at provision."
+                "Rotate TS_AUTHKEY before it lapses, or the next qualification fails at provision."
             fi
           fi
           case ",$tags," in
@@ -335,7 +327,7 @@ jobs:
           # RSA, not ed25519. The script's preflight compares `ssh-keygen -l -E md5` against the
           # fingerprint the DigitalOcean API returns, and the MD5 form is what this account is observed
           # to return for an RSA key. The fingerprint format for other key types was not verified here,
-          # and the preflight comparison is the one thing that must not be the reason a scheduled run
+          # and the preflight comparison is the one thing that must not be the reason a qualification
           # dies. The key exists for under an hour and is deleted in teardown.
           ssh-keygen -q -t rsa -b 4096 -N '' -C "omp-qual-ci-${GITHUB_RUN_ID}" -f "$SSH_IDENTITY"
           # Name carries the run id and attempt so teardown can find it without depending on state
@@ -387,7 +379,7 @@ jobs:
             printf '::error title=GH_TOKEN is set::The artifact lane forwards GH_TOKEN to the droplet for online attestation verification. Use GITHUB_TOKEN so the offline bundle path is selected instead.\n'
             exit 1
           fi
-          # The full default order runs on a schedule. The droplet-hour is the entire cost, the whole
+          # An empty lanes input runs the full default order. The droplet-hour is the entire cost, the whole
           # sequence fits inside it, and the lanes that justify the box only exist in the full set:
           # `persistence` reboots twice and is what caught #69, `identity` is the only place a denied
           # Tailscale identity is observable at all. A dispatch subset exists for re-observing one lane

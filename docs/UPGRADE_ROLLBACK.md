@@ -18,6 +18,18 @@ publication architecture. Retain matching non-capability configuration and verif
 artifacts privately; use that release’s installer and instructions for deliberate recovery. Do not
 point a fork-era daemon at mainline discovery or claim transparent mixed-version operation.
 
+For the `v0.3.0` → `v0.4.0` boundary, stop and unregister the predecessor with its own signed
+archive's `uninstall` command before the new install. Do not delete its configuration or staged
+runtimes. Supply the deployment's existing origin and allowlist to the new installer. Later
+mainline-to-mainline reinstalls retain the normal active-service path.
+
+Recovery to `v0.3.0` is similarly deliberate: stop and unregister the candidate with its own CLI,
+restore the retained predecessor-compatible private config if it was changed, then reinstall the
+verified `v0.3.0` archive. Its installer mints a new publisher credential; no retired credential
+is copied into a recovery bundle or restored. This proves gateway lifecycle recovery only.
+Collaboration under the old gateway still requires its matching fork-era OMP and settings, which
+this mainline release does not install. A runtime-pointer rollback alone is not that recovery.
+
 **Mainline upgrade/rollback qualification is pending.** The existing 20/20 results below are not
 proof of this architecture-crossing transition. A new candidate must qualify its exact predecessor
 and recovery path without mutating unrelated services, OMP processes, or discovery files.

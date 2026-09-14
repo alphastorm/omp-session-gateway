@@ -7,11 +7,31 @@ import {
   parseAndroidPackageVersion,
   parseKeyguardShowing,
   readAndroidQualificationPin,
+  requireSingleDevice,
   unlockAndroidKeyguard,
   wakeAndroidDisplay,
   resolveAndroidBrowserTarget,
   wakeAndroidChrome,
 } from "./android-device.ts";
+describe("authorized Android selection", () => {
+  test("selects the sole authorized device without accepting offline or unauthorized devices", async () => {
+    const listed = "List of devices attached\noffline-private offline\nselected-device device\nunauthorized-private unauthorized\n";
+    expect(await requireSingleDevice(async () => listed)).toBe("selected-device");
+    await expect(requireSingleDevice(async () => listed.replace("selected-device device\n", ""))).rejects.toThrow("no authorized adb device");
+  });
+
+  test("refuses ambiguous devices without disclosing their identifiers", async () => {
+    let message = "";
+    try {
+      await requireSingleDevice(async () => "List of devices attached\nfirst-private device\nsecond-private device\n");
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("expected one authorized adb device");
+    expect(message).not.toContain("private");
+  });
+});
+
 describe("Android directory recovery observation", () => {
   test("accepts a rendered target alongside unrelated sessions without issuing a competing fetch", () => {
     let fetchCalls = 0;

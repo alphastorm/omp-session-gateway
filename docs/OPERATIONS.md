@@ -43,10 +43,20 @@ It should:
 
 On current source, an upgrade reads and validates the existing private configuration first.
 Continue passing the production `--origin` and `--allow` values on install and upgrade. An omitted
-`--port` preserves the existing port; hostname, identity-trust, and registry settings are retained.
+`--port` preserves the existing port; hostname, identity-trust, registry settings, and explicitly
+authored `omp` overrides are retained. Omitted OMP fields remain derived rather than being pinned
+to the installer's home directory.
 A malformed existing configuration fails closed instead of being replaced with defaults. The
 readiness token is retained, and an unchanged configuration is not rewritten. Installation removes
 the legacy fork-era publication token; this is not a reversible credential migration.
+
+**First fork-era → mainline upgrade:** retain the predecessor's signed archive and private
+configuration, then run that archive's `uninstall` command before installing this gateway.
+Uninstall stops and unregisters its owned service without removing config or installed runtimes.
+An active fork-era service cannot prove readiness with the new token, so an in-place active
+upgrade is refused rather than weakening readiness authentication. The stopped upgrade creates
+the new readiness credential and retires `publisher-token`. Use the explicit recovery procedure
+in [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md) to return across that boundary.
 
 Platform targets:
 

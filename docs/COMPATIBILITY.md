@@ -21,6 +21,10 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
+For v0.4.0, the founder approved a fresh 30-minute signed-candidate relay check instead of the
+eight-hour gate. Other release gates remain intact. Eight-hour endurance is not rerun or claimed;
+prolonged-operation risk remains an accepted limitation rather than transferred historical proof.
+
 The Linux ARM64 source-checkout job stages its published platform native package at `18.1.20`
 and runs upstream's `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`.
 It gates only the discovery/query contract consumed by the gateway, not unrelated upstream
