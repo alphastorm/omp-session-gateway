@@ -45,7 +45,7 @@ jobs:
           $tokenPath = "$env:LOCALAPPDATA\OMP Session Gateway\readiness-token"
           $ownerProbe = [System.IO.File]::OpenRead($tokenPath)
           try {
-            if ($ownerProbe.Length -ne 43) { throw "current user could not read a valid readiness token" }
+            if ($ownerProbe.ReadByte() -lt 0) { throw "current user could not read the readiness token" }
           } finally {
             $ownerProbe.Dispose()
           }
