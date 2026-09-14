@@ -7,7 +7,7 @@
  * is a property of that wire rather than of the gateway's own code.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OMP_REGISTRY_VERSION } from "@omp-session-gateway/protocol";
@@ -155,9 +155,10 @@ function reader(directory: string): OmpHostReader {
 
 describe("OMP discovery directory", () => {
   test("resolves the same directory OMP publishes into, including a renamed config directory", () => {
-    expect(resolveOmpDiscoveryDirectory({}, "/home/you")).toBe("/home/you/.omp/run/collab-hosts");
-    expect(resolveOmpDiscoveryDirectory({ PI_CONFIG_DIR: ".omp-alt" }, "/home/you")).toBe(
-      "/home/you/.omp-alt/run/collab-hosts",
+    const home = join(tmpdir(), "fixture-home");
+    expect(resolveOmpDiscoveryDirectory({}, home)).toBe(join(home, ".omp", "run", "collab-hosts"));
+    expect(resolveOmpDiscoveryDirectory({ PI_CONFIG_DIR: ".omp-alt" }, home)).toBe(
+      join(home, ".omp-alt", "run", "collab-hosts"),
     );
   });
 
@@ -172,9 +173,9 @@ describe("OMP discovery directory", () => {
     const base = await discoveryDirectory();
     const real = join(base, "real");
     const link = join(base, "link");
-    await mkdtemp(real);
-    await Bun.$`mkdir -p ${real}`.quiet();
-    await Bun.$`ln -s ${real} ${link}`.quiet();
+    await mkdir(real);
+    await symlink(real, link, "dir");
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
     expect(await reader(link).directoryUsable()).toBe(false);
   });
 
