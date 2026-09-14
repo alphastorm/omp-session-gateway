@@ -4,7 +4,7 @@
 
 ## Validation
 
-<!-- List exact commands/tests and results. -->
+<!-- List exact commands/scenarios, toolchain, and results. Distinguish repository checks, source smokes, and exact signed-artifact/physical-client qualification; mark non-applicable checks explicitly. -->
 
 ## Security and privacy impact
 
@@ -13,12 +13,12 @@
 - [ ] Browser storage/cache/history impact is described.
 - [ ] Logging/diagnostics impact is described.
 - [ ] OMP lifecycle/generation impact is described.
-- [ ] Relevant negative and leak-detection tests were added or updated.
+- [ ] Relevant negative and leak-detection tests were added or updated, or non-applicability is explained.
 - [ ] `docs/SECURITY.md` and ADRs were updated when trust boundaries changed.
 
 ## Compatibility
 
-<!-- State the tested OMP version/commit and protocol versions. -->
+<!-- State the tested stock OMP version/commit, Bun version, protocol versions, and host/client scope. The >=18.1.20 integration minimum is not a blanket qualification claim. Preserve the native registry/controller boundary; no gateway-specific OMP plugin or custom build is required. -->
 
 ## Documentation
 

@@ -2,8 +2,10 @@
 
 ## Goal
 
-Consume the supported mainline collaboration registry and keep gateway-specific policy, Tailscale,
-PWA, and installers outside OMP. No downstream OMP patch set is maintained.
+Use stock OMP’s native collaboration registry/controller and keep gateway-specific policy,
+Tailscale, PWA, and installers outside OMP. Users install the separate gateway service, set
+`collab.autoStart` once, and keep launching plain `omp`. No fork, custom OMP build, gateway-specific
+OMP plugin, or downstream OMP patch set is required or maintained by this integration.
 
 ## Landed upstream seam
 

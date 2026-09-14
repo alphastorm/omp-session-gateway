@@ -177,14 +177,15 @@ It must never contain a capability, room key, write token, relay secret, per-hos
 
 Server-Sent Events contain only the same metadata types used by the list endpoint.
 
-Recommended event types:
+Event types:
 
 - `snapshot`;
 - `session_upsert`;
 - `session_remove`;
-- keepalive comments.
+- metadata-free named `keepalive` events every 5 seconds, observable by dashboard JavaScript.
 
-Use a bounded revision history or send a fresh snapshot on reconnect. Never send heartbeat events merely to expose timestamps more precisely than the UI needs.
+A fresh snapshot establishes each connection's state. Keepalives prove transport liveness, not
+session freshness; the latter still requires successful OMP observations.
 
 ### `GET /api/v1/push/config`
 
@@ -279,6 +280,10 @@ Request:
 }
 ```
 
+Request-specific Control launches also include the current opaque `requestId`. The gateway
+revalidates that exact ask as well as the generation before releasing Control; the ID is routing
+metadata, not an authorization credential.
+
 Requirements:
 
 - exact same-origin `Origin`;
@@ -288,7 +293,7 @@ Requirements:
 - current generation match and fresh successful host observation;
 - requested access is still shared by OMP;
 - per-identity and per-session rate limits;
-- optional WebAuthn assertion for Control.
+- no WebAuthn assertion in the current API; an additional Control gate remains the ADR-008 proposal.
 
 Successful response, classified as secret-bearing:
 
@@ -322,16 +327,19 @@ readiness token and keeps its existing shape; that token is never given to OMP.
 
 ## 5. In-memory collab client bootstrap
 
-Preferred same-page API:
+Shipped same-page API, defined in `packages/collab-client/upstream/src/embed.ts`:
 
 ```ts
-interface CollabBootstrap {
-  capability: string;
-  onDispose(): void;
-}
-
-startCollabWithCapability(bootstrap: CollabBootstrap): Promise<void>;
+function startCollabWithCapability(
+  container: HTMLElement,
+  capability: string,
+  onDispose: () => void,
+  options?: CollabEmbedOptions,
+): () => void;
 ```
+
+The return value disposes the mounted client; the capability is passed directly to the pinned
+component rather than through a navigation or persistent bootstrap object.
 
 Requirements:
 
@@ -365,7 +373,7 @@ Requirements:
 - permit image-only submission by supplying the explicit neutral text `Please inspect this photo.`
   (or its plural); user-entered text takes precedence unchanged;
 
-Separate-page alternative:
+Separate-page design alternative (not the shipped launch path):
 
 1. open `/client/` synchronously during the user's tap;
 2. the child creates a `MessageChannel` and sends a ready message to its exact same-origin opener;
@@ -392,8 +400,8 @@ cache; reload returns to the directory.
 - Each registry mutation increments a daemon-wide revision.
 - A client starts a new directory epoch by aborting any prior snapshot, closing its prior SSE source, fetching one authenticated snapshot, and only then opening SSE.
 - Within one connected epoch, a response or event with a lower revision is ignored. Duplicate same-revision snapshots remain idempotent.
-- The gateway emits a metadata-free `keepalive` SSE event every 5 seconds. After 12 seconds without a directory event or keepalive, a loaded dashboard marks gateway updates paused but retains the last authenticated metadata with a freshness timestamp. It closes the stream and retries a fresh authenticated snapshot with a 4-second request timeout and bounded full-jitter backoff with 1/2/4-second caps before opening a new SSE epoch.
-- A changed PWA shell caches completely before its worker calls `skipWaiting`. Activation deletes prior shell caches, claims clients, and navigates only an exact same-origin idle `/` directory to no-store `/update/`; the new app synchronously replaces that route with `/`. `/client/`, `/collab/` request bootstraps, launch-pending, query-bearing, and cross-origin clients are never auto-navigated.
+- The gateway emits a metadata-free `keepalive` SSE event every 5 seconds. After 12 seconds without a directory event or keepalive, a loaded dashboard marks gateway updates paused but retains the last authenticated metadata with a freshness timestamp and closes the stream. Initial snapshots time out after 4 seconds; recovery snapshots use 20 seconds. Retry delays are randomly selected from the upper half of exponentially growing caps of 1/2/4/8/16/30 seconds before a new SSE epoch. This is the current implementation, not ADR-016's original 4-second/1/2/4-second recovery policy; the discrepancy is recorded in the current audit note in [DECISIONS.md](DECISIONS.md#current-implementation-audit--2026-09-14).
+- A changed PWA shell caches completely before its worker calls `skipWaiting`. Activation deletes prior shell caches, claims clients, and navigates exact same-origin `/` clients without a query to no-store `/update/`; the new app synchronously replaces that route with `/`. `/client/`, `/collab/` request bootstraps, query-bearing, and cross-origin clients are excluded. **ADR-018 implementation gap:** a pending directory launch still has the root URL until its capability mounts. The worker cannot see the page's pending flag, so its navigation can interrupt that launch. The accepted requirement to reserve `/client/` before asynchronous work remains unsatisfied.
 - Launch requests carry the generation observed in the metadata response.
 - A mismatch never returns a capability.
 - Expired and removed records are indistinguishable to remote callers.

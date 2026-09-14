@@ -5,6 +5,25 @@ publication credentials, endpoint settings, source pins, and qualification resul
 then-current architecture, not the shipping prerequisite. ADR-028 records the mainline cutover;
 entries superseded by it keep their original rationale and evidence below.
 
+## Current implementation audit — 2026-09-14
+
+This note describes current discrepancies; it does not amend the historical decisions below.
+
+- **ADR-016 recovery timing:** ADR-019 supersedes clearing last-known metadata on transport
+  failure, and ADR-020 supersedes the collaboration-client probe mechanics. The 5-second SSE
+  keepalive and 12-second silence deadline remain implemented. Current directory recovery instead
+  uses 20-second snapshots after the initial 4-second request and randomized delays in the upper
+  half of 1/2/4/8/16/30-second caps. That numeric policy differs from ADR-016; this audit does not
+  approve the divergence.
+- **ADR-018 pending-launch protection:** the worker implements exact-root `/update/` navigation,
+  but `apps/web/src/app.ts` reserves `/client/` in `enterCollabClient()` only after `launch()`
+  completes asynchronous asset loading and capability acquisition. Its in-page pending flag
+  defers the page's fallback reload, not worker-initiated navigation. Activation can therefore
+  mistake a pending directory launch for an idle root client. Synchronous pre-launch reservation
+  and protection of pending collaboration remain required, not waived by the mainline cutover.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) for current behavior.
+
 ## ADR-001 — Use a PWA, not a native Android protocol client
 
 **Status:** Accepted
@@ -636,8 +655,9 @@ Unchanged client, browser, identity, and immutable-runtime decisions remain in f
 OMP pins and support decisions in ADR-022, ADR-023, and ADR-025 continue to describe only their
 named fork-era releases.
 
-**Consequences:** Operators install mainline OMP and start plain `omp`; no separate binary or
-publication credential is provisioned. Gateway restart repopulates metadata by polling without an
+**Consequences:** Operators install mainline OMP, enable `collab.autoStart` once, and start plain
+`omp`; no second OMP binary, gateway-specific OMP plugin, or gateway publication credential is
+provisioned. The gateway remains a separate installation with Bun 1.4.0 and TUN-mode Tailscale Serve. Gateway restart repopulates metadata by polling without an
 OMP reconnect. Discovery visibility is bounded by polling rather than push timing. The exact
 engineering pin is `v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`; the minimum
 host version is not a claim that every future version is qualified. Fork-era OMP processes must

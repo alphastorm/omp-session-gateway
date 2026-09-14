@@ -1,5 +1,11 @@
 # Test plan
 
+This plan names behavioral contracts and acceptance scenarios, not a claim that every scenario
+has passed on every platform. Published v0.4.0 uses stock OMP’s native registry/controller; the
+exact signed-candidate matrix, separate published-byte smoke, and remaining qualification gaps
+are recorded in the [release ledger](RELEASE_STATUS.md). Historical fork-era receipts do not
+qualify the mainline integration.
+
 ## 1. Unit tests
 
 ### OMP discovery, queries, and registry
@@ -260,7 +266,7 @@ accepted, and bounded memory growth is not established. See the [release ledger]
 - all security acceptance gates pass;
 - dependency audit and lockfile review;
 - source maps do not contain secrets (they should not) and are not remotely uploaded;
-- binaries are reproducible or provenance documented;
+- the Bun-runtime archive is reproducible and has verified release provenance;
 - version compatibility matrix recorded;
 - install/uninstall tested on every advertised OS;
 - no public-listener or Funnel configuration in defaults/examples;

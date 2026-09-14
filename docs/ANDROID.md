@@ -2,7 +2,9 @@
 
 ## Decision: PWA first
 
-Current hosts use stock mainline OMP `>= 18.1.20` with `collab.autoStart` alone. The gateway polls
+Current hosts use stock mainline OMP `>= 18.1.20` with `collab.autoStart` alone: no fork, custom
+OMP build, or gateway-specific OMP plugin. Install the gateway separately and retain Bun 1.4.0,
+TUN-mode Tailscale Serve, and exact login allowlisting. The gateway polls
 OMP metadata and fetches a capability per explicit launch without storing it; Android HTTP/SSE and
 in-memory client bootstrap are unchanged. Mainline core physical-client qualification passed for
 the exact Pixel 10 Pro / Android 17 / Chrome `152.0.7977.82` combination recorded in the
@@ -29,24 +31,44 @@ Benefits:
 - maskable and standard icons generated specifically for this project;
 - theme/background colors chosen by the implementer;
 - minimal service worker caching only versioned static shell files;
-- loaded-shell offline state that says the desktop is unreachable and removes session metadata after the bounded SSE liveness deadline;
-- explicitly enabled background Web Push with fixed visible text, metadata-only payloads, exact-generation revalidation, and one-tap Control; delivery remains best effort and requires physical qualification;
+- loaded-shell transport status that marks the last authenticated metadata stale and retains it only in page memory; authorization failure clears it;
+- explicitly enabled Push v2 background alerts with per-device Private/Session/Preview detail, capability-free payloads, exact-request and generation revalidation, and one-tap Control; delivery remains best effort and outside the qualified core matrix;
 - Android back behavior: collab client returns to the session directory, with no secret-bearing history entry;
 - account for the virtual keyboard and `visualViewport` behavior in the embedded/pinned collab-web build;
 - test Chrome stable and at least one Chromium-based alternative if supported.
 
 Do not cache API responses or collab client navigations. A PWA does not need to be an offline copy of sensitive runtime state.
 
-Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline is intentionally unavailable and may remain on the browser's OS splash until connectivity returns. An already loaded dashboard receives metadata-free SSE heartbeats every 5 seconds, clears all cards and closes the silent stream after 12 seconds, then retries 4-second snapshots with bounded full jitter under 1/2/4-second caps until a fresh authenticated snapshot succeeds. While a collaboration session is visible, adaptive same-origin gateway probes run every 15 seconds when healthy and every 2 seconds when suspect. Hidden pages cancel idle and pending relay probes. Browser lifecycle and network-change signals trigger a fresh gateway measurement after foregrounding; a successful measurement then rechecks the optional encrypted relay probe instead of declaring health or replacing a healthy socket. Every WebSocket connection attempt has a 10-second deadline before jittered retry resumes. Changed shells cache completely and activate automatically: an idle directory reloads through a synchronously scrubbed no-store update route, while active collaboration remains untouched and adopts the update on ordinary Back or Leave.
+Navigation always bypasses the service worker, so a cold installed-PWA launch while fully offline
+is intentionally unavailable and may remain on the browser's OS splash until connectivity returns.
+An already loaded dashboard receives metadata-free SSE heartbeats every 5 seconds. After 12 seconds
+of silence it closes the stream and marks the last authenticated cards stale; it does not clear
+them or persist them to storage. Initial snapshot requests use a 4-second timeout, recovery requests
+20 seconds. Retry delays use the upper half of 1/2/4/8/16/30-second caps. These are current runtime
+bounds; the runtime differs from ADR-016's original recovery policy (see the current audit note in
+[DECISIONS.md](DECISIONS.md#current-implementation-audit--2026-09-14)).
 
-Background notification payloads contain only message type, `instanceId`, and generation. Visible
-text is the fixed title `OMP session needs attention` with no body, so session labels and prompt
-content do not enter Android notification history. Permission is requested only after the dashboard
-action. A tap opens a metadata-only attention route, scrubs it immediately, and launches Control
-only after exact current-state validation. Physical qualification must cover a closed PWA,
-lock-screen text, tap-to-Control, stale/resolved notifications, browser force-stop, permission
-revocation, lock/resume, battery policy, and Wi-Fi/cellular transitions. Desktop smoke evidence
-does not establish Android support.
+While a collaboration session is visible, adaptive same-origin gateway probes run every 15 seconds
+when healthy and every 2 seconds when suspect. Hidden pages cancel idle and pending relay probes.
+Browser lifecycle and network-change signals trigger remeasurement rather than proving
+connectivity. Optional encrypted idle relay probes require host support; ordinary host frames
+provide passive liveness. See [ARCHITECTURE.md](ARCHITECTURE.md#5-availability-behavior).
+
+Push v2 carries opaque request identity, a bounded pending count, and the chosen presentation detail;
+attention includes the observed generation, while clear targets the exact request. Private uses
+`OMP session needs attention` with no body. Session (the default) includes bounded session/project
+labels; Preview currently falls back to Session because stock OMP supplies no preview. Visible
+text can persist in Android notification history, screenshots, and wearables. No capability,
+transcript, prompt, option, or answer enters these payloads.
+
+Permission is requested only from the explicit Settings action. The worker replaces one
+notification per instance, closes only the matching request on clear, and updates the app badge.
+A tap opens `/collab/:instanceId?request=:requestId`, scrubs the route, and launches Control only
+after current authenticated metadata confirms that exact ask; the launch POST also revalidates
+generation. Physical background qualification must cover a closed PWA, lock-screen detail,
+tap-to-Control, stale/cleared notifications, force-stop, permission revocation, lock/resume,
+battery policy, and Wi-Fi/cellular transitions. Passed core Android smoke does not qualify this
+background-alert matrix.
 
 ## Browser-process recovery and physical qualification
 
@@ -90,13 +112,14 @@ Canary completes the recorded cycle gate.
 
 ## Launch UX
 
-Recommended card behavior:
+Shipped card behavior:
 
-- tapping the card body opens **View**;
-- a distinct **Control** action is present only when the OMP snapshot reports control access;
+- working rows open **View**;
+- waiting rows open **Control** when available and **View** otherwise; the hero names these actions **Open request** and **View transcript**;
+- request-specific Control launches carry the exact opaque ask identity as well as the generation;
 - mount the pinned collab client in the current standalone PWA document through its in-memory capability bootstrap;
 - do not depend on `window.open`/`window.opener` in an installed Android PWA because Chrome may reuse the standalone window;
-- only an ordinary browser context that preserves an exact same-origin opener may use the separate `/client/` `MessageChannel` fallback;
+- the documented separate-page `MessageChannel` alternative is not the shipped path and is suitable only for an ordinary browser context preserving an exact same-origin opener;
 - never put the capability in a URL, DOM attribute, clipboard, or persistent state;
 - show a short, non-sensitive error if the generation changed, the process ended, or the requested
   role is no longer shared (`mode_unavailable`);
@@ -104,7 +127,10 @@ Recommended card behavior:
 
 ## Optional passkey/biometric gate
 
-Implement WebAuthn user verification before a control launch when `controlProtection = "passkey"`. On Android this can invoke the device's passkey/biometric flow through the browser. This provides strong user-presence gating while retaining the PWA architecture.
+WebAuthn Control protection is proposed in ADR-008, not implemented in v0.4.0. There is no
+`controlProtection = "passkey"` setting or enrollment flow to enable today. Device lock, narrow
+tailnet policy, and prompt revocation remain the available controls. A future implementation could
+use browser-managed passkey/biometric verification without introducing a native protocol client.
 
 ## When to add a Trusted Web Activity
 

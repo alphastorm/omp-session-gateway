@@ -28,12 +28,14 @@
   </nav>
 </header>
 <main>
-<p class="eyebrow">Status</p>
+<p class="eyebrow">Native OMP integration · release status</p>
 <h1>Stable v0.4.0</h1>
-<p class="lede"><strong>v0.4.0-prealpha.1</strong> passed the core qualification matrix for the approved
-<strong>v0.4.0</strong> target at <code>2026-09-14T13:05:26.972Z</code> and was promoted with identical runtime bytes. Support is qualified for exact
-combinations, not platform families. Historical qualification does not transfer; an arbitrary
-build from <code>main</code> does not inherit candidate qualification.</p>
+<p class="lede"><strong>Works with stock OMP 18.1.20+.</strong> No OMP fork, custom build, or
+gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
+setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve. Stable
+<strong>v0.4.0</strong> was promoted from qualified <code>v0.4.0-prealpha.1</code> with identical
+runtime bytes. Support applies to the exact combinations below, not every later OMP version,
+platform family, or arbitrary build from <code>main</code>.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
 <tr><td>Published stable</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0">v0.4.0</a>; immutable GitHub Latest, published 2026-09-14 at 13:34:03 UTC. Signed <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34849943386">release run 34849943386</a> passed; published provenance was independently verified. Exact source and archive digest: <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
@@ -57,6 +59,7 @@ build from <code>main</code> does not inherit candidate qualification.</p>
 <li><strong>Background Web Push, specialized attention, branch/resume, and new media qualification</strong> are outside this core claim; these physical checks do not qualify those separate lanes.</li>
 <li><strong>Windows OMP</strong> remains unqualified and unadvertised; gateway source/lifecycle checks do not qualify the real OMP named-pipe path.</li>
 <li><strong>Initial local Control-upgrade failure:</strong> one isolated reproduction returned to the directory after View. Subsequent narrow probes and the full published-byte smoke passed unchanged; the cause remains undetermined, and no fix is claimed. See the release ledger.</li>
+<li><strong>Pending launches during updates:</strong> service-worker navigation can interrupt a launch that still occupies the directory route. Prelaunch route reservation is not implemented. This gap has not been established as the cause of the observed Control-upgrade incident.</li>
 <li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
 <li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>
 </ul>

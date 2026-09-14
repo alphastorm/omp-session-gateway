@@ -5,6 +5,12 @@ Pinned integration of OMP's existing `packages/collab-web` source at tag `v18.1.
 `16.3.6`; `@oh-my-pi/pi-wire` is pinned exactly to `18.1.14`. Wire protocol source is unchanged
 from `v17.4.1`; the wire package delta is release metadata and toolchain scripts only.
 
+These are the preserved browser-client provenance pins, not the OMP host prerequisite. Gateway
+v0.4.0 consumes the native registry/controller in stock OMP `>= 18.1.20` without a fork, custom
+OMP build, or gateway-specific OMP plugin. Its root `UPSTREAM.lock.json` records that separate
+host/source baseline; do not rewrite this client's provenance to match it. See
+[OMP_INTEGRATION.md](../../docs/OMP_INTEGRATION.md) for qualification and deployment scope.
+
 The local patch passes the capability directly into the root `App` component. The installed PWA
 mounts that component in its current document so Android standalone navigation does not depend on
 `window.opener`. Embedded gateway mode suppresses the client's competing header, rail, and lifecycle

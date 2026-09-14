@@ -6,14 +6,25 @@ Thank you for helping build OMP Session Gateway.
 
 Read `README.md`, `AGENTS.md`, `docs/DECISIONS.md`, and `docs/SECURITY.md` before changing behavior. Security properties are part of the product contract, not optional hardening work.
 
+The gateway integrates with stock OMP `>= 18.1.20` through its native registry/controller.
+No fork, custom OMP build, or gateway-specific OMP plugin is required. Keep gateway policy and
+installers here; propose general-purpose controller/registry changes upstream. Read
+[OMP integration](docs/OMP_INTEGRATION.md) before changing that boundary.
+
+For ordinary installation, use the [published stable archive](docs/OPERATIONS.md#2-cli-and-daemon-installation).
+A source checkout is for development and is not signed-artifact qualification.
+
 ## Development workflow
 
 1. Open or select a focused [GitHub issue](https://github.com/alphastorm/omp-session-gateway/issues).
 2. Create a branch from `main`.
 3. Keep the change small enough to review and test.
-4. Add tests for behavior, failure modes, and secret non-persistence.
-5. Run the repository checks.
-6. Open a pull request using the template and explain architecture/security impact.
+4. Add or update relevant behavioral, failure-mode, and secret-non-persistence tests; text-only
+   changes do not need new tests that merely assert wording.
+5. Use the pinned Bun 1.4.0 toolchain: `bun install --frozen-lockfile`, then `bun run check`.
+   For browser behavior, also run `bun run test:browser` and exercise the changed surface.
+6. Open a pull request using the template and explain architecture/security impact. Report the
+   exact verification performed; repository checks do not qualify a host, relay, or physical phone.
 
 Suggested branch names:
 

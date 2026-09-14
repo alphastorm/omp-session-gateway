@@ -10,11 +10,16 @@
 
 **Every live OMP session. One private mobile page.**
 
-An Android-first PWA that auto-discovers running
-[Oh My Pi](https://github.com/can1357/oh-my-pi) sessions, alerts you when one needs input,
-and opens the exact encrypted OMP collaboration surface — without QR codes or copied links.
+**Native integration with stock OMP `18.1.20+`. No fork or custom OMP build.**
+
+Keep using [Oh My Pi](https://github.com/can1357/oh-my-pi) in your terminal.
+OMP Session Gateway discovers your collaboration-enabled sessions, shows which need attention,
+and opens OMP's own encrypted **View** or **Control** client from your phone — no QR scans,
+copied links, or per-session setup.
 
 <img src="docs/media/omp-session-gateway-demo.gif" alt="Four live OMP sessions listed automatically in the private Sessions directory; a fifth appears on its own; when sessions start waiting for input the directory switches to Needs you and promotes the oldest request; Open request opens OMP's encrypted collaboration client on that exact request, which stays connected." width="900">
+
+<sub>Historical synthetic demo—not current-release qualification evidence. <a href="docs/media/README.md">Capture provenance</a>.</sub>
 
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
@@ -43,20 +48,12 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 
 </div>
 
-> **Stock OMP is enough: mainline `>= 18.1.20`.**
-> The controller and local registry merged upstream in
-> [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) and ship in
-> [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set
-> `collab.autoStart` to `view` or `control`, then start sessions with plain `omp`.
-> No gateway-specific OMP build or activation route is needed.
->
-> **Stable [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0) is published.** Signed
-> [v0.4.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)
-> passed FULL qualification on 2026-09-14 with stock OMP v18.1.20: exact Debian/macOS hosts,
-> physical Pixel core flows, migration/recovery, and a fresh 1,800-second relay check.
-> Promoted with identical runtime bytes; no fork-era evidence transfers. Tailscale Serve
-> with the TUN-mode client, Funnel disabled, and Bun 1.4.0 remain required. Details:
-> [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
+> **Works with upstream OMP, not a gateway-specific build.** OMP's native collaboration registry
+> shipped in [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)
+> ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908)). Enable `collab.autoStart` once,
+> install the gateway, and configure Tailscale Serve. Then start sessions with plain `omp`.
+> **[Get started with stable v0.4.0](#build-and-run)** ·
+> [Exact support and limits](docs/COMPATIBILITY.md) · [Release evidence](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
 of truth: the gateway is a private directory for already-running interactive OMP processes, a
@@ -65,6 +62,85 @@ second agent client. Opening a session hands off to OMP's existing encrypted `co
 interface; the gateway never stores or renders transcripts.
 
 This is a community project and is not affiliated with or endorsed by the Oh My Pi maintainers.
+
+## Build and run
+
+Start with the [stable v0.4.0 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0),
+**Bun 1.4.0**, and stock **OMP 18.1.20 or later**. Read the
+[exact supported combinations and limits](docs/COMPATIBILITY.md) before installing.
+The gateway and phone need Tailscale on the same tailnet; the gateway host must use the TUN-mode
+client with Serve over HTTPS. **Never enable Funnel.**
+
+### 1. Enable collaboration once in OMP
+
+```sh
+omp --version # must report at least 18.1.20
+omp config set collab.autoStart control # or view for read-only sharing
+```
+
+Then start participating sessions with plain `omp`. Existing processes do not rerun startup when
+this setting changes; start new sessions after enabling it. No OMP fork, gateway-specific plugin,
+custom build, or publisher credential is required.
+
+### 2. Install the gateway
+
+Download and [verify the published archive](docs/RELEASE.md#verify-a-published-build), then extract
+`omp-session-gateway-0.4.0-bun.tar` and enter `omp-session-gateway-0.4.0-bun/`.
+The release contains a Bun JavaScript entry point, not standalone native binaries.
+
+**Upgrading from v0.3.0 or earlier?** Retain its signed archive and private configuration, then
+use that archive's `uninstall` command to stop and unregister the old gateway first. Follow
+[the stopped upgrade procedure](docs/UPGRADE_ROLLBACK.md); do not import a credential bundle.
+Gateway rollback does not switch the OMP executable.
+
+From the verified release directory:
+
+```sh
+bun apps/gateway/src/cli.js install \
+  --origin https://host.tailnet.ts.net \
+  --allow user@example.com
+bun apps/gateway/src/cli.js serve-guidance
+```
+
+Use your host's tailnet HTTPS origin and exact Tailscale login. **Run the Tailscale Serve command
+printed by `serve-guidance`**, then check the deployment:
+
+```sh
+bun apps/gateway/src/cli.js doctor
+```
+
+### 3. Open OMP Sessions on your phone
+
+Open the configured HTTPS address from your allowlisted, user-authenticated Tailscale device and
+add **OMP Sessions** to the home screen. New collaboration-enabled sessions appear on the next
+discovery poll (10 seconds by default). Tap **View** or **Control**; OMP stays in your terminal.
+
+Setup is one-time, not per-session. See [operations](docs/OPERATIONS.md) for discovery overrides,
+service management, and diagnostics. If `doctor` reports `loopbackTrustSound: false`, fix the
+host's TUN-mode Tailscale setup; do not bypass the identity check.
+
+<details>
+<summary>Build from source for development</summary>
+
+Use Bun 1.4.0 in this checkout. A source build does not inherit the signed release's qualification.
+
+```sh
+bun install --frozen-lockfile
+bun run check
+
+# Loopback-only development mode
+bun apps/gateway/src/cli.ts serve \
+  --dev-localhost \
+  --port 4317 \
+  --origin http://127.0.0.1:4317
+```
+
+For a source-based production install, run `bun run build`, then use the installation commands
+above with `apps/gateway/src/cli.ts` instead of the archive's `.js` entry point.
+`bun run release:build` builds the deterministic Bun-runtime archive and checksum manifest;
+it does not qualify or publish that build.
+
+</details>
 
 ## How it works
 
@@ -105,7 +181,7 @@ steps: [`docs/media/README.md`](docs/media/README.md) · MP4 master:
 ## The problem
 
 OMP’s collaboration feature already provides an excellent browser experience. Mainline OMP now
-starts and discovers hosts automatically; manually opening each link or QR code on a phone still
+starts collaboration and publishes its live hosts automatically when configured; manually opening each link or QR code on a phone still
 does not scale across several terminals. The gateway removes that per-session
 ceremony without widening exposure: it lists every live OMP session automatically, surfaces a
 metadata-only **Needs you** state when one is waiting for human input, opens read-only or
@@ -121,7 +197,7 @@ After installation and tailnet configuration:
 2. Tailscale Serve exposes only the loopback dashboard/API to approved tailnet identities.
 3. Each interactive `omp` process automatically starts collaboration when configured. The gateway
    reads OMP’s discovery directory and polls metadata; it fetches a capability only when you launch.
-4. The Android PWA lists every live process within a few seconds: a FIFO **Needs you** queue when
+4. The Android PWA lists collaboration-enabled processes on the next discovery poll: a FIFO **Needs you** queue when
    anything is waiting, otherwise **All clear** and the working sessions.
 5. **Open request** launches Control for the oldest ask; **Hold for desk** defers that exact ask on
    this device and advances to the next one without clearing attention; **Transcript** stays
@@ -150,8 +226,8 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-The approved v0.4.0 target is bound to signed candidate `v0.4.0-prealpha.1`. Its fresh
-qualification is limited to the exact combinations below; the minimum OMP version does not
+Published stable **v0.4.0** was promoted from qualified candidate `v0.4.0-prealpha.1` with
+identical runtime bytes. Qualification is limited to the exact combinations below; the minimum OMP version does not
 qualify every host, browser, or future OMP release.
 
 | | Current contract |
@@ -186,6 +262,11 @@ Known limits are part of the claim — read them before installing:
   and, after 45 seconds of uninterrupted visible failure, opens force-stop/reopen help already
   loaded in the PWA shell; it does not
   claim page JavaScript can repair Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+- **A gateway update can interrupt a pending launch.** The worker can still see the directory
+  route while a capability request is in progress; prelaunch route reservation is not implemented.
+  See [the current update behavior](docs/ARCHITECTURE.md).
+- **An initial local View→Control upgrade failed during post-release smoke.** Later probes and
+  the full unchanged smoke passed, but the cause remains undetermined; see the release ledger.
 - **The fresh relay gate is 30 minutes, not eight hours.** Eight-hour endurance was not rerun
   and is not claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth
   claim follows from this check.
@@ -219,68 +300,6 @@ Fork-era Windows source acceptance on a persistent Server 2025 VM passed install
 reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback, patched OMP
 publication, and uninstall. This is historical evidence only, not Windows OMP qualification.
 
-## Build and run
-
-Use the [qualified signed candidate](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)
-for the exact combinations above, or build this mainline-compatible checkout with **Bun 1.4.0**.
-Install stock `@oh-my-pi/pi-coding-agent@18.1.20` or later; there is no gateway-specific OMP
-build or publisher credential. A source build does not inherit the signed candidate
-qualification. The fork-era `v0.3.0` archive requires its matching historical instructions.
-
-```sh
-omp --version # must report at least 18.1.20
-omp config set collab.autoStart control # or view
-omp # start participating interactive sessions normally
-```
-
-In a separate terminal, build and run the gateway:
-
-```sh
-bun install --frozen-lockfile
-bun run check
-
-# Loopback-only development mode
-bun apps/gateway/src/cli.ts serve \
-  --dev-localhost \
-  --port 4317 \
-  --origin http://127.0.0.1:4317
-```
-
-Production installation requires an exact tailnet HTTPS origin and at least one normalized
-Tailscale login:
-
-If a fork-era gateway is already installed, retain its signed archive and private configuration,
-then run that archive's `uninstall` command first to stop and unregister its service. Config and
-staged runtimes remain in place. Reinstall the mainline gateway only after that stopped
-uninstall; do not import fork-era credential bundles. This is not an active in-place credential
-migration, and gateway rollback never switches OMP; see [upgrade and recovery](docs/UPGRADE_ROLLBACK.md).
-
-```sh
-bun run build
-bun apps/gateway/src/cli.ts install \
-  --origin https://host.tailnet.ts.net \
-  --allow user@example.com
-bun apps/gateway/src/cli.ts serve-guidance
-bun apps/gateway/src/cli.ts doctor
-```
-
-**Run Tailscale's TUN-mode client on the gateway host.** With
-`tailscaled --tun=userspace-networking` there is no tunnel device, so its netstack forwards inbound
-tailnet connections to `localhost` and every tailnet peer reaches the loopback listener as a
-loopback peer. The daemon detects that and returns `403` to every request rather than believing an
-identity header, `doctor` reports `loopbackTrustSound: false`, and the log carries one
-`http.identity_trust_unsound`. If a correctly configured host is refused, that check is what to
-look at first.
-
-Never enable Tailscale Funnel. OMP owns discovery under `~/.omp/run/collab-hosts`; the gateway
-only reads it and queries each host. There is no OMP credential to provision to the gateway. See
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md) for discovery overrides and diagnostics.
-
-Build the deterministic Bun-runtime archive and checksum manifest with `bun run release:build`.
-An archive is qualified only for the exact platform and candidate combination recorded in
-[`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md); a build from `main` carries no native
-qualification until a lane has been run against those bytes and its record attached to a tag.
-
 ## Architecture
 
 ```mermaid
@@ -295,13 +314,13 @@ flowchart LR
     PHONE -->|encrypted collaboration frames| RELAY[OMP relay]
     OMP1 -->|encrypted collaboration frames| RELAY
     OMP2 -->|encrypted collaboration frames| RELAY
-    GATEWAY -->|encrypted metadata-only push| PUSH[Browser push service]
+    GATEWAY -->|experimental encrypted metadata-only push| PUSH[Browser push service]
     PUSH -->|wake service worker| PHONE
 ```
 
 The recommended v1 keeps OMP's existing end-to-end-encrypted relay and uses the gateway only for
-private discovery and just-in-time capability delivery. A self-hosted relay remains an optional
-later deployment mode. Deeper detail: [architecture](docs/ARCHITECTURE.md) ·
+private discovery and just-in-time capability delivery. Self-hosted or proxied relays remain unsupported; they require separate threat modeling and
+qualification. Deeper detail: [architecture](docs/ARCHITECTURE.md) ·
 [protocol](docs/PROTOCOL.md) · [operations](docs/OPERATIONS.md).
 
 ## Why PWA first
@@ -341,50 +360,32 @@ See [the threat model](docs/SECURITY.md) and [security reporting policy](SECURIT
 
 ## How it compares
 
-Remote access to live OMP sessions is an active ecosystem — see the upstream
-[discussion](https://github.com/can1357/oh-my-pi/discussions/6460) that inventories these efforts.
-The comparison below was source-verified against each project's public README and package metadata
-on **2026-08-21**, with release metadata and PR #1143 status refreshed **2026-09-08**.
-The other projects’ feature descriptions remain that dated snapshot; check current documentation before
-choosing. None of them — including this one — is affiliated with or endorsed by the Oh My Pi
-maintainers. OMP now ships first-party local discovery in v18.1.20; the gateway column below
-describes this cutover, while the other projects retain the dated comparison above.
+Choose by workflow, not a feature checklist:
 
-| | OMP Session Gateway | [`omp-deck`](https://github.com/bjb2/omp-deck) 0.6.1 | [`oh-my-portal`](https://github.com/gosuda/oh-my-portal) | [`claudecodeui`](https://github.com/siteboon/claudecodeui) (CloudCLI) | [`pi-agent-dashboard`](https://github.com/BlackBeltTechnology/pi-agent-dashboard) |
-|---|---|---|---|---|---|
-| Workflow boundary | Private directory, attention queue, and just-in-time View/Control broker for already-running terminal OMP sessions; not a second client | Web cockpit hosting its own OMP SDK sessions plus kanban, plan mode, inbox, knowledge base, routines, and messaging bridges | Skills plugin that exposes an agent from the phone — web chat, real terminal, sharing, notify — for OMP, Claude Code, Codex, Gemini CLI, and opencode | Web/desktop/mobile UI for Claude Code, Cursor CLI, and Codex with chat, shell, file and git explorers | Browser dashboard to spawn, mirror, and drive [`pi`](https://github.com/badlogic/pi-mono) agents; its README states Oh My Pi is **not** supported |
-| Zero-touch discovery of live terminal sessions | Yes — reads mainline OMP discovery and queries host metadata; no per-session command | No terminal attach; the deck creates and hosts its own sessions in-process | Per-surface setup through skills; its `omp-collab` skill shares one OMP session over OMP's own path | Discovers existing session files automatically; the OMP mirroring proposal linked below was closed without merging | For `pi` only, via a bridge extension loaded into every session |
-| Mobile surface | Android-first installable PWA; signed v0.4.0 candidate qualifies the exact Pixel directory/View/Control/recovery/isolation matrix above; opt-in Web Push remains unqualified | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
-| Exact OMP collab client reuse | Yes — View/Control opens OMP's own encrypted `collab-web` client from pinned upstream source; no second chat surface | No — own chat surface over the embedded OMP SDK (`@oh-my-pi/*` 15.1.7) | No — own web chat over OMP RPC; `omp-collab` reuses OMP collab links separately | No — own transcript UI over ACP stdio | No — own WebSocket mirror protocol, `pi` only |
-| Attention triage | Metadata-only FIFO **Needs you** queue with device-local exact-ask Hold; non-attention rows can be dismissed and restored on one device without stopping OMP; specialized attention qualification is not claimed | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session attention queue described | Interactive `ask_user` prompts inside a session view |
-| Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
-| Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
-| Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
-| Install maturity and support | **Stock OMP >=18.1.20; signed v0.4.0 candidate qualified.** Exact Debian/macOS/Pixel matrix and fresh 30-minute relay check; [publication status](docs/RELEASE_STATUS.md) | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP integration PR [#1143](https://github.com/siteboon/claudecodeui/pull/1143) is closed, unmerged as of 2026-09-08** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
-| Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |
+- **Keep work in running OMP terminals:** OMP Session Gateway discovers participating sessions
+  and opens OMP's existing encrypted View/Control client from one private mobile page. Stock
+  **OMP ≥18.1.20** supplies the native registry and controller — no fork, custom OMP build, or
+  gateway-specific OMP plugin.
+- **Move work into a browser-hosted OMP workspace:** [omp-deck](https://github.com/bjb2/omp-deck)
+  embeds the OMP SDK and shares its session/auth store, with persistent browser sessions and
+  workflow tools such as kanban, routines, and an inbox.
+- **Choose agent web chat, sharing, or remote terminal access:**
+  [oh-my-portal](https://github.com/gosuda/oh-my-portal) provides skills over Portal tunnels.
+  It supports OMP through RPC and an optional `omp-collab` session-sharing skill.
+- **Use a browser/mobile workspace for other coding CLIs:**
+  [CloudCLI (claudecodeui)](https://github.com/siteboon/claudecodeui) advertises Claude Code,
+  Cursor CLI, and Codex in its README; that README does not advertise OMP support.
+- **Use the pi ecosystem:** [pi-agent-dashboard](https://github.com/BlackBeltTechnology/pi-agent-dashboard)
+  mirrors pi sessions through a bridge extension. Its README explicitly excludes Oh My Pi.
 
-Where each one shines:
+The gateway still needs one-time setup: a separate install with Bun 1.4.0,
+`collab.autoStart`, and TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
+Then use plain `omp`; no per-session link copying. The minimum OMP version is an integration
+contract, not qualification of every later version. See [exact support and limits](docs/COMPATIBILITY.md).
 
-- **`omp-deck`** has the strongest around-the-chat workflow layer — kanban, routines, a knowledge
-  base, an inbox, plan-mode approvals, and durable resumable sessions. Choose it when the browser
-  should be a persistent cockpit and hosting sessions inside it is acceptable.
-- **`oh-my-portal`** has the broadest agent coverage, and is the only one offering full terminal
-  access and per-person teammate sharing from a phone, with conversational skill-driven setup.
-- **`claudecodeui` (CloudCLI)** has the most established distribution — npm, Docker, desktop apps,
-  and a hosted cloud — but the linked OMP integration proposal was closed without merging; do not infer OMP
-  support from it.
-- **`pi-agent-dashboard`** is the richest dashboard in the `pi` ecosystem (session spawning, flows,
-  OpenSpec, plugins, polished installers) — but it targets `pi`, not OMP.
-- **OMP Session Gateway** is the only one that attaches through OMP's own encrypted collaboration
-  path and reuses the exact upstream client, with zero-touch discovery of terminal sessions, a
-  metadata-only attention queue, memory-only capability handling, and per-release qualification
-  evidence. Mainline OMP now supplies discovery directly; no gateway-specific OMP build is needed.
-
-Choose OMP Session Gateway when the desired change is narrowly: “make every current terminal OMP
-session safely reachable from my phone without copying links.” Choose one of the others when the
-desired change is a broader browser-first working environment, multi-agent coverage, or raw
-terminal access. The gateway is intentionally not a chat rewrite, task system, routine engine,
-knowledge base, or messaging hub; reusing `collab-web` is the point.
+Primary READMEs and package metadata checked **2026-09-14**; this is not a hands-on interoperability
+or security assessment. The [source-linked comparison](https://alphastorm.github.io/omp-session-gateway/compare/)
+and [upstream discussion](https://github.com/can1357/oh-my-pi/discussions/6460) provide context.
 
 ## Repository layout
 

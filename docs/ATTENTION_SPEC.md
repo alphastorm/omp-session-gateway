@@ -1,8 +1,9 @@
 # Needs-attention and notification detail contract
 
 Normative implementation contract for the Couch Flow directory, authoritative ask loop, and
-per-device background alerts. `docs/COUCH_FLOW_SPEC.md` defines the complete interaction model;
-this document narrows its metadata, push, and privacy behavior.
+per-device background alerts. Read with [ARCHITECTURE.md](ARCHITECTURE.md) and ADR-019,
+ADR-026, and ADR-027 in [DECISIONS.md](DECISIONS.md); this document specifies their metadata,
+push, and privacy behavior.
 
 ## Product boundary
 

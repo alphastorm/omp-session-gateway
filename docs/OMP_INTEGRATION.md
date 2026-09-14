@@ -3,15 +3,29 @@
 ## Supported prerequisite
 
 Use stock mainline OMP `>= 18.1.20`. [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).
-The gateway consumes that supported local registry; it does not patch OMP, import private
-controller APIs, or install a second OMP executable. Releases earlier than 18.1.20 lack this
-registry and are unsupported by the current gateway.
+The integration is native to stock OMP: no fork, custom OMP build, or gateway-specific OMP plugin
+is required. The separately installed gateway consumes OMP's supported local registry; it does not
+patch OMP, import private controller APIs, or install a second OMP executable. Releases earlier
+than 18.1.20 lack this registry and are unsupported by the current gateway. The deployment still
+requires Bun 1.4.0, TUN-mode Tailscale Serve, an exact login allowlist, and the one-time
+`collab.autoStart` setting below; native integration does not mean a bundled gateway or public access.
 
 `UPSTREAM.lock.json` records the exact engineering source baseline: `v18.1.20`, commit
 `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`, tree
 `aca949970fb8b73170b05f6a23bf18e23fb5841f`. The minimum supported host version is distinct from
-that exact client/source pin. Mainline signed-artifact, host, relay, and physical-device
-qualification is pending; fork-era published-release evidence does not transfer.
+that exact host/source baseline. The embedded browser client has its own preserved
+[v18.1.14 source and wire pins](../packages/collab-client/README.md); do not conflate them with
+the host minimum.
+
+Stable [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0) is published
+as immutable GitHub Latest. Its exact signed candidate `v0.4.0-prealpha.1` passed core
+qualification on OMP 18.1.20 / Bun 1.4.0, Debian 13 x86-64, macOS 26.6.1 arm64, and Pixel 10 Pro /
+Android 17 / Chrome 152.0.7977.82. The fresh relay check covered **1,800 seconds**, not eight hours.
+Windows, background Web Push, specialized attention, and branch/resume remain unqualified.
+The published-byte local smoke also passed with the existing OMP 18.1.21; it does not broaden the
+exact matrix or establish the cause of the initial intermittent Control-upgrade failure.
+See the [release ledger](RELEASE_STATUS.md) for receipts, limits, and that unresolved observation;
+no fork-era qualification transfers.
 
 ## 1. Operator settings
 
@@ -111,5 +125,6 @@ The migration’s behavioral proof belongs to `apps/gateway/test/omp-registry.te
 qualification must exercise the actual mainline binary, View/Control launch and refusal, host
 replacement and stop, gateway restart, transient query failures, capability non-persistence, and
 the exact client/relay path. See [TEST_PLAN.md](TEST_PLAN.md), [COMPATIBILITY.md](COMPATIBILITY.md),
-and the fork-era receipts retained in [RELEASE_STATUS.md](RELEASE_STATUS.md).
+and the current mainline evidence and separate fork-era archive in
+[RELEASE_STATUS.md](RELEASE_STATUS.md).
 

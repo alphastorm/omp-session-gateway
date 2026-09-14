@@ -2,14 +2,15 @@
 
 ## Project status
 
-OMP Session Gateway is a qualified beta, not a stable or production-qualified service. Use only the exact host/client/deployment combinations advertised in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md); do not expose the loopback backend directly, enable Tailscale Funnel, use Portal Tunnel or another forwarder, or treat an unqualified platform or background Web Push as supported.
+OMP Session Gateway v0.4.0 is the current qualified stable release and works with stock OMP
+`>= 18.1.20` through its native discovery/query contract. No OMP fork or custom build is required. Use only the exact host/client/deployment combinations advertised in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md); do not expose the loopback backend directly, enable Tailscale Funnel, use Portal Tunnel or another forwarder, or treat an unqualified platform or background Web Push as supported.
 
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately through this repository's [GitHub Security Advisories](https://github.com/alphastorm/omp-session-gateway/security/advisories/new). Do not open a public issue containing:
 
 - collaboration links or URL fragments;
-- publisher tokens;
+- OMP discovery/query tokens, gateway readiness tokens, or legacy publisher tokens;
 - transcript content;
 - Tailscale identity details;
 - filesystem paths that reveal private project names; or
@@ -37,4 +38,12 @@ The detailed threat model, trust boundaries, and release gates are in [`docs/SEC
 
 ## Supported versions
 
-`v0.1.0-beta.1` is the current qualified beta; `v0.1.0-alpha.1` is its gateway rollback predecessor. OMP must be restored separately to the matching exact alpha patch before sessions restart; no paired rollback is claimed. Neither release is a stable-production support promise. Supported combinations, known limitations, and release-specific evidence are maintained in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [`docs/RELEASE_STATUS.md`](docs/RELEASE_STATUS.md).
+Use the [current stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest).
+The [compatibility policy](docs/COMPATIBILITY.md) defines the exact supported host/client/deployment
+matrix; the [release ledger](docs/RELEASE_STATUS.md) records its evidence and known limitations.
+The minimum OMP version is not qualification of every later version or platform.
+
+Older releases retain their own historical prerequisites. In particular, v0.3.0 is a fork-era
+migration/rollback predecessor, not the current recommended install; crossing that boundary
+requires the [stopped recovery procedure](docs/UPGRADE_ROLLBACK.md), and gateway rollback does not
+switch OMP. Please report suspected vulnerabilities in any version privately.

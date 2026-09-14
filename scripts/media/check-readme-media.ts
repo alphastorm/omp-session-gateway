@@ -14,7 +14,6 @@ import {
   MAX_BYTES,
   MEDIA_DIRECTORY,
   MEDIA_DIRECTORY_NAMES,
-  OPTIONAL_MEDIA_DIRECTORY_NAMES,
   PNG_DIMENSIONS,
   POSTER_FRAME_INDEX,
   REPOSITORY_ROOT,
@@ -413,7 +412,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   const failures: string[] = [];
   const warnings: string[] = [];
   const allowedNames: Readonly<Record<string, true>> = Object.fromEntries(
-    [...MEDIA_DIRECTORY_NAMES, ...OPTIONAL_MEDIA_DIRECTORY_NAMES].map(name => [name, true]),
+    MEDIA_DIRECTORY_NAMES.map(name => [name, true]),
   );
 
   let directoryNames: string[] = [];
@@ -538,7 +537,6 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
     join(REPOSITORY_ROOT, "scripts/media/readme-media-compositor.ts"),
     join(REPOSITORY_ROOT, "scripts/media/capture-readme-media.ts"),
     join(MEDIA_DIRECTORY, "README.md"),
-    ...(directoryNames.includes("LAUNCH_COPY.md") ? [join(MEDIA_DIRECTORY, "LAUNCH_COPY.md")] : []),
   ];
   for (const path of textPaths) {
     try {
@@ -558,7 +556,6 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
       "memory-only capabilities",
       "no transcript storage",
       "not affiliated with OMP",
-      "LAUNCH_COPY.md",
     ];
     for (const marker of markers) {
       if (!provenance.includes(marker)) addFailure(failures, "docs/media/README.md", `missing public provenance marker ${marker}`);

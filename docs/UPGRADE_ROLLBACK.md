@@ -2,7 +2,7 @@
 
 ## Mainline cutover and rollback boundary
 
-Current source uses stock OMP `>= 18.1.20` and `collab.autoStart` only, following
+Published stable v0.4.0 uses stock OMP `>= 18.1.20` and `collab.autoStart` only, following
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Install mainline on PATH and restart participating OMP processes; a gateway
 upgrade cannot replace code already loaded in a fork-era process. The gateway now only reads OMP
 discovery and never stores capabilities.
@@ -19,9 +19,18 @@ artifacts privately; use that release’s installer and instructions for deliber
 point a fork-era daemon at mainline discovery or claim transparent mixed-version operation.
 
 For the `v0.3.0` → `v0.4.0` boundary, stop and unregister the predecessor with its own signed
-archive's `uninstall` command before the new install. Do not delete its configuration or staged
-runtimes. Supply the deployment's existing origin and allowlist to the new installer. Later
-mainline-to-mainline reinstalls retain the normal active-service path.
+archive’s `uninstall` command before the new install. From the directory containing the verified,
+extracted v0.3.0 archive, using persistent Bun 1.4.0:
+
+```sh
+bun omp-session-gateway-0.3.0-bun/apps/gateway/src/cli.js uninstall
+```
+
+Do not delete its configuration or staged runtimes. Continue with the
+[verified v0.4.0 installation](OPERATIONS.md#2-cli-and-daemon-installation), supplying the
+deployment’s existing `--origin` and `--allow` values. Preserve non-capability configuration
+privately in place; do not copy publisher/readiness tokens or OMP discovery credentials into
+a migration bundle. Later mainline-to-mainline reinstalls retain the normal active-service path.
 
 Recovery to `v0.3.0` is similarly deliberate: stop and unregister the candidate with its own CLI,
 restore the retained predecessor-compatible private config if it was changed, then reinstall the
@@ -38,6 +47,13 @@ recovery described above, not an automatic OMP switch or credential restoration.
 20/20 results below remain historical and are not proof of this architecture-crossing transition.
 A new candidate must qualify its exact predecessor and recovery path without mutating unrelated
 services, OMP processes, or discovery files.
+
+The published v0.4.0 local upgrade and subsequent physical-Android smoke also passed using the
+stopped matching-v0.3.0-CLI transition. Configuration stayed unchanged in place, the retired
+publisher token was removed, and the existing local OMP 18.1.21 was not replaced. This local
+result does not widen the exact OMP 18.1.20 candidate matrix; see the
+[release ledger](RELEASE_STATUS.md#published-byte-local-installation-and-android-smoke), including
+the unresolved initial Control-upgrade failure.
 
 ## Fork-era lane and evidence archive
 
