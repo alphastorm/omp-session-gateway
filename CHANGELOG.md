@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Reject malformed media manifests before using their asset records, preserving validation
+  diagnostics instead of throwing a type error. Cover canonical-package acceptance and realistic
+  corruption, private metadata, and stale provenance with isolated package-level tests.
 - Validate media capture provenance against the vendored browser-client pin rather than the
   independent OMP host baseline. Replace stale editorial-copy waits with rendered-state checks
   and regenerate the canonical synthetic media with Bun 1.4.0 and the v18.1.14 browser client.
