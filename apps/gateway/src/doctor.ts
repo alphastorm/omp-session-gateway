@@ -5,12 +5,12 @@ import { tailnetAddressIsLocallyBound, tailscaleTunDevicePresent } from "./tailn
 import { fileURLToPath } from "node:url";
 import { parseSessionListResponse, type SessionListResponse } from "@omp-session-gateway/protocol";
 import {
-  assertSocketPrivate,
   type GatewayConfig,
   loadGatewayConfig,
-  loadPublisherToken,
+  loadReadinessToken,
   loopbackHttpOrigin,
 } from "./config.ts";
+import { OmpHostReader } from "./omp-registry.ts";
 import type { DoctorReport } from "./diagnostics.ts";
 import { userServiceStatus } from "./service.ts";
 
@@ -19,13 +19,11 @@ const MAX_READINESS_BODY_BYTES = 512;
 const NETWORK_TIMEOUT_MS = 3_000;
 const DEFAULT_RELAY_HEALTH_URL = "https://my.omp.sh";
 /**
- * Expected upstream identity of the shipped compatibility artifacts. These duplicate
- * `UPSTREAM.lock.json` deliberately: the check exists to notice a tampered or mismatched lock, so
- * reading the expectation out of the same file would make it tautological. The doctor test
- * asserts the observable compatibility report, so refresh these alongside the shipped artifacts.
+ * Lowest mainline OMP release that ships the collaboration host registry this gateway reads
+ * (upstream PR #11908, first tagged in `v18.1.20`). Earlier releases have `collab.autoStart` only
+ * behind the retired fork, so a host on one of them can never appear in the directory.
  */
-const EXPECTED_UPSTREAM_COMMIT = "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e";
-const EXPECTED_UPSTREAM_CODING_AGENT_VERSION = "18.1.14";
+const MINIMUM_OMP_VERSION = "18.1.20";
 
 function property(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
@@ -259,27 +257,43 @@ async function localAssetsPresent(): Promise<boolean> {
   }
 }
 
-async function compatibilityArtifactsPresent(): Promise<boolean> {
-  try {
-    const [lockText, patch] = await Promise.all([
-      readFile(fileURLToPath(new URL("../../../UPSTREAM.lock.json", import.meta.url)), "utf8"),
-      readFile(
-        fileURLToPath(new URL("../../../patches/oh-my-pi/0001-collab-controller-autostart-registry.patch", import.meta.url)),
-        "utf8",
-      ),
-    ]);
-    const lock = JSON.parse(lockText) as unknown;
-    return (
-      property(lock, "repository") === "https://github.com/can1357/oh-my-pi" &&
-      property(lock, "commit") === EXPECTED_UPSTREAM_COMMIT &&
-      property(property(lock, "packageVersions"), "@oh-my-pi/pi-coding-agent") ===
-        EXPECTED_UPSTREAM_CODING_AGENT_VERSION &&
-      patch.includes("packages/coding-agent/src/collab/controller.ts") &&
-      patch.includes("packages/coding-agent/src/collab/registry-publisher.ts")
-    );
-  } catch {
-    return false;
+/** Compares dotted release numbers; anything unparseable counts as older. */
+function versionAtLeast(observed: string, minimum: string): boolean {
+  const parse = (value: string): number[] => {
+    const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(value.trim());
+    return match === null ? [] : [Number(match[1]), Number(match[2]), Number(match[3])];
+  };
+  const left = parse(observed);
+  const right = parse(minimum);
+  if (left.length !== 3 || right.length !== 3) return false;
+  for (let index = 0; index < 3; index += 1) {
+    const observedPart = left[index] ?? 0;
+    const minimumPart = right[index] ?? 0;
+    if (observedPart !== minimumPart) return observedPart > minimumPart;
   }
+  return true;
+}
+
+/** Reads the version banner of the OMP on PATH. Absent means no usable `omp` was reachable. */
+async function installedOmpVersion(): Promise<string | undefined> {
+  try {
+    const probe = Bun.spawn(["omp", "--version"], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+    const [output] = await Promise.all([new Response(probe.stdout).text(), probe.exited]);
+    return probe.exitCode === 0 ? output : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Confirms the OMP on PATH is mainline and recent enough to publish into the discovery directory.
+ * This replaces the retired patched-tree assertion: there is no fork to verify any more, and the
+ * only compatibility fact that still decides whether a session can ever appear is the release.
+ */
+async function ompVersionSupported(probe: () => Promise<string | undefined>): Promise<boolean> {
+  const version = await probe();
+  if (version === undefined) return false;
+  return versionAtLeast(version.trim().replace(/^omp\//u, ""), MINIMUM_OMP_VERSION);
 }
 
 async function relayReachable(): Promise<boolean> {
@@ -305,6 +319,12 @@ export async function runDoctorChecks(
      * the one case worth pinning — could not be expressed on a developer workstation at all.
      */
     readonly tunDevicePresent?: () => boolean;
+    /**
+     * Reads the installed OMP version banner. Injectable for the same reason as the tunnel probe:
+     * the real one measures whatever `omp` this machine happens to have on PATH, so the supported
+     * and unsupported releases — the two cases worth pinning — are otherwise untestable.
+     */
+    readonly ompVersion?: () => Promise<string | undefined>;
   } = {},
 ): Promise<DoctorReport> {
   const checks: Record<string, boolean> = {
@@ -323,7 +343,8 @@ export async function runDoctorChecks(
     pwa: false,
     securityHeaders: false,
     relay: false,
-    publisherHealth: false,
+    discoveryReadable: false,
+    sessionHealth: false,
     compatibility: false,
   };
 
@@ -336,23 +357,23 @@ export async function runDoctorChecks(
   }
 
   checks.assets = await localAssetsPresent();
-  checks.compatibility = await compatibilityArtifactsPresent();
+  checks.compatibility = await ompVersionSupported(options.ompVersion ?? installedOmpVersion);
   let readinessToken: string | undefined;
   try {
-    readinessToken = await loadPublisherToken(config);
+    readinessToken = await loadReadinessToken(config);
     checks.permissions = true;
   } catch {
     checks.permissions = false;
   }
   checks.daemon = readinessToken !== undefined && (await gatewayReady(config, readinessToken));
   checks.listenerLoopbackOnly = checks.daemon && ["127.0.0.1", "::1"].includes(config.http.hostname);
-  if (checks.daemon) {
-    try {
-      await assertSocketPrivate(config);
-    } catch {
-      checks.permissions = false;
-    }
-  }
+  // The gateway owns no endpoint now; what must stay sound is its read access to OMP's own
+  // discovery directory. A symlinked or foreign-owned directory is a real permissions finding.
+  checks.discoveryReadable = await new OmpHostReader({
+    directory: config.omp.discoveryDir,
+    timeoutMs: config.omp.queryTimeoutMs,
+  }).directoryUsable();
+  if (!checks.discoveryReadable) checks.permissions = false;
 
   const service = await userServiceStatus(config);
   checks.serviceInstalled = service.installed;
@@ -373,7 +394,7 @@ export async function runDoctorChecks(
       publicAsset(config, "/manifest.webmanifest"),
       publicAsset(config, "/service-worker.js"),
     ]);
-    checks.publisherHealth =
+    checks.sessionHealth =
       sessions !== undefined && sessions.sessions.every(session => Number.isFinite(Date.parse(session.lastSeenAt)));
     checks.pwa = root?.ok === true && manifest?.ok === true && worker?.ok === true;
     checks.securityHeaders = root?.headers.get("Content-Security-Policy")?.includes("default-src 'self'") === true;
@@ -411,7 +432,7 @@ export async function runDoctorChecks(
   }
   checks.serveMapping = serveConfigurationMatches(serve, config);
   checks.identityAllowed = sessions !== undefined;
-  checks.publisherHealth =
+  checks.sessionHealth =
     sessions !== undefined && sessions.sessions.every(session => Number.isFinite(Date.parse(session.lastSeenAt)));
   checks.pwa = root?.ok === true && manifest?.ok === true && worker?.ok === true;
   checks.securityHeaders = root?.headers.get("Content-Security-Policy")?.includes("default-src 'self'") === true;

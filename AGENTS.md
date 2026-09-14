@@ -10,7 +10,7 @@ collaboration pages of currently running interactive Oh My Pi (OMP) processes.
 
 - Reuse OMP's existing `packages/collab-web` client and wire protocol.
 - The PWA lists sessions and launches that client; it does not render or mutate transcripts.
-- Keep the gateway and the narrowly scoped OMP controller/publisher patch independently reviewable.
+- Consume mainline OMP’s discovery/query contract; keep gateway changes independent of OMP internals.
 - Do not add terminal injection, terminal or PTY scraping, QR decoding, clipboard monitoring,
   process-memory inspection, or saved-session-file scraping.
 - Do not claim affiliation with or endorsement by OMP, and do not reuse OMP artwork without
@@ -28,7 +28,7 @@ Read the documents governing the subsystem before changing it:
   `docs/RELEASE_STATUS.md`.
 
 `UPSTREAM.lock.json` is the exact current OMP baseline. Inspect that source rather than relying on
-an older prose snapshot. Update the lock, compatibility data, patch notes, and accepted decisions
+an older prose snapshot. Update the lock, compatibility data, integration notes, and accepted decisions
 together when the baseline or design changes. Keep `bun run check` green.
 
 ## Product names
@@ -52,18 +52,21 @@ together when the baseline or design changes. Keep `bun run check` green.
   missing identity and compares normalized `Tailscale-User-Login` against an exact allowlist.
 - Development auth may allow loopback clients without Tailscale, but must reject non-loopback
   sources.
-- OMP publication uses a Unix-domain socket on POSIX and a current-user named pipe on Windows,
-  plus a random per-install token with at least 256 bits of entropy and user-only permissions.
-- The registry is memory-only. A daemon restart begins empty and live publishers repopulate it.
-- Keep metadata records structurally separate from capability-bearing records.
+- Require stock mainline OMP `>= 18.1.20`; the controller and local registry shipped in
+  PR #11908 (`4999b98bd5`), carried by `v18.1.20`.
+- The gateway only reads OMP’s private discovery directory and queries each host’s published endpoint.
+  Never write, rename, or unlink discovery files or sockets; never derive the endpoint from a filename.
+- Per-host discovery tokens authorize queries to OMP; the gateway’s private readiness token proves
+  managed loopback readiness to its CLI and is never an OMP credential.
+- The registry is metadata-only and memory-only. A daemon restart begins empty; polling repopulates it.
+- Keep metadata records structurally separate from transient launch responses.
 
 ### Capabilities
 
 View and Control links are bearer secrets. They may exist only in:
 
 - the live OMP process;
-- authenticated local IPC request memory;
-- the gateway's in-memory secret store;
+- authenticated per-host query and launch request memory;
 - one no-store launch response; and
 - volatile collaboration-client JavaScript memory.
 
@@ -74,7 +77,9 @@ reliably zeroized; minimize their lifetime and references instead of claiming ze
 
 Session-list and SSE responses contain metadata only. Fetch a capability only after an explicit View
 or Control action. Launch requests include the expected generation; stale cards fail rather than
-receiving a newer capability. Transfer capabilities to the same-origin pinned client in memory.
+receiving a newer capability. Transfer capabilities to the same-origin pinned client in memory. The gateway fetches each
+capability from OMP at launch time and never stores or caches it, even in the registry.
+Gateway log fields are numeric or boolean only; never log strings from host queries or metadata.
 
 ### HTTP and browser
 
@@ -97,8 +102,7 @@ The supported settings contract is:
 ```jsonc
 {
   "collab": {
-    "autoStart": "off",        // "off" | "view" | "control"
-    "registryEndpoint": "auto" // "auto" | "off" | explicit local IPC path
+    "autoStart": "off" // "off" | "view" | "control"
   }
 }
 ```
@@ -106,21 +110,22 @@ The supported settings contract is:
 - `off` preserves normal OMP behavior.
 - Start only after interactive context and session initialization complete.
 - Register only after the collaboration host connects successfully.
-- `view` publishes only View; `control` publishes View and Control.
+- `view` permits View queries; `control` permits View and Control queries.
 - Revoke generation N before publishing N+1 whenever the active host or session changes.
 - Stop, shutdown, and fatal host failure unregister immediately.
-- A missing gateway must not crash or materially delay OMP. Retry with bounded jittered backoff and
-  no repetitive UI noise.
+- OMP publication is independent of gateway availability; OMP does not connect to the gateway.
 - Preserve `/collab`, `/collab view`, `/collab status`, `/collab stop`, `/join`, and
   `/leave` behavior.
 
 ## Reliability and bounds
 
-- Default heartbeat is 10 seconds and TTL is 35 seconds; both remain bounded configuration values.
+- `registry.heartbeatSeconds` is the discovery poll interval (default 10 seconds); TTL defaults to
+  35 seconds and must exceed twice the interval. Both remain bounded configuration values.
 - Expiry uses daemon receipt time from a monotonic clock.
-- Socket close may remove records immediately; TTL is the crash fallback.
-- Publisher reconnect is idempotent and generation-aware.
-- Bound publishers, records, frame and body sizes, SSE queues, titles, paths, and reconnect rates.
+- Only `ENOENT`/`ECONNREFUSED` proves a queried host dead. Timeouts, permission/resource errors,
+  and wire errors retain its card until TTL expiry; absence from discovery removes it.
+- Poll rounds coalesce, and launches revalidate generation, access, and any attention request identity.
+- Bound host entries, records, query and body sizes, SSE queues, titles, and paths.
 - Keep the current OMP relay for the supported path. A self-hosted or proxied relay remains
   unsupported until separately threat-modeled and soak-qualified.
 
@@ -134,7 +139,7 @@ The supported settings contract is:
   `docs/COMPATIBILITY.md`.
 - Update architecture, protocol, operations, compatibility, security, and changelog material when
   their contracts change. Record accepted architecture changes in `docs/DECISIONS.md`.
-- Keep generated assets and unrelated refactors out of the OMP patch.
+- Keep generated assets and unrelated refactors out of integration changes.
 - Use Conventional Commits subjects: `type(scope): lowercase imperative description` or
   `type: lowercase imperative description`.
 

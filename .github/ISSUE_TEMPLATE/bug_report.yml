@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Never paste a real OMP collaboration link, publisher token, transcript, or private Tailscale identity. Use synthetic/redacted values. Report security vulnerabilities privately instead of using this form.
+        Never paste a real OMP collaboration link, readiness token or OMP discovery token, transcript, or private Tailscale identity. Use synthetic/redacted values. Report security vulnerabilities privately instead of using this form.
   - type: input
     id: gateway-version
     attributes:
@@ -56,7 +56,7 @@ body:
     attributes:
       label: Safety checks
       options:
-        - label: I verified this report contains no real collaboration link or publisher token.
+        - label: I verified this report contains no real collaboration link or readiness token or OMP discovery token.
           required: true
         - label: This is not a vulnerability requiring private disclosure.
           required: true

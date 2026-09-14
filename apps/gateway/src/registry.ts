@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  sessionMetadataFromObserved,
   type LaunchMode,
-  type PublishedSessionInput,
-  type SecretCapability,
-  type SecretSessionRecord,
+  type ObservedSessionInput,
   type SessionEvent,
   type SessionListResponse,
   type SessionMetadata,
-  separatePublishedSession,
 } from "@omp-session-gateway/protocol";
 
 export interface RegistryClock {
@@ -26,16 +24,26 @@ export interface RegistryOptions {
 interface InternalMetadataRecord {
   metadata: SessionMetadata;
   immutableIdentity: string;
-  ownerId: string;
   receivedAtMs: number;
 }
 
 export type UpsertResult = "inserted" | "updated" | "ignored_older";
-export type LaunchLookup =
-  | { readonly status: "ok"; readonly capability: SecretCapability }
-  | { readonly status: "missing" }
-  | { readonly status: "generation_mismatch" }
-  | { readonly status: "request_mismatch" };
+
+/**
+ * One poll of OMP's discovery directory. `observed` hosts answered a snapshot; `retained` hosts are
+ * published but were unreadable this round, so their records survive until the TTL expires them.
+ * Anything in neither set is finished and is dropped immediately.
+ */
+export interface ObservedDirectory {
+  readonly observed: readonly ObservedSessionInput[];
+  readonly retained: ReadonlySet<string>;
+}
+
+export interface ReconcileResult {
+  readonly inserted: number;
+  readonly updated: number;
+  readonly removed: number;
+}
 
 const systemClock: RegistryClock = {
   monotonicNowMs: () => performance.now(),
@@ -47,9 +55,15 @@ function cloneMetadata(metadata: SessionMetadata): SessionMetadata {
   return { ...metadata, ...(metadata.ask === undefined ? {} : { ask: { ...metadata.ask } }) };
 }
 
+export type LaunchAuthorization =
+  | { readonly status: "ok"; readonly session: SessionMetadata }
+  | { readonly status: "missing" }
+  | { readonly status: "generation_mismatch" }
+  | { readonly status: "mode_unavailable" }
+  | { readonly status: "request_mismatch" };
+
 export class SessionRegistry {
   readonly #metadata = new Map<string, InternalMetadataRecord>();
-  readonly #secrets = new Map<string, SecretSessionRecord>();
   readonly #listeners = new Set<(event: SessionEvent) => void>();
   readonly #pending: SessionEvent[] = [];
   readonly #ttlMs: number;
@@ -140,90 +154,100 @@ export class SessionRegistry {
     return unsubscribe;
   }
 
-  upsert(ownerId: string, input: PublishedSessionInput): UpsertResult {
+  /**
+   * Folds one directory poll into the live model. A session that OMP stopped publishing is removed
+   * on the very next poll — the host's own artifacts are the liveness signal — while a session that
+   * merely failed to answer keeps its card until the TTL runs out, so a momentarily busy machine
+   * does not clear the operator's directory.
+   */
+  reconcile(directory: ObservedDirectory): ReconcileResult {
+    let inserted = 0;
+    let updated = 0;
+    for (const input of directory.observed) {
+      const result = this.#observe(input);
+      if (result === "inserted") inserted += 1;
+      else if (result === "updated") updated += 1;
+    }
+    const live = new Set(directory.observed.map(input => input.instanceId));
+    let removed = 0;
+    for (const [instanceId, record] of [...this.#metadata.entries()]) {
+      if (live.has(instanceId) || directory.retained.has(instanceId)) continue;
+      this.#removeRecord(instanceId, record.metadata.generation);
+      removed += 1;
+    }
+    return { inserted, updated, removed };
+  }
+
+  #observe(input: ObservedSessionInput): UpsertResult {
     const existing = this.#metadata.get(input.instanceId);
-    if (existing !== undefined && existing.ownerId !== ownerId) throw new Error("instance owned by another publisher");
     if (existing !== undefined && input.generation < existing.metadata.generation) return "ignored_older";
-    if (existing === undefined && this.#metadata.size >= this.#maxSessions) throw new Error("registry capacity exceeded");
+    if (existing === undefined && this.#metadata.size >= this.#maxSessions) return "ignored_older";
     const receivedAtMs = this.#clock.monotonicNowMs();
     const receivedAt = this.#clock.wallNowIso();
-    const separated = separatePublishedSession(input, receivedAt);
-    if (
+    const projected = sessionMetadataFromObserved(input, receivedAt);
+    // A same-generation identity change means the host replaced the room without advancing its
+    // generation. Trust the host's current answer and treat it as a fresh record.
+    const continues =
       existing !== undefined &&
-      input.generation === existing.metadata.generation &&
-      separated.immutableIdentity !== existing.immutableIdentity
-    ) {
-      throw new Error("generation identity conflict");
-    }
-    let metadata = separated.metadata;
+      existing.metadata.generation === input.generation &&
+      existing.immutableIdentity === projected.immutableIdentity;
+    let metadata = projected.metadata;
     if (metadata.inputRequired) {
-      const preservedAsk =
-        existing !== undefined &&
-        existing.metadata.generation === metadata.generation &&
-        existing.metadata.inputRequired
-          ? existing.metadata.ask
-          : undefined;
+      // One attention request keeps one identity for as long as the host keeps asking, so a
+      // notification the operator already dismissed is not re-raised by the next poll.
+      const preservedAsk = continues && existing.metadata.inputRequired ? existing.metadata.ask : undefined;
       const requestId = preservedAsk?.requestId ?? this.#requestIdFactory();
       if (!REQUEST_ID_PATTERN.test(requestId)) throw new Error("invalid attention request ID");
-      metadata = {
-        ...metadata,
-        ask: preservedAsk ?? { requestId, since: receivedAt },
-      };
+      metadata = { ...metadata, ask: preservedAsk ?? { requestId, since: receivedAt } };
     }
-
-    // Revoke the old secret before making replacement metadata observable.
-    this.#secrets.delete(input.instanceId);
+    if (continues && this.#unchanged(existing.metadata, metadata)) {
+      // Nothing observable moved: refresh liveness without spending a revision on every poll.
+      existing.receivedAtMs = receivedAtMs;
+      existing.metadata = metadata;
+      return "updated";
+    }
     this.#metadata.set(input.instanceId, {
       metadata,
-      immutableIdentity: separated.immutableIdentity,
-      ownerId,
+      immutableIdentity: projected.immutableIdentity,
       receivedAtMs,
     });
-    this.#secrets.set(input.instanceId, separated.secret);
     this.#revision += 1;
     this.#emit({ type: "session_upsert", revision: this.#revision, session: cloneMetadata(metadata) });
     return existing === undefined ? "inserted" : "updated";
   }
 
-  heartbeat(ownerId: string, instanceId: string, generation: number): boolean {
-    const existing = this.#metadata.get(instanceId);
-    if (existing === undefined || existing.ownerId !== ownerId || existing.metadata.generation !== generation) return false;
-    existing.receivedAtMs = this.#clock.monotonicNowMs();
-    existing.metadata = { ...existing.metadata, lastSeenAt: this.#clock.wallNowIso() };
-    return true;
+  /** Compares everything a browser renders, ignoring the liveness stamp that moves every poll. */
+  #unchanged(left: SessionMetadata, right: SessionMetadata): boolean {
+    return (
+      left.generation === right.generation &&
+      left.title === right.title &&
+      left.cwdLabel === right.cwdLabel &&
+      left.model === right.model &&
+      left.startedAt === right.startedAt &&
+      left.canView === right.canView &&
+      left.canControl === right.canControl &&
+      left.inputRequired === right.inputRequired &&
+      left.ask?.requestId === right.ask?.requestId
+    );
   }
 
-  remove(ownerId: string, instanceId: string, generation: number): boolean {
-    const existing = this.#metadata.get(instanceId);
-    if (existing === undefined || existing.ownerId !== ownerId || existing.metadata.generation !== generation) return false;
-    this.#removeRecord(instanceId, existing.metadata.generation);
-    return true;
-  }
-
-  removeOwner(ownerId: string): number {
-    const owned = [...this.#metadata.entries()].filter(([, record]) => record.ownerId === ownerId);
-    for (const [instanceId, record] of owned) this.#removeRecord(instanceId, record.metadata.generation);
-    return owned.length;
-  }
-
-  lookupCapability(instanceId: string, generation: number, mode: LaunchMode, requestId?: string): LaunchLookup {
+  /**
+   * Confirms the directory still shows this exact session before the gateway asks its host for a
+   * capability. Metadata is the whole basis for the check: the capability itself lives in OMP.
+   */
+  authorizeLaunch(instanceId: string, generation: number, mode: LaunchMode, requestId?: string): LaunchAuthorization {
     this.sweepExpired();
-    const metadata = this.#metadata.get(instanceId);
-    const secret = this.#secrets.get(instanceId);
-    if (metadata === undefined || secret === undefined) return { status: "missing" };
-    if (metadata.metadata.generation !== generation || secret.generation !== generation) {
-      return { status: "generation_mismatch" };
-    }
+    const record = this.#metadata.get(instanceId);
+    if (record === undefined) return { status: "missing" };
+    if (record.metadata.generation !== generation) return { status: "generation_mismatch" };
+    if (mode === "control" && !record.metadata.canControl) return { status: "mode_unavailable" };
     if (
       requestId !== undefined &&
-      (mode !== "control" ||
-        !metadata.metadata.inputRequired ||
-        metadata.metadata.ask?.requestId !== requestId)
+      (mode !== "control" || !record.metadata.inputRequired || record.metadata.ask?.requestId !== requestId)
     ) {
       return { status: "request_mismatch" };
     }
-    const capability = mode === "view" ? secret.view : secret.control;
-    return capability === undefined ? { status: "missing" } : { status: "ok", capability };
+    return { status: "ok", session: cloneMetadata(record.metadata) };
   }
 
   sweepExpired(): number {
@@ -240,7 +264,6 @@ export class SessionRegistry {
   }
 
   #removeRecord(instanceId: string, generation: number): void {
-    this.#secrets.delete(instanceId);
     this.#metadata.delete(instanceId);
     this.#revision += 1;
     this.#emit({ type: "session_remove", revision: this.#revision, instanceId, generation });

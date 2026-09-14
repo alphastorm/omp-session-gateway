@@ -2,9 +2,9 @@
 #
 # `scripts/provision-linux-qual.sh` already creates one droplet under a fixed name, joins it to the
 # tailnet as a tagged node, runs the qualification lanes, and deletes the droplet again. That makes it
-# the cheapest cross-platform automation this repository has: the gateway lifecycle is roughly
-# twenty-five minutes, and the exact patched-OMP source/build/publication lane remains bounded inside
-# one billed droplet hour. It has already produced two real findings, one of which became #69.
+# a bounded cross-platform automation lane. Fork-era runs took roughly twenty-five minutes for the
+# gateway lifecycle and produced two findings, one of which became #69. The mainline OMP source/build
+# lane retains the one-hour bound; those historical runs do not qualify the retargeted integration.
 # The workflow runs the script unattended, so Linux evidence stops depending on a manual invocation.
 #
 # Nothing here promotes a ledger row. The lanes print measurements; `docs/RELEASE_STATUS.md` is
@@ -53,7 +53,7 @@ on:
         required: false
         default: ""
       droplet_size:
-        description: DigitalOcean size slug; full patched-OMP qualification needs two vCPUs and 8 GiB RAM
+        description: DigitalOcean size slug; mainline OMP qualification reserves two vCPUs and 8 GiB RAM
         required: false
         default: s-2vcpu-8gb-amd
   schedule:

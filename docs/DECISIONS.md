@@ -1,5 +1,10 @@
 # Architecture decision records
 
+ADR-001 through ADR-027 are **fork-era historical records**. Their references to patches,
+publication credentials, endpoint settings, source pins, and qualification results describe the
+then-current architecture, not the shipping prerequisite. ADR-028 records the mainline cutover;
+entries superseded by it keep their original rationale and evidence below.
+
 ## ADR-001 — Use a PWA, not a native Android protocol client
 
 **Status:** Accepted
@@ -14,7 +19,7 @@
 
 ## ADR-002 — Aggregate through a local daemon
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (publication transport); fork-era record
 
 **Context:** Multiple independent OMP processes need one discoverable list. Capabilities must not be persisted to disk.
 
@@ -26,7 +31,7 @@
 
 ## ADR-003 — Require a small OMP core patch
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (core-patch prerequisite); fork-era record
 
 **Context:** Process scanning cannot create/recover a live collaboration host, and the documented extension API does not currently expose built-in collab startup.
 
@@ -62,7 +67,7 @@
 
 ## ADR-006 — Capabilities are memory-only and fetched just in time
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (daemon capability storage); fork-era record
 
 **Context:** Full links grant control; even view links expose sensitive transcripts.
 
@@ -123,7 +128,7 @@
 
 ## ADR-011 — Pin OMP main and patch collab-web source in memory
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (host core-patch prerequisite; pinned client integration remains); fork-era record
 
 **Context:** Upstream `main` at `89d6a8f6d14286f32f09ec9c8aa8af7b3451d2d6` still has the slash command directly own `CollabHost`, exposes no supported `ctx.collab` extension API, and has `collab-web` write every connected capability to `location.hash`. Its relevant host, UI, wire v3, and collab-web blocks are byte-identical to the prior pin; unrelated interactive-mode plan/token-rate changes must be preserved.
 
@@ -135,7 +140,7 @@
 
 ## ADR-012 — Prove managed readiness and activate immutable runtimes
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (shared publication/readiness token only; immutable runtime activation remains); fork-era record
 
 **Context:** A generic loopback health body does not prove that the configured port belongs to the
 newly managed gateway; another local account can pre-bind it. In-place runtime replacement also
@@ -161,7 +166,7 @@ explicit future garbage-collection policy is qualified.
 
 ## ADR-013 — Mutually authenticate local registry peers without transmitting the key
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (publisher-token mutual-authentication protocol); fork-era record
 
 **Context:** A first-frame publisher key authenticates the client to the gateway but not the gateway
 to the publisher. On Windows, a same-session process may pre-create the expected named-pipe name
@@ -187,7 +192,7 @@ that can read the private token remains outside the v1 threat boundary.
 
 ## ADR-014 — Recover publication by reconnecting without replacing ambient tool configuration
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (publisher reconnect and token-path override); fork-era record
 
 **Context:** A host suspension can outlive the registry TTL while leaving the local IPC socket open.
 The registry then forgets the record, but a heartbeat alone cannot reconstruct capability-bearing
@@ -343,7 +348,7 @@ mechanics are superseded by this decision; its SSE heartbeat contract remains.
 
 ## ADR-021 — Treat the registry rendezvous path as failure-prone and make readiness prove it
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (gateway publisher-socket watchdog); fork-era record
 
 **Context:** A production daemon ran continuously for a week yet published no sessions. It had not
 crashed: macOS reaps entries under the per-user `TMPDIR` after roughly three idle days, and it had
@@ -445,7 +450,7 @@ immutable at v17.3.8 and no loose OMP compatibility range is inferred.
 
 ## ADR-024 — Use the exact OMP patch as the beta prerequisite and defer paired packaging
 
-**Status:** Accepted
+**Status:** Superseded by ADR-028 (patched-activation-route prerequisite); fork-era record
 
 **Context:** Stock OMP v17.4.1 still does not provide the automatic collaboration controller and
 authenticated registry publication required by the product. Removing the patch would restore
@@ -596,3 +601,46 @@ flow with one added tap of indirection through Settings. The shell cache grows b
 bundle, keeping launches independent of tailnet round-trips for static bytes; the update flow is
 unchanged because the cache name derives from the full asset list. The alerts promise is now
 truthful per device state, and media, e2e, and unit fixtures encode the new presentation.
+
+---
+
+## ADR-028 — Consume mainline OMP discovery and resolve capabilities only at launch
+
+**Status:** Accepted
+
+**Date:** 2026-09-14
+
+**Context:** [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Mainline OMP now owns the
+collaboration controller and local registry. Maintaining a second OMP transport, activation route,
+and shared credential is no longer necessary. Published gateway artifacts still carry their
+original fork-era compatibility and qualification evidence.
+
+**Decision:** Require stock OMP `>= 18.1.20` and only `collab.autoStart`. Remove the downstream
+OMP patch set and gateway publisher listener. Read OMP’s private discovery directory, query
+metadata snapshots on a bounded poll interval, and resolve the exact generation and access with
+a per-host `link` request only after an explicit authorized launch. Never write, rename, or
+unlink OMP’s discovery files or sockets. Only `ENOENT`/`ECONNREFUSED` proves a queried host dead;
+transient errors retain metadata until TTL expiry. Never store or cache capabilities in the gateway.
+
+Rename the local managed-readiness credential to `readiness-token` and the rotation command to
+`rotate-readiness-token`; it is not an OMP credential. Installation removes the legacy fork-era
+`publisher-token`. Add `omp.discoveryDir` and `omp.queryTimeoutMs`; retain
+`registry.heartbeatSeconds` as the poll interval. Keep browser HTTP/SSE shapes, with the added
+`409 mode_unavailable` refusal when OMP no longer shares the requested role.
+
+This supersedes **ADR-024** (patched activation route), **ADR-013** (publisher-token mutual
+authentication), and the shared-token portion of **ADR-012**. It also supersedes the transport or
+host-patch portions of **ADR-002**, **ADR-003**, **ADR-011**, **ADR-014**, and **ADR-021**, and
+narrows **ADR-006** from a memory-only secret store to no gateway capability storage at all.
+Unchanged client, browser, identity, and immutable-runtime decisions remain in force. Historical
+OMP pins and support decisions in ADR-022, ADR-023, and ADR-025 continue to describe only their
+named fork-era releases.
+
+**Consequences:** Operators install mainline OMP and start plain `omp`; no separate binary or
+publication credential is provisioned. Gateway restart repopulates metadata by polling without an
+OMP reconnect. Discovery visibility is bounded by polling rather than push timing. The exact
+engineering pin is `v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`; the minimum
+host version is not a claim that every future version is qualified. Fork-era OMP processes must
+restart under mainline at cutover. Older gateway configuration/credentials must be handled through
+the matching historical release during rollback, not a transport shim. **Mainline qualification is
+pending**; no old test count, signed receipt, native result, or relay endurance result is transferred.

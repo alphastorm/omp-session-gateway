@@ -2,20 +2,24 @@
 
 ## 1. Unit tests
 
-### Registry
+### OMP discovery, queries, and registry
 
-- valid hello/upsert/heartbeat/remove;
-- invalid token and constant-time comparison wrapper;
-- unknown protocol version/op;
-- oversized/invalid UTF-8 frame;
-- instance ID mismatch;
-- older generation ignored;
-- old-generation remove cannot delete new generation;
-- monotonic TTL behavior independent of publisher wall clock;
-- socket close and TTL cleanup;
-- duplicate/reconnect upsert idempotence;
-- bounded record/connection counts.
-- same-generation false-to-true-to-false response-required mutations and stale-generation rejection;
+- exact discovery-file and snapshot/reply validation; unknown versions and malformed or oversized data;
+- private ownership/permission checks, symlink rejection, and reading the published endpoint rather
+  than deriving it, including OMP’s relocated long-path socket;
+- newline framing, one request per connection, and bounded query time/bytes;
+- metadata-only snapshots and per-launch links: no prefetch or registry capability retention;
+- only `ENOENT`/`ECONNREFUSED` retires a queried host immediately; timeouts, permission/resource
+  errors, malformed replies, and all wire errors retain metadata until TTL expiry;
+- directory absence, transient unreadability, recovery, and host removal without filesystem writes;
+- coalesced concurrent polls and reconciliation of observed/retained hosts;
+- monotonic freshness independent of the OMP wall clock;
+- generation, role, and request-identity revalidation across an asynchronous link query;
+- bounded discovery entries and registry records;
+- same-generation false-to-true-to-false attention transitions and stale-generation rejection.
+
+The dedicated behavioral suite is `apps/gateway/test/omp-registry.test.ts`. Repository proof does
+not qualify an actual OMP binary, native host, relay, or physical client.
 
 ### HTTP/auth
 
@@ -30,7 +34,7 @@
 - list/SSE contain only bounded labels, boolean attention, opaque request ID, and daemon receipt time—never a capability, transcript, answer, or tool output;
 - launch generation mismatch returns 409;
 - expired/missing returns non-enumerating 404;
-- view/control availability enforcement;
+- requested access no longer shared returns `409 mode_unavailable`;
 - all API responses no-store;
 - CSP and security headers.
 - strict push v2 config/subscription/unsubscribe schemas, exact-origin mutation enforcement, private persistence, detail-level migration, subscription bounds, and stale-endpoint removal;
@@ -70,13 +74,21 @@
 - read-only, disconnected, and preparing states cannot open or submit the photo path;
 - a moving status row cannot cancel a pointer-captured Send, Stop, remove, or camera action.
 
-### OMP patch
+### Mainline OMP
 
-- see `docs/OMP_INTEGRATION.md` section 8.
+- require stock OMP `>= 18.1.20`, `collab.autoStart` only, and plain `omp` startup;
+- exercise the integration and pending qualification contract in `docs/OMP_INTEGRATION.md`;
+- keep upstream controller tests upstream; do not recreate a downstream OMP patch suite.
+- Linux ARM64 source-checkout CI stages the pinned platform native and runs only
+  upstream `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`; gateway
+  gates cover the discovery/query contract, not upstream's unrelated suites or full repo checks.
+- Windows CI covers gateway contracts, ACLs, and service lifecycle only; upstream Windows registry
+  tests and real named-pipe discovery remain outside this gate and unqualified.
 
 ## 2. Secret-leak test harness
 
-Use distinctive fixture strings for publisher token, view capability, and control capability. After each test, scan:
+Generate distinct per-host query tokens, readiness tokens, and capability canaries in test memory.
+Never record View/Control links in fixture files or artifacts. After each test, scan:
 
 - daemon stdout/stderr and structured logs;
 - temporary/config/data directories;
@@ -86,7 +98,11 @@ Use distinctive fixture strings for publisher token, view capability, and contro
 - generated diagnostics bundle;
 - unhandled exception and snapshot output.
 
-Fail on any exact fixture or meaningful substring outside its designated source/sink. The publisher authentication key is permitted only in the private token fixture and live HMAC key buffers; it must never appear in captured IPC frames. View/control capabilities are permitted only in authenticated publisher/API response memory and the collab client's in-memory parsed value.
+Fail on any canary or meaningful substring outside its designated source/sink. Per-host query
+tokens belong only in private discovery fixtures and live query memory; readiness tokens belong
+only in private readiness fixtures and proof memory. Neither enters logs or diagnostics.
+View/Control capabilities are permitted only in live OMP/query/launch-response memory and the
+collab client’s in-memory parsed value, never a gateway registry or file.
 
 Add distinct prompt, option, prefill, answer, request, title, project, and capability canaries. Prompt,
 option, prefill, answer, transcript, and capability canaries must remain absent from IPC logs/errors,
@@ -104,13 +120,13 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 
 ## 3. Integration tests
 
-- synthetic publisher -> registry -> PWA card -> launch fixture;
-- two publishers with same PID but different instance IDs;
-- three simultaneous publishers and rapid updates;
-- daemon restart followed by reconnect/repopulation;
-- publisher starts before daemon;
-- token rotation and reconnect;
-- mutual publisher/gateway proof-vector agreement, stale-proof replay rejection, and fake named-pipe server capability withholding;
+- OMP-shaped discovery/query fixture -> poller -> registry -> PWA card -> per-launch link;
+- two hosts with the same PID but different instance IDs;
+- three simultaneous hosts and changing metadata;
+- gateway restart followed by polling/repopulation, without host reconnect;
+- OMP starts before the gateway;
+- readiness-token rotation has no OMP publication credential to re-provision;
+- transient endpoint failure and recovery retain the same card until TTL;
 - session generation replacement while phone card is open;
 - launch race with process exit;
 - SSE reconnect and full snapshot;
@@ -132,9 +148,11 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 ### A. Automatic discovery
 
 1. Start gateway and open PWA on Android.
-2. Start three OMP processes in different repositories.
+2. With stock OMP `>= 18.1.20` and `collab.autoStart: control`, start three plain `omp` processes
+   in different repositories.
 3. Do not type `/collab`.
-4. All three cards appear within 5 seconds of each host becoming ready.
+4. All three cards appear within the configured discovery poll interval plus bounded query and
+   browser delivery time; record the measured latency rather than claiming push-era timing.
 
 ### B. View and control
 
@@ -194,7 +212,7 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 1. Launch and close both view and control sessions.
 2. Restart browser and daemon.
 3. No previous capability is recoverable from disk/browser history/storage/cache/logs.
-4. Live OMP processes republish fresh in-memory records.
+4. The gateway rediscovers already-published live OMP hosts and rebuilds metadata-only records.
 5. Device-local Hold/Dismiss state contains only the bounded identifier, generation, and timestamp
    fields; no title, path, model, prompt, transcript, or capability survives there.
 6. A prepared-but-unsent photo disappears after remove, Back, reload, or client disposal and is
@@ -217,8 +235,9 @@ For any self-hosted/proxied relay mode:
 
 Initial targets, to revise with measurements:
 
-- 50 local OMP publishers without material CPU usage;
-- metadata update visible on phone p95 < 2 seconds on a healthy tailnet;
+- 50 local OMP hosts without material CPU usage;
+- metadata delivery measured from a successful poll to the phone separately from the configured
+  discovery interval; do not claim the fork-era push latency for polling;
 - launch API p95 < 250 ms excluding relay connection;
 - daemon idle memory < 100 MiB including embedded static assets;
 - no unbounded event/listener/history growth during 8-hour soak.
@@ -237,4 +256,6 @@ Initial targets, to revise with measurements:
   config/token preservation, unrelated Serve preservation, View/Control, forbidden-sink,
   same-page recovery, installed-WebAPK (including resumption on `/client/` with a session-specific
   title), revocation, and owned-fixture cleanup evidence;
-- documentation tells users how to revoke a lost phone and rotate the local token.
+- documentation tells users how to revoke a lost phone and rotate the gateway-only readiness token;
+- mainline qualification is pending until the exact candidate repeats the host/client/relay matrix;
+  no fork-era qualification result transfers.

@@ -3,9 +3,15 @@ export const MAX_FRAME_BYTES = 64 * 1024;
 export const MAX_CAPABILITY_BYTES = 8 * 1024;
 export const MAX_LABEL_CODEPOINTS = 256;
 export const MAX_SESSIONS = 1_000;
-export const MAX_INSTANCE_ID_BYTES = 128;
-export const IPC_AUTH_NONCE_BYTES = 32;
-export const IPC_AUTH_VALUE_LENGTH = 43;
+/**
+ * OMP mints every instance identity now, so its own `COLLAB_INSTANCE_ID_PATTERN` is the contract:
+ * 8-64 characters of `[a-z0-9-]`. A host is free to use the 8-character minimum, and a gateway that
+ * required more would admit that host from discovery and then fail the whole directory response in
+ * the browser, so every layer validates against this one value.
+ */
+export const INSTANCE_ID_PATTERN = /^[a-z0-9-]{8,64}$/u;
+export const MAX_OMP_REGISTRY_REQUEST_BYTES = 4 * 1024;
+export const MAX_OMP_REGISTRY_RESPONSE_BYTES = 64 * 1024;
 export const PUSH_API_VERSION = 2 as const;
 export const MAX_PUSH_ENDPOINT_BYTES = 4 * 1024;
 export const MAX_PUSH_SUBSCRIPTION_BYTES = 8 * 1024;
@@ -14,43 +20,64 @@ export const MAX_PUSH_PENDING_COUNT = 1_000;
 
 
 export type LaunchMode = "view" | "control";
-export type RemoveReason =
-  | "stopped"
-  | "shutdown"
-  | "session_changed"
-  | "faulted"
-  | "connection_closed"
-  | "expired";
+/**
+ * Wire version of OMP's own local collaboration host registry. Mainline OMP publishes one
+ * discovery file and one owner-only socket per live host; the gateway reads them. Upstream calls
+ * this `COLLAB_REGISTRY_VERSION` and rejects any other value with `unsupported_protocol`.
+ */
+export const OMP_REGISTRY_VERSION = 1 as const;
 
-export interface HelloFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "hello";
-  readonly clientNonce: string;
+/** Parsed `<entryId>.json` from OMP's discovery directory. Never carries a capability. */
+export interface OmpDiscoveryEntry {
+  /** Basename without `.json`. Fresh per publication, so a rotated room never reuses it. */
+  readonly entryId: string;
+  readonly version: number;
   readonly instanceId: string;
   readonly pid: number;
+  /** Absolute socket or named-pipe path. OMP relocates long paths, so never derive it. */
+  readonly endpoint: string;
+  readonly createdAt: number;
+  /** Bearer for querying this host only. Authorizes a question, never an answer. */
+  readonly token: string;
 }
 
-export interface ChallengeFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "challenge";
-  readonly serverNonce: string;
-  readonly proof: string;
+export interface OmpHostModel {
+  readonly provider: string;
+  readonly id: string;
 }
 
-export interface AuthenticateFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "authenticate";
-  readonly proof: string;
+/** One `snapshot` answer from a live OMP host. Metadata only, by upstream's contract. */
+export interface OmpHostSnapshot {
+  readonly instanceId: string;
+  readonly generation: number;
+  readonly pid: number;
+  readonly sessionId: string;
+  readonly sessionName?: string;
+  readonly cwd?: string;
+  readonly model?: OmpHostModel;
+  readonly startedAt: number;
+  readonly participants: number;
+  readonly relayConnected: boolean;
+  readonly inputRequired: boolean;
+  readonly access: LaunchMode;
 }
 
-export interface HelloOkFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "hello_ok";
-  readonly heartbeatSeconds: number;
-  readonly ttlSeconds: number;
-}
+/** Every wire error string upstream's registry server can return. */
+export type OmpRegistryErrorCode =
+  | "malformed_request"
+  | "unsupported_protocol"
+  | "authentication_failed"
+  | "snapshot_unavailable"
+  | "invalid_operation"
+  | "invalid_access"
+  | "stale_generation"
+  | "access_unavailable";
 
-export interface PublishedSessionInput {
+/**
+ * A host the gateway observed this poll, reduced to what the directory needs. Capability-free by
+ * construction: the gateway asks a host for a link only when an operator presses View or Control.
+ */
+export interface ObservedSessionInput {
   readonly instanceId: string;
   readonly generation: number;
   readonly pid: number;
@@ -59,34 +86,9 @@ export interface PublishedSessionInput {
   readonly cwdLabel?: string;
   readonly model?: string;
   readonly startedAt: string;
-  readonly inputRequired?: boolean;
-  readonly viewLink: string;
-  readonly controlLink?: string;
+  readonly canControl: boolean;
+  readonly inputRequired: boolean;
 }
-
-export interface UpsertFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "upsert";
-  readonly session: PublishedSessionInput;
-}
-
-export interface HeartbeatFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "heartbeat";
-  readonly instanceId: string;
-  readonly generation: number;
-  readonly observedAt?: string;
-}
-
-export interface RemoveFrame {
-  readonly v: typeof PROTOCOL_VERSION;
-  readonly op: "remove";
-  readonly instanceId: string;
-  readonly generation: number;
-  readonly reason: RemoveReason;
-}
-
-export type AuthenticatedPublisherFrame = UpsertFrame | HeartbeatFrame | RemoveFrame;
 
 export interface SessionAskMetadata {
   readonly requestId: string;

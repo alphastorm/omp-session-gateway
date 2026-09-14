@@ -8,7 +8,7 @@
 
 ## Security and privacy impact
 
-- [ ] No capability, publisher token, transcript, or private identity is included in this PR or its artifacts.
+- [ ] No capability, readiness token or OMP discovery token, transcript, or private identity is included in this PR or its artifacts.
 - [ ] Authentication/authorization impact is described.
 - [ ] Browser storage/cache/history impact is described.
 - [ ] Logging/diagnostics impact is described.

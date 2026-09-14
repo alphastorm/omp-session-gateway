@@ -195,7 +195,7 @@ export async function startDashboardFixture(
         response.writeHead(404).end("Not found");
         return;
       }
-      const requestBootstrap = /^\/collab\/[A-Za-z0-9._:-]{16,128}$/u.test(pathname) &&
+      const requestBootstrap = /^\/collab\/[a-z0-9-]{8,64}$/u.test(pathname) &&
         url.searchParams.has("request");
       const relative = pathname === "/" || pathname === "/client/" || pathname === "/update/" || requestBootstrap
         ? "index.html"

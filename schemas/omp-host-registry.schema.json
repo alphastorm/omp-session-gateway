@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/omp-session-gateway/omp-host-registry.schema.json",
+  "title": "Mainline OMP host discovery and query replies",
+  "description": "Discovery files and snapshot/link replies read by the gateway. Read endpoints from discovery, never derive them. Tokens and link replies must never enter diagnostics.",
+  "oneOf": [
+    { "$ref": "#/$defs/discovery" },
+    { "$ref": "#/$defs/snapshotReply" },
+    { "$ref": "#/$defs/linkReply" },
+    { "$ref": "#/$defs/errorReply" }
+  ],
+  "$defs": {
+    "instanceId": { "type": "string", "pattern": "^[a-z0-9-]{8,64}$" },
+    "nonnegativeInteger": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "positiveInteger": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "pid": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "instanceId", "pid", "endpoint", "createdAt", "token"],
+      "properties": {
+        "version": { "$ref": "#/$defs/positiveInteger" },
+        "instanceId": { "$ref": "#/$defs/instanceId" },
+        "pid": { "$ref": "#/$defs/pid" },
+        "endpoint": { "type": "string", "minLength": 1, "pattern": "^[^\u0000]+$" },
+        "createdAt": { "$ref": "#/$defs/nonnegativeInteger" },
+        "token": { "type": "string", "pattern": "^[0-9a-f]{64}$", "writeOnly": true }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instanceId", "generation", "pid", "sessionId", "startedAt", "participants", "relayConnected", "inputRequired", "access"],
+      "properties": {
+        "instanceId": { "$ref": "#/$defs/instanceId" },
+        "generation": { "$ref": "#/$defs/positiveInteger" },
+        "pid": { "$ref": "#/$defs/pid" },
+        "sessionId": { "type": "string", "pattern": "^[^\u0000\r\n]{1,256}$" },
+        "sessionName": { "type": ["string", "null"], "description": "Optional label, normalized and bounded by the gateway parser." },
+        "cwd": { "type": ["string", "null"], "description": "Optional label, normalized before reducing to a directory basename." },
+        "model": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["provider", "id"],
+              "properties": {
+                "provider": { "type": "string" },
+                "id": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "startedAt": { "$ref": "#/$defs/nonnegativeInteger" },
+        "participants": { "$ref": "#/$defs/nonnegativeInteger" },
+        "relayConnected": { "type": "boolean" },
+        "inputRequired": { "type": "boolean" },
+        "access": { "enum": ["view", "control"] }
+      }
+    },
+    "snapshotReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "v", "snapshot"],
+      "properties": {
+        "ok": { "const": true },
+        "v": { "const": 1 },
+        "snapshot": { "$ref": "#/$defs/snapshot" }
+      }
+    },
+    "linkReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "v", "url"],
+      "properties": {
+        "ok": { "const": true },
+        "v": { "const": 1 },
+        "url": { "type": "string", "minLength": 1, "writeOnly": true, "description": "A bearer collaboration link validated and wrapped as a SecretCapability. Never persist or log this value." }
+      }
+    },
+    "errorReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "v", "error"],
+      "properties": {
+        "ok": { "const": false },
+        "v": { "const": 1 },
+        "error": { "enum": ["malformed_request", "unsupported_protocol", "authentication_failed", "snapshot_unavailable", "invalid_operation", "invalid_access", "stale_generation", "access_unavailable"] }
+      }
+    }
+  }
+}

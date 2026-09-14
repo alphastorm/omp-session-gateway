@@ -48,7 +48,7 @@ async function runHarness(
 }
 
 const cleanupVersion = "17.4.1";
-const cleanupPatchedTree = "12345678deadbeef";
+const cleanupSourceTree = "12345678deadbeef";
 
 function cleanupPaths(home: string) {
   const source = join(home, "src", `oh-my-pi-gateway-v${cleanupVersion}`);
@@ -58,13 +58,13 @@ function cleanupPaths(home: string) {
     "lib",
     "omp-session-gateway",
     "omp",
-    `v${cleanupVersion}-${cleanupPatchedTree.slice(0, 8)}`,
+    `v${cleanupVersion}-${cleanupSourceTree.slice(0, 8)}`,
   );
   return {
     source,
     sourceMarker: join(source, "owned-source"),
     binary: join(versionDirectory, "omp"),
-    symlink: join(home, ".local", "bin", "omp-gateway-patched"),
+    symlink: join(home, ".local", "bin", "omp"),
   };
 }
 
@@ -97,7 +97,7 @@ async function runOmpCleanup(
       OMP_QUAL_GATEWAY_ROOT: join(home, "gateway"),
       OMP_QUAL_SESSION_LABEL: sessionLabel,
       OMP_PIN_SOURCE_COMMIT: "source",
-      OMP_PIN_PATCHED_TREE: cleanupPatchedTree,
+      OMP_PIN_SOURCE_TREE: cleanupSourceTree,
       OMP_PIN_VERSION: cleanupVersion,
       OMP_PIN_BUN_VERSION: "1.3.14",
       OMP_PIN_NATIVE_TARBALL_SHA256: "tarball",
@@ -163,14 +163,14 @@ issue_reboot
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
-test.skipIf(!POSIX)("bundle scan keeps publisher token bytes out of subprocess argv", async () => {
+test.skipIf(!POSIX)("bundle scan keeps readiness token bytes out of subprocess argv", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-bundle-argv-"));
   const fakeBin = join(temporaryRoot, "bin");
   const fakePython = join(fakeBin, "python3");
-  const tokenPath = join(temporaryRoot, "publisher-token");
+  const tokenPath = join(temporaryRoot, "readiness-token");
   const bundlePath = join(temporaryRoot, "doctor.tar");
   const argvPath = join(temporaryRoot, "python-argv");
-  const token = "publisher-token-'quote-argv-canary";
+  const token = "readiness-token-'quote-argv-canary";
   const resolution = Bun.spawnSync(["python3", "-c", "import sys; print(sys.executable)"], { stdout: "pipe" });
   if (resolution.exitCode !== 0) throw new Error("python3 is required for this regression");
   const realPython = Buffer.from(resolution.stdout).toString("utf8").trim();
@@ -261,53 +261,21 @@ lane_omp_clean
     expect(forwarded.exitCode).toBe(0);
     const framed = (await readFile(stdinPath)).toString("utf8").split("\0");
     expect(framed[11]).toBe(sessionLabel);
-    expect(framed[12]).toContain('OMP_QUAL_SESSION_LABEL="$SESSION_LABEL"');
-    expect(framed[12]).toContain('qualify-macos-omp.sh" clean');
 
     const cleanup = await runOmpCleanup(temporaryRoot, sessionLabel);
     expect({ exitCode: cleanup.exitCode, stderr: cleanup.stderr }).toEqual({
       exitCode: 0,
       stderr: "",
     });
-    expect(cleanup.stdout).toContain('"patchedOmpProcessCount":0');
+    expect(cleanup.stdout).toContain('"liveOmpHosts":0');
     expect(await Bun.file(join(customSession, "session-state")).exists()).toBe(false);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
 
-test.skipIf(!POSIX)("Mac OMP cleanup removes its exact owned symlink", async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-owned-link-cleanup-"));
-  const paths = cleanupPaths(temporaryRoot);
-  try {
-    await Promise.all([
-      mkdir(paths.source, { recursive: true }),
-      mkdir(dirname(paths.binary), { recursive: true }),
-      mkdir(dirname(paths.symlink), { recursive: true }),
-    ]);
-    await Promise.all([
-      writeFile(paths.sourceMarker, "owned source"),
-      writeFile(paths.binary, "owned binary"),
-    ]);
-    await symlink(paths.binary, paths.symlink);
-
-    const cleanup = await runOmpCleanup(temporaryRoot);
-
-    expect(cleanup).toEqual({
-      exitCode: 0,
-      stdout: '{"patchedOmpProcessCount":0,"symlinkPresent":false,"sourcePresent":false}\n',
-      stderr: "",
-    });
-    expect(await pathEntryExists(paths.symlink)).toBe(false);
-    expect(await Bun.file(paths.binary).exists()).toBe(false);
-    expect(await Bun.file(paths.sourceMarker).exists()).toBe(false);
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(!POSIX)("Mac OMP cleanup preserves and refuses an unrelated dangling symlink replacement", async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-replaced-link-cleanup-"));
+test.skipIf(!POSIX)("Mac OMP cleanup removes its private runtime without touching an unrelated OMP link", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-runtime-cleanup-"));
   const paths = cleanupPaths(temporaryRoot);
   const replacementTarget = join(temporaryRoot, "unrelated", "omp");
   try {
@@ -316,23 +284,32 @@ test.skipIf(!POSIX)("Mac OMP cleanup preserves and refuses an unrelated dangling
       mkdir(dirname(paths.binary), { recursive: true }),
       mkdir(dirname(paths.symlink), { recursive: true }),
     ]);
-    await Promise.all([
-      writeFile(paths.sourceMarker, "owned source"),
-      writeFile(paths.binary, "owned binary"),
-    ]);
-    await symlink(paths.binary, paths.symlink);
-    await rm(paths.symlink);
+    await writeFile(paths.sourceMarker, "owned source");
+    await writeFile(paths.binary, "owned binary");
     await symlink(replacementTarget, paths.symlink);
-
     const cleanup = await runOmpCleanup(temporaryRoot);
-
-    expect(cleanup.exitCode).toBe(1);
-    expect(cleanup.stdout).toBe(
-      '{"patchedOmpProcessCount":0,"symlinkPresent":true,"sourcePresent":false}\n',
-    );
-    expect(cleanup.stderr).toContain("FAILED: patched OMP cleanup left qualification state");
+    expect(cleanup.exitCode).toBe(0);
+    expect(JSON.parse(cleanup.stdout)).toEqual({ liveOmpHosts: 0, binaryPresent: false, sourcePresent: false });
+    expect(await Bun.file(paths.binary).exists()).toBe(false);
+    expect(await Bun.file(paths.sourceMarker).exists()).toBe(false);
     expect(await pathEntryExists(paths.symlink)).toBe(true);
     expect(await readlink(paths.symlink)).toBe(replacementTarget);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!POSIX)("Mac OMP cleanup refuses to claim success while discovery still names a live host", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-live-host-cleanup-"));
+  const discovery = join(temporaryRoot, ".omp", "run", "collab-hosts");
+  try {
+    await mkdir(discovery, { recursive: true });
+    const entry = join(discovery, "qualification.json");
+    await writeFile(entry, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+    const cleanup = await runOmpCleanup(temporaryRoot);
+    expect(cleanup.exitCode).toBe(1);
+    expect(JSON.parse(cleanup.stdout).liveOmpHosts).toBe(1);
+    expect(await Bun.file(entry).exists()).toBe(true);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

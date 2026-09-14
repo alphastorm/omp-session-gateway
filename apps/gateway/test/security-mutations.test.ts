@@ -79,10 +79,10 @@ const MUTATIONS: readonly Mutation[] = [
     mustFail: "an admitted stream stops when the topology stops justifying it",
   },
   {
-    name: "a superseded generation still yields its capability",
+    name: "a superseded generation still authorizes a launch",
     file: "apps/gateway/src/registry.ts",
-    find: "if (metadata.metadata.generation !== generation || secret.generation !== generation) {",
-    replace: "if (false) {",
+    find: 'if (record.metadata.generation !== generation) return { status: "generation_mismatch" };',
+    replace: 'if (false) return { status: "generation_mismatch" };',
     target: "apps/gateway/test/registry.test.ts",
     mustFail: "revokes an old generation before replacement becomes observable",
   },
@@ -92,7 +92,7 @@ const MUTATIONS: readonly Mutation[] = [
     find: "checks.loopbackTrustSound = tunDevicePresent();",
     replace: "checks.loopbackTrustSound = true;",
     target: "apps/gateway/test/doctor.test.ts",
-    mustFail: "withholds the loopback claim and names the finding when no tunnel device is present",
+    mustFail: "withholds trust without a tunnel device and compatibility without a reachable OMP",
   },
   // Deliberately absent: withholding `listenerLoopbackOnly` on unsound trust. That check is
   // unobservable without a live daemon on the fixture's port, because the value is
@@ -102,9 +102,9 @@ const MUTATIONS: readonly Mutation[] = [
 ];
 
 /**
- * Only genuinely regenerable or irrelevant trees are skipped. `docs` and `patches` are copied
- * because target suites read them — `doctor.test.ts` asserts against the shipped OMP patch, and
- * omitting it made the baseline fail for a reason that had nothing to do with any mutation.
+ * Only genuinely regenerable or irrelevant trees are skipped. `docs` and `site` are copied because
+ * target suites read them, and omitting a tree a suite reads made the baseline fail for a reason
+ * that had nothing to do with any mutation.
  */
 const SKIPPED_TREES: Record<string, true> = {
   node_modules: true,

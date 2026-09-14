@@ -5,13 +5,14 @@ GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) rec
 
 ## Current
 
-- Qualify and publish the signed stable v0.1.0 successor against the exact advertised matrix.
-- Close the remaining Android and lifecycle scenarios required by that stable claim.
+- Qualify a signed mainline-compatible gateway candidate against stock OMP `>= 18.1.20`; no
+  fork-era host/client/relay result transfers.
+- Repeat the required Android and lifecycle scenarios against that exact candidate.
 - Qualify background Push on the advertised physical Android/browser combination.
-- Decide whether to advertise Windows; replace the PowerShell publisher-token ACL probe with native
-  `icacls`/`whoami` only as part of that qualified support path.
-- Keep the OMP patch rebased on the pinned release and upstream the smallest generally useful
-  controller/API pieces when maintainers are receptive.
+- Decide whether to advertise Windows only after exact mainline discovery and signed-candidate
+  install/reboot-login/upgrade/rollback/uninstall acceptance.
+- Track upstream discovery/query compatibility after PR #11908 (`4999b98bd5`), shipped in
+  `v18.1.20`; consume the supported seam rather than maintaining a downstream OMP patch.
 
 ## Candidate follow-ups
 

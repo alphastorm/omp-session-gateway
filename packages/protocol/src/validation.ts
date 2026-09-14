@@ -1,41 +1,34 @@
-import { ProtocolValidationError, SecretCapability, type SecretSessionRecord } from "./secret.ts";
+import { ProtocolValidationError, SecretCapability } from "./secret.ts";
 import {
-  IPC_AUTH_VALUE_LENGTH,
   MAX_FRAME_BYTES,
-  MAX_INSTANCE_ID_BYTES,
+  INSTANCE_ID_PATTERN,
   MAX_LABEL_CODEPOINTS,
   MAX_PUSH_PENDING_COUNT,
   MAX_REQUEST_ID_BYTES,
   MAX_PUSH_ENDPOINT_BYTES,
   MAX_SESSIONS,
-  PROTOCOL_VERSION,
+  OMP_REGISTRY_VERSION,
   PUSH_API_VERSION,
   type AttentionPushMessage,
-  type AuthenticatedPublisherFrame,
-  type AuthenticateFrame,
   type BrowserPushSubscription,
-  type ChallengeFrame,
-  type HeartbeatFrame,
-  type HelloFrame,
-  type HelloOkFrame,
+  type LaunchMode,
   type LaunchRequest,
   type LaunchResponse,
-  type PublishedSessionInput,
+  type ObservedSessionInput,
+  type OmpDiscoveryEntry,
+  type OmpHostSnapshot,
+  type OmpRegistryErrorCode,
   type PushConfigResponse,
   type PushSubscriptionRequest,
   type PushSubscriptionResponse,
   type PushDetailLevel,
   type PushUnsubscribeRequest,
-  type RemoveFrame,
   type SessionEvent,
   type SessionListResponse,
   type SessionMetadata,
-  type UpsertFrame,
 } from "./types.ts";
 
-const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
 const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
-const IPC_AUTH_VALUE_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const DISALLOWED_LABEL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu;
 const PUSH_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
@@ -45,13 +38,17 @@ const PUSH_DETAIL_LEVELS: Readonly<Record<PushDetailLevel, true>> = {
   preview: true,
 };
 
-const REMOVE_REASONS: Record<RemoveFrame["reason"], true> = {
-  stopped: true,
-  shutdown: true,
-  session_changed: true,
-  faulted: true,
-  connection_closed: true,
-  expired: true,
+/** 32 random bytes, hex encoded, written into the discovery file by the host. */
+const OMP_DISCOVERY_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
+const OMP_REGISTRY_ERROR_CODES: Readonly<Record<OmpRegistryErrorCode, true>> = {
+  malformed_request: true,
+  unsupported_protocol: true,
+  authentication_failed: true,
+  snapshot_unavailable: true,
+  invalid_operation: true,
+  invalid_access: true,
+  stale_generation: true,
+  access_unavailable: true,
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -80,14 +77,9 @@ function requireInteger(value: unknown, minimum: number, maximum = Number.MAX_SA
   return value as number;
 }
 
+/** Every instance identity on every surface: the one OMP mints, validated the way OMP does. */
 function requireInstanceId(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length > MAX_INSTANCE_ID_BYTES ||
-    !INSTANCE_ID_PATTERN.test(value)
-  ) {
-    throw new ProtocolValidationError();
-  }
+  if (typeof value !== "string" || !INSTANCE_ID_PATTERN.test(value)) throw new ProtocolValidationError();
   return value;
 }
 
@@ -96,17 +88,6 @@ function requireRequestId(value: unknown): string {
     typeof value !== "string" ||
     new TextEncoder().encode(value).byteLength > MAX_REQUEST_ID_BYTES ||
     !REQUEST_ID_PATTERN.test(value)
-  ) {
-    throw new ProtocolValidationError();
-  }
-  return value;
-}
-
-function requireIpcAuthValue(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length !== IPC_AUTH_VALUE_LENGTH ||
-    !IPC_AUTH_VALUE_PATTERN.test(value)
   ) {
     throw new ProtocolValidationError();
   }
@@ -235,117 +216,141 @@ export function parseJsonFrame(bytes: Uint8Array): unknown {
   }
 }
 
-export function parseHelloFrame(value: unknown): HelloFrame {
+/**
+ * Parses one `<entryId>.json` discovery file. The file is written once per publication and never
+ * rewritten, so an unparseable or foreign-shaped file is a stale or alien artifact, not a host.
+ */
+export function parseOmpDiscoveryEntry(entryId: string, value: unknown): OmpDiscoveryEntry {
   const record = requireRecord(value);
-  requireExactKeys(record, ["v", "op", "clientNonce", "instanceId", "pid"]);
-  if (record.v !== PROTOCOL_VERSION || record.op !== "hello") throw new ProtocolValidationError();
+  requireExactKeys(record, ["version", "instanceId", "pid", "endpoint", "createdAt", "token"]);
+  if (typeof record.endpoint !== "string" || record.endpoint.length === 0 || record.endpoint.includes("\0")) {
+    throw new ProtocolValidationError();
+  }
+  if (typeof record.token !== "string" || !OMP_DISCOVERY_TOKEN_PATTERN.test(record.token)) {
+    throw new ProtocolValidationError();
+  }
   return {
-    v: PROTOCOL_VERSION,
-    op: "hello",
-    clientNonce: requireIpcAuthValue(record.clientNonce),
+    entryId: requireInstanceId(entryId),
+    version: requireInteger(record.version, 1),
     instanceId: requireInstanceId(record.instanceId),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
+    endpoint: record.endpoint,
+    createdAt: requireInteger(record.createdAt, 0),
+    token: record.token,
   };
 }
 
-export function parseChallengeFrame(value: unknown): ChallengeFrame {
+function parseOmpHostModel(value: unknown): { provider: string; id: string } | undefined {
+  if (value === undefined || value === null) return undefined;
   const record = requireRecord(value);
-  requireExactKeys(record, ["v", "op", "serverNonce", "proof"]);
-  if (record.v !== PROTOCOL_VERSION || record.op !== "challenge") throw new ProtocolValidationError();
-  return {
-    v: PROTOCOL_VERSION,
-    op: "challenge",
-    serverNonce: requireIpcAuthValue(record.serverNonce),
-    proof: requireIpcAuthValue(record.proof),
-  };
+  requireExactKeys(record, ["provider", "id"]);
+  const provider = optionalLabel(record.provider);
+  const id = optionalLabel(record.id);
+  if (provider === undefined || id === undefined || provider === "" || id === "") return undefined;
+  return { provider, id };
 }
 
-export function parseAuthenticateFrame(value: unknown): AuthenticateFrame {
-  const record = requireRecord(value);
-  requireExactKeys(record, ["v", "op", "proof"]);
-  if (record.v !== PROTOCOL_VERSION || record.op !== "authenticate") throw new ProtocolValidationError();
-  return { v: PROTOCOL_VERSION, op: "authenticate", proof: requireIpcAuthValue(record.proof) };
-}
-
-export function parseHelloOkFrame(value: unknown): HelloOkFrame {
-  const record = requireRecord(value);
-  requireExactKeys(record, ["v", "op", "heartbeatSeconds", "ttlSeconds"]);
-  if (record.v !== PROTOCOL_VERSION || record.op !== "hello_ok") throw new ProtocolValidationError();
-  const heartbeatSeconds = requireInteger(record.heartbeatSeconds, 2, 60);
-  const ttlSeconds = requireInteger(record.ttlSeconds, 5, 300);
-  if (ttlSeconds <= heartbeatSeconds * 2) throw new ProtocolValidationError();
-  return {
-    v: PROTOCOL_VERSION,
-    op: "hello_ok",
-    heartbeatSeconds,
-    ttlSeconds,
-  };
-}
-
-function parsePublishedSession(value: unknown): PublishedSessionInput {
+/** One host's `snapshot` payload. Upstream bounds every free-form string to 1024 characters. */
+export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
   const record = requireRecord(value);
   requireExactKeys(
     record,
-    ["instanceId", "generation", "pid", "sessionId", "startedAt", "viewLink"],
-    ["title", "cwdLabel", "model", "inputRequired", "controlLink"],
+    [
+      "instanceId",
+      "generation",
+      "pid",
+      "sessionId",
+      "startedAt",
+      "participants",
+      "relayConnected",
+      "inputRequired",
+      "access",
+    ],
+    ["sessionName", "cwd", "model"],
   );
   if (typeof record.sessionId !== "string" || !SESSION_ID_PATTERN.test(record.sessionId)) {
     throw new ProtocolValidationError();
   }
-  if (typeof record.viewLink !== "string") throw new ProtocolValidationError();
-  if (record.controlLink !== undefined && typeof record.controlLink !== "string") throw new ProtocolValidationError();
-  if (record.inputRequired !== undefined && typeof record.inputRequired !== "boolean") {
+  if (typeof record.relayConnected !== "boolean" || typeof record.inputRequired !== "boolean") {
     throw new ProtocolValidationError();
   }
-  const title = optionalLabel(record.title);
-  const cwdLabel = optionalLabel(record.cwdLabel);
-  const model = optionalLabel(record.model);
+  if (record.access !== "view" && record.access !== "control") throw new ProtocolValidationError();
+  const sessionName = record.sessionName === null ? undefined : optionalLabel(record.sessionName);
+  const cwd = record.cwd === null ? undefined : optionalLabel(record.cwd);
+  const model = parseOmpHostModel(record.model);
   return {
     instanceId: requireInstanceId(record.instanceId),
     generation: requireInteger(record.generation, 1),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
     sessionId: record.sessionId,
-    startedAt: requireDateTime(record.startedAt),
-    viewLink: record.viewLink,
-    inputRequired: record.inputRequired ?? false,
-    ...(record.controlLink === undefined ? {} : { controlLink: record.controlLink }),
-    ...(title === undefined ? {} : { title }),
-    ...(cwdLabel === undefined ? {} : { cwdLabel }),
+    startedAt: requireInteger(record.startedAt, 0),
+    participants: requireInteger(record.participants, 0),
+    relayConnected: record.relayConnected,
+    inputRequired: record.inputRequired,
+    access: record.access,
+    ...(sessionName === undefined || sessionName === "" ? {} : { sessionName }),
+    ...(cwd === undefined || cwd === "" ? {} : { cwd }),
     ...(model === undefined ? {} : { model }),
   };
 }
 
-export function parseAuthenticatedPublisherFrame(value: unknown): AuthenticatedPublisherFrame {
+export type OmpRegistryReply<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: OmpRegistryErrorCode };
+
+function parseOmpEnvelope(value: unknown): { record: JsonRecord; ok: boolean } {
   const record = requireRecord(value);
-  if (record.v !== PROTOCOL_VERSION || typeof record.op !== "string") throw new ProtocolValidationError();
-  if (record.op === "upsert") {
-    requireExactKeys(record, ["v", "op", "session"]);
-    return { v: PROTOCOL_VERSION, op: "upsert", session: parsePublishedSession(record.session) } satisfies UpsertFrame;
-  }
-  if (record.op === "heartbeat") {
-    requireExactKeys(record, ["v", "op", "instanceId", "generation"], ["observedAt"]);
-    return {
-      v: PROTOCOL_VERSION,
-      op: "heartbeat",
-      instanceId: requireInstanceId(record.instanceId),
-      generation: requireInteger(record.generation, 1),
-      ...(record.observedAt === undefined ? {} : { observedAt: requireDateTime(record.observedAt) }),
-    } satisfies HeartbeatFrame;
-  }
-  if (record.op === "remove") {
-    requireExactKeys(record, ["v", "op", "instanceId", "generation", "reason"]);
-    if (typeof record.reason !== "string" || !Object.hasOwn(REMOVE_REASONS, record.reason)) {
+  if (record.v !== OMP_REGISTRY_VERSION || typeof record.ok !== "boolean") throw new ProtocolValidationError();
+  if (!record.ok) {
+    requireExactKeys(record, ["ok", "v", "error"]);
+    if (typeof record.error !== "string" || !Object.hasOwn(OMP_REGISTRY_ERROR_CODES, record.error)) {
       throw new ProtocolValidationError();
     }
-    return {
-      v: PROTOCOL_VERSION,
-      op: "remove",
-      instanceId: requireInstanceId(record.instanceId),
-      generation: requireInteger(record.generation, 1),
-      reason: record.reason as RemoveFrame["reason"],
-    } satisfies RemoveFrame;
   }
-  throw new ProtocolValidationError();
+  return { record, ok: record.ok };
+}
+
+export function parseOmpSnapshotReply(value: unknown): OmpRegistryReply<OmpHostSnapshot> {
+  const { record, ok } = parseOmpEnvelope(value);
+  if (!ok) return { ok: false, error: record.error as OmpRegistryErrorCode };
+  requireExactKeys(record, ["ok", "v", "snapshot"]);
+  return { ok: true, value: parseOmpHostSnapshot(record.snapshot) };
+}
+
+/**
+ * A successful `link` reply carries the one capability this whole system exists to broker, so it is
+ * wrapped before it can be logged, serialized, or copied into a plain field.
+ */
+export function parseOmpLinkReply(value: unknown): OmpRegistryReply<SecretCapability> {
+  const { record, ok } = parseOmpEnvelope(value);
+  if (!ok) return { ok: false, error: record.error as OmpRegistryErrorCode };
+  requireExactKeys(record, ["ok", "v", "url"]);
+  return { ok: true, value: SecretCapability.from(record.url) };
+}
+
+/**
+ * Reduces one host snapshot to the browser-safe directory entry. `cwd` becomes a basename label:
+ * the directory listing shows which project a session belongs to, and the full path is neither
+ * needed for that nor worth broadcasting to every authenticated viewer.
+ */
+export function observedSessionFromSnapshot(snapshot: OmpHostSnapshot): ObservedSessionInput {
+  const title = optionalLabel(snapshot.sessionName);
+  const cwdLabel = optionalLabel(
+    snapshot.cwd === undefined ? undefined : (snapshot.cwd.replace(/[/\\]+$/u, "").split(/[/\\]/u).pop() ?? undefined),
+  );
+  const model = snapshot.model === undefined ? undefined : optionalLabel(`${snapshot.model.provider}/${snapshot.model.id}`);
+  return {
+    instanceId: snapshot.instanceId,
+    generation: snapshot.generation,
+    pid: snapshot.pid,
+    sessionId: snapshot.sessionId,
+    startedAt: new Date(snapshot.startedAt).toISOString(),
+    canControl: snapshot.access === "control",
+    inputRequired: snapshot.inputRequired,
+    ...(title === undefined || title === "" ? {} : { title }),
+    ...(cwdLabel === undefined || cwdLabel === "" ? {} : { cwdLabel }),
+    ...(model === undefined || model === "" ? {} : { model }),
+  };
 }
 
 export function parseLaunchRequest(value: unknown): LaunchRequest {
@@ -609,12 +614,15 @@ export function parseLaunchResponse(value: unknown): LaunchResponse {
   };
 }
 
-export function separatePublishedSession(
-  input: PublishedSessionInput,
+/**
+ * Projects one observed host onto the browser-safe directory record. `canView` is unconditional:
+ * every published host answers a `view` link request, while `control` depends on how the session
+ * was shared. No capability is involved — those are fetched per launch, straight from the host.
+ */
+export function sessionMetadataFromObserved(
+  input: ObservedSessionInput,
   lastSeenAt: string,
-): { metadata: SessionMetadata; secret: SecretSessionRecord; immutableIdentity: string } {
-  const view = SecretCapability.from(input.viewLink);
-  const control = input.controlLink === undefined ? undefined : SecretCapability.from(input.controlLink);
+): { metadata: SessionMetadata; immutableIdentity: string } {
   return {
     metadata: {
       instanceId: input.instanceId,
@@ -625,14 +633,8 @@ export function separatePublishedSession(
       startedAt: input.startedAt,
       lastSeenAt,
       canView: true,
-      canControl: control !== undefined,
-      inputRequired: input.inputRequired ?? false,
-    },
-    secret: {
-      instanceId: input.instanceId,
-      generation: input.generation,
-      view,
-      ...(control === undefined ? {} : { control }),
+      canControl: input.canControl,
+      inputRequired: input.inputRequired,
     },
     immutableIdentity: `${input.pid}\0${input.sessionId}\0${input.startedAt}`,
   };

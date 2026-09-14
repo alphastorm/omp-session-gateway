@@ -72,10 +72,22 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
-readonly OMP_PIN_PATH="$REPO_ROOT/patches/oh-my-pi/qualification.env"
-[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP qualification pin: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
-# shellcheck source=../patches/oh-my-pi/qualification.env
-. "$OMP_PIN_PATH"
+readonly OMP_PIN_PATH="$REPO_ROOT/UPSTREAM.lock.json"
+[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP upstream lock: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
+read -r OMP_PIN_SOURCE_COMMIT OMP_PIN_SOURCE_TREE OMP_PIN_VERSION OMP_PIN_BUN_VERSION OMP_PIN_NATIVE_TARBALL_SHA256 OMP_PIN_NATIVE_BINARY_SHA256 < <(
+  python3 - "$OMP_PIN_PATH" <<'PY'
+import json
+import re
+import sys
+with open(sys.argv[1]) as source:
+    lock = json.load(source)
+native = lock["darwinArm64Native"]
+values = [lock["commit"], lock["tree"], lock["packageVersion"], lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
+patterns = [r"[0-9a-f]{40}", r"[0-9a-f]{40}", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9a-f]{64}", r"[0-9a-f]{64}"]
+assert all(isinstance(value, str) and re.fullmatch(pattern, value) for value, pattern in zip(values, patterns)), "invalid OMP upstream lock"
+print(*values)
+PY
+)
 step() { printf '\n== %s\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
 measure() { printf '   %-38s %s\n' "$1:" "$2"; }
@@ -95,7 +107,7 @@ readonly REPO_SLUG="${OMP_MAC_REPO:-alphastorm/omp-session-gateway}"
 readonly GATEWAY_PORT="${OMP_MAC_PORT:-4317}"
 readonly RECORD_DIR="${OMP_MAC_RECORD_DIR:-$HOME/.local/share/omp-session-gateway/test}"
 readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
-readonly OMP_PATCHED_TREE="$OMP_PIN_PATCHED_TREE"
+readonly OMP_SOURCE_TREE="$OMP_PIN_SOURCE_TREE"
 readonly OMP_VERSION="$OMP_PIN_VERSION"
 readonly BUN_VERSION="$OMP_PIN_BUN_VERSION"
 readonly OMP_NATIVE_TARBALL_SHA256="$OMP_PIN_NATIVE_TARBALL_SHA256"
@@ -164,10 +176,10 @@ remote() {
   helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
   script="${helpers}"$'\n'"$(cat)"
   printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_PATCHED_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
   {
     local value
-    for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_PATCHED_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
+    for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_SOURCE_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
       printf '%s\0' "$value"
     done
   } | ssh "${SSH_OPTS[@]}" -q "$HOST" "$bootstrap"
@@ -318,7 +330,7 @@ show "status" "\$(bun "\$CLI" status)"
 show "listeners" "\$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk -v p=":\$PORT" '\$9 ~ p {print \$9}' | tr '\n' ' ')"
 show "plist mode" "\$(stat -f '%Sp' ~/Library/LaunchAgents/omp-session-gateway.plist 2>/dev/null)"
 show "config mode" "\$(stat -f '%Sp' ~/.config/omp-session-gateway/config.json 2>/dev/null)"
-show "token mode" "\$(stat -f '%Sp' ~/.config/omp-session-gateway/publisher-token 2>/dev/null)"
+show "token mode" "\$(stat -f '%Sp' ~/.config/omp-session-gateway/readiness-token 2>/dev/null)"
 show "launchagent state" "\$(launchctl print "gui/\$(id -u)/omp-session-gateway" 2>/dev/null | awk '/state =/{print \$3; exit}')"
 
 # Serve, then the certificate fetched directly. Probing https to find out whether it is ready is the
@@ -343,16 +355,16 @@ PY
 show "doctor exit" "\$rc"
 
 before="\$(lsof -nP -iTCP:\$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print \$2}')"
-digest_before="\$(shasum -a 256 ~/.config/omp-session-gateway/publisher-token | cut -c1-12)"
-bun "\$CLI" rotate-publisher-token >/dev/null 2>&1
+digest_before="\$(shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12)"
+bun "\$CLI" rotate-readiness-token >/dev/null 2>&1
 sleep 3
 after="\$(lsof -nP -iTCP:\$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print \$2}')"
-digest_after="\$(shasum -a 256 ~/.config/omp-session-gateway/publisher-token | cut -c1-12)"
+digest_after="\$(shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12)"
 show "token rotation pid" "\$before -> \$after"
 show "token digest" "\$digest_before -> \$digest_after"
 
 create_doctor_bundle "\$CLI" /tmp/omp-bundle.tar || exit 1
-token_count="\$(count_file_occurrences ~/.config/omp-session-gateway/publisher-token /tmp/omp-bundle.tar)"
+token_count="\$(count_file_occurrences ~/.config/omp-session-gateway/readiness-token /tmp/omp-bundle.tar)"
 login_count="\$(count_environment_occurrences "\$LOGIN" /tmp/omp-bundle.tar)"
 show "token bytes in bundle" "\$token_count"
 show "login in bundle" "\$login_count"
@@ -408,7 +420,7 @@ lane_persistence() {
   note "auto-login enabled that is automatic; it is still not start-with-nobody-logged-in."
   local before_digest
   before_digest="$(remote <<'REMOTE'
-shasum -a 256 ~/.config/omp-session-gateway/publisher-token | cut -c1-12
+shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12
 REMOTE
 )"
   measure "token digest before reboot" "$before_digest"
@@ -455,12 +467,12 @@ show "gateway pid" "${pid:-<none>}"
 [ -n "$pid" ] && show "gateway process age" "$(ps -o etime= -p "$pid" | tr -d ' ')"
 show "launchagent state" "$(launchctl print "gui/$(id -u)/omp-session-gateway" 2>/dev/null | awk '/state =/{print $3; exit}')"
 show "console sessions" "$(who | awk '{print $1"/"$2}' | tr '\n' ' ')"
-show "token digest after reboot" "$(shasum -a 256 ~/.config/omp-session-gateway/publisher-token | cut -c1-12)"
+show "token digest after reboot" "$(shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12)"
 show "status" "$(bun "$CLI" status 2>/dev/null)"
 bun "$CLI" doctor >/tmp/omp-doctor2.json 2>/dev/null; show "doctor exit" "$?"
 REMOTE
   note "Compare the two token digests: an unchanged digest is the point, because a reboot must not"
-  note "mint new publisher credentials."
+  note "mint new readiness credentials."
 }
 
 verify_rollback_bundle() {
@@ -535,21 +547,21 @@ mkdir -p "$HOME/qual-tools"
 chmod 700 "$HOME/qual-tools"
 REMOTE
   scp "${SSH_OPTS[@]}" -q "$REPO_ROOT/scripts/qualify-macos-omp.sh" "$HOST:qual-tools/" ||
-    die "could not stage the patched OMP qualification helper on the Mac."
+    die "could not stage the mainline OMP qualification helper on the Mac."
   remote <<'REMOTE'
 chmod 700 "$HOME/qual-tools/qualify-macos-omp.sh"
 REMOTE
 }
 
 lane_omp_build() {
-  step "Lane 6: exact patched OMP build"
+  step "Lane 6: exact mainline OMP build"
   stage_remote_omp_helper
   remote <<'REMOTE'
 export PATH="$HOME/.bun/bin:$PATH"
 root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"
 OMP_QUAL_GATEWAY_ROOT="$root" \
 OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
-OMP_PIN_PATCHED_TREE="$OMP_PATCHED_TREE" \
+OMP_PIN_SOURCE_TREE="$OMP_SOURCE_TREE" \
 OMP_PIN_VERSION="$OMP_VERSION" \
 OMP_PIN_BUN_VERSION="$BUN_VERSION" \
 OMP_PIN_NATIVE_TARBALL_SHA256="$OMP_NATIVE_TARBALL_SHA256" \
@@ -560,7 +572,7 @@ REMOTE
 }
 
 lane_omp_clean() {
-  step "Lane 7: patched OMP cleanup"
+  step "Lane 7: mainline OMP cleanup"
   stage_remote_omp_helper
   remote <<'REMOTE'
 export PATH="$HOME/.bun/bin:$PATH"
@@ -568,7 +580,7 @@ archive_root="$(cd "$HOME/qual" 2>/dev/null && ls -d omp-session-gateway-*-bun 2
 root="$HOME/qual/${archive_root:-absent}"
 OMP_QUAL_GATEWAY_ROOT="$root" \
 OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
-OMP_PIN_PATCHED_TREE="$OMP_PATCHED_TREE" \
+OMP_PIN_SOURCE_TREE="$OMP_SOURCE_TREE" \
 OMP_PIN_VERSION="$OMP_VERSION" \
 OMP_PIN_BUN_VERSION="$BUN_VERSION" \
 OMP_PIN_NATIVE_TARBALL_SHA256="$OMP_NATIVE_TARBALL_SHA256" \

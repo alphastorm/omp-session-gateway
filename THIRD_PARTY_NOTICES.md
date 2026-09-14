@@ -211,19 +211,9 @@ source locations, and required attributions are included at the stated archive p
   delimiter grammar is vendored instead of adding `@oh-my-pi/pi-utils` and its native dependency
   closure; the renderer retains the existing npm `marked` integration.
 
-## Distributed OMP integration patch
-
-### @oh-my-pi/pi-coding-agent patch@18.1.14
-
-- Source: <https://github.com/can1357/oh-my-pi/tree/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/coding-agent>
-- Pinned source: tag `v18.1.14`, commit `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`
-- License: MIT
-- Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
-- License text: `licenses/oh-my-pi/LICENSE`
-- Distributed patch: `patches/oh-my-pi/0001-collab-controller-autostart-registry.patch`
-- Local modifications: shared collaboration controller ownership, auto-start settings, lifecycle
-  revocation/publication ordering, and authenticated local registry publication as documented in
-  `patches/oh-my-pi/README.md`.
+OMP itself is a separately installed mainline prerequisite, not a bundled or locally modified
+runtime component of this archive. The upstream OMP license text is retained at
+`licenses/oh-my-pi/LICENSE`; the client and runtime attributions above remain applicable.
 
 The top-level `LICENSE` covers OMP Session Gateway itself. `NOTICE.md` describes the project's
 independent relationship to Oh My Pi; it does not replace any license text listed above.

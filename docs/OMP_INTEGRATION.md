@@ -1,223 +1,115 @@
-# OMP integration patch
+# Mainline OMP integration
 
-## Goal
+## Supported prerequisite
 
-Make built-in collaboration programmatically controllable inside OMP, then add opt-in automatic startup and local publication without changing default behavior.
+Use stock mainline OMP `>= 18.1.20`. [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).
+The gateway consumes that supported local registry; it does not patch OMP, import private
+controller APIs, or install a second OMP executable. Releases earlier than 18.1.20 lack this
+registry and are unsupported by the current gateway.
 
-## Current baseline
+`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.1.20`, commit
+`1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`, tree
+`aca949970fb8b73170b05f6a23bf18e23fb5841f`. The minimum supported host version is distinct from
+that exact client/source pin. Mainline signed-artifact, host, relay, and physical-device
+qualification is pending; fork-era published-release evidence does not transfer.
 
-Current engineering source targets exact upstream `v18.1.14` at
-`daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` plus the standalone gateway mbox.
-The maintained `omp-monorepo` gateway-collaboration series supplies the controller, publisher,
-attention, and safe response-UI changes; the gateway also carries encrypted health probes and
-response acknowledgements. A version number alone does not prove those seams are present.
-Published `v0.2.1` qualification remains bound to its historical v17.4.1 patch.
-See [the exact patch and build route](../patches/oh-my-pi/README.md).
+## 1. Operator settings
 
-## Relevant existing areas
+The only required OMP setting is:
 
-The implementer should confirm current paths on the target commit, but expect the work to touch:
-
-- `packages/coding-agent/src/collab/host.ts` — existing `CollabHost` implementation and link getters.
-- the interactive-mode/slash-command code that implements `/collab`.
-- the settings schema containing `collab.relayUrl`, `collab.webUrl`, and `collab.displayName`.
-- interactive session lifecycle code that stops collaboration on session replacement.
-- tests around collaboration commands and settings.
-
-Do not import internal classes from a separately installed plugin. Keep the first patch in core and make it suitable for upstream review.
-
-## 1. Extract a `CollabController`
-
-Suggested interface (adapt names to repository conventions):
-
-```ts
-export type AutoCollabMode = "off" | "view" | "control";
-
-export interface CollabCapabilities {
-  instanceId: string;
-  generation: number;
-  sessionId: string;
-  viewLink: string;
-  controlLink?: string;
-  startedAt: string;
-}
-
-export interface CollabController {
-  readonly state: "stopped" | "starting" | "running" | "stopping" | "faulted";
-  start(options?: { relayUrl?: string }): Promise<CollabCapabilities>;
-  stop(reason?: string): Promise<void>;
-  status(): CollabCapabilities | undefined;
-  on(event: "started" | "updated" | "stopped" | "faulted", handler: (...args: unknown[]) => void): () => void;
-}
+```sh
+omp config set collab.autoStart control
+# Or choose read-only sharing:
+omp config set collab.autoStart view
 ```
 
-The controller should own exactly one `CollabHost` for the active interactive context. `start()` must be idempotent for the same generation and serialize concurrent starts/stops.
-
-The current slash command should call this controller. The controller must not print UI itself; the slash-command adapter handles messages/QR output, while auto-start remains quiet except for actionable errors.
-
-## 2. Settings
-
-Add to the existing typed settings schema:
+Equivalent settings:
 
 ```jsonc
 {
   "collab": {
-    "autoStart": "off",
-    "registryEndpoint": "auto"
+    "autoStart": "control" // "off" | "view" | "control"; default "off"
   }
 }
 ```
 
-Semantics:
+Start participating interactive sessions with plain `omp`. OMP owns automatic collaboration
+startup after session initialization and publishes its own local discovery entry. The gateway
+discovers the host on its next poll, whether OMP or the gateway started first. Manual collaboration
+commands remain OMP’s responsibility and require no gateway integration hook.
 
-| Setting | Values | Default | Meaning |
-|---|---|---:|---|
-| `collab.autoStart` | `off`, `view`, `control` | `off` | Start collaboration after interactive session initialization. `view` publishes only the view capability; `control` also publishes the full capability. |
-| `collab.registryEndpoint` | `auto`, `off`, or explicit local IPC path | `auto` | Discover the standard per-user gateway endpoint, disable publication, or use an explicit development/test endpoint. Network URLs must not be accepted here. |
+At cutover, restart a process launched from an older OMP under mainline; changing an executable
+on disk does not replace code already loaded into a running process. Enabling auto-start also
+does not rerun initialization in an existing session. Manual `/collab` prints capabilities, so do
+not run it in a recorded or supervised terminal.
 
-Keep `relayUrl`, `webUrl`, and `displayName` behavior unchanged.
+## 2. Discovery and per-host queries
 
-The current pre-alpha patch publishes through owner-checked Unix-domain sockets on POSIX and the
-gateway's current-user named pipe on Windows. A fresh nonce exchange and domain-separated HMAC
-proofs authenticate both the publisher and the daemon before either side sends capability-bearing
-records. The publisher token itself never crosses the IPC connection.
+OMP owns `~/.omp/run/collab-hosts`. `PI_CONFIG_DIR` replaces the `.omp` directory name relative
+to the home directory. The gateway can select another directory through `omp.discoveryDir`.
+Every publication consists of a private discovery file and an owner-only query endpoint.
 
-An isolated launcher may set `OMP_GATEWAY_PUBLISHER_TOKEN_PATH` to an absolute token file instead
-of replacing the process-wide XDG configuration root. The override contains only a path and is
-subject to the same regular-file, no-symlink, current-user ownership, mode, ACL, length, and
-alphabet checks as the default token location. Normal installations leave it unset.
+`OmpHostReader` reads the file’s version, instance identity, PID, endpoint, creation time, and
+per-host query token. It uses the published endpoint verbatim: long socket paths may be relocated
+under `/tmp/omp-collab-<hash>`. Discovery files are written once, so file timestamps do not
+represent metadata freshness. The gateway only reads them and never repairs or removes them.
 
-## 3. Process identity and generations
+Queries are newline-framed JSON, one request and response per connection. `snapshot` returns
+metadata, while `link` resolves one exact generation and role on an explicit launch. The complete
+file, snapshot, operation, and error-code contracts are in [PROTOCOL.md](PROTOCOL.md).
 
-- Create a cryptographically random `instanceId` once per OMP process.
-- Start `generation` at 1 and increment whenever a new `CollabHost` replaces the old one.
-- Use `instanceId` as the dashboard card key; `sessionId` and generation are mutable fields.
-- Do not use PID alone as an identity because PIDs are reused.
+OMP also provides `omp collab list [--json]` and
+`omp collab link <instanceId|pid> [--view] [--json]`. The latter deliberately outputs a bearer
+capability: do not capture it in logs, files, fixtures, diagnostics, or issue reports. The gateway
+queries the endpoint directly and never shells out to a link-printing command.
 
-## 4. Publisher lifecycle
+## 3. Polling and lifecycle
 
-Create a small `CollabRegistryPublisher` that receives controller events.
+`startHostPoller` coalesces concurrent rounds and reconciles observed metadata with retained
+hosts. `registry.heartbeatSeconds` is now the poll interval (default 10 seconds);
+`registry.ttlSeconds` defaults to 35 seconds and must exceed twice that interval.
 
-```ts
-interface PublishedSession {
-  instanceId: string;
-  generation: number;
-  pid: number;
-  sessionId: string;
-  title?: string;
-  cwdLabel?: string;
-  model?: string;
-  startedAt: string;
-  viewLink: string;
-  controlLink?: string;
-}
-```
+Only `ENOENT`/`ECONNREFUSED` proves a queried host dead. Timeouts, `EMFILE`, `EACCES`, and
+wire errors such as `snapshot_unavailable` retain a previously observed card until TTL expiry.
+A host absent from discovery is removed; a reply followed by socket close is normal query framing.
+A stopped gateway has no effect on OMP publication, and restarting it requires no OMP reconnect.
 
-Rules:
+OMP’s instance identity keys the process card. Generation changes identify host replacement; PID
+alone is unsafe because PIDs are reused. The gateway maps `sessionName`, `cwd`, and model
+metadata to bounded browser labels, with basename-only paths by default. `inputRequired` is a
+boolean, not a prompt or answer. The gateway derives its own opaque attention identity and receipt
+time for browser routing; mainline OMP does not supply previews or option counts.
 
-- Redact the working directory to its basename by default.
-- Publish the current title, directory basename, and `provider/model` label at host start and whenever those values change. Metadata-only refreshes reuse the active generation and capabilities; they do not rotate or re-fetch links.
-- Bound each published label to the protocol's 256-code-point maximum before sending so an unusually long name cannot invalidate the whole capability-bearing upsert.
-- Never stringify the full object through the normal logger.
-- Treat `viewLink` and `controlLink` as secret values even though view is less privileged.
-- Heartbeat every 10 seconds while running.
-- Use capped exponential reconnect (for example 250 ms to 30 s with jitter).
-- Re-send the current upsert after reconnect.
-- If an authenticated connection outlives its registry record—for example after a host suspension longer than TTL—the gateway closes the connection without sending a protocol-error frame; reconnect then re-reads the token and re-sends the current upsert.
-- Send remove before an orderly stop. Do not block process exit indefinitely; cap shutdown flush.
-- If token or endpoint files have unsafe ownership, modes, or ACLs, disable publication and surface one concise security error.
-- Before reading capabilities on POSIX, require a current-user-owned socket in a current-user-owned private parent directory.
-- On Windows, derive the same current-user pipe name as the gateway and require the publisher-token ACL to contain only the current user and SYSTEM with full access.
-- Track the pending socket, enforce a bounded mutual-authentication handshake, and cancel it on shutdown before it can install heartbeat state.
-- Validate the daemon's HMAC proof in constant time before sending the publisher proof or any capability-bearing frame; use fresh nonces and domain-separated transcripts for both directions.
+## 4. Per-launch capability broker
 
-## 5. Session changes
+`OmpLaunchResolver` authorizes the requested generation, role, and optional attention request
+identity against current metadata, fetches a link from that OMP host, and revalidates before
+release. The gateway never stores or caches a capability, including in its memory-only registry.
 
-Locate every path that can replace or detach the active interactive session, including resume, branch, new-session, and programmatic session changes.
+HTTP list/SSE and launch shapes remain unchanged. Launch refusal includes `generation_mismatch`,
+`request_mismatch`, `missing`, and `mode_unavailable`; the last becomes HTTP 409 when the host
+no longer shares the requested role. Capabilities remain confined to transient query/response and
+active client memory and never appear in logs or diagnostics. Gateway log fields are numeric or
+boolean only.
 
-When auto-start is enabled:
+## 5. Gateway configuration and readiness
 
-```text
-old generation: unregister -> stop host
-new context ready: start host -> register new generation
-```
+`omp.discoveryDir` defaults to the OMP directory above; `omp.queryTimeoutMs` defaults to 1500.
+The gateway’s `readiness-token` proves managed loopback readiness only and is not sent to OMP.
+`doctor` checks that `omp` on PATH reports at least 18.1.20 (`compatibility`), verifies discovery
+is absent or safely readable (`discoveryReadable`), and reports `sessionHealth`. It no longer
+qualifies a patched source tree or staged OMP patch.
 
-Ordering matters. Never leave the old control capability advertised while a new session is becoming active.
+## 6. Client and qualification boundary
 
-If the new host fails to start, the dashboard must show no launchable entry for the old host. Retry may occur, but only after the old record is revoked.
+The gateway still embeds the pinned OMP `collab-web` integration and in-memory bootstrap. The
+photo composer uses existing encrypted v3 image prompts; it does not add a gateway media endpoint
+or alter the discovery/query contract. Client changes and a mainline minimum do not by themselves
+prove relay endurance, response replay, native host behavior, or physical Android behavior.
 
-## 6. Manual command interactions
+The migration’s behavioral proof belongs to `apps/gateway/test/omp-registry.test.ts`. Release
+qualification must exercise the actual mainline binary, View/Control launch and refusal, host
+replacement and stop, gateway restart, transient query failures, capability non-persistence, and
+the exact client/relay path. See [TEST_PLAN.md](TEST_PLAN.md), [COMPATIBILITY.md](COMPATIBILITY.md),
+and the fork-era receipts retained in [RELEASE_STATUS.md](RELEASE_STATUS.md).
 
-Expected behavior:
-
-- `/collab` when auto-start already has a host: show current full link/status rather than creating another room.
-- `/collab view`: show current view link.
-- `/collab stop`: stop and unregister. Decide whether auto-start remains suspended for the rest of that process; recommended behavior is **manual stop suspends auto-restart until the next active-session generation or an explicit `/collab`**. Document this.
-- an explicit relay URL passed to `/collab`: restart through the controller and republish the replacement generation.
-- changing View/Control publication mode on the current relay must revoke the prior registry record before republishing the requested mode.
-- status includes whether the session is published to the session gateway, but never logs the link.
-
-## 7. Future extension API (optional follow-up)
-
-After the controller is stable, expose a constrained supported API such as:
-
-```ts
-ctx.collab.start();
-ctx.collab.stop();
-ctx.collab.status();
-ctx.collab.on("started", ...);
-```
-
-Do not block v1 on moving the publisher into an extension. If the pinned public extension surface still cannot own built-in collaboration startup, keep the first integration in core; otherwise prefer the supported upstream API. See `docs/UPSTREAM_STRATEGY.md`.
-
-The browser client can still join an older v3 host, using ordinary host frames as passive relay
-liveness when the optional health advertisement is absent. Reliable `Sending…` convergence across
-a reconnect requires the fifth patch commit: only that host acknowledges a duplicate or late
-response after the original request has already settled.
-
-The pinned v17.4.1 wire and host already accept `{ t: "prompt", text, images?: ImageContent[] }`
-and forward image blocks through `promptCustomMessage`. The gateway photo composer consumes that
-existing contract; it does not change `COLLAB_PROTO`, the controller/publisher patch, capability
-publication, or generation behavior. Host-side tests remain responsible for preserving image
-blocks and write-token/read-only enforcement exactly as for text prompts.
-
-## 8. OMP tests
-
-Add tests for:
-
-- setting defaults and validation;
-- no auto-start when off;
-- view mode omits control capability;
-- control mode publishes both capabilities;
-- exactly one host under concurrent command/auto-start calls;
-- session replacement revokes old generation before publishing new;
-- same-generation title, working-directory, and model changes refresh metadata without rotating capabilities;
-- published metadata respects protocol label bounds;
-- pre-writer retention and reconnect replay for bounded serializable UI requests;
-- no request admission or ID consumption after the host's bounded pending-request cap;
-- View exclusion and first-of-many writable-guest exactly-once settlement;
-- optional encrypted health probe advertisement/reply for both View and Control guests;
-- duplicate or late writable UI responses receive a targeted idempotent `ui-request-end` acknowledgement;
-- generation-scoped, nested, concurrent, and idempotent `inputRequired` leases;
-- attention clears before stop, fault, replacement, or removal, and stale releases are ignored;
-- local/remote response races abort both sides across ask, select, editor, confirm, and input operations;
-- callback-, disabled-row-, slider-, prompt-style-, custom-, and guest-origin UI remain local and unflagged;
-- collaboration auto-start completes before awaited extension `session_start` response operations;
-- `/collab stop` unregisters;
-- daemon absent does not break OMP;
-- malformed endpoint/token fails safely;
-- no links in captured logs or snapshots;
-- command behavior remains backward compatible.
-
-## 9. Qualification target pin
-
-`patches/oh-my-pi/qualification.env` is the machine-readable source shared by the stable orchestrator and retained-Mac OMP helper:
-
-```sh
-. patches/oh-my-pi/qualification.env
-```
-
-The file identifies the current engineering target, not a passing qualification. Published releases
-retain their own immutable pins and receipts.
-
-Qualification rejects a source commit, patched tree, Bun version, native npm tarball, or extracted Darwin arm64 `.node` payload outside those exact pins. The native archive is downloaded from the versioned npm registry URL and verified before its payload is copied into the patched source tree.

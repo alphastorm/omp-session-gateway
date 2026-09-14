@@ -1,5 +1,27 @@
 # Release status
 
+## Mainline cutover — qualification pending
+
+**Decision recorded:** 2026-09-14. Current source requires stock OMP `>= 18.1.20`;
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Exact engineering source is
+`v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`. This records a source/architecture
+cutover, not a new release, signature, test count, or qualification result.
+
+The gateway reads OMP discovery, polls snapshots, and fetches capabilities only per launch without
+storing them. Native Linux/macOS/Windows, physical Android, relay endurance, signed-artifact
+installation, and cross-architecture upgrade/rollback qualification are **pending** for mainline.
+No recorded fork-era result transfers. The retained v0.3.0 stable lock and published artifacts
+remain historical evidence, not authorization to ship these changed bytes as qualified.
+
+## Fork-era release and qualification archive
+
+**Every result, support decision, prerequisite, command, and “current” label below belongs to its
+named fork-era snapshot**, including the 2026-09-09 stable decision, post-release smoke, source
+checks, all candidate lanes, and older limitations. Exact dates, commits, hashes, counts, failures,
+and approval history are preserved. Patch paths and configuration references resolve at the named
+historical tag, not this checkout. They no longer describe the shipping prerequisite.
+
+
 **Updated:** 2026-09-09<br>
 **Repository version:** `0.3.0`<br>
 **Qualified stable candidate:** **`v0.3.0-prealpha.3`**, independently verified<br>

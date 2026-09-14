@@ -6,6 +6,22 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Scope Linux ARM64 upstream checks to the three discovery/query registry suites consumed by the
+  gateway, rather than unrelated collaboration tests and upstream-wide checks. Keep the required
+  Windows gate on gateway contracts, ACLs, and service lifecycle; upstream Windows fixtures fail
+  on SIGTERM handling and a Bun 1.4.0 crash. Windows OMP integration remains unqualified.
+- Cut over to stock mainline OMP `>= 18.1.20` after upstream PR #11908 (`4999b98bd5`), shipped
+  in `v18.1.20`. Remove the fork-era OMP patch set and gateway publisher transport; read OMP’s
+  discovery directory, poll metadata, and fetch capabilities per launch without storing them.
+  `collab.autoStart` is the only OMP setting required. Rename the gateway-only readiness token
+  to `readiness-token` and its rotation command to `rotate-readiness-token`; installation removes
+  the legacy fork-era `publisher-token`. Add `omp.discoveryDir` and `omp.queryTimeoutMs` config;
+  `registry.heartbeatSeconds` now controls polling. Launch returns `409 mode_unavailable` when
+  the host no longer shares the requested role. Mainline release qualification is pending; no
+  published fork-era result transfers.
+
 ### Added
 
 - Publish a canonical public site at `alphastorm.github.io/omp-session-gateway` (overview, compare,
@@ -22,6 +38,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
   the shipped admission and publication decisions under a controlled command path.
 - Accept an installed Android WebAPK resuming the collaboration route during post-release smoke,
   rather than incorrectly requiring the directory title or navigating away from the existing session.
+
+The release entries below are **fork-era history**. Their patched OMP prerequisites, publication
+credentials, exact commits, and qualification results apply only to the named historical artifacts,
+not the current mainline prerequisite. They are preserved rather than reclassified as mainline proof.
 
 ## [v0.3.0] — 2026-09-09
 

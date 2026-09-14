@@ -8,12 +8,13 @@ import {
   defaultGatewayPaths,
   type GatewayConfig,
   loadGatewayConfig,
-  loadOrCreatePublisherToken,
-  loadPublisherToken,
+  loadOrCreateReadinessToken,
+  loadReadinessToken,
   loopbackHttpOrigin,
   publicOriginHttpsPort,
   restoreGatewayConfigFile,
-  rotatePublisherToken,
+  removeLegacyPublisherToken,
+  rotateReadinessToken,
   writeGatewayConfigFile,
 } from "./config.ts";
 import { createDiagnosticsBundle } from "./diagnostics.ts";
@@ -27,7 +28,7 @@ import {
   resolveRollbackTarget,
   stageRuntimePayload,
 } from "./installation.ts";
-import { startRegistryIpcServer } from "./ipc.ts";
+import { OmpHostReader, OmpLaunchResolver, startHostPoller } from "./omp-registry.ts";
 import { SafeLogger } from "./logger.ts";
 import { PushService } from "./push.ts";
 import { SessionRegistry } from "./registry.ts";
@@ -70,7 +71,7 @@ const SERVICE_STABILITY_PAUSE_MS = 200;
  * Windows needs far more, and the figure is measured rather than padded. Every private path the
  * daemon touches is verified by spawning `powershell.exe` (`config.ts`, `applyWindowsAcl` and
  * `assertWindowsAclPrivate`), and `runServe` reaches ten of those spawns before `startHttpServer`
- * binds the listener: one for `config.json`, five for `loadOrCreatePublisherToken` (two per created
+ * binds the listener: one for `config.json`, five for `loadOrCreateReadinessToken` (two per created
  * directory plus the token file), and four more when `PushService.open` re-verifies the same
  * directories. On the 2-vCPU Server 2025 host in `docs/WINDOWS_QUALIFICATION.md` a single cold
  * spawn averaged 1854 ms, which puts cold startup at ~18.5 s — matching the ~18 s that host's
@@ -123,7 +124,7 @@ const COMMAND_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   rollback: new Set(["--to"]),
   status: new Set(),
   doctor: new Set(["--bundle", "--output"]),
-  "rotate-publisher-token": new Set(),
+  "rotate-readiness-token": new Set(),
   "serve-guidance": new Set(),
   help: new Set(),
   "--help": new Set(),
@@ -172,7 +173,7 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
     ...(port === undefined ? {} : { port }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
   });
-  const token = await loadOrCreatePublisherToken(config);
+  const token = await loadOrCreateReadinessToken(config);
   const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
   const staticAssets = await StaticAssetStore.load(webRoot);
   const logger = new SafeLogger();
@@ -181,8 +182,19 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
     maxSessions: config.registry.maxSessions,
     onListenerError: () => logger.event("warn", "registry.listener_failed"),
   });
+  const reader = new OmpHostReader({
+    directory: config.omp.discoveryDir,
+    timeoutMs: config.omp.queryTimeoutMs,
+    onFault: (event, detail) => logger.event("warn", event, detail),
+  });
+  const launchResolver = new OmpLaunchResolver({ registry, reader });
   const pushService = await PushService.open({ config, registry, logger });
-  const ipc = await startRegistryIpcServer({ config, token, registry, logger });
+  const poller = startHostPoller({
+    reader,
+    registry,
+    intervalMs: config.registry.heartbeatSeconds * 1_000,
+    onEvent: (event, detail) => logger.event("info", event, detail),
+  });
   let stopping = false;
   let resolveStop: () => void = () => undefined;
   const stopped = new Promise<void>(resolve => {
@@ -193,43 +205,38 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
     stopping = true;
     resolveStop();
   };
-  let http: ReturnType<typeof startHttpServer> | undefined;
+  let http: Bun.Server<undefined> | undefined;
   let sweeper: ReturnType<typeof setInterval> | undefined;
-  let endpointWatchdog: ReturnType<typeof setInterval> | undefined;
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
     http = startHttpServer({
       config,
       registry,
+      launchResolver,
       staticAssets,
       logger,
       pushService,
       readinessToken: token,
       ...(readinessInstance === undefined ? {} : { readinessInstance }),
-      endpointHealthy: () => ipc.endpointHealthy,
+      endpointHealthy: () => poller.discoveryHealthy,
     });
+    // The poller refreshes liveness for hosts that answer; the sweeper retires the ones that stay
+    // unreadable past the TTL, so a host whose socket hangs cannot linger in the directory forever.
     sweeper = setInterval(() => {
       const removed = registry.sweepExpired();
       if (removed > 0) logger.event("info", "registry.expired", { removed });
     }, Math.max(1_000, Math.floor((config.registry.ttlSeconds * 1_000) / 3)));
-    endpointWatchdog = setInterval(() => {
-      void ipc.verifyEndpoint();
-    }, ENDPOINT_WATCHDOG_INTERVAL_MS);
     await stopped;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
     clearInterval(sweeper);
-    clearInterval(endpointWatchdog);
+    poller.stop();
     try {
       http?.stop(true);
     } finally {
-      try {
-        await ipc.stop();
-      } finally {
-        await pushService.stop();
-      }
+      await pushService.stop();
     }
   }
 }
@@ -300,7 +307,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     }
     let priorToken: string | undefined;
     try {
-      priorToken = await loadPublisherToken(priorConfig);
+      priorToken = await loadReadinessToken(priorConfig);
     } catch (error) {
       if (priorService.active) {
         throw new Error("refusing install while the active gateway publisher token is unavailable", { cause: error });
@@ -337,7 +344,12 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
       priorConfig !== undefined &&
       priorConfig.http.hostname === config.http.hostname &&
       priorConfig.http.port === config.http.port;
-    const readinessToken = repairPriorToken ? await rotatePublisherToken(config) : await loadOrCreatePublisherToken(config);
+    const readinessToken = repairPriorToken ? await rotateReadinessToken(config) : await loadOrCreateReadinessToken(config);
+    // Mainline OMP never authenticates to the gateway, so a fork-era publisher credential left in
+    // the config directory is a live secret with no consumer. Install is where it goes away.
+    if (await removeLegacyPublisherToken(config)) {
+      console.log("Removed the retired OMP publisher token; mainline OMP needs no gateway credential.");
+    }
     if ((!priorService.active || !sameEndpoint) && (await gatewayReady(config, readinessToken))) {
       throw new Error("refusing install while an authenticated unmanaged gateway listener is active");
     }
@@ -368,7 +380,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     if (serviceAttempted && config !== undefined) {
       try {
         if (priorService?.installed === true && priorRuntime !== undefined && restoredConfig !== undefined) {
-          const priorToken = await loadPublisherToken(restoredConfig);
+          const priorToken = await loadReadinessToken(restoredConfig);
           const rollbackInstance =
             priorRuntime.readinessProtocol === "instance-v1" ? randomBytes(32).toString("base64url") : undefined;
           await installUserService(restoredConfig, priorService.active, priorRuntime.cliPath, rollbackInstance);
@@ -412,7 +424,7 @@ async function runRollback(arguments_: ParsedArguments): Promise<void> {
   }
   if (!service.installed) throw new Error("refusing rollback without an installed gateway service");
   const target = await resolveRollbackTarget(config, requested);
-  const readinessToken = await loadPublisherToken(config);
+  const readinessToken = await loadReadinessToken(config);
   try {
     // Same commit order as install: the service definition is rewritten first and `current.json`
     // only advances once the predecessor has proven readiness. See `activationState`.
@@ -455,7 +467,7 @@ async function runRollback(arguments_: ParsedArguments): Promise<void> {
 
 async function runStatus(): Promise<void> {
   const config = await loadGatewayConfig();
-  const readinessToken = await loadPublisherToken(config);
+  const readinessToken = await loadReadinessToken(config);
   const [ready, service, activation] = await Promise.all([
     gatewayReady(config, readinessToken),
     userServiceStatus(config),
@@ -512,7 +524,7 @@ async function runRotateToken(): Promise<void> {
   if (service.active && runtime === undefined) {
     throw new Error("refusing token rotation without a verified installed runtime");
   }
-  const readinessToken = await rotatePublisherToken(config);
+  const readinessToken = await rotateReadinessToken(config);
   if (service.active && runtime !== undefined) {
     const readinessInstance =
       runtime.readinessProtocol === "instance-v1" ? randomBytes(32).toString("base64url") : undefined;
@@ -558,7 +570,7 @@ Usage:
   omp-gateway status
   omp-gateway doctor [--bundle] [--output omp-gateway-diagnostics.tar]
   omp-gateway serve-guidance
-  omp-gateway rotate-publisher-token
+  omp-gateway rotate-readiness-token
   omp-gateway serve [--dev-localhost] [--port 4317] [--origin http://127.0.0.1:4317]
   omp-gatewayd
 `);
@@ -574,7 +586,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   else if (parsed.command === "rollback") await runRollback(parsed);
   else if (parsed.command === "status") await runStatus();
   else if (parsed.command === "doctor") await runDoctor(parsed);
-  else if (parsed.command === "rotate-publisher-token") await runRotateToken();
+  else if (parsed.command === "rotate-readiness-token") await runRotateToken();
   else if (parsed.command === "serve-guidance") await runServeGuidance();
   else if (parsed.command === "help" || parsed.command === "--help") printHelp();
   else throw new Error(`unknown command: ${parsed.command}`);

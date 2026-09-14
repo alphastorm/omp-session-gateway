@@ -4,4 +4,4 @@
 /SECURITY.md @alphastorm
 /apps/gateway/ @alphastorm
 /packages/protocol/ @alphastorm
-/patches/oh-my-pi/ @alphastorm
+/apps/gateway/src/omp-registry.ts @alphastorm

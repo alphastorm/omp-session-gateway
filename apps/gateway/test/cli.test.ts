@@ -29,8 +29,8 @@ test("rejects misspelled mutation options before side effects", async () => {
   await expect(main(["install", "--origin", "https://gateway.example.ts.net", "--no-strat"])).rejects.toThrow(
     "unknown option for install",
   );
-  await expect(main(["rotate-publisher-token", "--force"])).rejects.toThrow(
-    "unknown option for rotate-publisher-token",
+  await expect(main(["rotate-readiness-token", "--force"])).rejects.toThrow(
+    "unknown option for rotate-readiness-token",
   );
 });
 
@@ -98,7 +98,7 @@ const COMMAND_SURFACE: Readonly<Record<string, readonly string[]>> = {
   rollback: ["--to"],
   status: [],
   doctor: ["--bundle", "--output"],
-  "rotate-publisher-token": [],
+  "rotate-readiness-token": [],
   "serve-guidance": [],
   help: [],
   "--help": [],
@@ -469,15 +469,14 @@ async function writePrivateFile(path: string, content: string, mode: number): Pr
 }
 
 async function seedSandbox(root: string, seed: SandboxSeed): Promise<void> {
-  // Mirrors `defaultGatewayPaths()` under `sandboxEnvironment`. `runtimeDir` and `socketPath` are
-  // present for the `Pick<GatewayConfig, "paths">` shape and are read by nothing asserted here.
+  // Mirrors `defaultGatewayPaths()` under `sandboxEnvironment`. The runtime directory is present
+  // for the `Pick<GatewayConfig, "paths">` shape and is read by nothing asserted here.
   const configDir = join(root, "config", "omp-session-gateway");
   const paths: GatewayConfig["paths"] = {
     configDir,
     stateDir: join(root, "state", "omp-session-gateway"),
     runtimeDir: join(root, "tmp", "omp-session-gateway"),
-    socketPath: join(root, "tmp", "omp-session-gateway", "registry.sock"),
-    tokenPath: join(configDir, "publisher-token"),
+    tokenPath: join(configDir, "readiness-token"),
     configPath: join(configDir, "config.json"),
   };
   // Mirroring is the hazard. If `defaultGatewayPaths()` ever derives a different layout from this
@@ -589,8 +588,8 @@ const ACTIVE_VERSION = "0.1.0-1111aaaa2222";
 const PRIOR_VERSION = "0.1.0-3333bbbb4444";
 const ABSENT_VERSION = "0.1.0-5555cccc6666";
 
-/** Synthetic, and shaped like a publisher token so the private-file guards accept it. */
-const SEEDED_TOKEN = "synthetic-publisher-token-DO-NOT-SHIP-00000";
+/** Synthetic, and shaped like a readiness token so the private-file guards accept it. */
+const SEEDED_TOKEN = "synthetic-readiness-token-DO-NOT-SHIP-00000";
 
 const TAILSCALE_SERVE_CONFIG: Record<string, unknown> = {
   http: { publicOrigin: "https://gateway.example.ts.net" },
@@ -725,7 +724,7 @@ describe("rollback refusals against a seeded installation", () => {
       expect(run.stderr).toContain(refusal.message);
       if (refusal.outranked !== undefined) expect(run.stderr).not.toContain(refusal.outranked);
       // Nothing may move before the target is known: not the pointer, not the service definition,
-      // and not the runtime directory `loadPublisherToken` would create one line later.
+      // and not the runtime directory `loadReadinessToken` would create one line later.
       expect(run.after).toEqual(run.before);
     }, 30_000);
   }
@@ -841,7 +840,7 @@ describe("status JSON contract", () => {
     }, 30_000);
   }
 
-  test.skipIf(!POSIX)("reports nothing at all when the publisher token is not private", async () => {
+  test.skipIf(!POSIX)("reports nothing at all when the readiness token is not private", async () => {
     const run = await runSeeded({ config: TAILSCALE_SERVE_CONFIG, token: SEEDED_TOKEN, tokenMode: 0o644 }, ["status"]);
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("unsafe private file permissions");
@@ -867,7 +866,9 @@ describe("doctor JSON contract", () => {
     expect(lines).toHaveLength(1);
     const report = JSON.parse(lines[0] ?? "") as { service: string; checks: Record<string, unknown> };
     expect(report.service).toBe("omp-session-gateway");
-    expect(Object.values(report.checks).length).toBeGreaterThan(0);
+    expect(report.checks.discoveryReadable).toBe(false);
+    expect(report.checks.sessionHealth).toBe(false);
+    expect(report.checks.compatibility).toBe(false);
     expect(Object.values(report.checks).every(value => typeof value === "boolean")).toBe(true);
     expect(report.checks.config).toBe(false);
     // A report is a read: no bundle unless one was asked for, and no state either way.

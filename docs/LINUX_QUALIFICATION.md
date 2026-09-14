@@ -1,5 +1,23 @@
 # Linux qualification lane
 
+## Mainline qualification — pending
+
+Current source requires stock OMP `>= 18.1.20`, with `collab.autoStart` alone.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). The gateway reads discovery and queries hosts; it does not own a publisher
+socket or store capabilities. Mainline Linux qualification is **pending**. No historical test
+count, lifecycle pass, patched-binary result, signature, or release receipt below is mainline proof.
+
+## Fork-era procedure and evidence archive
+
+**Every procedure, requirement, result, and platform claim below is fork-era evidence**, retained
+for its named source/candidate and date. It is not the current installation manual. References to
+patches, publication tokens, named activation routes, old settings, script output fields, and
+“current” candidates mean the matching historical checkout. Use [OPERATIONS.md](OPERATIONS.md)
+for mainline setup and [RELEASE.md](RELEASE.md) for new candidate gates. Current qualification
+uses `UPSTREAM.lock.json` source pins rather than a patched tree; script retargeting is not a
+successful Linux rerun.
+
+
 One throwaway DigitalOcean droplet, driven by
 [`scripts/provision-linux-qual.sh`](../scripts/provision-linux-qual.sh), that produces measured
 evidence for five gaps in [`RELEASE_STATUS.md`](RELEASE_STATUS.md) at once.

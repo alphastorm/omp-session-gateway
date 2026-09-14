@@ -26,7 +26,7 @@ const required = [
   "docs/SECURITY.md",
   "docs/TEST_PLAN.md",
   "docs/UPGRADE_ROLLBACK.md",
-  "schemas/registry-message.schema.json",
+  "schemas/omp-host-registry.schema.json",
   "schemas/session-list.schema.json",
   "schemas/launch-request.schema.json",
   "schemas/launch-response.schema.json",
@@ -79,7 +79,7 @@ for (const file of await walk(rootPath)) {
 for (const rel of [
   "package.json",
   "UPSTREAM.lock.json",
-  "schemas/registry-message.schema.json",
+  "schemas/omp-host-registry.schema.json",
   "schemas/session-list.schema.json",
   "schemas/launch-request.schema.json",
   "schemas/launch-response.schema.json",

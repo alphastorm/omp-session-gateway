@@ -10,6 +10,8 @@ export const CAPABILITY_TEXT_EXTENSIONS = new Set([
   ".yaml",
   ".toml",
   ".txt",
+  ".sh",
+  ".ps1",
 ]);
 
 const patterns: readonly (readonly [string, RegExp])[] = [
@@ -27,10 +29,18 @@ const patterns: readonly (readonly [string, RegExp])[] = [
   ],
   ["long Bearer token", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~-]{40,}/giu],
   [
-    "OMP publisher token",
-    /(?:["']token["']\s*:\s*["']|publisher-token\s*[=:]\s*)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/giu,
+    "gateway readiness token",
+    /(?:["']token["']\s*:\s*["']|readiness-token\s*[=:]\s*)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/giu,
   ],
-  ["raw publisher token", /(?:^|[\0\r\n])[A-Za-z0-9_-]{43}(?=$|[\0\r\n])/gu],
+  ["raw readiness token", /(?:^|[\0\r\n])[A-Za-z0-9_-]{43}(?=$|[\0\r\n])/gu],
+  [
+    "OMP discovery token",
+    /(?:["']token["']\s*:\s*["']|\btoken\s*[=:]\s*)[0-9a-f]{64}(?![0-9a-f])/giu,
+  ],
+  [
+    "OMP collaboration fragment",
+    /#(?:[^\s"'<>]*\/)?[A-Za-z0-9_-]{10,64}(?:[.#]|%23)(?:[A-Za-z0-9_-]{43}|[A-Za-z0-9_-]{64})(?![A-Za-z0-9_-])/giu,
+  ],
 ];
 
 export interface CapabilityLeakFinding {

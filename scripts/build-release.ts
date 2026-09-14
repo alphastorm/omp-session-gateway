@@ -11,7 +11,6 @@ const defaultReleaseRoot = join(root, "dist", "release");
 const archiveBase = `omp-session-gateway-${PRODUCT_VERSION}-bun`;
 const BUNDLED_WORKSPACES = ["apps/gateway", "apps/web", "packages/collab-client"] as const;
 const COLLAB_WEB_LICENSE_PATH = "licenses/collab-web/LICENSE";
-const OMP_LICENSE_PATH = "licenses/oh-my-pi/LICENSE";
 
 interface ArchiveFile {
   readonly path: string;
@@ -51,6 +50,12 @@ export interface UpstreamLockfile {
   readonly commit: string;
   readonly tag: string;
   readonly packageVersions: Readonly<Record<string, string>>;
+}
+
+export interface VendoredClientLockfile {
+  readonly commit: string;
+  readonly tag: string;
+  readonly packageVersion: string;
 }
 
 interface RuntimeLicenseMetadata {
@@ -398,7 +403,7 @@ async function assertReleaseSourceMatchesCleanCheckout(source: ReleaseSource): P
  * signed-release.yml delegates exact tag classification to release-policy.ts and exports one of these
  * keys as OMP_RELEASE_CHANNEL. A tag selects a claim but never writes one. Pre-alpha covers both
  * engineering candidates and provenance exercises; alpha and beta retain their deliberately
- * bounded claims; stable names the recorded support matrix without widening it to stock OMP,
+ * bounded claims; stable names the recorded support matrix without widening it to
  * unadvertised platforms, alternate relays, or browser-process failures outside the PWA.
  */
 export const RELEASE_QUALIFICATIONS = {
@@ -406,9 +411,9 @@ export const RELEASE_QUALIFICATIONS = {
   alpha:
     "qualified alpha; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit; not beta, stable, or production-qualified",
   beta:
-    "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; not stable or production-qualified",
+    "qualified beta; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the mainline OMP prerequisite recorded in UPSTREAM.lock.json; not stable or production-qualified",
   stable:
-    "qualified stable; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the exact patched OMP baseline recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
+    "qualified stable; supported only for the hosts and client recorded in docs/COMPATIBILITY.md at this source commit, and only against the mainline OMP prerequisite recorded in UPSTREAM.lock.json; documented environment limitations and exclusions still apply",
 } as const;
 
 export type ReleaseChannel = keyof typeof RELEASE_QUALIFICATIONS;
@@ -445,7 +450,7 @@ export function releaseQualification(
 export function createSpdxSbom(
   lock: BunLockfile,
   source: ReleaseSource,
-  upstream: UpstreamLockfile,
+  client: VendoredClientLockfile,
   lockSha256: string,
 ): string {
   const dependencies = runtimeDependenciesFromLock(lock).map((dependency, index) => {
@@ -488,29 +493,17 @@ export function createSpdxSbom(
   const collabWebPackage = {
     name: "@oh-my-pi/collab-web",
     SPDXID: "SPDXRef-Vendored-Collab-Web",
-    versionInfo: upstream.packageVersions["@oh-my-pi/collab-web"] ?? "NOASSERTION",
-    downloadLocation: `https://github.com/can1357/oh-my-pi/tree/${upstream.commit}/packages/collab-web`,
+    versionInfo: client.packageVersion,
+    downloadLocation: `https://github.com/can1357/oh-my-pi/tree/${client.commit}/packages/collab-web`,
     filesAnalyzed: false,
     licenseConcluded: "MIT",
     licenseDeclared: "MIT",
     licenseComments: `License text: ${COLLAB_WEB_LICENSE_PATH}`,
     copyrightText:
       "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
-    sourceInfo: `Vendored from ${upstream.commit} (${upstream.tag}) with local modifications documented in THIRD_PARTY_NOTICES.md`,
+    sourceInfo: `Vendored from ${client.commit} (${client.tag}) with local modifications documented in THIRD_PARTY_NOTICES.md`,
   };
-  const codingAgentPatchPackage = {
-    name: "@oh-my-pi/pi-coding-agent-patch",
-    SPDXID: "SPDXRef-Patched-Coding-Agent",
-    versionInfo: upstream.packageVersions["@oh-my-pi/pi-coding-agent"] ?? "NOASSERTION",
-    downloadLocation: `https://github.com/can1357/oh-my-pi/tree/${upstream.commit}/packages/coding-agent`,
-    filesAnalyzed: false,
-    licenseConcluded: "MIT",
-    licenseDeclared: "MIT",
-    licenseComments: `License text: ${OMP_LICENSE_PATH}`,
-    copyrightText:
-      "Copyright (c) 2025 Mario Zechner\nCopyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
-    sourceInfo: `Patch derived from ${upstream.commit} (${upstream.tag}); archive path patches/oh-my-pi/0001-collab-controller-autostart-registry.patch`,
-  };
+
   return `${JSON.stringify(
     {
       spdxVersion: "SPDX-2.3",
@@ -522,7 +515,7 @@ export function createSpdxSbom(
         created: source.created,
         creators: ["Tool: omp-session-gateway deterministic release builder"],
       },
-      packages: [rootPackage, collabWebPackage, codingAgentPatchPackage, ...dependencies],
+      packages: [rootPackage, collabWebPackage, ...dependencies],
       relationships: [
         {
           spdxElementId: "SPDXRef-DOCUMENT",
@@ -533,11 +526,6 @@ export function createSpdxSbom(
           spdxElementId: rootPackage.SPDXID,
           relationshipType: "CONTAINS",
           relatedSpdxElement: collabWebPackage.SPDXID,
-        },
-        {
-          spdxElementId: rootPackage.SPDXID,
-          relationshipType: "CONTAINS",
-          relatedSpdxElement: codingAgentPatchPackage.SPDXID,
         },
         ...dependencies.map(dependency => ({
           spdxElementId: rootPackage.SPDXID,
@@ -623,23 +611,15 @@ async function buildRelease(): Promise<void> {
   const dependencies = runtimeDependenciesFromLock(lock);
   const notices = await readFile(join(root, "THIRD_PARTY_NOTICES.md"), "utf8");
   validateThirdPartyNotices(notices, dependencies);
-  const collabWebVersion = upstream.packageVersions["@oh-my-pi/collab-web"];
+  const client = JSON.parse(
+    await readFile(join(root, "packages/collab-client/upstream/UPSTREAM.json"), "utf8"),
+  ) as VendoredClientLockfile;
+  const collabWebVersion = client.packageVersion;
   if (collabWebVersion === undefined || !notices.includes(`@oh-my-pi/collab-web@${collabWebVersion}`)) {
     throw new Error("THIRD_PARTY_NOTICES.md is missing the vendored @oh-my-pi/collab-web component");
   }
   if (!notices.includes(COLLAB_WEB_LICENSE_PATH)) {
     throw new Error(`THIRD_PARTY_NOTICES.md is missing license location ${COLLAB_WEB_LICENSE_PATH}`);
-  }
-  const codingAgentVersion = upstream.packageVersions["@oh-my-pi/pi-coding-agent"];
-  if (
-    codingAgentVersion === undefined ||
-    !notices.includes(`@oh-my-pi/pi-coding-agent patch@${codingAgentVersion}`) ||
-    !notices.includes("patches/oh-my-pi/0001-collab-controller-autostart-registry.patch")
-  ) {
-    throw new Error("THIRD_PARTY_NOTICES.md is missing the OMP coding-agent patch component");
-  }
-  if (!notices.includes(OMP_LICENSE_PATH)) {
-    throw new Error(`THIRD_PARTY_NOTICES.md is missing license location ${OMP_LICENSE_PATH}`);
   }
   for (const dependency of dependencies) {
     const metadata = runtimeLicense(dependency);
@@ -657,7 +637,7 @@ async function buildRelease(): Promise<void> {
   ]);
   const staging = await mkdtemp(join(tmpdir(), "omp-session-gateway-release-"));
   const sbomName = `omp-session-gateway-${PRODUCT_VERSION}.spdx.json`;
-  const sbom = createSpdxSbom(lock, source, upstream, lockSha256);
+  const sbom = createSpdxSbom(lock, source, client, lockSha256);
   try {
     const cliDirectory = join(staging, "apps", "gateway", "src");
     await mkdir(cliDirectory, { recursive: true });
@@ -674,7 +654,6 @@ async function buildRelease(): Promise<void> {
     if (!build.success) throw new AggregateError(build.logs, "failed to bundle gateway CLI");
     await chmod(join(cliDirectory, "cli.js"), 0o755);
     await cp(join(root, "apps", "web", "dist"), join(staging, "apps", "web", "dist"), { recursive: true });
-    await cp(join(root, "patches", "oh-my-pi"), join(staging, "patches", "oh-my-pi"), { recursive: true });
     await cp(join(root, "licenses"), join(staging, "licenses"), { recursive: true });
     await mkdir(join(staging, "licenses", "collab-web"), { recursive: true });
     await cp(

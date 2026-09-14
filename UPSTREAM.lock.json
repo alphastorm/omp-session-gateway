@@ -1,13 +1,13 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-09-08",
+  "observedAt": "2026-09-14",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v18.1.14",
-  "commit": "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e",
-  "packageVersion": "18.1.14",
+  "tag": "v18.1.20",
+  "commit": "1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b",
+  "packageVersion": "18.1.20",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "18.1.14",
+    "@oh-my-pi/pi-coding-agent": "18.1.20",
     "@oh-my-pi/pi-wire": "18.1.14",
     "@oh-my-pi/collab-web": "16.3.6"
   },
@@ -18,6 +18,7 @@
     "package.json",
     "packages/coding-agent/src/collab/host.ts",
     "packages/coding-agent/src/modes/controllers/extension-ui-controller.ts",
+    "packages/coding-agent/src/collab/registry.ts",
     "packages/coding-agent/src/modes/types.ts",
     "packages/coding-agent/src/config/settings-schema.ts",
     "packages/coding-agent/src/slash-commands/builtin-registry.ts",
@@ -27,10 +28,15 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Pinned to upstream tag v18.1.14 as observed on 2026-09-08; the previous gateway pin was v17.4.1 / 9350b7990d26ebf69a604edc82d8558ef04adf30. Published releases retain their original pins and qualification.",
-    "The standalone mbox uses the maintained v18.1.14 gateway-collaboration series and carries the gateway-specific encrypted health probes and response acknowledgements. See patches/oh-my-pi/README.md for exact patch provenance and verification.",
-    "No supported extension collaboration controller exists at this commit; the slash command directly owns CollabHost.",
-    "The collab-web connect path writes the capability to location.hash, so the gateway integration requires a reviewed in-memory bootstrap patch.",
-    "The vendored client preserves the gateway in-memory bootstrap and local browser patches recorded in packages/collab-client/upstream/UPSTREAM.json. It keeps npm marked so the bundled runtime closure stays pure JavaScript instead of pulling @oh-my-pi/pi-natives and its per-platform binaries."
-  ]
+    "Pinned to mainline OMP v18.1.20. Upstream PR #11908 merged the collaboration controller and host registry; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
+    "The gateway reads OMP discovery files and queries each host for metadata snapshots. View and Control links are resolved on demand; OMP requires only collab.autoStart, with no gateway-facing credential or integration patch.",
+    "Discovery endpoints are read from each owner-only file, including upstream socket-path relocation; the gateway never modifies OMP discovery state.",
+    "The vendored collab-web client and npm pi-wire pins remain unchanged. Client provenance and the in-memory bootstrap modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
+    "The Darwin arm64 native hashes identify the official 18.1.20 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
+  ],
+  "tree": "aca949970fb8b73170b05f6a23bf18e23fb5841f",
+  "darwinArm64Native": {
+    "tarballSha256": "82b8e4b47e76766f12058648fe26a11acc969973fb6a69a55682a3cc587c4b3e",
+    "binarySha256": "a729f425fe7eb6e0fc673c6977749eeb161369d68ee815488020048a7a5ed807"
+  }
 }

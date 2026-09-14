@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   PUSH_API_VERSION,
   type BrowserPushSubscription,
-  type PublishedSessionInput,
+  type ObservedSessionInput,
   type PushSubscriptionKeys,
   parseAttentionPushMessage,
   parsePushSubscriptionRequest,
@@ -43,19 +43,19 @@ function config(root: string): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317" },
     auth: { mode: "dev-localhost", allowedLogins: [] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 },
+    omp: { discoveryDir: join(root, "omp", "run", "collab-hosts"), queryTimeoutMs: 1_500 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 100 },
     paths: {
       configDir: join(root, "config"),
       stateDir: join(root, "state"),
       runtimeDir: join(root, "run"),
-      socketPath: join(root, "run", "registry.sock"),
-      tokenPath: join(root, "config", "publisher-token"),
+      tokenPath: join(root, "config", "readiness-token"),
       configPath: join(root, "config", "config.json"),
     },
   };
 }
 
-function published(inputRequired: boolean, generation = 1): PublishedSessionInput {
+function observedSession(inputRequired: boolean, generation = 1): ObservedSessionInput {
   return {
     instanceId: "push-instance-000001",
     generation,
@@ -66,8 +66,7 @@ function published(inputRequired: boolean, generation = 1): PublishedSessionInpu
     model: "provider/model",
     startedAt: "2026-07-24T00:00:00.000Z",
     inputRequired,
-    viewLink: `VIEW_CAPABILITY_CANARY_${"V".repeat(20)}`,
-    controlLink: `CONTROL_CAPABILITY_CANARY_${"C".repeat(20)}`,
+    canControl: true,
   };
 }
 
@@ -186,10 +185,12 @@ describe("Web Push service", () => {
       );
     }
 
-    registry.upsert("owner", published(false));
-    registry.upsert("owner", published(true));
-    registry.upsert("owner", published(true));
-    registry.upsert("owner", published(false));
+    registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
+    // Identical polls coalesce; a visible update while the host keeps asking re-pings the same request.
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
+    registry.reconcile({ observed: [{ ...observedSession(true), model: "provider/updated" }], retained: new Set() });
+    registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
     await service.flush();
 
     expect(transport.calls).toHaveLength(9);
@@ -239,8 +240,8 @@ describe("Web Push service", () => {
       }),
     );
 
-    registry.upsert("owner", published(false));
-    registry.upsert("owner", published(true));
+    registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
     await service.flush();
     await service.stop();
 
@@ -281,7 +282,7 @@ describe("Web Push service", () => {
     transport.blockWhen = candidate => keyLabel(candidate.keys) === "previous";
 
     const blockedSend = transport.nextBlockedSend();
-    registry.upsert("owner", published(true));
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
     const settleBlockedSend = await blockedSend;
     expect(transport.calls.map(call => keyLabel(call.subscription.keys))).toEqual(["previous"]);
 
@@ -296,14 +297,14 @@ describe("Web Push service", () => {
     expect(await storedLabels()).toEqual(["renewed"]);
 
     const deliveredBeforeClear = transport.calls.length;
-    registry.upsert("owner", published(false));
+    registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
     await service.flush();
     const afterRenewal = transport.calls.slice(deliveredBeforeClear);
     expect(afterRenewal.map(call => keyLabel(call.subscription.keys))).toEqual(["renewed"]);
     expect(afterRenewal.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual(["clear"]);
 
     transport.statusCode = 410;
-    registry.upsert("owner", published(true));
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
     await service.flush();
     expect(await storedLabels()).toEqual([]);
 

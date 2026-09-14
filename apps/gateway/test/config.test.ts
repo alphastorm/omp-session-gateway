@@ -1,24 +1,23 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import {
   type ConfigOverrides,
   type GatewayConfig,
-  assertPublisherTokenPrivate,
-  assertSocketPrivate,
+  assertReadinessTokenPrivate,
   captureGatewayConfigFile,
   defaultGatewayPaths,
   ensureRuntimeDirectories,
   loadGatewayConfig,
-  loadOrCreatePublisherToken,
-  loadPublisherToken,
-  publisherTokenMatches,
+  loadOrCreateReadinessToken,
+  loadReadinessToken,
+  readinessTokenMatches,
   publicOriginHttpsPort,
   readPrivateTextFile,
-  removeRuntimeSocket,
+  removeLegacyPublisherToken,
   restoreGatewayConfigFile,
-  rotatePublisherToken,
+  rotateReadinessToken,
   writeGatewayConfigFile,
   writePrivateTextFile,
 } from "../src/config.ts";
@@ -40,13 +39,13 @@ function configForRoot(root: string): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317" },
     auth: { mode: "dev-localhost", allowedLogins: [] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
+    omp: { discoveryDir: join(root, "omp", "run", "collab-hosts"), queryTimeoutMs: 1_500 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10 },
     paths: {
       configDir: join(root, "config"),
       stateDir: join(root, "state"),
       runtimeDir: join(root, "run"),
-      socketPath: join(root, "run", "registry.sock"),
-      tokenPath: join(root, "config", "publisher-token"),
+      tokenPath: join(root, "config", "readiness-token"),
       configPath: join(root, "config", "config.json"),
     },
   };
@@ -120,7 +119,7 @@ function devDocument(patch: ConfigPatch = {}): Record<string, unknown> {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317", ...patch.http },
     auth: { mode: "dev-localhost", allowedLogins: [], ...patch.auth },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10, ...patch.registry },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10, ...patch.registry },
   };
 }
 
@@ -133,7 +132,7 @@ describe("secure config", () => {
       JSON.stringify({
         http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
         auth: { mode: "tailscale-serve", allowedLogins: [" User@Example.COM "] },
-        registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 25, maxSessions: 25 },
+        registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 25 },
       }),
       { mode: 0o600 },
     );
@@ -248,21 +247,21 @@ describe("secure config", () => {
     await expect(loadGatewayConfig({ configPath: path, mode: "dev-localhost" })).rejects.toThrow("unsafe");
   });
 
-  test("creates and rotates a private 256-bit publisher token without printing it", async () => {
+  test("creates and rotates a private 256-bit readiness token without printing it", async () => {
     const root = await privateRoot();
     const config = configForRoot(root);
-    const first = await loadOrCreatePublisherToken(config);
+    const first = await loadOrCreateReadinessToken(config);
     const file = await lstat(config.paths.tokenPath);
     expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(file.isFile()).toBeTrue();
     if (process.platform !== "win32") expect(file.mode & 0o077).toBe(0);
-    expect(await loadOrCreatePublisherToken(config)).toBe(first);
-    const second = await rotatePublisherToken(config);
-    expect(await loadOrCreatePublisherToken(config)).toBe(second);
+    expect(await loadOrCreateReadinessToken(config)).toBe(first);
+    const second = await rotateReadinessToken(config);
+    expect(await loadOrCreateReadinessToken(config)).toBe(second);
     expect(second).not.toBe(first);
-    expect(publisherTokenMatches(second, second)).toBeTrue();
-    expect(publisherTokenMatches(second, `${second}x`)).toBeFalse();
-    expect(publisherTokenMatches(second, first)).toBeFalse();
+    expect(readinessTokenMatches(second, second)).toBeTrue();
+    expect(readinessTokenMatches(second, `${second}x`)).toBeFalse();
+    expect(readinessTokenMatches(second, first)).toBeFalse();
   }, 20_000);
 
   test("rotation remediates an unsafe token leaf without following it", async () => {
@@ -271,9 +270,9 @@ describe("secure config", () => {
     await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
     await writeFile(config.paths.tokenPath, `${"A".repeat(43)}\n`, { mode: 0o644 });
     await makeFixtureUnsafe(config.paths.tokenPath);
-    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("unsafe");
-    const rotated = await rotatePublisherToken(config);
-    expect(await loadOrCreatePublisherToken(config)).toBe(rotated);
+    await expect(loadOrCreateReadinessToken(config)).rejects.toThrow("unsafe");
+    const rotated = await rotateReadinessToken(config);
+    expect(await loadOrCreateReadinessToken(config)).toBe(rotated);
     const file = await lstat(config.paths.tokenPath);
     expect(file.isFile()).toBeTrue();
     if (process.platform !== "win32") expect(file.mode & 0o077).toBe(0);
@@ -288,13 +287,13 @@ describe("secure config", () => {
     const original = `${"A".repeat(43)}\n`;
     await writeFile(target, original, { mode: 0o600 });
     await symlink(target, config.paths.tokenPath);
-    const rotated = await rotatePublisherToken(config);
-    expect(await loadOrCreatePublisherToken(config)).toBe(rotated);
+    const rotated = await rotateReadinessToken(config);
+    expect(await loadOrCreateReadinessToken(config)).toBe(rotated);
     expect(await Bun.file(target).text()).toBe(original);
     expect((await lstat(config.paths.tokenPath)).isSymbolicLink()).toBeFalse();
   });
 
-  test("rejects oversized private config and publisher-token files before parsing", async () => {
+  test("rejects oversized private config and readiness-token files before parsing", async () => {
     const root = await privateRoot();
     const configPath = join(root, "oversized-config.json");
     await writeFile(configPath, " ".repeat(64 * 1_024 + 1), { mode: 0o600 });
@@ -302,10 +301,10 @@ describe("secure config", () => {
     await expect(loadGatewayConfig({ configPath, mode: "dev-localhost" })).rejects.toThrow("size limit");
 
     const config = configForRoot(root);
-    await loadOrCreatePublisherToken(config);
+    await loadOrCreateReadinessToken(config);
     await writeFile(config.paths.tokenPath, "A".repeat(46), { mode: 0o600 });
     await secureWindowsFixture(config.paths.tokenPath);
-    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow("invalid encoding or length");
+    await expect(loadOrCreateReadinessToken(config)).rejects.toThrow("invalid encoding or length");
   }, 20_000);
 });
 
@@ -391,6 +390,10 @@ describe("auth mode admission", () => {
     const loaded = await loadGatewayConfig({ configPath, mode: "dev-localhost" });
     expect(loaded.http.publicOrigin).toBe("http://127.0.0.1:4317");
     expect(loaded.auth.allowedLogins).toEqual([]);
+    expect(loaded.omp).toEqual({
+      discoveryDir: join(homedir(), process.env.PI_CONFIG_DIR ?? ".omp", "run", "collab-hosts"),
+      queryTimeoutMs: 1_500,
+    });
     expect(await Bun.file(configPath).exists()).toBe(false);
     await expect(loadGatewayConfig({ configPath })).rejects.toThrow(
       "tailscale-serve mode requires an exact HTTPS public origin",
@@ -491,15 +494,16 @@ describe("registry bounds admission", () => {
     );
   }, 20_000);
 
-  test("bounds the publisher and session ceilings", async () => {
-    const wide = (await loadDocument(devDocument({ registry: { maxPublishers: 1_000, maxSessions: 1 } }))).registry;
-    expect([wide.maxPublishers, wide.maxSessions]).toEqual([1_000, 1]);
-    await expect(loadDocument(devDocument({ registry: { maxPublishers: 0 } }))).rejects.toThrow(
-      "registry.maxPublishers must be an integer from 1 to 1000",
-    );
+  test("bounds the session ceiling and ignores the fork-era publisher ceiling", async () => {
+    const wide = (await loadDocument(devDocument({ registry: { maxSessions: 1 } }))).registry;
+    expect(wide.maxSessions).toBe(1);
     await expect(loadDocument(devDocument({ registry: { maxSessions: 1_001 } }))).rejects.toThrow(
       "registry.maxSessions must be an integer from 1 to 1000",
     );
+    // A config written by a fork-era gateway still carries `maxPublishers`. Installing over one has
+    // to keep working, and the value has to stop meaning anything, so it loads and is not surfaced.
+    const legacy = await loadDocument(devDocument({ registry: { maxSessions: 7 } }));
+    expect(legacy.registry).toEqual({ heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 7 });
   }, 20_000);
 });
 
@@ -565,39 +569,39 @@ describe("private file admission", () => {
     expect((await loadGatewayConfig({ configPath })).http.port).toBe(4317);
   });
 
-  test("refuses a readable publisher token and never mints one on a plain load", async () => {
+  test("refuses a readable readiness token and never mints one on a plain load", async () => {
     if (process.platform === "win32") return;
     const root = await privateRoot();
     const config = configForRoot(root);
-    await expect(loadPublisherToken(config)).rejects.toThrow("ENOENT");
+    await expect(loadReadinessToken(config)).rejects.toThrow("ENOENT");
     expect(await Bun.file(config.paths.tokenPath).exists()).toBe(false);
-    const token = await loadOrCreatePublisherToken(config);
-    await assertPublisherTokenPrivate(config);
+    const token = await loadOrCreateReadinessToken(config);
+    await assertReadinessTokenPrivate(config);
     await chmod(config.paths.tokenPath, 0o640);
-    await expect(assertPublisherTokenPrivate(config)).rejects.toThrow(
+    await expect(assertReadinessTokenPrivate(config)).rejects.toThrow(
       `unsafe private file permissions: ${config.paths.tokenPath}`,
     );
     await chmod(config.paths.tokenPath, 0o600);
-    expect(await loadPublisherToken(config)).toBe(token);
+    expect(await loadReadinessToken(config)).toBe(token);
     const target = join(root, "external-token");
     await writeFile(target, `${"A".repeat(43)}\n`, { mode: 0o600 });
     await rm(config.paths.tokenPath);
     await symlink(target, config.paths.tokenPath);
-    await expect(loadPublisherToken(config)).rejects.toThrow(`unsafe private file: ${config.paths.tokenPath}`);
+    await expect(loadReadinessToken(config)).rejects.toThrow(`unsafe private file: ${config.paths.tokenPath}`);
   }, 20_000);
 
   test("refuses to use a token directory that any other account could enter", async () => {
     if (process.platform === "win32") return;
     const config = configForRoot(await privateRoot());
-    const token = await loadOrCreatePublisherToken(config);
+    const token = await loadOrCreateReadinessToken(config);
     for (const mode of [0o750, 0o701, 0o777]) {
       await chmod(config.paths.configDir, mode);
-      await expect(loadPublisherToken(config)).rejects.toThrow(
+      await expect(loadReadinessToken(config)).rejects.toThrow(
         `unsafe private directory: ${config.paths.configDir}`,
       );
     }
     await chmod(config.paths.configDir, 0o700);
-    expect(await loadPublisherToken(config)).toBe(token);
+    expect(await loadReadinessToken(config)).toBe(token);
   }, 20_000);
 
   test("accepts a config file at exactly the size limit", async () => {
@@ -650,7 +654,7 @@ describe("public origin admission", () => {
   }, 20_000);
 });
 
-describe("publisher token admission", () => {
+describe("readiness token admission", () => {
   async function tokenFixture(content: string): Promise<GatewayConfig> {
     const config = configForRoot(await privateRoot());
     await mkdir(config.paths.configDir, { recursive: true, mode: 0o700 });
@@ -664,7 +668,7 @@ describe("publisher token admission", () => {
     const config = await tokenFixture("");
     for (const content of [token, `${token}\n`, `${token}\r\n`]) {
       await writeFile(config.paths.tokenPath, content);
-      expect(await loadPublisherToken(config)).toBe(token);
+      expect(await loadReadinessToken(config)).toBe(token);
     }
   }, 20_000);
 
@@ -688,11 +692,11 @@ describe("publisher token admission", () => {
     const cases = process.platform === "win32" ? [malformed[0] ?? "", malformed[3] ?? ""] : malformed;
     for (const content of cases) {
       const config = await tokenFixture(content);
-      await expect(loadPublisherToken(config)).rejects.toThrow("publisher token has invalid encoding or length");
+      await expect(loadReadinessToken(config)).rejects.toThrow("readiness token has invalid encoding or length");
       // A corrupt token must fail loudly. Minting over it would revoke every publisher's capability
       // while reporting success, and the operator would have no way to tell that from a clean start.
-      await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
-        "publisher token has invalid encoding or length",
+      await expect(loadOrCreateReadinessToken(config)).rejects.toThrow(
+        "readiness token has invalid encoding or length",
       );
       expect(await readFile(config.paths.tokenPath, "utf8")).toBe(content);
     }
@@ -702,7 +706,7 @@ describe("publisher token admission", () => {
     const config = configForRoot(await privateRoot());
     await mkdir(config.paths.tokenPath, { recursive: true, mode: 0o700 });
     await writeFile(join(config.paths.tokenPath, "occupant"), "not a token\n", { mode: 0o600 });
-    await expect(rotatePublisherToken(config)).rejects.toThrow("refusing to replace a non-file publisher token path");
+    await expect(rotateReadinessToken(config)).rejects.toThrow("refusing to replace a non-file readiness token path");
     expect(await readdir(config.paths.tokenPath)).toEqual(["occupant"]);
   }, 20_000);
 });
@@ -718,7 +722,7 @@ describe("private directory admission", () => {
     await expect(ensureRuntimeDirectories(config)).rejects.toThrow(
       `unsafe private directory: ${config.paths.configDir}`,
     );
-    await expect(loadOrCreatePublisherToken(config)).rejects.toThrow(
+    await expect(loadOrCreateReadinessToken(config)).rejects.toThrow(
       `unsafe private directory: ${config.paths.configDir}`,
     );
     // The refusal has to happen before anything is written: a token minted through the link would
@@ -858,70 +862,41 @@ describe("config snapshot restore", () => {
   });
 });
 
-describe("registry socket admission", () => {
-  test("accepts only a private socket at the derived runtime path", async () => {
-    if (process.platform === "win32") return;
-    const root = await privateRoot();
-    const config = configForRoot(root);
-    await ensureRuntimeDirectories(config);
-    const server = Bun.listen({ unix: config.paths.socketPath, socket: { data() {} } });
-    try {
-      await chmod(config.paths.socketPath, 0o600);
-      await assertSocketPrivate(config);
-      for (const mode of [0o660, 0o606, 0o666]) {
-        await chmod(config.paths.socketPath, mode);
-        await expect(assertSocketPrivate(config)).rejects.toThrow("registry socket permissions are unsafe");
-      }
-      await chmod(config.paths.socketPath, 0o600);
-      await assertSocketPrivate(config);
-      // The location is part of the guarantee, not decoration: a socket whose parent is not the
-      // runtime directory has not been covered by that directory's privacy assertion.
-      await expect(
-        assertSocketPrivate({ ...config, paths: { ...config.paths, runtimeDir: join(root, "elsewhere") } }),
-      ).rejects.toThrow("unexpected registry socket path");
-    } finally {
-      server.stop(true);
-    }
-  }, 20_000);
-
-  test("refuses a regular file standing in for the registry socket", async () => {
-    if (process.platform === "win32") return;
+describe("legacy publisher credential removal", () => {
+  test("removes the retired file without changing the readiness token", async () => {
     const config = configForRoot(await privateRoot());
-    await ensureRuntimeDirectories(config);
-    await writeFile(config.paths.socketPath, "not a socket", { mode: 0o600 });
-    await expect(assertSocketPrivate(config)).rejects.toThrow("registry socket permissions are unsafe");
-    await expect(removeRuntimeSocket(config)).rejects.toThrow("refusing to replace unsafe registry endpoint");
-    expect(await readFile(config.paths.socketPath, "utf8")).toBe("not a socket");
+    const readinessToken = await loadOrCreateReadinessToken(config);
+    const legacyPath = join(config.paths.configDir, "publisher-token");
+    await writeFile(legacyPath, "L".repeat(43), { mode: 0o600 });
+
+    expect(await removeLegacyPublisherToken(config)).toBe(true);
+    expect(await Bun.file(legacyPath).exists()).toBe(false);
+    expect(await loadReadinessToken(config)).toBe(readinessToken);
   }, 20_000);
 
-  test("removes our own socket, tolerates an absent one, and refuses a symlinked one", async () => {
-    if (process.platform === "win32") return;
+  test("leaves an absent credential absent without creating private directories", async () => {
+    const config = configForRoot(await privateRoot());
+    expect(await removeLegacyPublisherToken(config)).toBe(false);
+    await expect(lstat(config.paths.configDir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("refuses to remove a directory or follow a symlink in place of the legacy file", async () => {
     const root = await privateRoot();
     const config = configForRoot(root);
-    await ensureRuntimeDirectories(config);
-    // The ordinary first start: nothing to remove is not an error.
-    await removeRuntimeSocket(config);
+    const legacyPath = join(config.paths.configDir, "publisher-token");
+    await mkdir(legacyPath, { recursive: true, mode: 0o700 });
+    expect(await removeLegacyPublisherToken(config)).toBe(false);
+    expect((await lstat(legacyPath)).isDirectory()).toBe(true);
 
-    const external = join(root, "external.sock");
-    const foreign = Bun.listen({ unix: external, socket: { data() {} } });
-    try {
-      await symlink(external, config.paths.socketPath);
-      await expect(removeRuntimeSocket(config)).rejects.toThrow("refusing to replace unsafe registry endpoint");
-      expect((await lstat(external)).isSocket()).toBeTrue();
-      await rm(config.paths.socketPath);
-    } finally {
-      foreign.stop(true);
-    }
-
-    const own = Bun.listen({ unix: config.paths.socketPath, socket: { data() {} } });
-    try {
-      expect((await lstat(config.paths.socketPath)).isSocket()).toBeTrue();
-      await removeRuntimeSocket(config);
-      expect(await Bun.file(config.paths.socketPath).exists()).toBe(false);
-    } finally {
-      own.stop(true);
-    }
-  }, 20_000);
+    if (process.platform === "win32") return;
+    await rm(legacyPath, { recursive: true });
+    const target = join(root, "external-token");
+    await writeFile(target, "untouched", { mode: 0o600 });
+    await symlink(target, legacyPath);
+    expect(await removeLegacyPublisherToken(config)).toBe(false);
+    expect((await lstat(legacyPath)).isSymbolicLink()).toBe(true);
+    expect(await readFile(target, "utf8")).toBe("untouched");
+  });
 });
 
 describe("private path derivation", () => {
@@ -941,11 +916,7 @@ describe("private path derivation", () => {
     expect(paths.configDir).toBe(join(root, "config", "omp-session-gateway"));
     expect(paths.stateDir).toBe(join(root, "state", "omp-session-gateway"));
     expect(paths.configPath).toBe(join(paths.configDir, "config.json"));
-    expect(paths.tokenPath).toBe(join(paths.configDir, "publisher-token"));
-    // `assertSocketPrivate` refuses a socket whose parent is not the runtime directory, so these two
-    // derivations have to agree or no gateway starts at all.
-    expect(dirname(paths.socketPath)).toBe(paths.runtimeDir);
-    expect(basename(paths.socketPath)).toBe("registry.sock");
+    expect(paths.tokenPath).toBe(join(paths.configDir, "readiness-token"));
   });
 
   test("falls back to the per-user home locations when no XDG override is set", () => {
@@ -962,7 +933,7 @@ describe("private path derivation", () => {
     process.env.XDG_RUNTIME_DIR = join(root, "run");
     if (process.platform === "darwin") {
       process.env.TMPDIR = join(root, "tmp");
-      // macOS has no XDG runtime directory. Honouring the Linux variable here would put the socket
+      // macOS has no XDG runtime directory. Honouring the Linux variable here would put runtime state
       // where a foreign `XDG_RUNTIME_DIR` says rather than in this account's own temporary tree.
       expect(defaultGatewayPaths().runtimeDir).toBe(join(root, "tmp", `omp-session-gateway-${process.getuid?.()}`));
     } else if (process.platform === "linux") {
@@ -999,7 +970,7 @@ describe("production config authoring", () => {
     return paths;
   }
 
-  test("writes a private serve-mode config that reloads to the same gateway", async () => {
+  test("round-trips a private serve-mode config without persisting the derived OMP section", async () => {
     const paths = await isolatedHome();
     const written = await writeGatewayConfigFile({
       publicOrigin: "https://gateway.example.ts.net",
@@ -1013,6 +984,10 @@ describe("production config authoring", () => {
     expect(written.auth.mode).toBe("tailscale-serve");
     expect(written.auth.allowedLogins).toEqual(["user@example.com", "other@example.com"]);
     expect(written.paths.configPath).toBe(paths.configPath);
+    expect(written.omp).toEqual({
+      discoveryDir: join(homedir(), process.env.PI_CONFIG_DIR ?? ".omp", "run", "collab-hosts"),
+      queryTimeoutMs: 1_500,
+    });
     if (process.platform !== "win32") {
       expect((await lstat(paths.configPath)).mode & 0o777).toBe(0o600);
       expect((await lstat(paths.configDir)).mode & 0o077).toBe(0);
@@ -1038,7 +1013,7 @@ describe("production config authoring", () => {
         allowedLogins: ["prior@example.com"],
         trustIdentityWithoutTailnetDevice: true,
       },
-      registry: { heartbeatSeconds: 7, ttlSeconds: 23, maxPublishers: 37, maxSessions: 83 },
+      registry: { heartbeatSeconds: 7, ttlSeconds: 23, maxSessions: 83 },
     };
     const priorText = JSON.stringify(priorDocument) + "\n";
     await writePrivateTextFile(paths.configPath, priorText);
