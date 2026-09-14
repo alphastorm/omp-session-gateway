@@ -12,7 +12,6 @@ import {
   FORBIDDEN_PNG_CHUNKS,
   GIF_TARGET_BYTES,
   MAX_BYTES,
-  MEDIA_DIRECTORY,
   MEDIA_DIRECTORY_NAMES,
   PNG_DIMENSIONS,
   POSTER_FRAME_INDEX,
@@ -35,6 +34,14 @@ export interface MediaCheckResult {
   readonly failures: readonly string[];
   readonly warnings: readonly string[];
 }
+
+export interface MediaCheckContext {
+  readonly repositoryRoot: string;
+  readonly runProcess: typeof runProcess;
+  readonly probeMedia: typeof probeMedia;
+}
+
+const DEFAULT_CHECK_CONTEXT: MediaCheckContext = { repositoryRoot: REPOSITORY_ROOT, runProcess, probeMedia };
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
@@ -128,6 +135,7 @@ function scanPublicSafety(path: string, text: string, failures: string[], byteBa
 }
 
 function validateManifestShape(value: unknown, failures: string[]): value is MediaManifest {
+  const initialFailureCount = failures.length;
   const path = "docs/media/manifest.json";
   if (!isJsonObject(value)) {
     addFailure(failures, path, "manifest root is not an object");
@@ -271,7 +279,7 @@ function validateManifestShape(value: unknown, failures: string[]): value is Med
       }
     }
   }
-  return true;
+  return failures.length === initialFailureCount;
 }
 
 function expectedProvenance(name: BinaryMediaName): MediaAssetManifestRecord["provenance"] {
@@ -321,12 +329,13 @@ function validateReadmeReferences(readme: string, mediaNames: Readonly<Record<st
 export async function validatePackagePins(
   manifest: Pick<MediaManifest, "upstreamClient" | "generatedBy">,
   failures: string[],
+  repositoryRoot = REPOSITORY_ROOT,
 ): Promise<void> {
-  const packageJson = JSON.parse(await readFile(join(REPOSITORY_ROOT, "package.json"), "utf8")) as {
+  const packageJson = JSON.parse(await readFile(join(repositoryRoot, "package.json"), "utf8")) as {
     readonly packageManager: string;
     readonly devDependencies: Readonly<Record<string, string>>;
   };
-  const upstream = JSON.parse(await readFile(join(REPOSITORY_ROOT, "packages/collab-client/upstream/UPSTREAM.json"), "utf8")) as {
+  const upstream = JSON.parse(await readFile(join(repositoryRoot, "packages/collab-client/upstream/UPSTREAM.json"), "utf8")) as {
     readonly tag: string;
     readonly commit: string;
     readonly packageVersion: string;
@@ -350,11 +359,11 @@ export async function validatePackagePins(
   }
 }
 
-async function validateToolAndSourcePins(manifest: MediaManifest, failures: string[]): Promise<void> {
-  await validatePackagePins(manifest, failures);
+async function validateToolAndSourcePins(manifest: MediaManifest, failures: string[], context: MediaCheckContext): Promise<void> {
+  await validatePackagePins(manifest, failures, context.repositoryRoot);
   const [ffmpegOutput, ffprobeOutput] = await Promise.all([
-    runProcess("ffmpeg", ["-version"]),
-    runProcess("ffprobe", ["-version"]),
+    context.runProcess("ffmpeg", ["-version"]),
+    context.runProcess("ffprobe", ["-version"]),
   ]);
   if (manifest.generatedBy.ffmpeg !== normalizedVersion(ffmpegOutput, "ffmpeg")) {
     addFailure(failures, "docs/media/manifest.json", "FFmpeg version differs from capture provenance");
@@ -363,18 +372,18 @@ async function validateToolAndSourcePins(manifest: MediaManifest, failures: stri
     addFailure(failures, "docs/media/manifest.json", "ffprobe version differs from capture provenance");
   }
   try {
-    await runProcess("git", ["cat-file", "-e", `${manifest.sourceRevision}^{commit}`]);
+    await context.runProcess("git", ["-C", context.repositoryRoot, "cat-file", "-e", `${manifest.sourceRevision}^{commit}`]);
   } catch {
     addFailure(failures, "docs/media/manifest.json", "source revision is not available in repository history");
   }
 }
 
-async function validateManifestInputs(manifest: MediaManifest, failures: string[]): Promise<void> {
+async function validateManifestInputs(manifest: MediaManifest, failures: string[], repositoryRoot: string): Promise<void> {
   const canonicalHashes: Readonly<Record<string, string>> = {
     "runtime:01-all-clear.png": manifest.assets["01-all-clear.png"].sha256,
     "runtime:02-needs-you.png": manifest.assets["02-needs-you.png"].sha256,
     "runtime:03-open-request.png": manifest.assets["03-open-request.png"].sha256,
-    "brand:assets/logo.svg": await sha256File(join(REPOSITORY_ROOT, "assets/logo.svg")),
+    "brand:assets/logo.svg": await sha256File(join(repositoryRoot, "assets/logo.svg")),
   };
   for (const name of BINARY_MEDIA_NAMES) {
     const record = manifest.assets[name];
@@ -397,8 +406,8 @@ async function validateManifestInputs(manifest: MediaManifest, failures: string[
   }
 }
 
-async function decodedGifHashes(path: string): Promise<readonly string[]> {
-  const frameMd5 = await runProcess("ffmpeg", [
+async function decodedGifHashes(path: string, execute: typeof runProcess): Promise<readonly string[]> {
+  const frameMd5 = await execute("ffmpeg", [
     "-v",
     "error",
     "-i",
@@ -415,7 +424,9 @@ async function decodedGifHashes(path: string): Promise<readonly string[]> {
     .map(line => line.split(",").at(-1)?.trim() ?? "");
 }
 
-export async function checkReadmeMedia(): Promise<MediaCheckResult> {
+export async function checkReadmeMedia(context: MediaCheckContext = DEFAULT_CHECK_CONTEXT): Promise<MediaCheckResult> {
+  const repositoryRoot = context.repositoryRoot;
+  const mediaDirectory = join(repositoryRoot, "docs/media");
   const failures: string[] = [];
   const warnings: string[] = [];
   const allowedNames: Readonly<Record<string, true>> = Object.fromEntries(
@@ -424,7 +435,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
 
   let directoryNames: string[] = [];
   try {
-    directoryNames = await readdir(MEDIA_DIRECTORY);
+    directoryNames = await readdir(mediaDirectory);
   } catch {
     addFailure(failures, "docs/media", "canonical media directory is missing");
     return { failures, warnings };
@@ -438,7 +449,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
 
   let manifest: MediaManifest | undefined;
   try {
-    const manifestText = await readFile(join(MEDIA_DIRECTORY, "manifest.json"), "utf8");
+    const manifestText = await readFile(join(mediaDirectory, "manifest.json"), "utf8");
     scanPublicSafety("docs/media/manifest.json", manifestText, failures);
     const parsed: unknown = JSON.parse(manifestText);
     if (validateManifestShape(parsed, failures)) manifest = parsed;
@@ -450,7 +461,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   // identifier- and URL-shaped strings. Public text and the manifest are scanned above; PNG text
   // chunks, GIF comments, and MP4 tags are rejected or scanned structurally below.
   for (const name of BINARY_MEDIA_NAMES) {
-    const path = join(MEDIA_DIRECTORY, name);
+    const path = join(mediaDirectory, name);
     try {
       const fileStat = await stat(path);
       if (!fileStat.isFile()) {
@@ -476,7 +487,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
 
   for (const [name, dimensions] of Object.entries(PNG_DIMENSIONS)) {
     try {
-      const info = parsePng(await readFile(join(MEDIA_DIRECTORY, name)));
+      const info = parsePng(await readFile(join(mediaDirectory, name)));
       if (info.width !== dimensions[0] || info.height !== dimensions[1]) {
         addFailure(failures, `docs/media/${name}`, "PNG dimensions differ from contract");
       }
@@ -494,7 +505,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   }
 
   try {
-    const gifPath = join(MEDIA_DIRECTORY, "omp-session-gateway-demo.gif");
+    const gifPath = join(mediaDirectory, "omp-session-gateway-demo.gif");
     const info = parseGif(await readFile(gifPath));
     if (info.width !== DEMO_WIDTH || info.height !== DEMO_HEIGHT) addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "GIF dimensions differ");
     if (info.frameCount !== DEMO_FRAME_COUNT) addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "GIF frame count differs");
@@ -503,7 +514,7 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
     if (!info.delaysCentiseconds.every(delay => delay === 10)) addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "GIF frames are not all 100ms");
     if (info.loopCount !== 0) addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "GIF is not an infinite loop");
     if (info.commentExtensions !== 0) addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "GIF contains comment metadata");
-    const hashes = await decodedGifHashes(gifPath);
+    const hashes = await decodedGifHashes(gifPath, context.runProcess);
     if (hashes.length !== DEMO_FRAME_COUNT || hashes[0] !== hashes.at(-1)) {
       addFailure(failures, "docs/media/omp-session-gateway-demo.gif", "decoded first and last frames do not form the authored calm loop");
     }
@@ -512,8 +523,8 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   }
 
   try {
-    const mp4Path = join(MEDIA_DIRECTORY, "omp-session-gateway-demo.mp4");
-    const [bytes, probe] = await Promise.all([readFile(mp4Path), probeMedia(mp4Path)]);
+    const mp4Path = join(mediaDirectory, "omp-session-gateway-demo.mp4");
+    const [bytes, probe] = await Promise.all([readFile(mp4Path), context.probeMedia(mp4Path)]);
     const atoms = parseTopLevelMp4Atoms(bytes);
     const moov = atoms.indexOf("moov");
     const mdat = atoms.indexOf("mdat");
@@ -540,21 +551,21 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   }
 
   const textPaths = [
-    join(REPOSITORY_ROOT, "scripts/media/readme-media-contract.ts"),
-    join(REPOSITORY_ROOT, "scripts/media/readme-media-compositor.ts"),
-    join(REPOSITORY_ROOT, "scripts/media/capture-readme-media.ts"),
-    join(MEDIA_DIRECTORY, "README.md"),
+    join(repositoryRoot, "scripts/media/readme-media-contract.ts"),
+    join(repositoryRoot, "scripts/media/readme-media-compositor.ts"),
+    join(repositoryRoot, "scripts/media/capture-readme-media.ts"),
+    join(mediaDirectory, "README.md"),
   ];
   for (const path of textPaths) {
     try {
-      scanPublicSafety(relative(REPOSITORY_ROOT, path), await readFile(path, "utf8"), failures);
+      scanPublicSafety(relative(repositoryRoot, path), await readFile(path, "utf8"), failures);
     } catch {
-      addFailure(failures, relative(REPOSITORY_ROOT, path), "public-safety source is unreadable");
+      addFailure(failures, relative(repositoryRoot, path), "public-safety source is unreadable");
     }
   }
 
   try {
-    const provenance = await readFile(join(MEDIA_DIRECTORY, "README.md"), "utf8");
+    const provenance = await readFile(join(mediaDirectory, "README.md"), "utf8");
     const markers = [
       "synthetic",
       "capture-only",
@@ -572,15 +583,15 @@ export async function checkReadmeMedia(): Promise<MediaCheckResult> {
   }
 
   try {
-    const readme = await readFile(join(REPOSITORY_ROOT, "README.md"), "utf8");
+    const readme = await readFile(join(repositoryRoot, "README.md"), "utf8");
     validateReadmeReferences(readme, allowedNames, failures);
   } catch {
     addFailure(failures, "README.md", "root README is unreadable");
   }
 
   if (manifest !== undefined) {
-    await validateToolAndSourcePins(manifest, failures);
-    await validateManifestInputs(manifest, failures);
+    await validateToolAndSourcePins(manifest, failures, context);
+    await validateManifestInputs(manifest, failures, repositoryRoot);
     const animation = manifest.assets["omp-session-gateway-demo.gif"];
     if (
       animation.width !== DEMO_WIDTH ||
