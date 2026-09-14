@@ -18,46 +18,9 @@ jobs:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - name: Check out pinned OMP source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: can1357/oh-my-pi
-          ref: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
-          path: .qualification/oh-my-pi
-          persist-credentials: false
-      - name: Verify and test the Windows mainline OMP registry
-        shell: pwsh
-        run: |
-          $upstream = "$env:GITHUB_WORKSPACE\.qualification\oh-my-pi"
-          if ((git -C $upstream rev-parse HEAD) -ne "1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b") { throw "OMP source commit differs from the pin" }
-          if ((git -C $upstream rev-parse 'HEAD^{tree}') -ne "aca949970fb8b73170b05f6a23bf18e23fb5841f") { throw "OMP source tree differs from the pin" }
-          Push-Location $upstream
-          try {
-            bun install --frozen-lockfile
-            if ($LASTEXITCODE -ne 0) { throw "OMP dependencies failed to install" }
-            # The source workspace shadows npm; stage the published Windows addon explicitly.
-            $nativeFixture = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString("N"))
-            New-Item -ItemType Directory -Path $nativeFixture | Out-Null
-            try {
-              '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-win32-x64":"18.1.20"}}' |
-                Set-Content -LiteralPath (Join-Path $nativeFixture "package.json") -Encoding utf8
-              Push-Location $nativeFixture
-              try {
-                bun install --ignore-scripts
-                if ($LASTEXITCODE -ne 0) { throw "OMP Windows native failed to install" }
-              } finally {
-                Pop-Location
-              }
-              Copy-Item -LiteralPath (Join-Path $nativeFixture "node_modules/@oh-my-pi/pi-natives-win32-x64/pi_natives.win32-x64-baseline.node") -Destination "packages/natives/native/pi_natives.win32-x64-baseline.node"
-            } finally {
-              Remove-Item -LiteralPath $nativeFixture -Recurse -Force
-            }
-            # Gate the registry contract we consume, not unrelated upstream suites or repo checks.
-            bun test packages/coding-agent/test/collab/registry.test.ts packages/coding-agent/test/collab/registry-smoke.test.ts packages/coding-agent/test/collab/host-registry.test.ts
-            if ($LASTEXITCODE -ne 0) { throw "OMP Windows registry tests failed" }
-          } finally {
-            Pop-Location
-          }
+      # Gateway-only gate: real Windows OMP discovery remains unqualified. Upstream registry
+      # fixtures assume POSIX signal shutdown and crash Bun 1.4.0 on Windows (run 34818847249).
+      # Keep upstream contract coverage on Linux ARM64; do not mask failures with skips/retries.
       - name: Validate Windows contracts and ACLs
         run: bun test apps/gateway/test/config.test.ts apps/gateway/test/omp-registry.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
       - name: Install and start current-user task
@@ -183,9 +146,9 @@ jobs:
   # What a green run proves, on aarch64:
   #   - the repository suite, every workspace typecheck, and the production PWA build;
   #   - that unmodified mainline OMP matches its commit and tree pins and its registry fixtures
-  #     pass, exercising discovery and authenticated per-host socket queries. Both platform jobs
-  #     gate the upstream registry contract we consume, not unrelated collab/relay suites or full
-  #     upstream repo checks. Those remain upstream's responsibility.
+  #     pass, exercising discovery and authenticated per-host socket queries. This job gates the
+  #     upstream registry contract we consume, not unrelated collab/relay suites or full upstream
+  #     repo checks. The Windows job above gates only gateway contracts and service lifecycle.
   #
   # What a green run does NOT prove. It is not arm64 platform qualification:
   #   - no service is installed, so nothing here bears on a host lifecycle row. `install` on Linux

@@ -79,9 +79,11 @@ not qualify an actual OMP binary, native host, relay, or physical client.
 - require stock OMP `>= 18.1.20`, `collab.autoStart` only, and plain `omp` startup;
 - exercise the integration and pending qualification contract in `docs/OMP_INTEGRATION.md`;
 - keep upstream controller tests upstream; do not recreate a downstream OMP patch suite.
-- Windows and Linux ARM64 source-checkout CI stages the pinned platform native and runs only
+- Linux ARM64 source-checkout CI stages the pinned platform native and runs only
   upstream `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`; gateway
   gates cover the discovery/query contract, not upstream's unrelated suites or full repo checks.
+- Windows CI covers gateway contracts, ACLs, and service lifecycle only; upstream Windows registry
+  tests and real named-pipe discovery remain outside this gate and unqualified.
 
 ## 2. Secret-leak test harness
 

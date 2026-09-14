@@ -21,11 +21,14 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
-The Windows and Linux ARM64 source-checkout jobs stage their published platform native packages
-at `18.1.20` and run upstream's `registry.test.ts`, `registry-smoke.test.ts`, and
-`host-registry.test.ts`. They gate only the discovery/query contract consumed by the gateway,
-not upstream's unrelated collaboration suites or full repository checks. They do not qualify
-either platform's real OMP-to-gateway discovery path; Windows remains unadvertised.
+The Linux ARM64 source-checkout job stages its published platform native package at `18.1.20`
+and runs upstream's `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`.
+It gates only the discovery/query contract consumed by the gateway, not unrelated upstream
+collaboration suites or full repository checks. The required Windows job gates gateway contracts,
+ACLs, and service lifecycle only. In [run 34818847249](https://github.com/alphastorm/omp-session-gateway/actions/runs/34818847249),
+native staging succeeded, but upstream's graceful SIGTERM fixture received exit 143 rather than
+0, followed by a Bun 1.4.0 crash during registry tests. Neither job qualifies real OMP-to-gateway
+discovery on Windows; its named-pipe path remains unverified and Windows remains unadvertised.
 
 ## Fork-era published-release history
 
