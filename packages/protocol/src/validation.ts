@@ -283,7 +283,8 @@ export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
     generation: requireInteger(record.generation, 1),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
     sessionId: record.sessionId,
-    startedAt: requireInteger(record.startedAt, 0),
+    // ECMAScript TimeClip limit: every accepted timestamp must survive ISO projection.
+    startedAt: requireInteger(record.startedAt, 0, 8_640_000_000_000_000),
     participants: requireInteger(record.participants, 0),
     relayConnected: record.relayConnected,
     inputRequired: record.inputRequired,

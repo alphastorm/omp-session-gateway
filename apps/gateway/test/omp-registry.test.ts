@@ -7,10 +7,10 @@
  * is a property of that wire rather than of the gateway's own code.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OMP_REGISTRY_VERSION } from "@omp-session-gateway/protocol";
+import { MAX_LABEL_CODEPOINTS, OMP_REGISTRY_VERSION } from "@omp-session-gateway/protocol";
 import {
   OmpHostReader,
   OmpLaunchResolver,
@@ -125,6 +125,7 @@ async function hostDouble(directory: string, options: HostDoubleOptions = {}): P
       },
     },
   });
+  if (process.platform !== "win32") await chmod(endpoint, 0o600);
   const metaPath = join(directory, `${entryId}.json`);
   await writeFile(
     metaPath,
@@ -154,6 +155,74 @@ function reader(directory: string): OmpHostReader {
 }
 
 describe("OMP discovery directory", () => {
+  test("retired admitted hosts release capacity even when discovery remains overfull", async () => {
+    const directory = await discoveryDirectory();
+    const first = await hostDouble(directory);
+    const second = await hostDouble(directory, { instanceId: "bbbb2222cccc3333" });
+    const subject = new OmpHostReader({ directory, maxEntries: 2, timeoutMs: 500 });
+    expect((await subject.observe()).hosts).toHaveLength(2);
+    await first.unpublish();
+    await second.unpublish();
+    for (let index = 0; index < 6; index++) {
+      await hostDouble(directory, { instanceId: "cccc3333dddd444" + index });
+    }
+    await subject.observe();
+    const replacement = await subject.observe();
+    expect(replacement.hosts).toHaveLength(2);
+    expect(subject.entryFor(first.instanceId)).toBeUndefined();
+    expect(subject.entryFor(second.instanceId)).toBeUndefined();
+  });
+
+  test("bounds admitted hosts and queries before the registry sees a directory", async () => {
+    const directory = await discoveryDirectory();
+    const hosts = [];
+    for (let index = 0; index < 6; index++) {
+      hosts.push(await hostDouble(directory, { instanceId: "aaaa1111bbbb222" + index }));
+    }
+    const subject = new OmpHostReader({ directory, maxEntries: 2, timeoutMs: 500 });
+    const observation = await subject.observe();
+    expect(observation.hosts).toHaveLength(2);
+    expect(hosts.reduce((count, host) => count + host.requests.length, 0)).toBe(2);
+    expect(await subject.listEntries()).toHaveLength(2);
+  });
+
+  test.skipIf(process.platform === "win32")("refuses non-private directories, symlinked files, and non-private publications", async () => {
+    const directory = await discoveryDirectory();
+    const host = await hostDouble(directory);
+    const subject = reader(directory);
+    const file = join(directory, host.entryId + ".json");
+    await chmod(directory, 0o755);
+    expect(await subject.directoryUsable()).toBe(false);
+    expect((await subject.observe()).hosts).toEqual([]);
+    await chmod(directory, 0o700);
+    await chmod(file, 0o644);
+    expect(await subject.listEntries()).toEqual([]);
+    await chmod(file, 0o600);
+    const contents = await readFile(file);
+    const target = join(await discoveryDirectory(), "publication");
+    await writeFile(target, contents, { mode: 0o600 });
+    await rm(file);
+    await symlink(target, file);
+    expect(await subject.listEntries()).toEqual([]);
+    expect(host.requests).toEqual([]);
+    expect((await lstat(file)).isSymbolicLink()).toBe(true);
+  });
+
+  test("ignores oversized and non-regular files without disturbing valid discovery", async () => {
+    const directory = await discoveryDirectory();
+    const valid = await hostDouble(directory);
+    await writeFile(join(directory, "oversized-entry.json"), " ".repeat(64 * 1024 + 1), { mode: 0o600 });
+    await mkdir(join(directory, "directory-entry.json"), { mode: 0o700 });
+    const fifo = join(directory, "fifo-entry.json");
+    if (process.platform !== "win32") {
+      const create = Bun.spawn(["mkfifo", "-m", "600", fifo], { stdout: "pipe", stderr: "pipe" });
+      expect(await create.exited).toBe(0);
+    }
+    const observation = await reader(directory).observe();
+    expect(observation.hosts.map(host => host.session.instanceId)).toEqual([valid.instanceId]);
+    if (process.platform !== "win32") expect((await lstat(fifo)).isFIFO()).toBe(true);
+  });
+
   test("resolves the same directory OMP publishes into, including a renamed config directory", () => {
     const home = join(tmpdir(), "fixture-home");
     expect(resolveOmpDiscoveryDirectory({}, home)).toBe(join(home, ".omp", "run", "collab-hosts"));
@@ -194,6 +263,101 @@ describe("OMP discovery directory", () => {
 });
 
 describe("OMP host queries", () => {
+  test("a snapshot that cannot project to browser metadata cannot poison a valid peer or bind a launch", async () => {
+    const directory = await discoveryDirectory();
+    const valid = await hostDouble(directory);
+    const subject = reader(directory);
+    const initial = await subject.observe();
+    const snapshot = initial.hosts[0]!.snapshot;
+    const hostile = await hostDouble(directory, {
+      instanceId: "bbbb2222cccc3333",
+      reply: () => ({ ok: true, v: 1, snapshot: {
+        ...snapshot,
+        instanceId: "bbbb2222cccc3333",
+        model: { provider: "p".repeat(MAX_LABEL_CODEPOINTS), id: "m" },
+      } }),
+    });
+    const observation = await subject.observe();
+    expect(observation.hosts.map(host => host.session.instanceId)).toEqual([valid.instanceId]);
+    expect(subject.entryFor(hostile.instanceId)).toBeUndefined();
+    expect(subject.entryFor(valid.instanceId)?.endpoint).toBe(valid.endpoint);
+  });
+
+  test.skipIf(process.platform === "win32")("unsafe endpoints cannot be queried and a failed replacement never retargets a card", async () => {
+    const directory = await discoveryDirectory();
+    const host = await hostDouble(directory);
+    const subject = reader(directory);
+    await subject.observe();
+    const original = subject.entryFor(host.instanceId)!;
+    await chmod(host.endpoint, 0o666);
+    expect((await subject.snapshot(original)).status).toBe("unavailable");
+    expect(host.requests).toHaveLength(1);
+    await chmod(host.endpoint, 0o600);
+    const replacement = await hostDouble(await discoveryDirectory(), {
+      instanceId: host.instanceId,
+      reply: () => ({ ok: false, v: 1, error: "snapshot_unavailable" }),
+    });
+    const path = join(directory, host.entryId + ".json");
+    const raw = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...raw, endpoint: replacement.endpoint }));
+    const observation = await subject.observe();
+    expect(observation.hosts).toEqual([]);
+    expect(observation.retained.has(host.instanceId)).toBe(true);
+    expect(subject.entryFor(host.instanceId)?.endpoint).toBe(original.endpoint);
+    await chmod(path, 0o000);
+    expect((await subject.observe()).retained.has(host.instanceId)).toBe(true);
+    expect(subject.entryFor(host.instanceId)?.endpoint).toBe(original.endpoint);
+    await chmod(path, 0o600);
+  });
+
+  test("rejects mismatched and malformed snapshot identities without rebinding a valid host", async () => {
+    const directory = await discoveryDirectory();
+    const valid = await hostDouble(directory);
+    const subject = reader(directory);
+    const first = await subject.observe();
+    const snapshot = first.hosts[0]!.snapshot;
+    const hostile = await hostDouble(directory, {
+      instanceId: "bbbb2222cccc3333",
+      reply: () => ({ ok: true, v: 1, snapshot }),
+    });
+    const observation = await subject.observe();
+    expect(observation.hosts.map(host => host.session.instanceId)).toEqual([valid.instanceId]);
+    expect(subject.entryFor(valid.instanceId)?.endpoint).toBe(valid.endpoint);
+    expect(subject.entryFor(hostile.instanceId)).toBeUndefined();
+    const hostileEntry = (await subject.listEntries()).find(entry => entry.instanceId === hostile.instanceId)!;
+    expect((await subject.snapshot(hostileEntry)).status).toBe("unavailable");
+
+    const wrongPid = await hostDouble(directory, {
+      instanceId: "cccc3333dddd4444",
+      reply: () => ({ ok: true, v: 1, snapshot: { ...snapshot, instanceId: "cccc3333dddd4444", pid: 9999 } }),
+    });
+    const malformed = await hostDouble(directory, {
+      instanceId: "dddd4444eeee5555",
+      reply: () => ({ ok: true, v: 1, snapshot: { ...snapshot, instanceId: "invalid identity" } }),
+    });
+    const final = await subject.observe();
+    expect(final.hosts.map(host => host.session.instanceId)).toEqual([valid.instanceId]);
+    expect(subject.entryFor(wrongPid.instanceId)).toBeUndefined();
+    expect(subject.entryFor(malformed.instanceId)).toBeUndefined();
+  });
+
+  test("ambiguous publications cannot replace a previously validated capability endpoint", async () => {
+    const directory = await discoveryDirectory();
+    const valid = await hostDouble(directory);
+    const subject = reader(directory);
+    await subject.observe();
+    const competing = await hostDouble(directory, { instanceId: "bbbb2222cccc3333" });
+    const path = join(directory, competing.entryId + ".json");
+    const raw = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...raw, instanceId: valid.instanceId }));
+    const observation = await subject.observe();
+    expect(observation.hosts).toEqual([]);
+    expect(observation.retained.has(valid.instanceId)).toBe(true);
+    expect(subject.entryFor(valid.instanceId)?.endpoint).toBe(valid.endpoint);
+    expect(subject.entryFor(competing.instanceId)).toBeUndefined();
+    expect(competing.requests).toEqual([]);
+  });
+
   test("projects a snapshot onto browser-safe metadata", async () => {
     const directory = await discoveryDirectory();
     const host = await hostDouble(directory, { cwd: "/Users/you/projects/gateway" });
@@ -253,6 +417,126 @@ describe("OMP host queries", () => {
   });
 });
 
+describe("OMP query transport", () => {
+  test.each(["reply", "timeout"] as const)("closes a peer that holds its side open after %s", async outcome => {
+    const directory = await discoveryDirectory();
+    const endpoint = join(directory, "held.sock");
+    const closed = Promise.withResolvers<void>();
+    const server = Bun.listen<undefined>({
+      unix: endpoint,
+      socket: {
+        data(socket) {
+          if (outcome === "reply") {
+            socket.write(
+              `${JSON.stringify({ ok: false, v: OMP_REGISTRY_VERSION, error: "snapshot_unavailable" })}\n`,
+            );
+            socket.flush();
+          }
+        },
+        close() {
+          closed.resolve();
+        },
+      },
+    });
+    cleanups.push(async () => server.stop(true));
+    if (process.platform !== "win32") await chmod(endpoint, 0o600);
+    const subject = new OmpHostReader({ directory, timeoutMs: 50 });
+    const result = await subject.snapshot({
+      entryId: "eeee1111bbbb2222",
+      version: OMP_REGISTRY_VERSION,
+      instanceId: "aaaa1111bbbb2222",
+      pid: 4242,
+      endpoint,
+      createdAt: Date.now(),
+      token: "a".repeat(64),
+    });
+    expect(result).toEqual({
+      status: "unavailable",
+      detail: outcome === "reply" ? "snapshot_unavailable" : "ETIMEDOUT",
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      expect(
+        await Promise.race([
+          closed.promise.then(() => true),
+          new Promise<boolean>(resolve => {
+            timer = setTimeout(() => resolve(false), 1_000);
+          }),
+        ]),
+      ).toBe(true);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  test("late open cannot send credentials and an immediate answer closes before connect resolves", async () => {
+    const directory = await discoveryDirectory();
+    await hostDouble(directory);
+    const [entry] = await reader(directory).listEntries();
+    if (entry === undefined) throw new Error("expected a private discovery entry");
+    // Isolate the process-wide Bun callback replacement from every other test file.
+    const child = Bun.spawn([process.execPath, "--eval", String.raw`import { OmpHostReader } from ${JSON.stringify(new URL("../src/omp-registry.ts", import.meta.url).href)};
+      const entry = ${JSON.stringify(entry)};
+      const directory = ${JSON.stringify(directory)};
+      let unhandled = 0;
+      process.on("unhandledRejection", () => { unhandled++; });
+      let callbacks;
+      let lateWrites = 0, lateClosed = 0;
+      const late = { write() { lateWrites++; }, flush() {}, end() { lateClosed++; } };
+      const connecting = Promise.withResolvers();
+      const invoked = Promise.withResolvers();
+      Bun.connect = options => { callbacks = options.socket; invoked.resolve(); return connecting.promise; };
+      let returnedBeforeOpen = false;
+      const pending = new OmpHostReader({ directory, timeoutMs: 10 }).snapshot(entry).then(result => {
+        returnedBeforeOpen = true;
+        return result;
+      });
+      await invoked.promise;
+      await Bun.sleep(40);
+      const returned = returnedBeforeOpen;
+      callbacks.open(late);
+      connecting.resolve(late);
+      const lateResult = await pending;
+      let immediateWrites = 0, immediateClosed = 0;
+      const immediate = { write() { immediateWrites++; }, flush() {}, end() { immediateClosed++; } };
+      Bun.connect = options => {
+        options.socket.open(immediate);
+        options.socket.data(immediate, new TextEncoder().encode(JSON.stringify({ ok: false, v: 1, error: "snapshot_unavailable" }) + "\n"));
+        return Promise.resolve(immediate);
+      };
+      const immediateResult = await new OmpHostReader({ directory, timeoutMs: 100 }).snapshot(entry);
+      console.log(JSON.stringify({ returnedBeforeOpen: returned, lateWrites, lateClosed, lateStatus: lateResult.status,
+        lateDetail: lateResult.detail, immediateWrites, immediateClosed, immediateDetail: immediateResult.detail, unhandled }));`], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 3_000);
+    try {
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(JSON.parse(stdout)).toEqual({
+        returnedBeforeOpen: true,
+        lateWrites: 0,
+        lateClosed: 1,
+        lateStatus: "unavailable",
+        lateDetail: "ETIMEDOUT",
+        immediateWrites: 1,
+        immediateClosed: 1,
+        immediateDetail: "snapshot_unavailable",
+        unhandled: 0,
+      });
+    } finally {
+      clearTimeout(timer);
+      child.kill();
+    }
+  });
+});
+
 describe("launch brokering", () => {
   async function brokered(options: HostDoubleOptions = {}): Promise<{
     registry: SessionRegistry;
@@ -270,6 +554,70 @@ describe("launch brokering", () => {
     });
     return { registry, resolver: new OmpLaunchResolver({ registry, reader: subject }), host };
   }
+
+  test.each(["generation", "access", "removal", "attention", "expiry"] as const)(
+    "withholds an in-flight link after %s authorization changes",
+    async change => {
+      const directory = await discoveryDirectory();
+      const host = await hostDouble(directory, { inputRequired: true });
+      const observation = await reader(directory).observe();
+      const current = observation.hosts[0];
+      if (current === undefined) throw new Error("expected an observed host");
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<string>();
+      const subject = new OmpHostReader({
+        directory,
+        request: async (_endpoint, payload) => {
+          if (JSON.parse(payload).op === "snapshot") {
+            return JSON.stringify({ ok: true, v: OMP_REGISTRY_VERSION, snapshot: current.snapshot });
+          }
+          entered.resolve();
+          return release.promise;
+        },
+      });
+      let now = 0;
+      const registry = new SessionRegistry({
+        ttlSeconds: 35,
+        maxSessions: 10,
+        clock: { monotonicNowMs: () => now, wallNowIso: () => "2026-09-14T00:00:00.000Z" },
+      });
+      const reconcile = (session = current.session): void => {
+        registry.reconcile({ observed: [session], retained: new Set() });
+      };
+      reconcile();
+      const requestId = registry.snapshot().sessions[0]?.ask?.requestId;
+      if (requestId === undefined) throw new Error("expected an attention request");
+      const resolver = new OmpLaunchResolver({ registry, reader: subject });
+      const pending = resolver.resolve({ instanceId: host.instanceId, generation: 1, mode: "control", requestId });
+      await entered.promise;
+      let status: Awaited<typeof pending>["status"];
+      switch (change) {
+        case "generation":
+          reconcile({ ...current.session, generation: 2 });
+          status = "generation_mismatch";
+          break;
+        case "access":
+          reconcile({ ...current.session, canControl: false });
+          status = "mode_unavailable";
+          break;
+        case "removal":
+          registry.reconcile({ observed: [], retained: new Set() });
+          status = "missing";
+          break;
+        case "attention":
+          reconcile({ ...current.session, inputRequired: false });
+          reconcile();
+          status = "request_mismatch";
+          break;
+        case "expiry":
+          now = 35_000;
+          status = "missing";
+          break;
+      }
+      release.resolve(JSON.stringify({ ok: true, v: OMP_REGISTRY_VERSION, url: CONTROL_URL }));
+      expect(await pending).toEqual({ status });
+    },
+  );
 
   test("fetches one capability from the owning host for an explicit launch", async () => {
     const { resolver, host } = await brokered();
@@ -327,16 +675,75 @@ describe("launch brokering", () => {
     expect(stale.status).toBe("request_mismatch");
   });
 
-  test("an unpublished session is refused without contacting any socket", async () => {
+  test("a rediscovered endpoint cannot resolve another instance's capability", async () => {
+    const directory = await discoveryDirectory();
+    let reply: unknown;
+    const host = await hostDouble(directory, {
+      reply: request => request.op === "snapshot" ? reply : undefined,
+    });
+    const observation = await reader(directory).observe();
+    const current = observation.hosts[0];
+    if (current === undefined) throw new Error("expected an observed host");
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.reconcile({ observed: [current.session], retained: new Set() });
+    reply = {
+      ok: true,
+      v: OMP_REGISTRY_VERSION,
+      snapshot: { ...current.snapshot, instanceId: "ffff7777aaaa8888" },
+    };
+    const resolver = new OmpLaunchResolver({ registry, reader: reader(directory) });
+    const resolved = await resolver.resolve({ instanceId: host.instanceId, generation: 1, mode: "view" });
+    expect(resolved).toEqual({ status: "missing" });
+    expect(host.requests.some(request => request.op === "link")).toBe(false);
+  });
+
+  test("an unknown session is refused without querying a capability", async () => {
     const { resolver, host } = await brokered();
-    await host.unpublish();
-    await host.stop();
     const resolved = await resolver.resolve({ instanceId: "ffff7777aaaa8888", generation: 1, mode: "view" });
-    expect(resolved.status).toBe("missing");
+    expect(resolved).toEqual({ status: "missing" });
+    expect(host.requests.some(request => request.op === "link")).toBe(false);
   });
 });
 
 describe("directory polling", () => {
+  for (const code of ["EACCES", "EMFILE", "EIO"]) {
+    test("directory " + code + " retains a valid card and endpoint until TTL, while absence removes", async () => {
+      const directory = await discoveryDirectory();
+      await hostDouble(directory);
+      // Import the reader only after installing isolated filesystem fault injection.
+      const script = [
+        'import { mock } from "bun:test";',
+        'import * as fs from "node:fs/promises";',
+        'const original = { ...fs }; let fault;',
+        'mock.module("node:fs/promises", () => ({ ...original,',
+        '  readdir: (...args) => fault ? Promise.reject(Object.assign(new Error(), { code: fault })) : original.readdir(...args),',
+        '  opendir: (...args) => fault ? Promise.reject(Object.assign(new Error(), { code: fault })) : original.opendir(...args),',
+        '}));',
+        'const { OmpHostReader, startHostPoller } = await import(' + JSON.stringify(new URL("../src/omp-registry.ts", import.meta.url).href) + ');',
+        'const { SessionRegistry } = await import(' + JSON.stringify(new URL("../src/registry.ts", import.meta.url).href) + ');',
+        'const reader = new OmpHostReader({ directory: ' + JSON.stringify(directory) + ', timeoutMs: 500 });',
+        'let now = 0;',
+        'const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 2, clock: { monotonicNowMs: () => now, wallNowIso: () => new Date(now).toISOString() } });',
+        'const poller = startHostPoller({ reader, registry, intervalMs: 3600000 });',
+        'await poller.poll(); const originalEntry = reader.entryFor("aaaa1111bbbb2222"); const initial = registry.size;',
+        'fault = ' + JSON.stringify(code) + '; now = 34000; await poller.poll();',
+        'const retained = registry.size; const healthy = poller.discoveryHealthy; const endpointUnchanged = reader.entryFor("aaaa1111bbbb2222") === originalEntry;',
+        'now = 35001; const expired = registry.sweepExpired();',
+        'fault = undefined; await poller.poll(); const recovered = registry.size;',
+        'fault = "ENOENT"; await poller.poll(); const absent = registry.size; const absentHealthy = poller.discoveryHealthy;',
+        'poller.stop(); console.log(JSON.stringify({ initial, retained, healthy, endpointUnchanged, expired, recovered, absent, absentHealthy }));',
+      ].join("\n");
+      const subprocess = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        subprocess.exited,
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+      ]);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(JSON.parse(stdout)).toEqual({ initial: 1, retained: 1, healthy: false, endpointUnchanged: true, expired: 1, recovered: 1, absent: 0, absentHealthy: true });
+    });
+  }
+
   test("a stopped host leaves the directory on the next poll", async () => {
     const directory = await discoveryDirectory();
     const host = await hostDouble(directory);
@@ -356,36 +763,30 @@ describe("directory polling", () => {
 
   test("a host that stops answering keeps its card until the TTL retires it", async () => {
     const directory = await discoveryDirectory();
-    const host = await hostDouble(directory, {
-      reply: request =>
-        request.op === "snapshot" ? { ok: false, v: OMP_REGISTRY_VERSION, error: "snapshot_unavailable" } : undefined,
+    let unavailable = false;
+    await hostDouble(directory, {
+      reply: request => unavailable && request.op === "snapshot"
+        ? { ok: false, v: OMP_REGISTRY_VERSION, error: "snapshot_unavailable" }
+        : undefined,
     });
-    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
-    const live = await hostDouble(await discoveryDirectory(), { instanceId: "bbbb2222cccc3333" });
-    void live;
-    const subject = reader(directory);
-    const poller = startHostPoller({ reader: subject, registry, intervalMs: 3_600_000 });
+    let now = 0;
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      clock: { monotonicNowMs: () => now, wallNowIso: () => new Date(now).toISOString() },
+    });
+    const poller = startHostPoller({ reader: reader(directory), registry, intervalMs: 3_600_000 });
     cleanups.push(async () => poller.stop());
-
-    // Seed a record the way a healthy poll would, then let the host go quiet.
-    registry.reconcile({
-      observed: [
-        {
-          instanceId: host.instanceId,
-          generation: 1,
-          pid: 4242,
-          sessionId: "session-alpha",
-          startedAt: "2026-09-14T00:00:00.000Z",
-          canControl: true,
-          inputRequired: false,
-        },
-      ],
-      retained: new Set<string>(),
-    });
+    await poller.poll();
     expect(registry.size).toBe(1);
+    unavailable = true;
+    now = 34_000;
     await poller.poll();
     expect(registry.size).toBe(1);
     expect(registry.sweepExpired()).toBe(0);
+    now = 35_001;
+    expect(registry.sweepExpired()).toBe(1);
+    expect(registry.size).toBe(0);
   });
 
   test("polls never overlap", async () => {

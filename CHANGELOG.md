@@ -8,6 +8,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Changed
 
+- Prepare `0.4.0` as the first stock-mainline-compatible release, with published `v0.3.0` as the
+  explicit fork-era predecessor. Qualification remains pending; the historical stable lock is
+  unchanged. Require an exact candidate for on-demand Debian qualification rather than spending
+  scheduled runs on a stale fork-era default.
 - Scope Linux ARM64 upstream checks to the three discovery/query registry suites consumed by the
   gateway, rather than unrelated collaboration tests and upstream-wide checks. Keep the required
   Windows gate on gateway contracts, ACLs, and service lifecycle; upstream Windows fixtures fail
@@ -32,6 +36,21 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Bound discovery enumeration, file reads, and query concurrency; preserve metadata through transient
+  directory faults, reject mismatched host identities, and isolate malformed snapshot projections.
+- Revalidate launch authorization after capability queries and close late or already-settled query
+  sockets without sending a request after timeout.
+- Reject snapshot timestamps outside the JavaScript date range before ISO projection.
+- Enforce the approved 1,800-second relay floor and reject inadequate resumed proof without
+  bypassing pending cleanup. These are source fixes, not fresh signed-candidate qualification.
+- Verify Windows active reinstall through nonce-bound readiness and a changed listening port rather
+  than PID inequality; describe the gateway readiness credential accurately in maintenance output.
+- Preserve authored `omp.discoveryDir` and `omp.queryTimeoutMs` when an install changes the origin,
+  allowlist, or port, without persisting omitted environment-derived OMP defaults.
+- Start post-release OMP fixtures in their owned directory so discovery labels match the
+  qualification target instead of the repository directory.
+- Make the stable-release JSON schema version-generic while retaining exact runtime policy
+  validation; a historical qualified lock cannot authorize a different release.
 - Install the repository-pinned Bun in every CI job, including ephemeral fleet runners whose
   shared base image may carry an older runtime. Check this contract before running the suite.
 - Run release-workflow shell fixtures without an undeclared host `jq` dependency, while preserving

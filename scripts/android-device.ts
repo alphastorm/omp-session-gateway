@@ -409,9 +409,11 @@ async function androidPackageVersion(serial: string, packageName: string): Promi
   return parseAndroidPackageVersion(await adb(serial, "shell", "dumpsys", "package", packageName));
 }
 
-/** The single attached device, or a clear error naming what was found instead. */
-export async function requireSingleDevice(): Promise<string> {
-  const listed = await adb(undefined, "devices");
+/** The single authorized device; failure messages never expose device identifiers. */
+export async function requireSingleDevice(
+  command: AndroidAdbCommand = (...args) => adb(undefined, ...args),
+): Promise<string> {
+  const listed = await command("devices");
   const serials = listed
     .split("\n")
     .slice(1)
@@ -420,7 +422,7 @@ export async function requireSingleDevice(): Promise<string> {
     .map(parts => parts[0] ?? "");
   const serial = serials[0];
   if (serial === undefined) throw new Error("no authorized adb device; check the USB debugging prompt on the phone");
-  if (serials.length > 1) throw new Error(`expected one device, found ${serials.length}: ${serials.join(", ")}`);
+  if (serials.length > 1) throw new Error(`expected one authorized adb device, found ${serials.length}`);
   return serial;
 }
 

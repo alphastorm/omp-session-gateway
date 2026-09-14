@@ -3,7 +3,7 @@ import { open } from "node:fs/promises";
 import { PROTOCOL_VERSION } from "@omp-session-gateway/protocol";
 
 export const DIAGNOSTICS_FORMAT_VERSION = 1 as const;
-export const PRODUCT_VERSION = "0.3.0";
+export const PRODUCT_VERSION = "0.4.0";
 
 export interface DoctorReport {
   readonly service: "omp-session-gateway";
@@ -49,7 +49,7 @@ function manifest(): string {
         },
       ],
       excluded: [
-        "capabilities and publisher tokens",
+        "capabilities, OMP query tokens, and gateway readiness tokens",
         "authorization and identity headers",
         "account identities and tailnet DNS names",
         "session metadata, transcripts, prompts, and tool output",

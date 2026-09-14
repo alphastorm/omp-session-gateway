@@ -63,10 +63,10 @@
 #   scripts/provision-linux-qual.sh destroy
 #
 # Lanes, systemd: host artifact lifecycle omp migration rollback identity persistence uninstall
-#                 (default: all). `omp` builds and exercises the exact versioned publisher route;
-#                 `migration` reinstalls to move between gateway versions; `rollback` drives the
-#                 `omp-gateway rollback` command, which is a different code path, and reads the two
-#                 archive roots `migration` leaves on the droplet.
+#                 (default: all). `omp` builds and exercises exact mainline discovery/query;
+#                 `migration` stops before crossing gateway architectures; `rollback` measures
+#                 stopped target selection, incompatible activation compensation, and signed
+#                 predecessor reinstall using the archive roots left by `migration`.
 # Lanes, OpenRC:  host artifact init (default: all three; the rest presume a working install).
 #
 set -euo pipefail
@@ -894,7 +894,7 @@ lane_artifact() {
   local tag version archive sbom local_dir asset attestation_mode asset_digest
   tag="${OMP_QUAL_RELEASE_TAG:-}"
   [ -n "$tag" ] ||
-    die "set OMP_QUAL_RELEASE_TAG to the signed candidate tag, for example v0.3.0-prealpha.3"
+    die "set OMP_QUAL_RELEASE_TAG to the signed candidate tag, for example v0.4.0-prealpha.1"
   version="$(release_version)"
   archive="omp-session-gateway-${version}-bun.tar"
   sbom="omp-session-gateway-${version}.spdx.json"
@@ -1499,7 +1499,7 @@ REMOTE
 lane_migration() {
   local previous_tag successor_tag version archive sbom local_dir dns_name
   successor_tag="${OMP_QUAL_RELEASE_TAG:-}"
-  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.2.1}"
+  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.3.0}"
   [ -n "$successor_tag" ] || die "set OMP_QUAL_RELEASE_TAG to the successor candidate tag"
 
   step "Lane 4: explicit upgrade and rollback"
@@ -1592,9 +1592,25 @@ install_root() {
   "$bun" "$1/apps/gateway/src/cli.js" install --origin "https://${DNS_NAME}" --allow "$ALLOWED_LOGIN" >/dev/null
 }
 
-install_root "$prev_root"; a="$(snapshot)"; show "after install predecessor" "$a"
-install_root "$next_root"; b="$(snapshot)"; show "after upgrade to successor" "$b"
-install_root "$prev_root"; c="$(snapshot)"; show "after rollback to predecessor" "$c"
+# A readiness credential is not interchangeable with the fork-era publisher credential.
+# Matching CLI uninstall is owner-scoped and preserves config and staged runtimes; never copy
+# a publisher token. The old installer alone mints the credential needed by its daemon.
+"$bun" "$next_root/apps/gateway/src/cli.js" uninstall >/dev/null
+install_root "$prev_root"; a="$(snapshot)"
+config="$HOME/.config/omp-session-gateway/config.json"
+backup="$state_dir/pre-mainline-config.json"
+(umask 077; cp "$config" "$backup"; chmod 600 "$backup")
+old_publisher="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
+"$bun" "$prev_root/apps/gateway/src/cli.js" uninstall >/dev/null
+install_root "$next_root"; b="$(snapshot)"
+[ ! -e "$HOME/.config/omp-session-gateway/publisher-token" ] || { echo "legacy publisher token survived cutover" >&2; exit 1; }
+"$bun" "$next_root/apps/gateway/src/cli.js" uninstall >/dev/null
+cp "$backup" "$config"; chmod 600 "$config"
+install_root "$prev_root"; c="$(snapshot)"
+new_publisher="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
+[ "$old_publisher" != "$new_publisher" ] || { echo "predecessor publisher credential was reused" >&2; exit 1; }
+show "stopped predecessor/candidate/recovery" "completed; publisher retired and reminted (bytes withheld)"
+show "private predecessor config backup" "$backup (mode $(stat -c '%a' "$backup"))"
 
 field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
 fail=0
@@ -1609,7 +1625,7 @@ check "active version restored on rollback" "$(field "$c" 1)" "$(field "$a" 1)"
 check "predecessor version dir survives upgrade" "$(printf '%s' "$(field "$b" 2)" | grep -qF "$(field "$a" 1)" && echo present || echo missing)" present
 check "config identical across all steps" "$([ "$(field "$a" 3)" = "$(field "$b" 3)" ] && [ "$(field "$b" 3)" = "$(field "$c" 3)" ] && echo identical || echo differs)" identical
 check "readiness credential created or preserved" "$([ "$(field "$b" 4)" != absent ] && { [ "$(field "$a" 4)" = absent ] || [ "$(field "$a" 4)" = "$(field "$b" 4)" ]; } && echo valid || echo invalid)" valid
-check "readiness credential survives rollback" "$(field "$c" 4)" "$(field "$b" 4)"
+check "readiness credential survives rollback" "$([ "$(field "$c" 4)" = "$(field "$b" 4)" ] && echo unchanged || echo changed)" unchanged
 check "readiness token mode after cutover" "$(field "$b" 5)" 600
 check "readiness token mode after rollback" "$(field "$c" 5)" 600
 check "ExecStart tracks active version" "$(printf '%s' "$(field "$c" 6)" | grep -qF "$(field "$c" 1)" && echo tracks || echo stale)" tracks
@@ -1621,57 +1637,19 @@ check "listener loopback only after rollback" "$(printf '%s' "$(field "$c" 9)" |
 REMOTE
 }
 
-# Lane `rollback`: the `omp-gateway rollback` command itself, on a real systemd user manager.
-#
-# WHY THIS IS NOT LANE 4 AGAIN. Lane 4 walks predecessor -> successor -> predecessor and every one of
-# its three steps is an `install` of an archive root. That is rollback-by-reinstall. PR #78 added a
-# second and different code path: `omp-gateway rollback` resolves a target from
-# `installation/history.json`, refuses rather than guessing when the history cannot name one,
-# rewrites the service definition from that target, and rebuilds the definition from `current.json`
-# when its own activation fails. An install exercises none of that, and `scripts/qualify-rollback.sh`
-# cannot either: the command postdates that harness, and it installs with `--no-start` throughout so
-# nothing there is ever activated at all.
-#
-# This lane therefore asserts lane 4's class of invariants around the command, and deliberately does
-# not re-measure five things lane 4 already establishes on the reinstall path: that a predecessor
-# install names a version, that the active version changes on the forward upgrade, that the
-# predecessor's version directory survives that upgrade, that the unit stays `enabled`, and that a
-# reinstall preserves configuration and the readiness token. Those are lane 4's rows. They are
-# printed here wherever they are cheap to read and never asserted, because two overlapping sources of
-# truth for one claim are worse than one.
-#
-# WHAT IT NEEDS ON THE DROPLET. Lane 4's two extracted roots, ~/runtime-prev and ~/runtime-root, and
-# the install lane 4 left behind. Both are read and neither is written: this lane downloads nothing
-# and stages nothing, so the archives it measures are exactly the ones lane 4 verified by checksum
-# and Cosign bundle. It needs the same two candidate tags lane 4 needs and has no knob of its own.
-#
-# WHICH STAGED DIRECTORY IS WHICH ARTIFACT. Answered by the exact release-info.json bytes, not by
-# current.json, activation history, or the CLI alone. Adjacent releases can intentionally carry
-# identical CLI source while differing elsewhere in the installed payload. The installer copies
-# release-info.json verbatim, and that generated file binds the release source identity. The matcher
-# requires exactly one installed directory with those bytes, so a pointer that merely changed cannot
-# satisfy a predecessor or candidate claim.
-#
-# WHY THE WALK STARTS WITH A REFUSAL, THEN `--to`. A bare `rollback` resolves its target from the
-# activation history, and the history is written only by the CLI that performs an activation. A
-# predecessor artifact older than PR #78 records nothing, so the history can name only what the newer
-# artifact activated and a bare `rollback` must refuse to guess. That refusal is a safety property, so
-# it is asserted first, with its message compared against the one installation.ts documents. Two
-# explicit `rollback --to` invocations then follow: they are half of what this lane has to exercise
-# anyway, they are recorded whichever artifact is installed because the newer CLI performs them, and
-# they leave a history whose predecessor is known. Only then is the bare command run, twice, so the
-# documented oscillation between two versions is measured rather than assumed.
+# The fork-era predecessor and mainline candidate do not share a readiness credential.
+# Exercise target/history selection while stopped, then the real incompatible activation failure
+# and candidate compensation. Recovery is a matching signed archive reinstall, never a token copy
+# or an OMP binary rollback. The predecessor config backup contains configuration only (mode 0600).
 lane_rollback() {
   local dns_name version_matcher
-  step "Lane 8: the rollback command, its --to form, and induced divergence"
+  step "Lane 8: architecture-crossing rollback, compensation, and stopped recovery"
   dns_name="$(require_dns_name)"
   version_matcher="$(declare -f sha256_of identify_version_by_release_info)"
-
   remote_user VERSION_MATCHER="$version_matcher" DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
     GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
 set -euo pipefail
 eval "$VERSION_MATCHER"
-show() { printf '   %-38s %s\n' "$1:" "$2"; }
 bun=~/.bun/bin/bun
 state_dir="$HOME/.local/state/omp-session-gateway"
 versions="$state_dir/installation/versions"
@@ -1680,526 +1658,143 @@ history="$state_dir/installation/history.json"
 unit="$HOME/.config/systemd/user/omp-session-gateway.service"
 config="$HOME/.config/omp-session-gateway/config.json"
 token="$HOME/.config/omp-session-gateway/readiness-token"
+backup="$state_dir/pre-mainline-config.json"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-
-digest_of() { sha256sum "$1" | awk '{print $1}'; }
-clip() { printf '%.12s' "$1"; }
-# Nanosecond mtime, kept as its printed form: the pointer write and the history append are
-# consecutive awaits inside one command and whole seconds cannot order two writes that fast.
-mtime_of() { if [ -f "$1" ]; then stat -c '%.9Y' "$1"; else printf '0'; fi; }
-pointer_version() { if [ -f "$pointer" ]; then jq -r '.versionDirectory' "$pointer"; else printf 'absent'; fi; }
-version_dirs() { find "$versions" -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | sort; }
-history_entries() { if [ -f "$history" ]; then jq -r '.activations[]' "$history"; fi; }
-history_count() { history_entries | grep -c . || true; }
-history_last() { history_entries | tail -1 | grep . || printf 'none'; }
+show() { printf '   %-44s %s\n' "$1:" "$2"; }
+digest_of() { sha256sum "$1" | cut -d' ' -f1; }
+pointer_version() { jq -r '.versionDirectory' "$pointer"; }
+unit_version() { sed -n 's|.*installation/versions/\([^/]*\)/apps/gateway/src/cli.js.*|\1|p' "$unit"; }
+loaded_version() { systemctl --user show -p ExecStart --value omp-session-gateway.service | sed -n 's|.*installation/versions/\([^/]*\)/apps/gateway/src/cli.js.*|\1|p'; }
 main_pid() { systemctl --user show -p MainPID --value omp-session-gateway.service; }
-unit_enabled() { systemctl --user is-enabled omp-session-gateway.service 2>&1 || true; }
-# Which shape the unit file has, independent of which staged runtime its ExecStart executes. The CLI
-# that last wrote the definition decides this, so a mixed-version droplet can hold a post-#69 unit
-# executing an older runtime, or the reverse.
-unit_shape() {
-  if grep -q '^RuntimeDirectory=omp-session-gateway$' "$unit"; then printf 'RuntimeDirectory='
-  else printf 'ReadWritePaths-only'; fi
+history_last() { jq -r '.activations[-1]' "$history"; }
+recorded_predecessor() {
+  jq -r '.activations[]' "$history" | awk -v active="$(pointer_version)" '
+    { line[NR] = $0; if ($0 == active) last = NR }
+    END { for (i = last - 1; i >= 1; i--) if (line[i] != active) { print line[i]; exit } }'
 }
-listener() {
-  ss -ltnH "sport = :${GATEWAY_PORT}" | awk '{print $4}' | sort | tr '\n' ' ' | sed 's/ *$//' |
-    grep . || printf 'none'
-}
-loopback_only() {
-  if [ "$(listener)" = "127.0.0.1:${GATEWAY_PORT}" ]; then printf 'loopback'; else listener; fi
-}
-
-# The unit FILE is what the CLI reads to decide whether the definition and the pointer agree; the
-# LOADED unit is what systemd would actually execute. They agree only after a daemon-reload, so both
-# are measured, separately, every time.
-unit_exec_path() {
-  grep -o '"[^"]*/installation/versions/[^"]*/apps/gateway/src/cli\.js"' "$unit" |
-    head -1 | tr -d '"' | grep . || printf 'no-versioned-path'
-}
-version_of_path() {
-  case "$1" in
-    */installation/versions/*) printf '%s' "$1" | sed 's|.*/installation/versions/\([^/]*\)/.*|\1|' ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-unit_version() { version_of_path "$(unit_exec_path)"; }
-loaded_exec_version() {
-  local value
-  value="$(systemctl --user show -p ExecStart --value omp-session-gateway.service |
-    grep -o '/installation/versions/[^/]*/' | head -1 || true)"
-  if [ -z "$value" ]; then printf 'none'; else printf '%s' "$value" | sed 's|.*/versions/\([^/]*\)/|\1|'; fi
-}
-
-# A restart is asynchronous, so reading the listener the instant a command returns is a false
-# negative rather than a finding. Bounded, and the wait it actually needed is printed.
-LISTENER_WAIT=""
-await_listener() {
-  local index=0
-  while [ "$index" -lt 30 ]; do
-    if [ "$(loopback_only)" = "loopback" ]; then
-      LISTENER_WAIT="${index}s"
-      printf 'loopback'
-      return 0
-    fi
-    sleep 1
-    index=$((index + 1))
-  done
-  LISTENER_WAIT="timed out after 30s"
-  loopback_only
-}
-
-status_quad() {
-  printf '%s' "$1" |
-    jq -r '[(.installed|tostring),(.active|tostring),(.ready|tostring),(.diverged|tostring)] | join("/")' 2>/dev/null ||
-    printf 'unparseable'
-}
-# `//` is wrong here: jq's alternative operator also fires on `false`, which is exactly the value
-# `.diverged` carries when nothing is wrong.
-status_field() {
-  printf '%s' "$1" | jq -r --arg key "$2" 'if has($key) then (.[$key] | tostring) else "absent" end' 2>/dev/null ||
-    printf 'unparseable'
-}
-# Exact, not floating point. Both values are ten digits, a dot, then nine digits until the year 2286,
-# so removing the dot leaves equal-length digit strings that compare correctly as strings. Feeding
-# them to awk as numbers would land on the edge of double precision at nanosecond scale.
-later_or_equal() {
-  awk -v first="$1" -v second="$2" 'BEGIN {
-    gsub(/\./, "", first); gsub(/\./, "", second)
-    print ((second "") >= (first "")) ? "after" : "before"
-  }'
-}
-contains() { if grep -qF -- "$2" "$1"; then printf 'present'; else printf 'absent'; fi; }
-
 CHECKS=0
-FAILURES=0
 check() {
   CHECKS=$((CHECKS + 1))
-  if [ "$2" = "$3" ]; then printf '   %-48s %-30s %s\n' "$1" "$2" PASS
-  else printf '   %-48s %-30s %s\n' "$1" "expected $3, got $2" FAIL; FAILURES=$((FAILURES + 1)); fi
+  [ "$2" = "$3" ] || { printf 'FAIL %s: expected %s, got %s\n' "$1" "$3" "$2" >&2; exit 1; }
+  show "$1" PASS
 }
-table_head() { printf '   %-48s %-30s %s\n' INVARIANT OBSERVED RESULT; }
-
-# ---------------------------------------------------------------- preconditions and identification
-[ -s ~/runtime-root ] || {
-  echo "~/runtime-root is missing: lane 'artifact' extracts the candidate. Run 'qualify artifact lifecycle migration' first." >&2
-  exit 1
+install_root() { "$bun" "$1/apps/gateway/src/cli.js" install --origin "https://${DNS_NAME}" --allow "$ALLOWED_LOGIN" --port "$GATEWAY_PORT" "${@:2}" >/dev/null; }
+stop_root() {
+  # uninstall checks loaded-program ownership before touching the user service and preserves data.
+  "$bun" "$1/apps/gateway/src/cli.js" uninstall >/dev/null
+  if systemctl --user is-active omp-session-gateway.service >/dev/null; then echo "service survived explicit stop" >&2; exit 1; fi
 }
+restore_predecessor_config() { cp "$backup" "$config"; chmod 600 "$config"; }
+status_quad() {
+  "$bun" "$1/apps/gateway/src/cli.js" status 2>/dev/null |
+    jq -r '[(.installed|tostring),(.active|tostring),(.ready|tostring),(.diverged|tostring)] | join("/")'
+}
+assert_current() {
+  check "$1 pointer" "$(pointer_version)" "$2"
+  check "$1 definition" "$(unit_version)" "$2"
+  check "$1 loaded definition" "$(loaded_version)" "$2"
+  check "$1 readiness" "$(status_quad "$3")" true/true/true/false
+}
+assert_preserved() {
+  check "$1 config" "$(digest_of "$config")" "$BASE_CONFIG"
+  check "$1 readiness credential" "$([ "$(digest_of "$token")" = "$BASE_TOKEN" ] && echo unchanged || echo changed)" unchanged
+  check "$1 readiness mode" "$(stat -c '%a' "$token")" 600
+}
+[ -s ~/runtime-root ] && [ -f "$backup" ] || { echo "run artifact lifecycle migration first" >&2; exit 1; }
+check "predecessor config backup private" "$(stat -c '%a' "$backup")" 600
 next_root="$(cat ~/runtime-root)"
-prev_root="$(find ~/runtime-prev -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1 || true)"
-[ -n "$prev_root" ] || {
-  echo "~/runtime-prev holds no extracted archive. Lane 'migration' puts the predecessor there, and it skips itself when OMP_QUAL_PREVIOUS_TAG equals OMP_QUAL_RELEASE_TAG. Run 'qualify migration' with two different published candidate tags first." >&2
-  exit 1
-}
-# Every rollback here is driven by the candidate's CLI: it is the newer of the two artifacts, it is
-# what an operator on this box would reach for, and the predecessor may predate the command entirely.
-cli="$next_root/apps/gateway/src/cli.js"
-candidate_cli() {
-  "$bun" -e '
-const [, modulePath, ...args] = Bun.argv;
-const { main } = await import(modulePath);
-const describe = error => {
-  const message = error instanceof Error ? error.message : String(error);
-  const children =
-    error instanceof AggregateError
-      ? error.errors
-      : error instanceof Error && error.cause !== undefined
-        ? [error.cause]
-        : [];
-  return [message, ...children.flatMap(describe)];
-};
-try {
-  await main(args);
-} catch (error) {
-  console.error(describe(error).map((line, index) => `${index === 0 ? "" : "caused by: "}${line}`).join("\n"));
-  process.exitCode = 1;
-}
-' "$cli" "$@"
-}
-grep -q -a -F 'refusing to guess a rollback target' "$cli" || {
-  echo "the candidate artifact carries no rollback target resolver, so it predates PR #78 and there is no command for this lane to exercise. Point OMP_QUAL_RELEASE_TAG at a candidate that has it." >&2
-  exit 1
-}
-systemctl --user is-active omp-session-gateway.service >/dev/null || {
-  echo "the gateway service is not active, and rollback refuses without an installed active service. Run 'qualify lifecycle migration' first." >&2
-  exit 1
-}
+prev_root="$(find ~/runtime-prev -maxdepth 1 -mindepth 1 -type d | head -1)"
+prev_version="$(identify_version_by_release_info "$prev_root" "$versions")"
+next_version="$(identify_version_by_release_info "$next_root" "$versions")"
+[ "$prev_version" != "$next_version" ] || { echo "identical rollback pair" >&2; exit 1; }
+check "migration left predecessor active" "$(pointer_version)" "$prev_version"
+assert_current "predecessor baseline" "$prev_version" "$prev_root"
+show "predecessor / candidate" "$prev_version / $next_version"
 
-prev_version="$(identify_version_by_release_info "$prev_root" "$versions")" || {
-  echo "the predecessor archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
-  exit 1
-}
-next_version="$(identify_version_by_release_info "$next_root" "$versions")" || {
-  echo "the candidate archive release metadata does not match exactly one staged runtime. Run 'qualify migration' immediately before this lane." >&2
-  exit 1
-}
-
-show "predecessor archive root" "$(basename "$prev_root")"
-show "candidate archive root" "$(basename "$next_root")"
-show "predecessor staged as" "$prev_version"
-show "candidate staged as" "$next_version"
-show "version directories present" "$(version_dirs | tr '\n' ' ')"
-show "activations recorded / last" "$(history_count) / $(history_last)"
-show "active version directory" "$(pointer_version)"
-show "unit file / loaded version" "$(unit_version) / $(loaded_exec_version)"
-show "unit file shape" "$(unit_shape)"
-show "unit enabled (lane 4 asserts this)" "$(unit_enabled)"
-
-cmp -s "$prev_root/release-info.json" "$versions/$prev_version/release-info.json" || {
-  echo "the predecessor runtime identity changed after matching" >&2
-  exit 1
-}
-cmp -s "$next_root/release-info.json" "$versions/$next_version/release-info.json" || {
-  echo "the candidate runtime identity changed after matching" >&2
-  exit 1
-}
-[ "$prev_version" != "$next_version" ] || {
-  echo "both archives stage the same version directory $prev_version, so there is no second version to roll back to. Name two different published candidate tags." >&2
-  exit 1
-}
-[ "$(version_dirs | grep -c .)" -ge 2 ] || {
-  echo "fewer than two installed version directories, so no predecessor is retained and rollback must refuse." >&2
-  exit 1
-}
-case "$(pointer_version)" in
-  "$prev_version" | "$next_version") ;;
-  *)
-    echo "current.json names $(pointer_version), which is neither archive's staged directory. Run 'qualify migration' immediately before this lane." >&2
-    exit 1
-    ;;
-esac
-
-# Baselines for "survived byte-identically". Read once, before the first command, compared in full,
-# and only ever printed as their first twelve hex digits.
+# Stopped target selection is valid across architectures; no readiness claim is made for it.
+stop_root "$prev_root"
+install_root "$next_root" --no-start
 BASE_CONFIG="$(digest_of "$config")"
 BASE_TOKEN="$(digest_of "$token")"
-BASE_TOKEN_MODE="$(stat -c '%a' "$token")"
-show "baseline config / token digest" "$(clip "$BASE_CONFIG") / $(clip "$BASE_TOKEN")"
-show "baseline token mode" "$BASE_TOKEN_MODE"
+"$bun" "$next_root/apps/gateway/src/cli.js" rollback --to "$prev_version" >/dev/null
+check "stopped explicit target pointer" "$(pointer_version)" "$prev_version"
+check "stopped explicit target definition" "$(unit_version)" "$prev_version"
+check "stopped explicit target history" "$(history_last)" "$prev_version"
+check "actual recorded predecessor" "$(recorded_predecessor)" "$next_version"
+"$bun" "$next_root/apps/gateway/src/cli.js" rollback >/dev/null
+check "stopped history target pointer" "$(pointer_version)" "$next_version"
+check "stopped history target definition" "$(unit_version)" "$next_version"
+check "stopped history target recorded" "$(history_last)" "$next_version"
+check "stopped walk did not start a daemon" "$(main_pid)" 0
+assert_preserved "stopped target walk"
+install_root "$next_root"
+assert_current "candidate activation" "$next_version" "$next_root"
 
-# The same rule installation.ts documents for a `--to`-less rollback: the newest recorded activation
-# before the last activation of whatever is active now, skipping repeats. Computed here rather than
-# trusted, so both "it refused because there is none" and "it returned to the recorded predecessor"
-# are independent claims about history.json rather than restatements of the command's own output.
-recorded_predecessor() {
-  history_entries | awk -v active="$1" '
-    { line[NR] = $0; if ($0 == active) last = NR }
-    END { for (index_ = last - 1; index_ >= 1; index_--) if (line[index_] != active) { print line[index_]; exit } }'
-}
+# An old installer must refuse while the active mainline service has no publisher credential.
+# Capture all authoritative state before the attempt; a nonzero exit alone is not safe refusal.
+before_state="$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)"
+rc=0
+install_root "$prev_root" >"$work/active-install.log" 2>&1 || rc=$?
+check "active predecessor installer refuses" "$([ "$rc" -ne 0 ] && echo refused || echo accepted)" refused
+check "active install refusal leaves state" "$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)" "$before_state"
+assert_preserved "active install refusal"
 
-# ---------------------------------------------------------------- one measured rollback
-# Every successful invocation goes through these two functions, so a later step cannot quietly be
-# measured more loosely than an earlier one and the table reads as a sequence rather than as a set of
-# special cases.
-ROLL_FROM=""; ROLL_TO=""; ROLL_OUTPUT=""; ROLL_PID_BEFORE=""; ROLL_PID=""
-ROLL_UNIT_PATH=""; ROLL_UNIT_VERSION=""; ROLL_LOADED_VERSION=""; ROLL_LISTENER=""; ROLL_ABS=""
-ROLL_CONFIG=""; ROLL_TOKEN=""; ROLL_TOKEN_MODE=""; ROLL_ENABLED=""; ROLL_SHAPE=""
-ROLL_HISTORY_BEFORE=""; ROLL_HISTORY=""; ROLL_HISTORY_LAST=""; ROLL_HISTORY_LAST_BEFORE=""
-ROLL_POINTER_MTIME=""; ROLL_HISTORY_MTIME=""; ROLL_STATUS=""
+# The predecessor is the actual history target, but cannot authenticate the mainline readiness
+# proof. Both explicit and history-selected attempts must fail and compensate back to current.json.
+for selection in explicit history; do
+  check "$selection target in actual history" "$(recorded_predecessor)" "$prev_version"
+  before_history="$(digest_of "$history")"
+  before_pid="$(main_pid)"
+  rc=0
+  if [ "$selection" = explicit ]; then
+    "$bun" "$next_root/apps/gateway/src/cli.js" rollback --to "$prev_version" >"$work/rollback.log" 2>&1 || rc=$?
+  else
+    "$bun" "$next_root/apps/gateway/src/cli.js" rollback >"$work/rollback.log" 2>&1 || rc=$?
+  fi
+  check "$selection incompatible activation refuses" "$([ "$rc" -ne 0 ] && echo refused || echo accepted)" refused
+  assert_current "$selection compensation" "$next_version" "$next_root"
+  check "$selection attempted activation restarted" "$([ "$before_pid" != "$(main_pid)" ] && echo restarted || echo unchanged)" restarted
+  check "$selection failed target not recorded" "$(digest_of "$history")" "$before_history"
+  assert_preserved "$selection compensation"
+done
 
-roll() {
-  printf '\n   -- %s --\n' "$1"
-  shift
-  ROLL_FROM="$(pointer_version)"
-  ROLL_PID_BEFORE="$(main_pid)"
-  ROLL_HISTORY_BEFORE="$(history_count)"
-  ROLL_HISTORY_LAST_BEFORE="$(history_last)"
-  ROLL_OUTPUT="$(candidate_cli rollback "$@" | tr '\n' ' ')"
-  ROLL_TO="$(pointer_version)"
-  ROLL_UNIT_PATH="$(unit_exec_path)"
-  ROLL_UNIT_VERSION="$(version_of_path "$ROLL_UNIT_PATH")"
-  ROLL_LOADED_VERSION="$(loaded_exec_version)"
-  ROLL_PID="$(main_pid)"
-  ROLL_LISTENER="$(await_listener)"
-  ROLL_CONFIG="$(digest_of "$config")"
-  ROLL_TOKEN="$(digest_of "$token")"
-  ROLL_TOKEN_MODE="$(stat -c '%a' "$token")"
-  ROLL_ENABLED="$(unit_enabled)"
-  ROLL_SHAPE="$(unit_shape)"
-  ROLL_HISTORY="$(history_count)"
-  ROLL_HISTORY_LAST="$(history_last)"
-  ROLL_POINTER_MTIME="$(mtime_of "$pointer")"
-  ROLL_HISTORY_MTIME="$(mtime_of "$history")"
-  ROLL_STATUS="$("$bun" "$cli" status || true)"
-  case "$ROLL_UNIT_PATH" in
-    /*/installation/versions/*/apps/gateway/src/cli.js) ROLL_ABS="absolute" ;;
-    *) ROLL_ABS="$ROLL_UNIT_PATH" ;;
-  esac
-  show "command" "rollback${*:+ $*}"
-  show "output" "$ROLL_OUTPUT"
-  show "current.json" "$ROLL_FROM -> $ROLL_TO"
-  show "unit file / loaded version" "$ROLL_UNIT_VERSION / $ROLL_LOADED_VERSION"
-  show "unit ExecStart path" "$(printf '%s' "$ROLL_UNIT_PATH" | sed "s|^$HOME|~|")"
-  show "unit file shape" "$ROLL_SHAPE"
-  show "daemon main pid" "$ROLL_PID_BEFORE -> $ROLL_PID"
-  show "listener / wait" "$ROLL_LISTENER / $LISTENER_WAIT"
-  show "config / token digest" "$(clip "$ROLL_CONFIG") / $(clip "$ROLL_TOKEN")"
-  show "token mode / unit enabled" "$ROLL_TOKEN_MODE / $ROLL_ENABLED"
-  show "activations / last" "$ROLL_HISTORY_BEFORE -> $ROLL_HISTORY / $ROLL_HISTORY_LAST"
-  show "current.json / history mtime" "$ROLL_POINTER_MTIME / $ROLL_HISTORY_MTIME"
-  show "status" "$ROLL_STATUS"
-}
-
-# $1 = row prefix, $2 = version directory the command had to activate, $3 = selection word it had to
-# report. Paired values are folded into one row each so the observed column stays readable while
-# still naming both halves of a mismatch.
-assert_roll() {
-  local expected_activations=1
-  # Activation history is deliberately idempotent: re-activating the version the history already ends
-  # with appends nothing, so that a run of identical entries cannot evict a genuine predecessor. The
-  # expected delta is therefore derived from what the history held, not fixed at one.
-  [ "$ROLL_HISTORY_LAST_BEFORE" != "$2" ] || expected_activations=0
-  table_head
-  check "$1: current.json names the target" "$ROLL_TO" "$2"
-  check "$1: reported selection" "$(if printf '%s' "$ROLL_OUTPUT" | grep -qF "($3)"; then printf '%s' "$3"; else printf 'not reported'; fi)" "$3"
-  check "$1: definition and loaded unit follow" "$ROLL_UNIT_VERSION / $ROLL_LOADED_VERSION" "$2 / $2"
-  check "$1: ExecStart absolute and versioned" "$ROLL_ABS" absolute
-  check "$1: daemon restarted" "$(if [ "$ROLL_PID_BEFORE" != "$ROLL_PID" ]; then printf 'changed'; else printf 'same'; fi)" changed
-  check "$1: listener bound, loopback only" "$ROLL_LISTENER" loopback
-  check "$1: config and token survived" "$(if [ "$ROLL_CONFIG" = "$BASE_CONFIG" ] && [ "$ROLL_TOKEN" = "$BASE_TOKEN" ]; then printf 'identical'; else printf 'differs'; fi)" identical
-  check "$1: token mode unchanged" "$ROLL_TOKEN_MODE" "$BASE_TOKEN_MODE"
-  check "$1: activations recorded" "$((ROLL_HISTORY - ROLL_HISTORY_BEFORE))" "$expected_activations"
-  check "$1: last activation is the pointer" "$ROLL_HISTORY_LAST" "$ROLL_TO"
-  # Only meaningful when something was appended. When the history already ended with this version
-  # nothing was rewritten, so its mtime is legitimately older than the pointer's and an unconditional
-  # ordering row would fail on correct behaviour. Say which case it was instead of hiding either.
-  check "$1: history appended after the pointer" \
-    "$(if [ "$expected_activations" -eq 1 ]; then later_or_equal "$ROLL_POINTER_MTIME" "$ROLL_HISTORY_MTIME"; else printf 'nothing appended'; fi)" \
-    "$(if [ "$expected_activations" -eq 1 ]; then printf 'after'; else printf 'nothing appended'; fi)"
-  check "$1: installed/active/ready/diverged" "$(status_quad "$ROLL_STATUS")" "true/true/true/false"
-}
-
-# ---------------------------------------------------------------- W0: what a bare rollback does first
-printf '\n   -- W0: rollback with no --to, against whatever lane 4 left recorded --\n'
-w0_active="$(pointer_version)"
-w0_expected="$(recorded_predecessor "$w0_active" | grep . || printf 'none')"
-w0_pid_before="$(main_pid)"
-w0_unit_before="$(unit_version)"
-w0_history_before="$(history_count)"
-w0_history_last_before="$(history_last)"
-show "active version directory" "$w0_active"
-show "activations recorded" "$(history_entries | tr '\n' ' ' | sed 's/ *$//' | grep . || printf 'none')"
-show "recorded predecessor, computed here" "$w0_expected"
-w0_rc=0
-candidate_cli rollback >"$work/w0.log" 2>&1 || w0_rc=$?
-show "exit code" "$w0_rc"
-show "output" "$(head -c 240 "$work/w0.log" | tr '\n' ' ')"
-show "current.json after" "$(pointer_version)"
-show "unit file version after" "$(unit_version)"
-show "daemon main pid" "$w0_pid_before -> $(main_pid)"
-
-if [ "$w0_expected" = none ]; then
-  # The predecessor artifact predates PR #78, so it recorded no activation of its own and the command
-  # has nothing to resolve. Refusing is the safety property; the message rows are transcribed from
-  # apps/gateway/src/installation.ts, so a FAIL among them is a discrepancy between the command and
-  # its own documented refusal, to be reported rather than absorbed by loosening this lane.
-  printf '\n   %s\n' "No activation is recorded for the active version, so the documented behaviour is a"
-  printf '   %s\n' "refusal that changes nothing. The message rows are transcribed from installation.ts."
-  table_head
-  check "W0: refuses without a recorded predecessor" "$(if [ "$w0_rc" -ne 0 ]; then printf 'refused'; else printf 'accepted'; fi)" refused
-  check "W0: exit code" "$w0_rc" 1
-  check "W0: message refuses to guess" "$(contains "$work/w0.log" 'refusing to guess a rollback target')" present
-  check "W0: message names the remedy" "$(contains "$work/w0.log" 'pass --to <version-directory>')" present
-  check "W0: message lists installed versions" "$(contains "$work/w0.log" 'installed: ')" present
-  check "W0: refusal changed no pointer" "$(pointer_version)" "$w0_active"
-  check "W0: refusal changed no definition" "$(unit_version)" "$w0_unit_before"
-  w0_history_after="$(history_count)"
-  check "W0: refusal recorded no activation" "$((w0_history_after - w0_history_before))" 0
-  check "W0: refusal did not restart the daemon" "$(if [ "$w0_pid_before" = "$(main_pid)" ]; then printf 'unchanged'; else printf 'restarted'; fi)" unchanged
-else
-  # Both artifacts record activations, so the bare command has a predecessor to resolve and must land
-  # on the one computed above. Measured with the same routine as every later invocation.
-  printf '\n   %s\n' "A predecessor is recorded, so the documented behaviour is a rollback onto it."
-  ROLL_FROM="$w0_active"
-  ROLL_PID_BEFORE="$w0_pid_before"
-  ROLL_HISTORY_BEFORE="$w0_history_before"
-  ROLL_HISTORY_LAST_BEFORE="$w0_history_last_before"
-  ROLL_OUTPUT="$(tr '\n' ' ' <"$work/w0.log")"
-  ROLL_TO="$(pointer_version)"
-  ROLL_UNIT_PATH="$(unit_exec_path)"
-  ROLL_UNIT_VERSION="$(version_of_path "$ROLL_UNIT_PATH")"
-  ROLL_LOADED_VERSION="$(loaded_exec_version)"
-  ROLL_PID="$(main_pid)"
-  ROLL_LISTENER="$(await_listener)"
-  ROLL_CONFIG="$(digest_of "$config")"
-  ROLL_TOKEN="$(digest_of "$token")"
-  ROLL_TOKEN_MODE="$(stat -c '%a' "$token")"
-  ROLL_HISTORY="$(history_count)"
-  ROLL_HISTORY_LAST="$(history_last)"
-  ROLL_POINTER_MTIME="$(mtime_of "$pointer")"
-  ROLL_HISTORY_MTIME="$(mtime_of "$history")"
-  ROLL_STATUS="$("$bun" "$cli" status || true)"
-  case "$ROLL_UNIT_PATH" in
-    /*/installation/versions/*/apps/gateway/src/cli.js) ROLL_ABS="absolute" ;;
-    *) ROLL_ABS="$ROLL_UNIT_PATH" ;;
-  esac
-  table_head
-  check "W0: succeeded with a recorded predecessor" "$(if [ "$w0_rc" -eq 0 ]; then printf 'accepted'; else printf 'exit %s' "$w0_rc"; fi)" accepted
-  assert_roll W0 "$w0_expected" recorded-predecessor
-fi
-
-# ---------------------------------------------------------------- the walk
-# Recomputed after W0, because its successful branch moves the pointer and every step below is
-# defined against wherever the command actually left it.
-start_version="$(pointer_version)"
-if [ "$start_version" = "$prev_version" ]; then other_version="$next_version"; else other_version="$prev_version"; fi
-
-roll "W1: rollback --to $other_version, the version that is not active" --to "$other_version"
-assert_roll W1 "$other_version" requested
-
-roll "W2: rollback --to $start_version, back again, which seeds the history" --to "$start_version"
-assert_roll W2 "$start_version" requested
-
-roll "W3: rollback with no --to, which must now resolve a recorded predecessor"
-assert_roll W3 "$other_version" recorded-predecessor
-check "W3: target matches the history, read here" "$other_version" "$(recorded_predecessor "$start_version" | grep . || printf 'none')"
-
-roll "W4: rollback again, which must oscillate back"
-assert_roll W4 "$start_version" recorded-predecessor
-
-# The divergence step needs the predecessor active: it has to point the definition at a version the
-# pointer does not name, and the only reachable direction is definition-newer. The walk ends where it
-# started, so one more bare rollback is needed exactly when the lane began on the candidate.
-if [ "$(pointer_version)" != "$prev_version" ]; then
-  roll "W5: rollback once more, to reach the predecessor"
-  assert_roll W5 "$prev_version" recorded-predecessor
-else
-  printf '\n   %s\n' "W5 not needed: the walk already ends on the predecessor $prev_version."
-fi
-
-# ---------------------------------------------------------------- D: induced divergence
-printf '\n   -- D: induced divergence, definition newer than current.json --\n'
-[ "$(pointer_version)" = "$prev_version" ] && [ "$(unit_version)" = "$prev_version" ] || {
-  echo "the walk did not end with both current.json and the service definition on $prev_version, so the divergence below would not be the documented direction. Refusing to induce it." >&2
-  exit 1
-}
-# install and rollback both write the service definition first and advance current.json only once the
-# new runtime has proven loopback readiness, so exactly one divergence direction is reachable: a
-# crash between those two writes leaves the definition naming a NEWER version than the pointer.
-# Reproduce that by hand, including the restart a real crash would already have completed, so the
-# daemon genuinely executes the version the pointer does not name.
-diverge_pid_before="$(main_pid)"
+# Reproduce the reachable crash state: newer definition, older pointer. It is not a claim to
+# have crashed between the writes. No third runtime or falsified activation history is introduced.
+stop_root "$next_root"
+restore_predecessor_config
+install_root "$prev_root" --no-start
 sed -i "s|/installation/versions/${prev_version}/|/installation/versions/${next_version}/|g" "$unit"
 systemctl --user daemon-reload
-systemctl --user restart omp-session-gateway.service
-diverged_listener="$(await_listener)"
-diverged_unit_version="$(unit_version)"
-diverged_loaded_version="$(loaded_exec_version)"
-diverged_pointer="$(pointer_version)"
-diverged_history="$(history_count)"
-diverged_pid="$(main_pid)"
-show "unit file / loaded version" "$diverged_unit_version / $diverged_loaded_version"
-show "current.json still names" "$diverged_pointer"
-show "daemon main pid" "$diverge_pid_before -> $diverged_pid"
-show "listener / wait" "$diverged_listener / $LISTENER_WAIT"
+systemctl --user start omp-session-gateway.service
+for _ in $(seq 1 30); do
+  status="$("$bun" "$next_root/apps/gateway/src/cli.js" status 2>/dev/null || true)"
+  [ "$(printf '%s' "$status" | jq -r '.ready')" = true ] && break
+  sleep 1
+done
+check "divergence newer definition loaded" "$(loaded_version)" "$next_version"
+check "divergence retains older pointer" "$(pointer_version)" "$prev_version"
+check "divergence observed with ready daemon" "$(printf '%s' "$status" | jq -r '[.ready,.diverged] | @tsv')" "$(printf 'true\ttrue')"
+before_state="$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)"
+rc=0
+"$bun" "$next_root/apps/gateway/src/cli.js" rollback --to "$prev_version" >"$work/divergence.log" 2>&1 || rc=$?
+check "diverged rollback to current refuses" "$([ "$rc" -ne 0 ] && echo refused || echo accepted)" refused
+check "divergence refusal leaves state" "$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)" "$before_state"
+stop_root "$next_root"
+restore_predecessor_config
+install_root "$prev_root"
+assert_current "signed predecessor reinstall recovery" "$prev_version" "$prev_root"
+check "predecessor config restored exactly" "$(digest_of "$config")" "$(digest_of "$backup")"
+assert_preserved "predecessor recovery"
 
-status_rc=0
-diverged_status="$("$bun" "$cli" status 2>"$work/status.err")" || status_rc=$?
-show "status" "$diverged_status"
-show "status exit code" "$status_rc"
-show "status stderr" "$(head -c 240 "$work/status.err" | tr '\n' ' ')"
-
-# `status` names two remedies: `rollback --to <version>` or a reinstall. With two installed versions
-# the command cannot reach the conservative outcome at all -- naming the pointer's own version is
-# refused, and every other target adopts a version the pointer never proved -- so the refusal is
-# measured here and the repair below is the reinstall. The command did not perform this repair, and
-# no third version is manufactured to pretend otherwise.
-refusal_rc=0
-"$bun" "$cli" rollback --to "$prev_version" >"$work/refusal.log" 2>&1 || refusal_rc=$?
-# Captured before the repair runs, because the repair rewrites the very definition this asserts was
-# left untouched.
-refusal_unit_version="$(unit_version)"
-refusal_pointer="$(pointer_version)"
-show "rollback --to <active> exit" "$refusal_rc"
-show "rollback --to <active> message" "$(head -c 240 "$work/refusal.log" | tr '\n' ' ')"
-show "after refusal: unit / pointer" "$refusal_unit_version / $refusal_pointer"
-
-repair_pid_before="$(main_pid)"
-"$bun" "$prev_root/apps/gateway/src/cli.js" install \
-  --origin "https://${DNS_NAME}" --allow "$ALLOWED_LOGIN" >/dev/null
-repair_pointer="$(pointer_version)"
-repair_unit_version="$(unit_version)"
-repair_loaded_version="$(loaded_exec_version)"
-repair_pid="$(main_pid)"
-repair_listener="$(await_listener)"
-repair_history="$(history_count)"
-repair_status="$("$bun" "$cli" status || true)"
-show "repair: current.json" "$diverged_pointer -> $repair_pointer"
-show "repair: unit file / loaded" "$repair_unit_version / $repair_loaded_version"
-show "repair: unit file shape" "$(unit_shape)"
-show "repair: daemon main pid" "$repair_pid_before -> $repair_pid"
-show "repair: listener / wait" "$repair_listener / $LISTENER_WAIT"
-show "repair: activations recorded" "$diverged_history -> $repair_history"
-show "repair: status" "$repair_status"
-show "repair: config / token digest" "$(clip "$(digest_of "$config")") / $(clip "$(digest_of "$token")")"
-show "repair: unit enabled" "$(unit_enabled)"
-
-table_head
-check "D: induced definition is the newer version" "$diverged_unit_version" "$next_version"
-check "D: induced pointer stays the older one" "$diverged_pointer" "$prev_version"
-check "D: the daemon really ran the newer one" "$diverged_loaded_version" "$next_version"
-check "D: the restart really happened" "$(if [ "$diverge_pid_before" != "$diverged_pid" ]; then printf 'changed'; else printf 'same'; fi)" changed
-check "D: listener bound while diverged" "$diverged_listener" loopback
-check "D: status reports the divergence" "$(status_field "$diverged_status" diverged)" true
-check "D: status names the pointer version" "$(status_field "$diverged_status" activeVersion)" "$prev_version"
-check "D: status names the definition version" "$(status_field "$diverged_status" serviceVersion)" "$next_version"
-check "D: status exits non-zero while diverged" "$(if [ "$status_rc" -ne 0 ]; then printf 'nonzero'; else printf 'zero'; fi)" nonzero
-check "D: status stderr says DIVERGED" "$(contains "$work/status.err" 'DIVERGED')" present
-check "D: rollback --to the active version refuses" "$(if [ "$refusal_rc" -ne 0 ]; then printf 'refused'; else printf 'accepted'; fi)" refused
-check "D: refusal names the active version" "$(contains "$work/refusal.log" 'refusing rollback to the active version')" present
-check "D: refusal left the diverged state alone" "$refusal_unit_version / $refusal_pointer" "$next_version / $prev_version"
-check "D: repair keeps the older proven version" "$repair_pointer" "$prev_version"
-check "D: repair rewrites definition and unit" "$repair_unit_version / $repair_loaded_version" "$prev_version / $prev_version"
-check "D: repair adopts nothing unrecorded" "$(if [ "$repair_pointer" != "$next_version" ] && [ "$repair_unit_version" != "$next_version" ]; then printf 'not adopted'; else printf 'adopted'; fi)" "not adopted"
-check "D: repair recorded no new activation" "$((repair_history - diverged_history))" 0
-check "D: repair cleared the divergence" "$(status_field "$repair_status" diverged)" false
-check "D: repair restarted the daemon" "$(if [ "$repair_pid_before" != "$repair_pid" ]; then printf 'changed'; else printf 'same'; fi)" changed
-check "D: listener bound after repair" "$repair_listener" loopback
-
-# ---------------------------------------------------------------- F: leave the candidate active
-# Not tidying. Every lane after this one measures whatever is installed, and the ledger's subject is
-# the candidate rather than its predecessor -- including lane `persistence`, which reboots, and which
-# a predecessor unit predating the RuntimeDirectory= fix would fail for reasons that are #69 and not
-# rollback. It is also a third `--to`, from a definition and pointer that were just repaired.
-roll "F: rollback --to $next_version, leaving the candidate active" --to "$next_version"
-assert_roll F "$next_version" requested
-check "F: droplet left on a post-#69 unit shape" "$ROLL_SHAPE" "RuntimeDirectory="
-
-printf '\n   Not checked here, and why:\n'
-printf '   %s\n' "* the conservative divergence repair was NOT performed by the rollback command. With"
-printf '   %s\n' "  two installed versions no invocation can do it: --to the pointer's own version is"
-printf '   %s\n' "  refused, and any other target adopts a version the pointer never proved. The"
-printf '   %s\n' "  reinstall measured above is the other remedy status prints, and it is what ran."
-printf '   %s\n' "* the opposite divergence direction, a pointer newer than the definition, is not"
-printf '   %s\n' "  induced because no command produces it: neither install nor rollback writes"
-printf '   %s\n' "  current.json before the service definition."
-printf '   %s\n' "* rollback's own repair path, the catch block that rebuilds the definition from"
-printf '   %s\n' "  current.json when an activation fails, is not reached. Reaching it needs a rollback"
-printf '   %s\n' "  whose target fails readiness, which means breaking a staged runtime, and a"
-printf '   %s\n' "  deliberately corrupted runtime is not evidence about this candidate."
-printf '   %s\n' "* the crash window between the two writes is not measured, only the state a crash"
-printf '   %s\n' "  inside it leaves and how the next command treats that state."
-printf '   %s\n' "* history.json ordering is shown by nanosecond mtime, which orders two writes and"
-printf '   %s\n' "  says nothing about atomicity. Those two writes are documented as not atomic."
-printf '   %s\n' "* the macOS harness's host-daemon and host-plist invariants have no analogue here:"
-printf '   %s\n' "  that harness protects a live daemon on the operator's own machine, and this"
-printf '   %s\n' "  droplet has one user, one service, and nothing to protect it from."
-printf '   %s\n' "* lane 4's five reinstall-path rows are printed above but never re-asserted here:"
-printf '   %s\n' "  predecessor install names a version, the active version changes on the forward"
-printf '   %s\n' "  upgrade, the predecessor directory survives it, the unit stays enabled, and a"
-printf '   %s\n' "  reinstall preserves config and token."
-
-if [ "$FAILURES" -eq 0 ]; then
-  printf '\n   %d/%d invariants PASS\n' "$CHECKS" "$CHECKS"
-else
-  printf '\n   %d of %d invariants FAILED\n' "$FAILURES" "$CHECKS"
-  echo "rollback invariants failed" >&2
-  exit 1
-fi
+stop_root "$prev_root"
+install_root "$next_root"
+assert_current "final candidate" "$next_version" "$next_root"
+assert_preserved "final candidate"
+check "final publisher credential retired" "$([ ! -e "$HOME/.config/omp-session-gateway/publisher-token" ] && echo absent || echo present)" absent
+show "OMP binary rollback" "not performed; gateway-only recovery"
+printf '\n   %d/%d invariants PASS\n' "$CHECKS" "$CHECKS"
 REMOTE
-  note "The lane ends with the candidate active and a post-#69 unit, so later lanes measure the"
-  note "candidate. A failure between the induced divergence and its repair leaves the droplet"
-  note "deliberately diverged: re-run this lane, or reinstall, to rebuild the unit from current.json."
 }
 
 lane_uninstall() {

@@ -230,6 +230,11 @@ bun apps/gateway/src/cli.ts serve \
 Production installation requires an exact tailnet HTTPS origin and at least one normalized
 Tailscale login:
 
+If a fork-era gateway is already installed, retain its signed archive and private configuration,
+then run that archive's `uninstall` command first to stop and unregister its service. Config and
+staged runtimes remain in place. This first mainline upgrade is not an active in-place credential
+migration; see [upgrade and recovery](docs/UPGRADE_ROLLBACK.md).
+
 ```sh
 bun run build
 bun apps/gateway/src/cli.ts install \

@@ -225,9 +225,9 @@ jobs:
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
           - Mainline OMP $upstream_tag registry integration and Bun 1.4.0 toolchain.
-          - Native MathML formula rendering without external fonts, stylesheets, or a weaker CSP.
-          - Transcript tail recovery when collaboration reconnects; View, Ask, and photo-composer boundaries remain intact.
-          - Managed upgrades preserve existing configuration unless an option is explicitly overridden.
+          - Metadata-only discovery and per-launch capability retrieval; no gateway publisher credential or forked OMP build.
+          - Managed configuration changes preserve explicitly authored OMP discovery and query settings.
+          - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Advertised combinations
 
@@ -251,11 +251,12 @@ jobs:
 
           ### Install or upgrade
 
-          Extract omp-session-gateway-$PACKAGE_VERSION-bun.tar, then run bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com with the deployment's real values. Repeat --allow for additional identities. Active reinstall preserves configuration and the readiness token.
+          For the first upgrade from the fork-era gateway, retain its signed archive and matching private configuration, then use that archive's uninstall command to stop and unregister its service. This leaves config and installed runtimes in place; an active fork-era service cannot authenticate with the new readiness token.
+          Extract omp-session-gateway-$PACKAGE_VERSION-bun.tar, then run bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com with the deployment's real values. Repeat --allow for additional identities. Subsequent mainline reinstalls preserve configuration and the readiness token.
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed $QUALIFIED_PREVIOUS_TAG stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately installed mainline OMP executable.
+          Do not use a runtime-pointer rollback across the fork-era/mainline boundary. Stop and unregister this gateway with its uninstall command, restore the predecessor-compatible private configuration if it was changed, and reinstall the signed $QUALIFIED_PREVIOUS_TAG archive with its matching origin and allowlist. Its installer creates a new publisher credential. This restores gateway lifecycle only: collaboration requires the predecessor's own OMP prerequisite and settings. Neither route switches the separately installed OMP executable.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -266,13 +267,13 @@ jobs:
             cat > "$notes" <<EOF
           ## Engineering candidate ($OMP_RELEASE_CHANNEL channel)
 
-          This is a signed $OMP_RELEASE_CHANNEL build from current development source. It is not an advertised or supported successor to stable v0.2.1, does not replace GitHub Latest, and does not widen the stable support matrix.
+          This is a signed $OMP_RELEASE_CHANNEL build from current development source. It is not an advertised or supported successor to the qualified stable release, does not replace GitHub Latest, and does not widen the stable support matrix.
 
           ### Changes to test
 
-          - Exact OMP v18.1.14 integration: refreshed standalone controller/publisher patch, pinned browser source and wire package, native hashes, and Bun 1.4.0 toolchain.
-          - Native MathML formula rendering without KaTeX fonts, stylesheets, third-party runtime assets, or a weaker CSP.
-          - Transcript tail recovery when a collaboration connection returns live; existing View, Ask, and photo-composer boundaries remain intact.
+          - Stock mainline OMP $upstream_tag discovery/query integration, without an integration patch or gateway publisher credential.
+          - Metadata-only polling and generation-bound capability retrieval only after an explicit launch.
+          - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
           ### Required OMP prerequisite
@@ -288,9 +289,9 @@ jobs:
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the selected predecessor archive with its matching OMP prerequisite. Gateway rollback does not switch the separately installed OMP executable.
+          Cross-architecture recovery is explicit: uninstall the active gateway with its matching CLI, restore predecessor-compatible private configuration if needed, then reinstall the selected signed predecessor archive. Its publisher credential is re-created, not restored. Gateway lifecycle recovery does not restore collaboration with mainline OMP or switch the separately installed OMP executable.
 
-          Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, and registry settings; unchanged configuration bytes are not rewritten.
+          Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 
           Verification instructions: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md.
           EOF

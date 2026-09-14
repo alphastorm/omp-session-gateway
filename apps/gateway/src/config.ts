@@ -499,6 +499,9 @@ export async function writeGatewayConfigFile(options: {
   const snapshot = await captureGatewayConfigFile(paths.configPath);
   const priorConfig =
     snapshot.content === undefined ? undefined : await loadGatewayConfig({ configPath: paths.configPath });
+  const priorDocument = snapshot.content === undefined
+    ? undefined
+    : JSON.parse(snapshot.content) as { readonly omp?: Partial<GatewayConfig["omp"]> };
   const mode = options.mode ?? "tailscale-serve";
   const origin = new URL(options.publicOrigin);
   if (origin.origin !== options.publicOrigin || (mode === "tailscale-serve" && origin.protocol !== "https:")) {
@@ -510,7 +513,9 @@ export async function writeGatewayConfigFile(options: {
   }
   await assertPrivateDirectory(paths.configDir, true);
   await assertPrivateDirectory(paths.stateDir, true);
-  const configDocument: Pick<GatewayConfig, "http" | "auth" | "registry"> = {
+  const configDocument: Pick<GatewayConfig, "http" | "auth" | "registry"> & { readonly omp?: Partial<GatewayConfig["omp"]> } = {
+    // Preserve authored overrides without freezing home-derived defaults into a new config.
+    ...(priorDocument?.omp === undefined ? {} : { omp: priorDocument.omp }),
     http: {
       hostname: priorConfig?.http.hostname ?? "127.0.0.1",
       port: validatePort(options.port ?? priorConfig?.http.port ?? 4317),

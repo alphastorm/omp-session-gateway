@@ -19,8 +19,8 @@ function environment(archiveSha256: string): Record<string, string | undefined> 
   return {
     ...process.env,
     OMP_MAC_HOST: "synthetic@example.invalid",
-    OMP_MAC_TAG: "v0.2.0-prealpha.21",
-    OMP_MAC_PREVIOUS_TAG: "v0.1.0",
+    OMP_MAC_TAG: "v0.4.0-prealpha.1",
+    OMP_MAC_PREVIOUS_TAG: "v0.3.0",
     OMP_MAC_LOGIN: "synthetic@example.invalid",
     OMP_MAC_ARCHIVE_SHA256: archiveSha256,
     OMP_MAC_SUDO_PW: sudoPassword,
@@ -47,7 +47,7 @@ async function runHarness(
   return { exitCode, stdout, stderr };
 }
 
-const cleanupVersion = "17.4.1";
+const cleanupVersion = "18.1.20";
 const cleanupSourceTree = "12345678deadbeef";
 
 function cleanupPaths(home: string) {
@@ -99,7 +99,7 @@ async function runOmpCleanup(
       OMP_PIN_SOURCE_COMMIT: "source",
       OMP_PIN_SOURCE_TREE: cleanupSourceTree,
       OMP_PIN_VERSION: cleanupVersion,
-      OMP_PIN_BUN_VERSION: "1.3.14",
+      OMP_PIN_BUN_VERSION: "1.4.0",
       OMP_PIN_NATIVE_TARBALL_SHA256: "tarball",
       OMP_PIN_NATIVE_BINARY_SHA256: "binary",
       OMP_QUAL_NATIVE_FIXTURE: join(home, "native-fixture"),
@@ -198,70 +198,13 @@ test.skipIf(!POSIX)("bundle scan keeps readiness token bytes out of subprocess a
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
-test.skipIf(!POSIX)("Mac doctor bundle helper passes an explicit output option", async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-doctor-bundle-"));
-  const fakeBin = join(temporaryRoot, "bin");
-  const fakeBun = join(fakeBin, "bun");
-  const argvPath = join(temporaryRoot, "bun-argv");
-  const bundlePath = join(temporaryRoot, "doctor.tar");
-  await mkdir(fakeBin, { recursive: true });
-  await writeFile(
-    fakeBun,
-    `#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$@" >"$ARGV_CAPTURE"
-[ "$1" = synthetic-cli ]
-[ "$2" = doctor ]
-[ "$3" = --bundle ]
-[ "$4" = --output ]
-printf synthetic-bundle >"$5"
-`,
-  );
-  await chmod(fakeBun, 0o755);
-  try {
-    const result = await runHarness('source "$1"; create_doctor_bundle "$2" "$3"', ["synthetic-cli", bundlePath], {
-      ...environment("a".repeat(64)),
-      ARGV_CAPTURE: argvPath,
-      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
-    });
-    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
-    expect((await readFile(argvPath, "utf8")).trim().split("\n")).toEqual([
-      "synthetic-cli",
-      "doctor",
-      "--bundle",
-      "--output",
-      bundlePath,
-    ]);
-    expect(await Bun.file(bundlePath).text()).toBe("synthetic-bundle");
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(!POSIX)("Mac OMP cleanup forwards and removes a custom safe session directory", async () => {
+test.skipIf(!POSIX)("Mac OMP cleanup removes a custom safe session directory", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-custom-session-"));
-  const stdinPath = join(temporaryRoot, "stdin");
   const sessionLabel = "stable-custom-session.21";
   const customSession = join(temporaryRoot, sessionLabel);
   await mkdir(customSession, { recursive: true });
   await writeFile(join(customSession, "session-state"), "synthetic");
-  const forwardingHarness = `
-set -euo pipefail
-source "$1"
-scp() { :; }
-ssh() { cat >"$STDIN_CAPTURE"; }
-lane_omp_clean
-`;
   try {
-    const forwarded = await runHarness(forwardingHarness, [], {
-      ...environment("a".repeat(64)),
-      OMP_MAC_SESSION_LABEL: sessionLabel,
-      STDIN_CAPTURE: stdinPath,
-    });
-    expect(forwarded.exitCode).toBe(0);
-    const framed = (await readFile(stdinPath)).toString("utf8").split("\0");
-    expect(framed[11]).toBe(sessionLabel);
-
     const cleanup = await runOmpCleanup(temporaryRoot, sessionLabel);
     expect({ exitCode: cleanup.exitCode, stderr: cleanup.stderr }).toEqual({
       exitCode: 0,

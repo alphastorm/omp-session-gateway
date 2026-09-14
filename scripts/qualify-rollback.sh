@@ -30,8 +30,8 @@
 #
 # The shim also scopes the one read launchd cannot scope itself: `print` of our exact label reports
 # "not loaded" when the loaded program lives outside the scratch root. That is the launchd analogue
-# of XDG_STATE_HOME and lets an isolated installer observe only its own service. Step 4b runs both
-# selected artifacts' `status` with scoping OFF to test ownership against real launchd state; step 8
+# of XDG_STATE_HOME and lets an isolated installer observe only its own service. Steps 4b/5 run each
+# artifact's `status` after its own install with scoping OFF to test ownership; step 8
 # repeats uninstall with scoping OFF and records any attempted mutation. Every scoped read and
 # refusal is logged and counted.
 #
@@ -43,14 +43,14 @@
 # printed, or copied.
 #
 # Usage:
-#   OMP_ROLLBACK_OLD_TAG=v0.2.1 OMP_ROLLBACK_NEW_TAG=v0.3.0-prealpha.3 \
+#   OMP_ROLLBACK_OLD_TAG=v0.3.0 OMP_ROLLBACK_NEW_TAG=v0.4.0-prealpha.1 \
 #     scripts/qualify-rollback.sh run   # full qualification; prints an invariant table
 #   scripts/qualify-rollback.sh clean   # remove leftover scratch roots from earlier runs
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
-OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.2.1}"
-NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.3.0-prealpha.3}"
+OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.3.0}"
+NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.4.0-prealpha.1}"
 LABEL="omp-session-gateway"
 QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"
@@ -455,6 +455,7 @@ snapshot() { # index
   STEP_POINTER[$i]=$(pointer_version "$ISO_POINTER")
   STEP_CONFIG[$i]=$(digest_of "$ISO_CONFIG_JSON")
   STEP_TOKEN[$i]=$(token_digest "$ISO_TOKEN")
+  STEP_PUBLISHER[$i]=$(token_digest "${ISO_CONFIG_JSON%/*}/publisher-token")
   STEP_TOKEN_MODE[$i]=$(if [ -f "$ISO_TOKEN" ]; then mode_of "$ISO_TOKEN"; else printf absent; fi)
   STEP_PLIST[$i]=$(plist_version "$ISO_PLIST")
   fact "current.json -> versionDirectory" "${STEP_POINTER[$i]}"
@@ -474,25 +475,19 @@ step_install_old() {
   fact "sole staged version directory" "$INSTALL_EXPECTED"
 
   # A/B on service ownership: read-only, launchd scoping OFF, so both artifacts answer the same
-  # question about the same real launchd state. `status` only reads launchctl and probes its own
+  # question about real launchd state. `status` only reads launchctl and probes its own
   # (unused) loopback port.
   banner "step 4b -- unscoped service-ownership reading (read-only)"
   ISO_SCOPE="off"
   OLD_STATUS=$(iso bun "$OLD_CLI" status 2>&1 || true)
-  NEW_STATUS=$(iso bun "$NEW_CLI" status 2>&1 || true)
   ISO_SCOPE="on"
   fact "$OLD_TAG status" "$OLD_STATUS"
-  fact "$NEW_TAG status" "$NEW_STATUS"
   if [ -n "$HOST_PROGRAM" ]; then
     case "$OLD_STATUS" in
       *'"active":true'*)
         FINDINGS+=("$OLD_TAG reports active:true from an isolated root while the only loaded service is $HOST_PROGRAM. Its ownership test is the launchd label alone, so every deactivating path in that artifact targets the production daemon.")
         fact "FINDING" "$OLD_TAG claims the host daemon as its own"
         ;;
-    esac
-    case "$NEW_STATUS" in
-      *'"active":false'*) fact "$NEW_TAG ownership check" "correct (active:false)" ;;
-      *) FINDINGS+=("$NEW_TAG did not report active:false from an isolated root: $NEW_STATUS") ;;
     esac
   fi
 }
@@ -501,6 +496,15 @@ step_upgrade() {
   banner "step 5 -- upgrade to $NEW_TAG (--no-start)"
   install_from "$NEW_CLI" "$NEW_TAG upgrade"
   snapshot 1
+  # Mainline status requires its own readiness token, which only this install creates.
+  ISO_SCOPE="off"
+  NEW_STATUS=$(iso bun "$NEW_CLI" status 2>&1 || true)
+  ISO_SCOPE="on"
+  fact "$NEW_TAG status" "$NEW_STATUS"
+  case "$NEW_STATUS" in
+    *'"active":false'*) fact "$NEW_TAG ownership check" "correct (active:false)" ;;
+    *) die "$NEW_TAG did not report active:false from the isolated installed root: $NEW_STATUS" ;;
+  esac
   VERSION_COUNT_AFTER_UPGRADE=$(version_dir_count)
   # Independent of the pointer again: the upgrade must have staged exactly one new directory.
   UPGRADE_EXPECTED=$(version_dirs | grep -v "^${STEP_POINTER[0]}$" || true)
@@ -538,6 +542,10 @@ step_invariants() {
     "$([ "${STEP_TOKEN[1]}" != absent ] && { [ "${STEP_TOKEN[0]}" = absent ] || [ "${STEP_TOKEN[0]}" = "${STEP_TOKEN[1]}" ]; } && echo valid || echo invalid)" valid
   row_expect "token unchanged upgrade->rollback" "unchanged" \
     "$([ "${STEP_TOKEN[1]}" = "${STEP_TOKEN[2]}" ] && echo unchanged || echo changed)" unchanged
+  row_expect "legacy publisher retired at cutover" "absent" "$([ "${STEP_PUBLISHER[1]}" = absent ] && echo absent || echo present)" absent
+  row_expect "predecessor remints its own publisher token" "reminted" \
+    "$([ "${STEP_PUBLISHER[0]}" != absent ] && [ "${STEP_PUBLISHER[2]}" != absent ] && [ "${STEP_PUBLISHER[0]}" != "${STEP_PUBLISHER[2]}" ] && echo reminted || echo invalid)" reminted
+  row_expect "restored publisher token private" "600" "$(mode_of "${ISO_CONFIG_JSON%/*}/publisher-token")" 600
   row_expect "readiness token mode after upgrade" "600" "${STEP_TOKEN_MODE[1]}" "600"
   row_same "token mode identical upgrade->rollback" "${STEP_TOKEN_MODE[1]}" "${STEP_TOKEN_MODE[2]}"
   row_same "LaunchAgent follows active (install)" "${STEP_POINTER[0]}" "${STEP_PLIST[0]}"

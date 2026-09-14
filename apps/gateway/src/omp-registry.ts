@@ -1,6 +1,7 @@
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, opendir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   MAX_OMP_REGISTRY_RESPONSE_BYTES,
   OMP_REGISTRY_VERSION,
@@ -63,6 +64,8 @@ export interface OmpDiscoveryObservation {
 }
 
 const DEFAULT_QUERY_TIMEOUT_MS = 1_500;
+const DEFAULT_MAX_ENTRIES = 100;
+const MAX_CONCURRENT_HOST_QUERIES = 8;
 /** Upstream classifies exactly these two as a dead endpoint; everything else is transient. */
 const DEAD_ENDPOINT_CODES: Readonly<Record<string, true>> = { ENOENT: true, ECONNREFUSED: true };
 
@@ -98,14 +101,21 @@ async function connectAndRequest(endpoint: string, timeoutMs: number, payload: s
     finish(() => reject(Object.assign(new Error("omp host query timed out"), { code: "ETIMEDOUT" })));
   }, timeoutMs);
   try {
-    socket = await Bun.connect<undefined>({
+    void Bun.connect<undefined>({
       unix: endpoint,
       socket: {
         open(open) {
+          // Callbacks can run before connect resolves, including after the query timed out.
+          socket = open;
+          if (settled) {
+            open.end();
+            return;
+          }
           open.write(payload);
           open.flush();
         },
         data(_socket, chunk) {
+          if (settled) return;
           buffer += decoder.decode(chunk, { stream: true });
           if (buffer.length > MAX_OMP_REGISTRY_RESPONSE_BYTES) {
             finish(() => reject(new Error("omp host response exceeded the bounded response size")));
@@ -124,7 +134,7 @@ async function connectAndRequest(endpoint: string, timeoutMs: number, payload: s
           finish(() => reject(new Error("omp host closed the query before answering")));
         },
       },
-    });
+    }).catch(error => finish(() => reject(error)));
   } catch (error) {
     finish(() => reject(error));
   }
@@ -133,6 +143,7 @@ async function connectAndRequest(endpoint: string, timeoutMs: number, payload: s
 
 export interface OmpHostReaderOptions {
   readonly directory: string;
+  readonly maxEntries?: number;
   readonly timeoutMs?: number;
   /** Test seam: replaces the socket round trip with a deterministic transport. */
   readonly request?: (endpoint: string, payload: string, timeoutMs: number) => Promise<string>;
@@ -147,6 +158,7 @@ export interface OmpHostReaderOptions {
  */
 export class OmpHostReader {
   readonly #directory: string;
+  readonly #maxEntries: number;
   readonly #timeoutMs: number;
   readonly #request: (endpoint: string, payload: string, timeoutMs: number) => Promise<string>;
   readonly #onFault: (event: string, detail: Readonly<Record<string, number | boolean>>) => void;
@@ -154,6 +166,10 @@ export class OmpHostReader {
 
   constructor(options: OmpHostReaderOptions) {
     this.#directory = options.directory;
+    this.#maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    if (!Number.isSafeInteger(this.#maxEntries) || this.#maxEntries < 1 || this.#maxEntries > 1_000) {
+      throw new Error("invalid discovery capacity");
+    }
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
     this.#request = options.request ?? ((endpoint, payload, timeoutMs) => connectAndRequest(endpoint, timeoutMs, payload));
     this.#onFault = options.onFault ?? (() => undefined);
@@ -163,64 +179,119 @@ export class OmpHostReader {
     return this.#directory;
   }
 
-  /**
-   * An absent directory is the normal state of a machine with no shared session, so it is healthy.
-   * A symlink or a directory owned by another user is not: reading it would either follow a
-   * redirect the gateway cannot vouch for or expose another account's sessions.
-   */
+  /** Absence is healthy; unsafe permissions and unreadable directories are not. */
   async directoryUsable(): Promise<boolean> {
     try {
-      const info = await lstat(this.#directory);
-      if (info.isSymbolicLink() || !info.isDirectory()) return false;
-      if (process.platform !== "win32") {
-        const uid = process.getuid?.();
-        if (uid !== undefined && info.uid !== uid) return false;
-      }
+      const directory = await this.#openDirectory();
+      await directory.close();
       return true;
     } catch (error) {
       return errorCode(error) === "ENOENT";
     }
   }
 
-  /**
-   * Lists the current discovery files. `.tmp` files are mid-write by construction and `.sock`
-   * entries are the endpoints themselves, so only `.json` is read; a file that vanishes between
-   * the readdir and the read is a host that just rotated, not an error.
-   */
+  async #assertPrivateDirectory(path: string): Promise<void> {
+    const info = await lstat(path);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe discovery directory");
+    if (process.platform !== "win32" && (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)) {
+      throw new Error("unsafe discovery directory permissions");
+    }
+  }
+
+  async #openDirectory() {
+    await this.#assertPrivateDirectory(this.#directory);
+    // Do not let the directory API preallocate an attacker-sized name array.
+    return opendir(this.#directory, { bufferSize: 1 });
+  }
+
+  /** Lists only bounded, private publications. This never establishes a launch binding. */
   async listEntries(): Promise<readonly OmpDiscoveryEntry[]> {
-    let names: string[];
+    return (await this.#readEntries()).entries;
+  }
+
+  async #readEntries(): Promise<{
+    entries: readonly OmpDiscoveryEntry[];
+    retained: Set<string>;
+    directoryHealthy: boolean;
+  }> {
+    const entries = new Map<string, OmpDiscoveryEntry>();
+    const retained = new Set<string>();
+    const ambiguous = new Set<string>();
+    const knownFiles = new Map([...this.#entries.values()].map(entry => [entry.entryId, entry.instanceId]));
     try {
-      names = await readdir(this.#directory);
-    } catch (error) {
-      if (errorCode(error) !== "ENOENT") {
-        // Deliberately fieldless: an errno is a string, and no string enters the gateway log.
-        this.#onFault("omp.discovery_unreadable", {});
-      }
-      return [];
-    }
-    const entries: OmpDiscoveryEntry[] = [];
-    for (const name of names) {
-      if (!name.endsWith(".json")) continue;
-      const entryId = name.slice(0, -".json".length);
-      let raw: Buffer;
+      const directory = await this.#openDirectory();
       try {
-        raw = await readFile(join(this.#directory, name));
-      } catch (error) {
-        if (errorCode(error) !== "ENOENT") {
-          this.#onFault("omp.entry_unreadable", {});
+        const buffer = Buffer.allocUnsafe(MAX_OMP_REGISTRY_RESPONSE_BYTES + 1);
+        let files = 0;
+        const readEntry = async (entryId: string): Promise<void> => {
+          files++;
+          try {
+            const entry = await this.#readEntry(entryId, buffer);
+            const known = knownFiles.get(entryId);
+            if (known !== undefined && known !== entry.instanceId) retained.add(known);
+            if (ambiguous.has(entry.instanceId)) return;
+            if (entries.has(entry.instanceId)) {
+              entries.delete(entry.instanceId);
+              ambiguous.add(entry.instanceId);
+              retained.add(entry.instanceId);
+              return;
+            }
+            entries.set(entry.instanceId, entry);
+          } catch (error) {
+            if (errorCode(error) === "ENOENT") return;
+            this.#onFault("omp.entry_unreadable", {});
+            const known = knownFiles.get(entryId);
+            if (known !== undefined) retained.add(known);
+          }
+        };
+        // Revisit admitted publications first: an overfull prefix must neither evict a live host
+        // nor preserve a vanished host forever. These reads consume the same per-round budget.
+        for (const entryId of knownFiles.keys()) await readEntry(entryId);
+        // A normal publication has a JSON file and a socket. Alien names consume this budget too.
+        for (let scanned = 0; scanned < this.#maxEntries * 2 && files < this.#maxEntries; scanned++) {
+          const name = await directory.read();
+          if (name === null) break;
+          if (!name.name.endsWith(".json")) continue;
+          const entryId = name.name.slice(0, -".json".length);
+          if (!knownFiles.has(entryId)) await readEntry(entryId);
         }
-        continue;
+      } finally {
+        await directory.close();
       }
-      try {
-        const entry = parseOmpDiscoveryEntry(entryId, parseJsonFrame(raw));
-        if (entry.version !== OMP_REGISTRY_VERSION) continue;
-        entries.push(entry);
-      } catch {
-        // A malformed or foreign-versioned artifact is not a host. OMP prunes its own leftovers.
-        continue;
-      }
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return { entries: [], retained: new Set(), directoryHealthy: true };
+      this.#onFault("omp.discovery_unreadable", {});
+      return { entries: [], retained: new Set(this.#entries.keys()), directoryHealthy: false };
     }
-    return entries;
+    return { entries: [...entries.values()], retained, directoryHealthy: true };
+  }
+
+  async #readEntry(entryId: string, buffer: Buffer): Promise<OmpDiscoveryEntry> {
+    const path = join(this.#directory, entryId + ".json");
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error("unsafe discovery file");
+    const flags = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const file = await open(path, flags);
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.dev !== before.dev || info.ino !== before.ino) throw new Error("changed discovery file");
+      if (process.platform !== "win32" && (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)) {
+        throw new Error("unsafe discovery file permissions");
+      }
+      if (info.size > MAX_OMP_REGISTRY_RESPONSE_BYTES) throw new Error("oversized discovery file");
+      let length = 0;
+      while (length < buffer.byteLength) {
+        const { bytesRead } = await file.read(buffer, length, buffer.byteLength - length, length);
+        if (bytesRead === 0) break;
+        length += bytesRead;
+      }
+      if (length > MAX_OMP_REGISTRY_RESPONSE_BYTES) throw new Error("oversized discovery file");
+      const entry = parseOmpDiscoveryEntry(entryId, parseJsonFrame(buffer.subarray(0, length)));
+      if (entry.version !== OMP_REGISTRY_VERSION) throw new Error("foreign discovery version");
+      return entry;
+    } finally {
+      await file.close();
+    }
   }
 
   async snapshot(entry: OmpDiscoveryEntry): Promise<HostQueryResult<OmpHostSnapshot>> {
@@ -229,6 +300,9 @@ export class OmpHostReader {
     try {
       const parsed = parseOmpSnapshotReply(parseJsonFrame(new TextEncoder().encode(reply.value)));
       if (!parsed.ok) return { status: "unavailable", detail: parsed.error };
+      if (parsed.value.instanceId !== entry.instanceId || parsed.value.pid !== entry.pid) {
+        return { status: "unavailable", detail: "snapshot_identity_mismatch" };
+      }
       return { status: "ok", value: parsed.value };
     } catch {
       return { status: "unavailable", detail: "malformed_snapshot" };
@@ -261,35 +335,53 @@ export class OmpHostReader {
     }
   }
 
-  /** The discovery entry the last observation bound to this instance, if it is still published. */
+  /** The discovery entry the last observation bound to this instance; the host query revalidates it. */
   entryFor(instanceId: string): OmpDiscoveryEntry | undefined {
     return this.#entries.get(instanceId);
   }
 
-  /**
-   * Re-reads the directory and asks every published host for its snapshot. Hosts are queried
-   * concurrently: one busy session must not delay the whole directory behind it.
-   */
+  /** Queries a bounded set with a fixed concurrency ceiling, retaining only validated bindings. */
   async observe(): Promise<OmpDiscoveryObservation> {
-    const directoryHealthy = await this.directoryUsable();
-    const entries = directoryHealthy ? await this.listEntries() : [];
-    const results = await Promise.all(
-      entries.map(async entry => ({ entry, result: await this.snapshot(entry) })),
-    );
+    const { entries, retained, directoryHealthy } = await this.#readEntries();
+    const results = new Array<HostQueryResult<OmpHostSnapshot>>(entries.length);
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(entries.length, MAX_CONCURRENT_HOST_QUERIES) }, async () => {
+      while (cursor < entries.length) {
+        const index = cursor++;
+        results[index] = await this.snapshot(entries[index]!);
+      }
+    }));
     const hosts: OmpHostObservation[] = [];
-    const retained = new Set<string>();
     const nextEntries = new Map<string, OmpDiscoveryEntry>();
-    for (const { entry, result } of results) {
-      if (result.status === "ok") {
-        // The host's own answer is authoritative over the file it published under.
-        nextEntries.set(result.value.instanceId, entry);
-        hosts.push({ entry, snapshot: result.value, session: observedSessionFromSnapshot(result.value) });
+    for (const [instanceId, entry] of this.#entries) {
+      if (retained.has(instanceId)) nextEntries.set(instanceId, entry);
+    }
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]!;
+      const result = results[index]!;
+      const known = this.#entries.get(entry.instanceId);
+      if (result.status === "gone") {
+        retained.delete(entry.instanceId);
+        nextEntries.delete(entry.instanceId);
         continue;
       }
-      if (result.status === "unavailable") {
-        nextEntries.set(entry.instanceId, entry);
+      if (result.status !== "ok" || (known !== undefined && known.pid !== entry.pid)) {
         retained.add(entry.instanceId);
+        // Never let an unreadable or mismatched publication retarget an existing card.
+        if (known !== undefined) nextEntries.set(entry.instanceId, known);
+        continue;
       }
+      if (!nextEntries.has(entry.instanceId) && nextEntries.size >= this.#maxEntries) continue;
+      let session: ObservedSessionInput;
+      try {
+        session = observedSessionFromSnapshot(result.value);
+      } catch {
+        retained.add(entry.instanceId);
+        if (known !== undefined) nextEntries.set(entry.instanceId, known);
+        continue;
+      }
+      nextEntries.set(entry.instanceId, entry);
+      hosts.push({ entry, snapshot: result.value, session });
     }
     this.#entries = nextEntries;
     return { hosts, retained, directoryHealthy };
@@ -297,6 +389,13 @@ export class OmpHostReader {
 
   async #query(entry: OmpDiscoveryEntry, request: Record<string, unknown>): Promise<HostQueryResult<string>> {
     try {
+      if (process.platform !== "win32") {
+        await this.#assertPrivateDirectory(dirname(entry.endpoint));
+        const info = await lstat(entry.endpoint);
+        if (!info.isSocket() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+          return { status: "unavailable", detail: "unsafe_endpoint" };
+        }
+      }
       const line = await this.#request(entry.endpoint, `${JSON.stringify(request)}\n`, this.#timeoutMs);
       return { status: "ok", value: line };
     } catch (error) {
@@ -345,7 +444,16 @@ export class OmpLaunchResolver {
     const entry = await this.#entryFor(request.instanceId);
     if (entry === undefined) return { status: "missing" };
     const link = await this.#reader.link(entry, request.mode, request.generation);
-    if (link.status === "ok") return { status: "ok", capability: link.value };
+    if (link.status === "ok") {
+      const current = this.#registry.authorizeLaunch(
+        request.instanceId,
+        request.generation,
+        request.mode,
+        request.requestId,
+      );
+      if (current.status !== "ok") return { status: current.status };
+      return { status: "ok", capability: link.value };
+    }
     if (link.status === "refused") {
       // The host is the authority on its own generation and access: a refusal means the card the
       // operator pressed no longer describes that session.
@@ -359,15 +467,18 @@ export class OmpLaunchResolver {
   }
 
   /**
-   * Prefers the entry the last poll bound, then re-reads the directory once. A room that rotated
-   * between the poll and the press publishes under a fresh entry, and its stale generation is
-   * rejected by the host rather than guessed at here.
+   * Prefers the entry the last poll bound, then validates a rediscovered endpoint against its
+   * snapshot. Cached entries are routing hints; the host still authorizes generation and access
+   * on every link query rather than the gateway inferring revocation from a file race.
    */
   async #entryFor(instanceId: string): Promise<OmpDiscoveryEntry | undefined> {
     const known = this.#reader.entryFor(instanceId);
     if (known !== undefined) return known;
     const entries = await this.#reader.listEntries();
-    return entries.find(entry => entry.instanceId === instanceId);
+    const entry = entries.find(candidate => candidate.instanceId === instanceId);
+    if (entry === undefined) return undefined;
+    const snapshot = await this.#reader.snapshot(entry);
+    return snapshot.status === "ok" ? entry : undefined;
   }
 }
 

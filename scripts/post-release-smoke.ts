@@ -753,7 +753,7 @@ async function startFixture(
     "-s",
     handle.label,
     "-c",
-    repositoryRoot,
+    handle.directory,
     `exec ${shellQuote(launcher)}`,
   ]);
   handle.tmuxStarted = true;

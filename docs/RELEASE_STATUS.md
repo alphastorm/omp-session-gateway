@@ -1,8 +1,9 @@
 # Release status
 
-## Mainline cutover — qualification pending
+## Mainline v0.4.0 — qualification pending
 
 **Decision recorded:** 2026-09-14. Current source requires stock OMP `>= 18.1.20`;
+the development gateway version is `0.4.0`, with published `v0.3.0` as the explicit predecessor.
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Exact engineering source is
 `v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`. This records a source/architecture
 cutover, not a new release, signature, test count, or qualification result.
@@ -12,6 +13,11 @@ storing them. Native Linux/macOS/Windows, physical Android, relay endurance, sig
 installation, and cross-architecture upgrade/rollback qualification are **pending** for mainline.
 No recorded fork-era result transfers. The retained v0.3.0 stable lock and published artifacts
 remain historical evidence, not authorization to ship these changed bytes as qualified.
+
+**Founder-approved assurance amendment, 2026-09-14:** replace the eight-hour gate for v0.4.0
+with a fresh 30-minute signed-candidate relay check, keeping every other release gate intact.
+Eight-hour endurance is **not rerun or claimed**; residual prolonged-operation risk is accepted.
+The bounded check is still pending, and historical endurance evidence does not transfer.
 
 ## Fork-era release and qualification archive
 

@@ -6,6 +6,43 @@ import { expect, test } from "bun:test";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
+test.skipIf(process.platform === "win32")("rollback refuses a non-private predecessor config before service operations", async () => {
+  const home = await mkdtemp(join(tmpdir(), "omp-rollback-config-private-"));
+  const state = join(home, ".local", "state", "omp-session-gateway");
+  const backup = join(state, "pre-mainline-config.json");
+  const bin = join(home, "bin");
+  const managerMarker = join(home, "service-touched");
+  await Promise.all([mkdir(state, { recursive: true }), mkdir(bin)]);
+  await writeFile(backup, '{"http":{"port":47419}}', { mode: 0o644 });
+  await writeFile(join(home, "runtime-root"), "unused");
+  await writeFile(join(bin, "systemctl"), '#!/bin/sh\ntouch "$MANAGER_MARKER"\nexit 90\n', { mode: 0o700 });
+  const harness = `
+source "$1"
+require_dns_name() { printf qual.example.invalid; }
+remote_user() { env "$@" bash -se; }
+if [ "$(uname -s)" = Darwin ]; then
+  stat() { /usr/bin/stat -f '%Lp' "\${@: -1}"; }
+  export -f stat
+fi
+lane_rollback
+`;
+  try {
+    const child = Bun.spawn(["/bin/bash", "-c", harness, "test", join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh")], {
+      cwd: REPOSITORY_ROOT,
+      env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}`, MANAGER_MARKER: managerMarker },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("predecessor config backup private");
+    expect(await Bun.file(managerMarker).exists()).toBe(false);
+    expect(await Bun.file(backup).text()).toBe('{"http":{"port":47419}}');
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(process.platform === "win32")(
   "fresh NeedsLogin state uses bounded login rather than up",
   async () => {
