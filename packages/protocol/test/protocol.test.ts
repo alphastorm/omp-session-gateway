@@ -194,6 +194,23 @@ describe("strict protocol validation", () => {
     expect(observedSessionFromSnapshot(snapshot).title).toBe("safetext");
   });
 
+  /**
+   * OMP mints instance ids as 8-64 characters of `[a-z0-9-]`. The browser contract used to demand
+   * at least 16, so a host on OMP's own minimum parsed from discovery and then failed the directory
+   * response, which blanks every card rather than that one host.
+   */
+  test("accepts exactly the instance identities OMP can mint", () => {
+    for (const candidate of ["a1b2c3d4", "a".repeat(64), "omp-host-1"]) {
+      const list = parseSessionListResponse({ revision: 1, sessions: [metadata({ instanceId: candidate })] });
+      expect(list.sessions[0]?.instanceId).toBe(candidate);
+    }
+    for (const candidate of ["a1b2c3d", "a".repeat(65), "Instance-000001", "host.1234", "host:1234", "host_1234"]) {
+      expect(() => parseSessionListResponse({ revision: 1, sessions: [metadata({ instanceId: candidate })] })).toThrow(
+        ProtocolValidationError,
+      );
+    }
+  });
+
   test("validates browser metadata, events, and one-time launch responses", () => {
     const list = parseSessionListResponse({ revision: 2, sessions: [metadata()] });
     expect(list.sessions[0]?.instanceId).toBe(instanceId);

@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import {
+  INSTANCE_ID_PATTERN,
   MAX_FRAME_BYTES,
   MAX_PUSH_SUBSCRIPTION_BYTES,
   PUSH_API_VERSION,
@@ -115,7 +116,7 @@ function isValidRequestBootstrap(url: URL): boolean {
     return false;
   }
   try {
-    return /^[A-Za-z0-9._:-]{16,128}$/u.test(decodeURIComponent(encodedInstanceId));
+    return INSTANCE_ID_PATTERN.test(decodeURIComponent(encodedInstanceId));
   } catch {
     return false;
   }
@@ -419,7 +420,7 @@ export function createHttpHandler(options: {
       } catch {
         return problem(400, "bad_request", "Invalid request");
       }
-      if (!/^[A-Za-z0-9._:-]{16,128}$/u.test(instanceId)) {
+      if (!INSTANCE_ID_PATTERN.test(instanceId)) {
         return problem(400, "bad_request", "Invalid request");
       }
       if (!requestHasValidMutationContext(request, config.http.publicOrigin)) {

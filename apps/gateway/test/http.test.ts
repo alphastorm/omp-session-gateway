@@ -650,8 +650,13 @@ describe("HTTP boundary", () => {
     expect((await handler(launchRequest(3, "view", "http-instance-000001", "http-request-id-000002"), peer)).status).toBe(400);
   });
 
-  test("launches a valid encoded colon-bearing instance ID", async () => {
-    const instanceId = "http:instance:000001";
+  /**
+   * OMP accepts an 8-character instance id, and a real host used one. The gateway used to require
+   * 16, so it admitted that host from discovery and then rejected it at the launch route — and the
+   * browser rejected the whole directory response, blanking every session card.
+   */
+  test("launches the shortest instance ID OMP will mint", async () => {
+    const instanceId = "a1b2c3d4";
     const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(instanceId),
@@ -665,6 +670,9 @@ describe("HTTP boundary", () => {
   test("rejects malformed and encoded-separator instance IDs", async () => {
     const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(launchRequest(3, "view", "http%instance00001"), peer)).status).toBe(400);
+    // Below OMP's own minimum, and uppercase outside its alphabet: neither can name a real host.
+    expect((await handler(launchRequest(3, "view", "a1b2c3d"), peer)).status).toBe(400);
+    expect((await handler(launchRequest(3, "view", "Instance-000001"), peer)).status).toBe(400);
     expect(
       (
         await handler(

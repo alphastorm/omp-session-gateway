@@ -3,7 +3,13 @@ export const MAX_FRAME_BYTES = 64 * 1024;
 export const MAX_CAPABILITY_BYTES = 8 * 1024;
 export const MAX_LABEL_CODEPOINTS = 256;
 export const MAX_SESSIONS = 1_000;
-export const MAX_INSTANCE_ID_BYTES = 128;
+/**
+ * OMP mints every instance identity now, so its own `COLLAB_INSTANCE_ID_PATTERN` is the contract:
+ * 8-64 characters of `[a-z0-9-]`. A host is free to use the 8-character minimum, and a gateway that
+ * required more would admit that host from discovery and then fail the whole directory response in
+ * the browser, so every layer validates against this one value.
+ */
+export const INSTANCE_ID_PATTERN = /^[a-z0-9-]{8,64}$/u;
 export const MAX_OMP_REGISTRY_REQUEST_BYTES = 4 * 1024;
 export const MAX_OMP_REGISTRY_RESPONSE_BYTES = 64 * 1024;
 export const PUSH_API_VERSION = 2 as const;

@@ -1,7 +1,7 @@
 import { ProtocolValidationError, SecretCapability } from "./secret.ts";
 import {
   MAX_FRAME_BYTES,
-  MAX_INSTANCE_ID_BYTES,
+  INSTANCE_ID_PATTERN,
   MAX_LABEL_CODEPOINTS,
   MAX_PUSH_PENDING_COUNT,
   MAX_REQUEST_ID_BYTES,
@@ -28,7 +28,6 @@ import {
   type SessionMetadata,
 } from "./types.ts";
 
-const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
 const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
 const DISALLOWED_LABEL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu;
 const PUSH_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
@@ -39,8 +38,6 @@ const PUSH_DETAIL_LEVELS: Readonly<Record<PushDetailLevel, true>> = {
   preview: true,
 };
 
-/** OMP's own instance identity: 8-64 chars of `[a-z0-9-]` (`COLLAB_INSTANCE_ID_PATTERN`). */
-const OMP_INSTANCE_ID_PATTERN = /^[a-z0-9-]{8,64}$/u;
 /** 32 random bytes, hex encoded, written into the discovery file by the host. */
 const OMP_DISCOVERY_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
 const OMP_REGISTRY_ERROR_CODES: Readonly<Record<OmpRegistryErrorCode, true>> = {
@@ -80,14 +77,9 @@ function requireInteger(value: unknown, minimum: number, maximum = Number.MAX_SA
   return value as number;
 }
 
+/** Every instance identity on every surface: the one OMP mints, validated the way OMP does. */
 function requireInstanceId(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.length > MAX_INSTANCE_ID_BYTES ||
-    !INSTANCE_ID_PATTERN.test(value)
-  ) {
-    throw new ProtocolValidationError();
-  }
+  if (typeof value !== "string" || !INSTANCE_ID_PATTERN.test(value)) throw new ProtocolValidationError();
   return value;
 }
 
@@ -99,11 +91,6 @@ function requireRequestId(value: unknown): string {
   ) {
     throw new ProtocolValidationError();
   }
-  return value;
-}
-
-function requireOmpInstanceId(value: unknown): string {
-  if (typeof value !== "string" || !OMP_INSTANCE_ID_PATTERN.test(value)) throw new ProtocolValidationError();
   return value;
 }
 
@@ -243,9 +230,9 @@ export function parseOmpDiscoveryEntry(entryId: string, value: unknown): OmpDisc
     throw new ProtocolValidationError();
   }
   return {
-    entryId: requireOmpInstanceId(entryId),
+    entryId: requireInstanceId(entryId),
     version: requireInteger(record.version, 1),
-    instanceId: requireOmpInstanceId(record.instanceId),
+    instanceId: requireInstanceId(record.instanceId),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
     endpoint: record.endpoint,
     createdAt: requireInteger(record.createdAt, 0),
@@ -292,7 +279,7 @@ export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
   const cwd = record.cwd === null ? undefined : optionalLabel(record.cwd);
   const model = parseOmpHostModel(record.model);
   return {
-    instanceId: requireOmpInstanceId(record.instanceId),
+    instanceId: requireInstanceId(record.instanceId),
     generation: requireInteger(record.generation, 1),
     pid: requireInteger(record.pid, 1, 2_147_483_647),
     sessionId: record.sessionId,

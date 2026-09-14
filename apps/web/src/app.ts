@@ -1,4 +1,5 @@
 import {
+  INSTANCE_ID_PATTERN,
   MAX_SESSIONS,
   PUSH_API_VERSION,
   parseLaunchResponse,
@@ -75,7 +76,6 @@ const LOCAL_ACTION_UNDO_MS = 5_000;
 const HELD_ASKS_STORAGE_KEY = "omp.sessions.held-asks.v1";
 const DISMISSED_SESSIONS_STORAGE_KEY = "omp.sessions.dismissed.v1";
 const MAX_LOCAL_STORAGE_BYTES = 512_000;
-const INSTANCE_ID_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/u;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 type TransportFailureKind = "offline" | "tailnet" | "desktop" | "gateway";
 
@@ -438,7 +438,7 @@ function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
     return undefined;
   }
   if (
-    !/^[A-Za-z0-9._:-]{16,128}$/u.test(instanceId) ||
+    !INSTANCE_ID_PATTERN.test(instanceId) ||
     !/^[A-Za-z0-9_-]{16,128}$/u.test(requestId)
   ) {
     return undefined;
@@ -472,7 +472,7 @@ function parseDirectoryHistoryState(value: unknown): DirectoryHistoryState | und
   if (
     !Array.isArray(record.order) ||
     !record.order.every(
-      item => typeof item === "string" && /^[A-Za-z0-9._:-]{16,128}$/u.test(item),
+      item => typeof item === "string" && INSTANCE_ID_PATTERN.test(item),
     ) ||
     new Set(record.order).size !== record.order.length ||
     typeof record.scrollY !== "number" ||

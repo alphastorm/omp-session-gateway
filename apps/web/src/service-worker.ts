@@ -1,4 +1,5 @@
 import {
+  INSTANCE_ID_PATTERN,
   PUSH_API_VERSION,
   parseAttentionPushMessage,
   type AttentionPushMessage,
@@ -91,7 +92,7 @@ worker.addEventListener("notificationclick", event => {
     data?.version === PUSH_API_VERSION &&
     data.type === "attention" &&
     typeof data.instanceId === "string" &&
-    /^[A-Za-z0-9._:-]{16,128}$/u.test(data.instanceId) &&
+    INSTANCE_ID_PATTERN.test(data.instanceId) &&
     typeof data.requestId === "string" &&
     /^[A-Za-z0-9_-]{16,128}$/u.test(data.requestId)
   ) {
