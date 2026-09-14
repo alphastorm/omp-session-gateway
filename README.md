@@ -19,7 +19,7 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[Qualified candidate](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)**
+**[Stable v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
@@ -50,11 +50,11 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 > `collab.autoStart` to `view` or `control`, then start sessions with plain `omp`.
 > No gateway-specific OMP build or activation route is needed.
 >
-> **Mainline candidate qualified; v0.4.0 approved for promotion.** Signed
+> **Stable [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0) is published.** Signed
 > [v0.4.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)
 > passed FULL qualification on 2026-09-14 with stock OMP v18.1.20: exact Debian/macOS hosts,
 > physical Pixel core flows, migration/recovery, and a fresh 1,800-second relay check.
-> **Stable v0.4.0 publication is pending.** No fork-era evidence transfers. Tailscale Serve
+> Promoted with identical runtime bytes; no fork-era evidence transfers. Tailscale Serve
 > with the TUN-mode client, Funnel disabled, and Bun 1.4.0 remain required. Details:
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 

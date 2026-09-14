@@ -274,5 +274,7 @@ accepted, and bounded memory growth is not established. See the [release ledger]
   Mainline v0.4.0 core qualification passed; Windows, background Web Push, specialized attention,
   and branch/resume remain unqualified. No fork-era qualification result transfers.
 
-The v0.4.0 published-stable-byte local/Android smoke above remains **pending** until actually
-exercised after publication; candidate qualification does not satisfy that post-release check.
+The v0.4.0 published-stable-byte local/Android smoke above **passed on 2026-09-14**, separately
+from candidate qualification. Exact source/digest, preserved installation state, existing local
+OMP 18.1.21, physical results, and the unexplained initial Control-upgrade failure are recorded
+in the [release ledger](RELEASE_STATUS.md).

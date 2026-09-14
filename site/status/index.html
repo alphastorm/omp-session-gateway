@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway status — current qualified release and support boundary</title>
-<meta name="description" content="Qualified signed candidate v0.4.0-prealpha.1 for the approved v0.4.0 target, stock OMP v18.1.20, the exact Debian/macOS/Pixel matrix, and known limits. Publication status is in the release ledger.">
+<meta name="description" content="Published stable v0.4.0, stock OMP v18.1.20, the exact qualified Debian/macOS/Pixel matrix, verified release provenance, and known limits.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
-<meta property="og:description" content="Qualified signed candidate v0.4.0-prealpha.1 for the approved v0.4.0 target with stock OMP v18.1.20. Exact support boundaries and publication status are recorded in the release ledger.">
+<meta property="og:description" content="Stable v0.4.0 is published with stock OMP v18.1.20. Exact qualification, verified provenance, and support boundaries are recorded in the release ledger.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
@@ -29,14 +29,14 @@
 </header>
 <main>
 <p class="eyebrow">Status</p>
-<h1>Qualified v0.4.0 candidate</h1>
+<h1>Stable v0.4.0</h1>
 <p class="lede"><strong>v0.4.0-prealpha.1</strong> passed the core qualification matrix for the approved
-<strong>v0.4.0</strong> target at <code>2026-09-14T13:05:26.972Z</code>. Support is qualified for exact
+<strong>v0.4.0</strong> target at <code>2026-09-14T13:05:26.972Z</code> and was promoted with identical runtime bytes. Support is qualified for exact
 combinations, not platform families. Historical qualification does not transfer; an arbitrary
 build from <code>main</code> does not inherit candidate qualification.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
-<tr><td>Approved target / publication</td><td><code>v0.4.0</code>; stable publication is pending. See the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
+<tr><td>Published stable</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0">v0.4.0</a>; immutable GitHub Latest, published 2026-09-14 at 13:34:03 UTC. Signed <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34849943386">release run 34849943386</a> passed; published provenance was independently verified. Exact source and archive digest: <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
 <tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1">v0.4.0-prealpha.1</a>; signatures, checksums, SBOM, three attestations and three Sigstore bundles passed in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34829484922">release run 34829484922</a></td></tr>
 <tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; exact qualified <code>v18.1.20</code>, source <a href="https://github.com/can1357/oh-my-pi/commit/1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b"><code>1bd60c6fbd0e</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential.</td></tr>
 <tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 69/69 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687">run 34830668687</a></td></tr>
@@ -46,6 +46,7 @@ build from <code>main</code> does not inherit candidate qualification.</p>
 <tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-14T11:04:50.160Z</code>–<code>11:34:50.200Z</code>; two transitions, final phase <code>live</code></td></tr>
 <tr><td>Stale-generation rejection</td><td>Live generation 1→2 probe returned <code>409 no-store</code> without a capability at <code>2026-09-14T13:02:07.920Z</code></td></tr>
 <tr><td>Migration/rollback predecessor</td><td><code>v0.3.0</code>, fork-era. Matching-CLI stopped uninstall/reinstall across the architecture boundary; no credential bundles. Gateway rollback does not switch OMP.</td></tr>
+<tr><td>Published-byte local/Pixel smoke</td><td>Passed with existing OMP <code>18.1.21</code>, Bun <code>1.4.0</code>, doctor 18/18, View/Control, clean capability sinks, same-page recovery, and installed WebAPK. Configuration, readiness token, and unrelated Serve mappings preserved. This separate smoke does not expand the exact candidate matrix.</td></tr>
 </table>
 <h2>Known limits — part of the claim</h2>
 <ul>
@@ -55,6 +56,7 @@ build from <code>main</code> does not inherit candidate qualification.</p>
 <li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the v0.4.0 eight-hour gate with this fresh check. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
 <li><strong>Background Web Push, specialized attention, branch/resume, and new media qualification</strong> are outside this core claim; these physical checks do not qualify those separate lanes.</li>
 <li><strong>Windows OMP</strong> remains unqualified and unadvertised; gateway source/lifecycle checks do not qualify the real OMP named-pipe path.</li>
+<li><strong>Initial local Control-upgrade failure:</strong> one isolated reproduction returned to the directory after View. Subsequent narrow probes and the full published-byte smoke passed unchanged; the cause remains undetermined, and no fix is claimed. See the release ledger.</li>
 <li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
 <li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>
 </ul>
@@ -63,7 +65,7 @@ build from <code>main</code> does not inherit candidate qualification.</p>
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json">upstream lock</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md">compatibility matrix</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a> (authoritative where they disagree)</p>
-<p class="verified">Final owned-fixture cleanup measured zero gateway processes, zero listeners, and zero owned OMP hosts. The normal stock OMP prerequisite remains installed on the retained Mac. Exact candidate/archive/native-addon/application-asset digests and the 46-file non-metadata path/byte/mode comparison are in the release ledger; final promotion comparison remains a publication gate.</p>
+<p class="verified">Final candidate-fixture cleanup measured zero gateway processes, zero listeners, and zero owned OMP hosts on the retained Mac; its normal stock OMP prerequisite remains installed. Exact candidate/archive/native-addon/application-asset digests are in the release ledger. The final promotion passed the 46-file runtime comparison, and a local stable-channel build reproduced the complete published archive digest.</p>
 <h2>Fork-era release history</h2>
 <p><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">v0.3.0</a> was approved
 2026-09-09 against exact patched OMP <code>v18.1.14</code> observed 2026-09-08, with Bun
