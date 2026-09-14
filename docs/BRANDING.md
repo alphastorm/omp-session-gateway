@@ -84,7 +84,7 @@ fork-era release/host/client results as history rather than reusing their suppor
    plain `omp`. Say "no per-session link copying", not "no setup".
 4. **Evidence and limits:** link the published release, exact qualification matrix,
    and known limits beside support claims. Stable does not mean every platform or
-   workflow is qualified. Separate historical synthetic media from live evidence.
+   workflow is qualified. Separate synthetic product media from live qualification evidence.
 
 ## Asset inventory
 

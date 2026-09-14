@@ -19,7 +19,7 @@ copied links, or per-session setup.
 
 <img src="docs/media/omp-session-gateway-demo.gif" alt="Four live OMP sessions listed automatically in the private Sessions directory; a fifth appears on its own; when sessions start waiting for input the directory switches to Needs you and promotes the oldest request; Open request opens OMP's encrypted collaboration client on that exact request, which stays connected." width="900">
 
-<sub>Historical synthetic demo—not current-release qualification evidence. <a href="docs/media/README.md">Capture provenance</a>.</sub>
+<sub>Synthetic product demo—not release-qualification evidence. <a href="docs/media/README.md">Capture provenance</a>.</sub>
 
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
