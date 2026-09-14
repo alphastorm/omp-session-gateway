@@ -34,11 +34,6 @@ jobs:
           if (-not $status.installed -or -not $status.active -or -not $status.ready) {
             throw "gateway status was not installed, active, and ready"
           }
-          $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
-            Select-Object -First 1
-          if ($null -eq $process) { throw "gateway process was not found" }
-          $process.ProcessId | Set-Content -NoNewline "$env:RUNNER_TEMP\gateway-pid.txt"
       - name: Reject another local user's readiness-token read access
         shell: pwsh
         run: |
@@ -96,18 +91,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "token rotation failed" }
           $rotated = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\readiness-token"
           if ($rotated.LastWriteTimeUtc -le $beforeWrite) { throw "token file was not replaced" }
-          bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
+          # Install verifies a fresh activation nonce. Exercise a real config transition as well;
+          # PID reuse and a stale CIM snapshot are not reliable activation identities.
+          bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com --port 4318
           if ($LASTEXITCODE -ne 0) { throw "active reinstall failed" }
-          $beforePid = [int](Get-Content "$env:RUNNER_TEMP\gateway-pid.txt")
-          $process = Get-CimInstance Win32_Process |
-            Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
-            Select-Object -First 1
-          if ($null -eq $process -or $process.ProcessId -eq $beforePid) {
-            throw "active reinstall did not replace the gateway process"
-          }
           $status = bun apps/gateway/src/cli.ts status | ConvertFrom-Json
           if (-not $status.installed -or -not $status.active -or -not $status.ready) {
             throw "gateway did not recover after reinstall"
+          }
+          $priorListener = Get-NetTCPConnection -State Listen -ErrorAction Stop |
+            Where-Object { $_.LocalPort -eq 4317 }
+          if ($null -ne $priorListener) {
+            throw "prior gateway listener remained after port-changing reinstall"
           }
       - name: Refuse no-stop uninstall while active
         shell: pwsh

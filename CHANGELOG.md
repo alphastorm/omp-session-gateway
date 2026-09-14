@@ -36,6 +36,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Bound discovery enumeration, file reads, and query concurrency; preserve metadata through transient
+  directory faults, reject mismatched host identities, and isolate malformed snapshot projections.
+- Revalidate launch authorization after capability queries and close late or already-settled query
+  sockets without sending a request after timeout.
+- Reject snapshot timestamps outside the JavaScript date range before ISO projection.
+- Enforce the approved 1,800-second relay floor and reject inadequate resumed proof without
+  bypassing pending cleanup. These are source fixes, not fresh signed-candidate qualification.
+- Verify Windows active reinstall through nonce-bound readiness and a changed listening port rather
+  than PID inequality; describe the gateway readiness credential accurately in maintenance output.
 - Preserve authored `omp.discoveryDir` and `omp.queryTimeoutMs` when an install changes the origin,
   allowlist, or port, without persisting omitted environment-derived OMP defaults.
 - Start post-release OMP fixtures in their owned directory so discovery labels match the

@@ -49,7 +49,7 @@ function manifest(): string {
         },
       ],
       excluded: [
-        "capabilities and publisher tokens",
+        "capabilities, OMP query tokens, and gateway readiness tokens",
         "authorization and identity headers",
         "account identities and tailnet DNS names",
         "session metadata, transcripts, prompts, and tool output",

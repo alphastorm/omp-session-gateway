@@ -65,6 +65,16 @@ describe("stable qualification arguments", () => {
     );
   });
 
+  test("requires the campaign floor while allowing longer bounded relay checks", () => {
+    expect(parseStableQualificationArgs(["--tag", TAG], {}).relaySeconds).toBe(1_800);
+    for (const duration of ["60", "1799"]) {
+      expect(() => parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_RELAY_SECONDS: duration })).toThrow("at least 1800");
+    }
+    for (const duration of ["1800", "2400", "3600"]) {
+      expect(parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_RELAY_SECONDS: duration }).relaySeconds).toBe(Number(duration));
+    }
+  });
+
   test("rejects path-special and overlong session labels before host access", () => {
     for (const sessionLabel of [".", "..", "a".repeat(129)]) {
       expect(() =>
@@ -72,6 +82,167 @@ describe("stable qualification arguments", () => {
       ).toThrow("safe single path component");
     }
   });
+});
+
+function passedRelayReceipt(durationSeconds = 1_800) {
+  const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+  const base = Date.now() - 2 * 60 * 60 * 1_000;
+  const at = (seconds: number) => new Date(base + seconds * 1_000).toISOString();
+  receipt.startedAt = at(0);
+  receipt.status = "passed";
+  receipt.completedAt = at(3_700);
+  receipt.candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+  for (const lane of Object.values(receipt.lanes)) {
+    Object.assign(lane, { status: "passed", attempts: 1, startedAt: at(1), completedAt: at(3_700) });
+  }
+  receipt.lanes.relay = {
+    status: "passed", attempts: 1, startedAt: at(10), completedAt: at(durationSeconds + 12),
+    evidence: {
+      startedAt: at(11), completedAt: at(durationSeconds + 11), durationSeconds, transitions: 2, finalPhase: "live",
+    },
+  };
+  receipt.lanes.cleanup.evidence = { gatewayProcesses: 0, gatewayListeners: 0, liveOmpHosts: 0 };
+  return receipt;
+}
+
+describe("resumed relay qualification proof", () => {
+  test.each([
+    ["historical sixty-second pass", (receipt: ReturnType<typeof passedRelayReceipt>) => {
+      receipt.lanes.relay = passedRelayReceipt(60).lanes.relay;
+    }],
+    ["missing summary", (receipt: ReturnType<typeof passedRelayReceipt>) => { delete receipt.lanes.relay.evidence; }],
+    ["invalid duration", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.lanes.relay.evidence!.durationSeconds = "1800"; }],
+    ["incomplete relay", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.lanes.relay.evidence!.finalPhase = "ended"; }],
+    ["invalid transitions", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.lanes.relay.evidence!.transitions = -1; }],
+    ["invalid timestamp", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.lanes.relay.evidence!.startedAt = "not-a-date"; }],
+    ["missing attempt boundary", (receipt: ReturnType<typeof passedRelayReceipt>) => { delete receipt.lanes.relay.completedAt; }],
+    ["stale attempt", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.lanes.relay.startedAt = receipt.lanes.relay.completedAt!; }],
+    ["stale campaign", (receipt: ReturnType<typeof passedRelayReceipt>) => { receipt.startedAt = receipt.lanes.relay.completedAt!; }],
+    ["invented elapsed duration", (receipt: ReturnType<typeof passedRelayReceipt>) => {
+      receipt.lanes.relay = passedRelayReceipt(60).lanes.relay;
+      receipt.lanes.relay.evidence!.durationSeconds = 1_800;
+    }],
+  ] as const)("rejects %s before admission without reopening completed cleanup", async (_name, mutate) => {
+    const root = await mkdtemp(join(tmpdir(), "stable-relay-resume-"));
+    try {
+      const receipt = passedRelayReceipt();
+      mutate(receipt);
+      const path = join(root, "stable-qualification.json");
+      await writeFile(path, JSON.stringify(receipt));
+      const runtime = await preflightFixture(root);
+      let externalProbe = false;
+      const guarded = {
+        ...runtime,
+        output: async (command: readonly string[]) => {
+          if (command.join(" ") === "git rev-parse HEAD") return COMMIT;
+          externalProbe = true;
+          throw new Error("unexpected admission");
+        },
+        recoverMac: async () => { throw new Error("completed cleanup must not reopen"); },
+      };
+      await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("relay evidence");
+      const persisted = JSON.parse(await readFile(path, "utf8"));
+      expect(persisted.status).toBe("failed");
+      expect(persisted.completedAt).toBeUndefined();
+      expect(persisted.lanes.relay).toEqual(receipt.lanes.relay);
+      expect(persisted.lanes.cleanup).toEqual(receipt.lanes.cleanup);
+      expect(externalProbe).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds resume to the requested duration without rejecting longer valid evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-relay-duration-"));
+    try {
+      const path = join(root, "stable-qualification.json");
+      const runtime = await preflightFixture(root, "absent");
+      const guarded = { ...runtime, environment: { ...runtime.environment, OMP_STABLE_RELAY_SECONDS: "2400" } };
+      await writeFile(path, JSON.stringify(passedRelayReceipt(1_800)));
+      await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("relay evidence");
+      for (const duration of [2_400, 3_600]) {
+        await writeFile(path, JSON.stringify(passedRelayReceipt(duration)));
+        // Valid proof reaches read-only admission, which deliberately stops before any effects.
+        await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("authorized Android");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+test.skipIf(process.platform === "win32")("rejected resumed relay proof still cleans recorded Mac effects without admission or dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "stable-relay-cleanup-"));
+  try {
+    const receipt = passedRelayReceipt(60);
+    receipt.status = "failed";
+    receipt.lanes.cleanup = { status: "pending", attempts: 1 };
+    const path = join(root, "stable-qualification.json");
+    const bin = join(root, "bin");
+    const effects = join(root, "effects");
+    await mkdir(bin);
+    await mkdir(effects);
+    await writeFile(path, JSON.stringify(receipt));
+    for (const effect of ["gateway", "serve", "omp", "artifacts"]) await writeFile(join(effects, effect), "recorded effect");
+    await writeFile(join(bin, "bash"), [
+      "#!/bin/sh",
+      '[ "$1" = scripts/qualify-macos-host.sh ] || exit 91',
+      'case "$2" in',
+      'uninstall) /bin/rm "$FIXTURE_ROOT/effects/gateway"; printf "%s\n" "plist present:                         no" "gui job:                               absent" "gateway pids:                          0" "listeners:                             0";;',
+      `omp-clean) /bin/rm "$FIXTURE_ROOT/effects/omp"; echo '{"liveOmpHosts":0,"binaryPresent":false,"sourcePresent":false}';;`,
+      '*) exit 92;;',
+      "esac",
+    ].join("\n"), { mode: 0o700 });
+    await writeFile(join(bin, "ssh"), [
+      "#!/bin/sh",
+      'case "$*" in',
+      '*"serve reset"*) /bin/rm "$FIXTURE_ROOT/effects/serve";;',
+      '*"rm -rf"*) /bin/rm "$FIXTURE_ROOT/effects/artifacts";;',
+      '*) exit 93;;',
+      "esac",
+    ].join("\n"), { mode: 0o700 });
+    const script = `
+      import { writeFile } from "node:fs/promises";
+      import { runStableQualification } from ${JSON.stringify(join(REPOSITORY_ROOT, "scripts/stable-qualification.ts"))};
+      const root = process.env.FIXTURE_ROOT;
+      try {
+        await runStableQualification(["--tag", ${JSON.stringify(TAG)}], {
+          platform: "darwin", arch: "arm64", bunVersion: Bun.version,
+          environment: { OMP_STABLE_QUALIFICATION_DIR: root, OMP_STABLE_RELAY_SECONDS: "1800" },
+          executable: name => process.env.PATH + "/" + name,
+          output: async command => {
+            if (command.join(" ") === "git rev-parse HEAD") return ${JSON.stringify(COMMIT)};
+            await writeFile(root + "/unexpected-admission", command[0]);
+            throw new Error("unexpected admission");
+          },
+          recoverMac: async () => {
+            await writeFile(root + "/recovered", "yes");
+            return { sshDestination: "fixture.invalid", sudoPassword: "fixture" };
+          },
+        });
+        process.exitCode = 2;
+      } catch (error) {
+        console.log(JSON.stringify({ rejected: error.message }));
+      }
+    `;
+    const child = Bun.spawn([process.execPath, "-e", script], {
+      cwd: REPOSITORY_ROOT,
+      env: { ...process.env, PATH: bin, FIXTURE_ROOT: root },
+      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    expect(stdout).toContain("relay evidence");
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    expect(persisted.status).toBe("failed");
+    expect(persisted.lanes.relay).toEqual(receipt.lanes.relay);
+    expect(persisted.lanes.cleanup).toMatchObject({ status: "passed", attempts: 2, evidence: { gatewayProcesses: 0, gatewayListeners: 0, liveOmpHosts: 0 } });
+    expect(await readdir(effects)).toEqual([]);
+    expect(await readFile(join(root, "recovered"), "utf8")).toBe("yes");
+    expect(await Bun.file(join(root, "unexpected-admission")).exists()).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 type PreflightFailure = "absent" | "unauthorized" | "ambiguous" | "bun" | "executable" | "pin" | "github" | "mac" | "ssh";

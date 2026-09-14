@@ -47,8 +47,9 @@ has no automatic schedule or historical candidate fallback.
 
 **Founder-approved v0.4.0 assurance decision, 2026-09-14:** use a fresh 1,800-second (30-minute)
 relay check against the signed candidate instead of holding this release for eight-hour endurance.
-Run the existing orchestrator with `OMP_STABLE_RELAY_SECONDS=1800`; keep its host, Android,
-recovery, provenance, secret-isolation, and cleanup gates intact. Record the actual duration and
+The orchestrator defaults to 1,800 seconds and rejects shorter checks. An explicit
+`OMP_STABLE_RELAY_SECONDS` may select 1,800–3,600 seconds; this campaign uses 1,800. Keep its host,
+Android, recovery, provenance, secret-isolation, and cleanup gates intact. Record the actual duration and
 final relay state. The gateway cutover changes discovery/launch handling rather than the ongoing
 client-to-relay transport. Using mainline OMP alone is not proof of reliability: prolonged-operation
 risk is explicitly accepted. **Eight-hour endurance is not rerun or claimed**, and no historical
@@ -136,6 +137,12 @@ smoke, and cleanup. It writes a private receipt under
 scripts are not qualification evidence until these lanes run against the exact candidate.
 
 The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
+
+A resumed relay pass must contain the existing live summary covering at least the requested
+duration, with coherent elapsed time and timestamps inside its recorded attempt and campaign.
+Missing, shorter, or stale proof fails overall qualification before admission or dispatch; it does
+not automatically rerun the relay lane. Recorded pending Mac cleanup still runs, while completed
+cleanup remains completed. A historical 60-second pass cannot satisfy this campaign.
 
 Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked; concurrent invocations can dispatch two billed Debian runs and contend for the retained Mac.
 

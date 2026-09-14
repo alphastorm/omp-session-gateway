@@ -98,6 +98,17 @@ describe("strict protocol validation", () => {
     }
   });
 
+  test("bounds snapshot timestamps before projecting them into ISO metadata", () => {
+    const lastRepresentableTimestamp = 8_640_000_000_000_000;
+    expect(() =>
+      parseOmpHostSnapshot(hostSnapshot({ startedAt: lastRepresentableTimestamp + 1 })),
+    ).toThrow(ProtocolValidationError);
+    const observed = observedSessionFromSnapshot(
+      parseOmpHostSnapshot(hostSnapshot({ startedAt: lastRepresentableTimestamp })),
+    );
+    expect(Date.parse(observed.startedAt)).toBe(lastRepresentableTimestamp);
+  });
+
   test("requires the discovery, snapshot, and reply fields rather than supplying defaults", () => {
     const discovery: Record<string, unknown> = discoveryFile();
     delete discovery.token;

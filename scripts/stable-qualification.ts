@@ -19,7 +19,7 @@ const DEFAULT_MAC_ZONE = "fr-par-1";
 const DEFAULT_MAC_NAME = "omp-macqual-01";
 const DEFAULT_MAC_LOGIN = "alphastorm@github";
 const DEFAULT_SESSION_LABEL = "omp-stable-pixel-qualification";
-const DEFAULT_RELAY_SECONDS = 60;
+const MINIMUM_RELAY_SECONDS = 1_800;
 const PROTECTED_REPOSITORY_FILES = ["STABLE_RELEASE.lock.json", "docs/RELEASE_STATUS.md"] as const;
 const ASSET_NAMES = [
   "SHA256SUMS",
@@ -206,6 +206,12 @@ export function parseStableQualificationArgs(
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(sessionLabel)) {
     throw new Error("OMP_STABLE_SESSION_LABEL must be a safe single path component of at most 128 characters");
   }
+  const relaySeconds = parsePositiveInteger(
+    environment.OMP_STABLE_RELAY_SECONDS ?? String(MINIMUM_RELAY_SECONDS),
+    "OMP_STABLE_RELAY_SECONDS",
+    3_600,
+  );
+  if (relaySeconds < MINIMUM_RELAY_SECONDS) throw new Error("OMP_STABLE_RELAY_SECONDS must be at least 1800");
   return {
     preflight,
     tag,
@@ -215,11 +221,7 @@ export function parseStableQualificationArgs(
     macName: environment.OMP_STABLE_MAC_NAME ?? DEFAULT_MAC_NAME,
     macLogin: (environment.OMP_STABLE_MAC_LOGIN ?? DEFAULT_MAC_LOGIN).trim().toLowerCase(),
     sessionLabel,
-    relaySeconds: parsePositiveInteger(
-      environment.OMP_STABLE_RELAY_SECONDS ?? String(DEFAULT_RELAY_SECONDS),
-      "OMP_STABLE_RELAY_SECONDS",
-      3_600,
-    ),
+    relaySeconds,
   };
 }
 
@@ -1232,12 +1234,63 @@ async function runAndroidAcceptance(
   };
 }
 
+function evidenceTimestamp(value: unknown): number {
+  if (typeof value !== "string") return Number.NaN;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value ? milliseconds : Number.NaN;
+}
+
+function validateRelayEvidence(
+  summary: unknown,
+  requiredSeconds: number,
+  startedAt: unknown,
+  completedAt: unknown,
+): Record<string, unknown> {
+  const start = isRecord(summary) ? evidenceTimestamp(summary.startedAt) : Number.NaN;
+  const end = isRecord(summary) ? evidenceTimestamp(summary.completedAt) : Number.NaN;
+  if (
+    !isRecord(summary) ||
+    typeof summary.durationSeconds !== "number" ||
+    !Number.isSafeInteger(summary.durationSeconds) ||
+    summary.durationSeconds < requiredSeconds ||
+    summary.finalPhase !== "live" ||
+    typeof summary.transitions !== "number" ||
+    !Number.isSafeInteger(summary.transitions) ||
+    summary.transitions < 0 ||
+    !(start >= evidenceTimestamp(startedAt)) ||
+    !(end > start && end <= evidenceTimestamp(completedAt)) ||
+    // The runner floors monotonic seconds; its wall-clock timestamps may differ by a fraction of a second.
+    Math.abs((end - start) / 1_000 - summary.durationSeconds) > 1
+  ) {
+    throw new Error(`relay evidence is missing, invalid, stale, or shorter than the required ${requiredSeconds} seconds`);
+  }
+  return {
+    startedAt: summary.startedAt,
+    completedAt: summary.completedAt,
+    durationSeconds: summary.durationSeconds,
+    transitions: summary.transitions,
+    finalPhase: summary.finalPhase,
+  };
+}
+
+function assertPassedRelayEvidence(receipt: StableQualificationReceipt, requiredSeconds: number): void {
+  const lane = receipt.lanes.relay;
+  if (lane.status !== "passed") return;
+  if (
+    !Number.isSafeInteger(lane.attempts) || lane.attempts < 1 ||
+    !(evidenceTimestamp(lane.startedAt) >= evidenceTimestamp(receipt.startedAt)) ||
+    !(evidenceTimestamp(lane.completedAt) <= Date.now())
+  ) throw new Error("passed relay evidence has invalid or stale campaign/attempt boundaries");
+  validateRelayEvidence(lane.evidence, requiredSeconds, lane.startedAt, lane.completedAt);
+}
+
 async function runRelaySmoke(
   options: StableQualificationOptions,
   context: MacContext,
   tunnelPort: number,
   instanceId: string,
 ): Promise<Record<string, unknown>> {
+  const startedAt = now();
   const result = await runCommand([process.execPath, "scripts/relay-soak.ts"], {
     env: {
       OMP_GATEWAY_SOAK_GATEWAY_ORIGIN: `http://127.0.0.1:${tunnelPort}`,
@@ -1249,23 +1302,7 @@ async function runRelaySmoke(
     timeoutMs: (options.relaySeconds + 60) * 1_000,
     echo: true,
   });
-  const summary = JSON.parse(result.stdout) as Record<string, unknown>;
-  if (
-    typeof summary.startedAt !== "string" ||
-    typeof summary.completedAt !== "string" ||
-    summary.finalPhase !== "live" ||
-    summary.durationSeconds !== options.relaySeconds ||
-    !Number.isInteger(summary.transitions)
-  ) {
-    throw new Error("bounded relay smoke returned an invalid or incomplete safe summary");
-  }
-  return {
-    startedAt: summary.startedAt,
-    completedAt: summary.completedAt,
-    durationSeconds: summary.durationSeconds,
-    transitions: summary.transitions,
-    finalPhase: summary.finalPhase,
-  };
+  return validateRelayEvidence(JSON.parse(result.stdout), options.relaySeconds, startedAt, now());
 }
 
 async function cleanupMac(
@@ -1407,6 +1444,17 @@ export async function runStableQualification(
         target,
         environment: macEnvironment(options, target, receipt.candidate),
       };
+    }
+
+    // A passed lane is otherwise skipped on resume. Reject inadequate proof without reopening it
+    // or dispatching work, but only after recovering any recorded Mac effects for finally cleanup.
+    try {
+      assertPassedRelayEvidence(receipt, options.relaySeconds);
+    } catch (error) {
+      receipt.status = "failed";
+      receipt.error = "qualification relay evidence rejected; inspect the qualification process output";
+      await persist();
+      throw error;
     }
 
     const admission = await preflightStableQualification(options, runtime);

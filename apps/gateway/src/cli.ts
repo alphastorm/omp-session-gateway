@@ -184,6 +184,7 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
   });
   const reader = new OmpHostReader({
     directory: config.omp.discoveryDir,
+    maxEntries: config.registry.maxSessions,
     timeoutMs: config.omp.queryTimeoutMs,
     onFault: (event, detail) => logger.event("warn", event, detail),
   });
@@ -310,7 +311,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
       priorToken = await loadReadinessToken(priorConfig);
     } catch (error) {
       if (priorService.active) {
-        throw new Error("refusing install while the active gateway publisher token is unavailable", { cause: error });
+        throw new Error("refusing install while the active gateway readiness token is unavailable", { cause: error });
       }
       if (await loopbackHttpResponds(priorConfig)) {
         throw new Error("refusing install while the prior loopback endpoint is occupied and cannot be authenticated", {
@@ -412,7 +413,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
 async function runUninstall(arguments_: ParsedArguments): Promise<void> {
   const servicePaths = { paths: defaultGatewayPaths() };
   await uninstallUserService(servicePaths, !hasFlag(arguments_, "--no-stop"));
-  console.log("Uninstalled omp-session-gateway service. Configuration and publisher token were preserved.");
+  console.log("Uninstalled omp-session-gateway service. Configuration and readiness token were preserved.");
 }
 
 async function runRollback(arguments_: ParsedArguments): Promise<void> {
@@ -438,7 +439,7 @@ async function runRollback(arguments_: ParsedArguments): Promise<void> {
     console.log(
       `Rolled back ${definition.identifier} from ${target.from} to ${basename(target.runtime.directory)} (${target.selection}); loopback health ${service.active ? "ready" : "not started"}.`,
     );
-    console.log("Configuration and publisher token were preserved.");
+    console.log("Configuration and readiness token were preserved.");
   } catch (error) {
     // The pointer never moved, so it still names the runtime that was last proven ready. Rebuilding
     // the service definition from it is the repair half of the pointer-is-authority invariant.
@@ -537,17 +538,17 @@ async function runRotateToken(): Promise<void> {
       } catch (stopError) {
         throw new AggregateError(
           [error, stopError],
-          "publisher token rotated and retained, but gateway restart and fail-closed service stop both failed",
+          "readiness token rotated and retained, but gateway restart and fail-closed service stop both failed",
         );
       }
       throw new Error(
-        "publisher token rotated and retained, but gateway restart failed; the service was stopped and must be reinstalled",
+        "readiness token rotated and retained, but gateway restart failed; the service was stopped and must be reinstalled",
         { cause: error },
       );
     }
-    console.log("Publisher token rotated. Active gateway restarted; live OMP publishers will reconnect.");
+    console.log("Readiness token rotated. Active gateway restarted.");
   } else {
-    console.log("Publisher token rotated. Restart the gateway and live OMP publishers to reconnect.");
+    console.log("Readiness token rotated. Start the gateway to use the new readiness credential.");
   }
 }
 

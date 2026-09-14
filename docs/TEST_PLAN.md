@@ -5,9 +5,11 @@
 ### OMP discovery, queries, and registry
 
 - exact discovery-file and snapshot/reply validation; unknown versions and malformed or oversized data;
+  date-range boundaries and per-host projection failure isolation beside a healthy peer;
 - private ownership/permission checks, symlink rejection, and reading the published endpoint rather
   than deriving it, including OMP’s relocated long-path socket;
 - newline framing, one request per connection, and bounded query time/bytes;
+  immediate replies and post-timeout connection callbacks close without late request writes;
 - metadata-only snapshots and per-launch links: no prefetch or registry capability retention;
 - only `ENOENT`/`ECONNREFUSED` retires a queried host immediately; timeouts, permission/resource
   errors, malformed replies, and all wire errors retain metadata until TTL expiry;
@@ -84,6 +86,12 @@ not qualify an actual OMP binary, native host, relay, or physical client.
   gates cover the discovery/query contract, not upstream's unrelated suites or full repo checks.
 - Windows CI covers gateway contracts, ACLs, and service lifecycle only; upstream Windows registry
   tests and real named-pipe discovery remain outside this gate and unqualified.
+
+### Qualification tooling
+
+The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate
+passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
+still clean recorded pending Mac effects and must not reopen already completed cleanup.
 
 ## 2. Secret-leak test harness
 
