@@ -8,9 +8,10 @@ by their signed-artifact qualification. Current source requires stock mainline O
 plain `omp`. The gateway reads discovery and queries hosts, with no OMP patch set or separate
 activation route. It fetches capabilities only per launch and never stores them.
 
-**Mainline qualification is pending.** No published mainline-compatible gateway artifact or
-successful mainline host/client/relay qualification is asserted here. The existing v0.3.0 stable
-lock and receipts are fork-era history and cannot authorize the changed runtime bytes.
+**Mainline core signed-candidate qualification passed.** The exact candidate, approved v0.4.0
+target, qualified host/client matrix, and publication state are recorded in the
+[release ledger](RELEASE_STATUS.md). Candidate approval does not imply stable publication or a
+passed published-byte smoke. Fork-era locks and receipts cannot authorize the changed runtime bytes.
 
 The remote boundary remains TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
 Windows, background Push qualification, Portal Tunnel, userspace networking, public forwarding,
@@ -23,9 +24,10 @@ recovery explicitly; see [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
 
 ## v0.4.0 mainline campaign
 
-The development version is `0.4.0`; its selected gateway predecessor is published `v0.3.0`.
-Keep `STABLE_RELEASE.lock.json` unchanged until the new signed candidate has passed all required
-lanes. A structurally valid historical lock cannot authorize a different version.
+The `v0.4.0` target uses qualified signed candidate `v0.4.0-prealpha.1`; its selected gateway
+predecessor is published fork-era `v0.3.0`. All required signed-candidate lanes passed as recorded
+in the [release ledger](RELEASE_STATUS.md). `STABLE_RELEASE.lock.json` may be updated only after
+those lanes pass; a structurally valid historical lock cannot authorize a different version.
 
 Use the pinned Bun `1.4.0`. Before a qualification run, execute the read-only prerequisite path
 with the selected candidate tag, for example:
@@ -54,6 +56,12 @@ final relay state. The gateway cutover changes discovery/launch handling rather 
 client-to-relay transport. Using mainline OMP alone is not proof of reliability: prolonged-operation
 risk is explicitly accepted. **Eight-hour endurance is not rerun or claimed**, and no historical
 eight-hour receipt transfers. The standalone long-duration harness remains available separately.
+
+The fresh 1,800-second candidate relay check passed with two transitions and final phase `live`.
+Full candidate qualification, including owned-fixture cleanup, passed. The prospective promotion
+comparison reproduced all 46 non-metadata candidate archive files by paths, bytes, and modes, with
+only the four workflow metadata exclusions; the final promotion comparison remains required.
+Exact evidence and the accepted prolonged-operation limit are in the [release ledger](RELEASE_STATUS.md).
 
 Only after host/client, explicit recovery, provenance, forbidden-sink, the approved relay check, and cleanup
 evidence is complete may the stable lock and public support claims be updated and the bare
@@ -161,12 +169,13 @@ The orchestrator refuses a dirty or unpublished branch, rejects changed candidat
 
 ## Post-release local installation smoke
 
-After a mainline-compatible artifact is published, run its own
+After the stable mainline-compatible artifact is published, run its own
 `bun run smoke:release -- --tag "$TAG" --archive-sha256 "$ARCHIVE_SHA256"` with the exact verified
 public digest. Use that artifact’s Bun/source pins and stock OMP `>= 18.1.20`; require current
 readiness-token/config preservation, mainline discovery and launch/revocation, physical Android
-recovery/isolation, and owned-fixture cleanup. This mainline smoke is **pending**, not inherited
-from any prior run.
+recovery/isolation, and owned-fixture cleanup. This **published-stable-byte smoke is pending**
+until actually exercised; signed-candidate qualification and prior release smokes do not
+substitute for it.
 
 ### Fork-era post-release smoke procedure
 
@@ -269,8 +278,9 @@ fails if the collaboration client ends or is not live at completion. Set
 a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
 long-lived relay scenario. Record the gateway commit, exact mainline OMP commit, output JSON, final
 gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
-required before claiming bounded memory growth. Mainline endurance is pending; no fork-era
-long-window result transfers to the changed host/query/client baseline.
+required before claiming bounded memory growth. For v0.4.0, eight-hour endurance is **not rerun
+or claimed**. The passed 30-minute candidate check does not establish bounded memory growth; no
+fork-era long-window result transfers to the changed host/query/client baseline.
 
 ## Fleet CI runtime
 

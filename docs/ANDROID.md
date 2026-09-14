@@ -4,8 +4,12 @@
 
 Current hosts use stock mainline OMP `>= 18.1.20` with `collab.autoStart` alone. The gateway polls
 OMP metadata and fetches a capability per explicit launch without storing it; Android HTTP/SSE and
-in-memory client bootstrap are unchanged. Physical Android results in the release ledger are
-**fork-era** evidence, not qualification of this cutover. Mainline qualification is pending.
+in-memory client bootstrap are unchanged. Mainline core physical-client qualification passed for
+the exact Pixel 10 Pro / Android 17 / Chrome `152.0.7977.82` combination recorded in the
+[release ledger](RELEASE_STATUS.md): View read-only, Control writable, prompt acceptance, return
+to the directory, same-page unlock/Airplane/Doze recovery, and seven clean, detectable forbidden
+capability sinks. This does not qualify new media, background Web Push, specialized attention, or
+branch/resume scenarios. Fork-era results remain historical; none transfers to this cutover.
 
 The existing OMP collaboration client is already a browser application and includes the core live-control experience. The Android deliverable should therefore be the OMP Sessions PWA that launches the existing client, not a new native implementation of the collaboration protocol.
 

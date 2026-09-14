@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway status — current qualified release and support boundary</title>
-<meta name="description" content="Current stable release v0.3.0 against the fork-era patched OMP v18.1.14 baseline, the mainline v18.1.20 baseline development now targets, and the known limits that are part of the claim.">
+<meta name="description" content="Qualified signed candidate v0.4.0-prealpha.1 for the approved v0.4.0 target, stock OMP v18.1.20, the exact Debian/macOS/Pixel matrix, and known limits. Publication status is in the release ledger.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
-<meta property="og:description" content="Current stable release v0.3.0 against the fork-era patched OMP v18.1.14 baseline, plus the mainline v18.1.20 baseline development now targets.">
+<meta property="og:description" content="Qualified signed candidate v0.4.0-prealpha.1 for the approved v0.4.0 target with stock OMP v18.1.20. Exact support boundaries and publication status are recorded in the release ledger.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
@@ -29,27 +29,32 @@
 </header>
 <main>
 <p class="eyebrow">Status</p>
-<h1>Current qualified release</h1>
-<p class="lede"><strong>v0.3.0</strong> — support is qualified for exact combinations, not platform families.
-Historical qualification does not transfer; a build from <code>main</code> carries no qualification.</p>
+<h1>Qualified v0.4.0 candidate</h1>
+<p class="lede"><strong>v0.4.0-prealpha.1</strong> passed the core qualification matrix for the approved
+<strong>v0.4.0</strong> target at <code>2026-09-14T13:05:26.972Z</code>. Support is qualified for exact
+combinations, not platform families. Historical qualification does not transfer; an arbitrary
+build from <code>main</code> does not inherit candidate qualification.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
-<tr><td>Qualified release</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">v0.3.0</a>, immutable GitHub Latest</td></tr>
-<tr><td>Signed qualification candidate</td><td><code>v0.3.0-prealpha.3</code>; independently qualified, runtime-equivalent</td></tr>
-<tr><td>Stable hosts</td><td>Debian 13 (trixie) x86-64 · macOS 26.6.1 arm64 (<code>Mac14,3</code>)</td></tr>
-<tr><td>Stable client</td><td>Chrome <code>152.0.7977.75</code> on Android 17 (Pixel 10 Pro)</td></tr>
-<tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled</td></tr>
-<tr><td>OMP baseline (stable v0.3.0)</td><td>Exact patched <code>v18.1.14</code>, Bun <code>1.4.0</code> — fork-era; that patch is now upstream</td></tr>
-<tr><td>OMP baseline (development)</td><td>Stock mainline <code>v18.1.20</code> or newer, Bun <code>1.4.0</code>; no patch, no publisher token. Mainline qualification pending</td></tr>
-<tr><td>Rollback predecessor</td><td><code>v0.2.1</code>, with its separately activated exact patched OMP <code>v17.4.1</code></td></tr>
+<tr><td>Approved target / publication</td><td><code>v0.4.0</code>; stable publication is pending. See the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
+<tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1">v0.4.0-prealpha.1</a>; signatures, checksums, SBOM, three attestations and three Sigstore bundles passed in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34829484922">release run 34829484922</a></td></tr>
+<tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; exact qualified <code>v18.1.20</code>, source <a href="https://github.com/can1357/oh-my-pi/commit/1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b"><code>1bd60c6fbd0e</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential.</td></tr>
+<tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 69/69 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687">run 34830668687</a></td></tr>
+<tr><td>Qualified Mac host</td><td><code>Mac14,3</code>, macOS <code>26.6.1</code> arm64; <code>doctor</code> 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks</td></tr>
+<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build <code>CP2A.260805.005</code>, Chrome <code>152.0.7977.82</code>; View read-only, Control writable, prompt accepted, return to directory. Same-page unlock 10,398 ms, Airplane 16,821 ms, Doze 8,475 ms; all seven forbidden capability sinks detectable and clean.</td></tr>
+<tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.</td></tr>
+<tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-14T11:04:50.160Z</code>–<code>11:34:50.200Z</code>; two transitions, final phase <code>live</code></td></tr>
+<tr><td>Stale-generation rejection</td><td>Live generation 1→2 probe returned <code>409 no-store</code> without a capability at <code>2026-09-14T13:02:07.920Z</code></td></tr>
+<tr><td>Migration/rollback predecessor</td><td><code>v0.3.0</code>, fork-era. Matching-CLI stopped uninstall/reinstall across the architecture boundary; no credential bundles. Gateway rollback does not switch OMP.</td></tr>
 </table>
 <h2>Known limits — part of the claim</h2>
 <ul>
 <li><strong>TUN mode is mandatory.</strong> With userspace-networking <code>tailscaled</code> every tailnet peer arrives as a loopback peer, and the gateway fails closed rather than believing an identity header.</li>
 <li><strong>Never enable Tailscale Funnel.</strong> There is no supported public-Internet path.</li>
 <li><strong>Android radio transitions</strong> can wedge Chrome's process-wide network stack while Android stays healthy; the PWA retries and, after 45 s of visible failure, opens force-stop/reopen help.</li>
-<li><strong>Background Web Push</strong> is implemented and capability-free but outside the stable core claim.</li>
-<li><strong>Windows</strong> passes source acceptance but is not advertised until exact signed artifacts repeat the lane.</li>
+<li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the v0.4.0 eight-hour gate with this fresh check. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
+<li><strong>Background Web Push, specialized attention, branch/resume, and new media qualification</strong> are outside this core claim; these physical checks do not qualify those separate lanes.</li>
+<li><strong>Windows OMP</strong> remains unqualified and unadvertised; gateway source/lifecycle checks do not qualify the real OMP named-pipe path.</li>
 <li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
 <li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>
 </ul>
@@ -58,7 +63,16 @@ Historical qualification does not transfer; a build from <code>main</code> carri
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json">upstream lock</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md">compatibility matrix</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a> (authoritative where they disagree)</p>
-<p class="verified">Stable v0.3.0 approved 2026-09-09 against patched OMP v18.1.14 observed 2026-09-08. The development baseline moved to mainline OMP v18.1.20 on 2026-09-14 after upstream merged the collaboration registry; no release has been qualified against it yet.</p>
+<p class="verified">Final owned-fixture cleanup measured zero gateway processes, zero listeners, and zero owned OMP hosts. The normal stock OMP prerequisite remains installed on the retained Mac. Exact candidate/archive/native-addon/application-asset digests and the 46-file non-metadata path/byte/mode comparison are in the release ledger; final promotion comparison remains a publication gate.</p>
+<h2>Fork-era release history</h2>
+<p><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">v0.3.0</a> was approved
+2026-09-09 against exact patched OMP <code>v18.1.14</code> observed 2026-09-08, with Bun
+<code>1.4.0</code>. Its signed candidate <code>v0.3.0-prealpha.3</code> was independently qualified and
+runtime-equivalent. The historical matrix was Debian 13 (trixie) x86-64, macOS 26.6.1 arm64
+(<code>Mac14,3</code>), and Chrome <code>152.0.7977.75</code> on Android 17 (Pixel 10 Pro). Its rollback
+predecessor was <code>v0.2.1</code>, with separately activated exact patched OMP <code>v17.4.1</code>.</p>
+<p>The source baseline moved to stock mainline OMP <code>v18.1.20</code> on 2026-09-14 after upstream
+merged the collaboration registry. Fork-era qualification does not transfer to this architecture.</p>
 </main>
 <footer>
   Community project; not affiliated with or endorsed by the Oh My Pi maintainers.

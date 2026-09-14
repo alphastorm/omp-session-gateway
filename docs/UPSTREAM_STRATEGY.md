@@ -36,7 +36,9 @@ stores capabilities. The private readiness token belongs only to gateway/CLI rea
 - Exercise start, stop, switch, branch, resume, and gateway restart against the real mainline host.
 - Verify link formats through the pinned upstream parser without recording links.
 - Repeat exact signed-artifact host/client/relay qualification before making a release claim.
-  Mainline qualification is pending; no fork-era result transfers.
+  Mainline core qualification passed for the exact candidate and matrix in the
+  [release ledger](RELEASE_STATUS.md); no fork-era result transfers. Windows, background Web Push,
+  specialized attention, and branch/resume remain outside that qualified claim.
 
 ## Communication
 

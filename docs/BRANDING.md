@@ -62,8 +62,10 @@ Sober and exact. Sentence case everywhere except mono eyebrows. No emoji, no
 exclamation marks. Security claims stated as invariants ("Capabilities are
 requested only when you tap an action."). Keep the standing disclaimer:
 "Community project; not affiliated with OMP." Describe stock mainline OMP `>= 18.1.20` as the
-prerequisite, not a gateway-specific build. Mainline qualification is pending; label every older
-release/host/client result as fork-era evidence rather than reusing its support badge for the cutover.
+prerequisite, not a gateway-specific build. Use only the exact qualified mainline core matrix in
+the [release ledger](RELEASE_STATUS.md) and [compatibility policy](COMPATIBILITY.md). Keep
+Windows, background Web Push, specialized attention, and branch/resume outside that claim. Label
+fork-era release/host/client results as history rather than reusing their support badges.
 
 ## Asset inventory
 

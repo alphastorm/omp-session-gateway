@@ -1,12 +1,14 @@
 # Branch and saved-session resume lane
 
-## Mainline lifecycle qualification — pending
+## Mainline branch/resume qualification — pending
 
 The current gateway consumes stock OMP `>= 18.1.20` ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)) with
 `collab.autoStart` alone. It observes snapshots through OMP-owned discovery and resolves an exact
 generation/role only at launch, without storing capabilities or writing discovery files. A new
 branch/resume lane must exercise that query path and stale-generation refusal on real mainline
-OMP. Mainline lifecycle qualification is **pending**.
+OMP. This specialized branch/resume qualification remains **pending**. Passed mainline core
+publication/revocation and stale-generation checks in the [release ledger](RELEASE_STATUS.md)
+do not qualify these branch/saved-session resume transitions.
 
 ## Fork-era measurement archive
 

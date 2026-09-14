@@ -79,7 +79,8 @@ not qualify an actual OMP binary, native host, relay, or physical client.
 ### Mainline OMP
 
 - require stock OMP `>= 18.1.20`, `collab.autoStart` only, and plain `omp` startup;
-- exercise the integration and pending qualification contract in `docs/OMP_INTEGRATION.md`;
+- exercise the integration contract in `docs/OMP_INTEGRATION.md`; record exact qualification
+  evidence and limits in [RELEASE_STATUS.md](RELEASE_STATUS.md);
 - keep upstream controller tests upstream; do not recreate a downstream OMP patch suite.
 - Linux ARM64 source-checkout CI stages the pinned platform native and runs only
   upstream `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`; gateway
@@ -250,6 +251,10 @@ Initial targets, to revise with measurements:
 - daemon idle memory < 100 MiB including embedded static assets;
 - no unbounded event/listener/history growth during 8-hour soak.
 
+These remain targets, not measurements. For v0.4.0, the founder-approved fresh 1,800-second
+relay gate passed; eight-hour endurance is **not rerun or claimed**, prolonged-operation risk is
+accepted, and bounded memory growth is not established. See the [release ledger](RELEASE_STATUS.md).
+
 ## 7. Release checklist
 
 - all security acceptance gates pass;
@@ -265,5 +270,9 @@ Initial targets, to revise with measurements:
   same-page recovery, installed-WebAPK (including resumption on `/client/` with a session-specific
   title), revocation, and owned-fixture cleanup evidence;
 - documentation tells users how to revoke a lost phone and rotate the gateway-only readiness token;
-- mainline qualification is pending until the exact candidate repeats the host/client/relay matrix;
-  no fork-era qualification result transfers.
+- record the exact signed-candidate matrix and limitations in the [release ledger](RELEASE_STATUS.md).
+  Mainline v0.4.0 core qualification passed; Windows, background Web Push, specialized attention,
+  and branch/resume remain unqualified. No fork-era qualification result transfers.
+
+The v0.4.0 published-stable-byte local/Android smoke above remains **pending** until actually
+exercised after publication; candidate qualification does not satisfy that post-release check.

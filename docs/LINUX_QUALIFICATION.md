@@ -1,6 +1,6 @@
 # Linux qualification lane
 
-## Mainline qualification — pending
+## Mainline qualification — Debian core lane passed
 
 The current workflow is on-demand and requires an exact signed candidate tag; it does not run a
 weekly schedule or fall back to a historical fork-era candidate. The mainline `0.4.0` campaign
@@ -9,8 +9,19 @@ the architecture boundary. Historical scheduled-run instructions below remain ar
 
 Current source requires stock OMP `>= 18.1.20`, with `collab.autoStart` alone.
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). The gateway reads discovery and queries hosts; it does not own a publisher
-socket or store capabilities. Mainline Linux qualification is **pending**. No historical test
-count, lifecycle pass, patched-binary result, signature, or release receipt below is mainline proof.
+socket or store capabilities. Signed candidate `v0.4.0-prealpha.1` passed the Debian 13 (trixie)
+x86-64 lane on Linux `6.12.94+deb13-amd64` with stock OMP `18.1.20` and Bun `1.4.0` in
+[run 34830668687](https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687).
+The run passed 69/69 migration/recovery invariants, real generation-1 View/Control publication
+and revocation, persistence, tagged-identity denial/exposure, uninstall, and destruction of the
+droplet and ephemeral SSH key. See the [release ledger](RELEASE_STATUS.md) for exact candidate
+and source bindings.
+
+This is not a Debian `doctor` 18/18 claim: the early result was 13/18 before the OMP build and
+from a tagged identity. Positive allowed-user HTTPS was measured on the Mac/Pixel, not the
+tagged Debian CI caller. No historical test count, lifecycle pass, patched-binary result,
+signature, or release receipt below is mainline proof; other Linux variants are not qualified
+by this Debian result.
 
 ## Fork-era procedure and evidence archive
 

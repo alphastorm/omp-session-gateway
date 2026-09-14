@@ -30,9 +30,14 @@ is copied into a recovery bundle or restored. This proves gateway lifecycle reco
 Collaboration under the old gateway still requires its matching fork-era OMP and settings, which
 this mainline release does not install. A runtime-pointer rollback alone is not that recovery.
 
-**Mainline upgrade/rollback qualification is pending.** The existing 20/20 results below are not
-proof of this architecture-crossing transition. A new candidate must qualify its exact predecessor
-and recovery path without mutating unrelated services, OMP processes, or discovery files.
+**Mainline stopped-predecessor recovery passed** for the explicit `v0.3.0` →
+`v0.4.0-prealpha.1` pair: Debian passed 69/69 migration/recovery invariants and `Mac14,3` /
+macOS 26.6.1 arm64 passed 23/23 rollback invariants. See the [release ledger](RELEASE_STATUS.md)
+for signed-artifact and run bindings. This proves the matching-CLI uninstall/reinstall gateway
+recovery described above, not an automatic OMP switch or credential restoration. The existing
+20/20 results below remain historical and are not proof of this architecture-crossing transition.
+A new candidate must qualify its exact predecessor and recovery path without mutating unrelated
+services, OMP processes, or discovery files.
 
 ## Fork-era lane and evidence archive
 
