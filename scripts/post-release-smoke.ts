@@ -674,7 +674,7 @@ export async function inspectOmpInstall(): Promise<OmpInstall> {
   if (binary === null) return { compatible: false };
   try {
     const output = await commandOutput("OMP version", [binary, "--version"]);
-    const version = /^omp[ /](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output)?.[1];
+    const version = /^(?:omp[ /])?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output)?.[1];
     if (version === undefined || !Bun.semver.satisfies(version, ">=18.1.20")) return { compatible: false, binary };
     const autoStart = parseJsonRecord(
       await commandOutput("OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),

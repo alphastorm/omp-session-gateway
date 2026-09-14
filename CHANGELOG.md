@@ -36,6 +36,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Accept bare and `omp/`-prefixed version banners during post-release OMP inspection, preserving
+  the minimum supported version instead of rejecting an already compatible installation.
 - Bound discovery enumeration, file reads, and query concurrency; preserve metadata through transient
   directory faults, reject mismatched host identities, and isolate malformed snapshot projections.
 - Revalidate launch authorization after capability queries and close late or already-settled query

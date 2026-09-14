@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { isProtectedLabel } from "./acceptance-target.ts";
 import { parseAndroidCollabSmokeArgs } from "./android-collab-smoke.ts";
 import {
@@ -17,6 +20,35 @@ import {
 
 const SOURCE_COMMIT = "07ba8be884c268375890d50b1a6af51f22bdb16a";
 const ARCHIVE_SHA256 = "a".repeat(64);
+
+test.skipIf(process.platform === "win32")("recognizes bare and prefixed OMP banners without admitting older versions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-smoke-version-"));
+  try {
+    await writeFile(join(directory, "omp"), `#!/bin/sh
+if [ "$1" = --version ]; then
+  printf '%s\n' "$OMP_SMOKE_TEST_VERSION"
+elif [ "$*" = 'config get collab.autoStart --json' ]; then
+  printf '%s\n' '{"value":"control"}'
+else
+  exit 1
+fi
+`, { mode: 0o700 });
+    const script = `import { inspectOmpInstall } from ${JSON.stringify(new URL("./post-release-smoke.ts", import.meta.url).href)}; console.log(JSON.stringify(await inspectOmpInstall()));`;
+    for (const [banner, compatible] of [["18.1.21", true], ["omp/18.1.20", true], ["18.1.19", false]] as const) {
+      const child = Bun.spawn([process.execPath, "-e", script], {
+        env: { ...process.env, PATH: directory, OMP_SMOKE_TEST_VERSION: banner },
+        stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      if (exitCode !== 0) throw new Error(stderr);
+      expect(JSON.parse(stdout).compatible, banner).toBe(compatible);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 describe("post-release smoke arguments", () => {
   test("defaults to the package's bare stable tag and accepts bounded rerun controls", () => {
