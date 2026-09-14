@@ -318,15 +318,18 @@ function validateReadmeReferences(readme: string, mediaNames: Readonly<Record<st
   }
 }
 
-async function validateToolAndSourcePins(manifest: MediaManifest, failures: string[]): Promise<void> {
+export async function validatePackagePins(
+  manifest: Pick<MediaManifest, "upstreamClient" | "generatedBy">,
+  failures: string[],
+): Promise<void> {
   const packageJson = JSON.parse(await readFile(join(REPOSITORY_ROOT, "package.json"), "utf8")) as {
     readonly packageManager: string;
     readonly devDependencies: Readonly<Record<string, string>>;
   };
-  const upstream = JSON.parse(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8")) as {
+  const upstream = JSON.parse(await readFile(join(REPOSITORY_ROOT, "packages/collab-client/upstream/UPSTREAM.json"), "utf8")) as {
     readonly tag: string;
     readonly commit: string;
-    readonly packageVersions: Readonly<Record<string, string>>;
+    readonly packageVersion: string;
   };
   const expectedBun = packageJson.packageManager.replace(/^bun@/u, "");
   if (manifest.generatedBy.bun !== expectedBun || manifest.generatedBy.bun !== Bun.version) {
@@ -341,10 +344,14 @@ async function validateToolAndSourcePins(manifest: MediaManifest, failures: stri
   if (
     manifest.upstreamClient.tag !== upstream.tag ||
     manifest.upstreamClient.commit !== upstream.commit ||
-    manifest.upstreamClient.packageVersion !== upstream.packageVersions["@oh-my-pi/collab-web"]
+    manifest.upstreamClient.packageVersion !== upstream.packageVersion
   ) {
-    addFailure(failures, "docs/media/manifest.json", "pinned collaboration client provenance differs from UPSTREAM.lock.json");
+    addFailure(failures, "docs/media/manifest.json", "pinned collaboration client provenance differs from packages/collab-client/upstream/UPSTREAM.json");
   }
+}
+
+async function validateToolAndSourcePins(manifest: MediaManifest, failures: string[]): Promise<void> {
+  await validatePackagePins(manifest, failures);
   const [ffmpegOutput, ffprobeOutput] = await Promise.all([
     runProcess("ffmpeg", ["-version"]),
     runProcess("ffprobe", ["-version"]),

@@ -535,29 +535,24 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
 
   try {
     await page.goto(fixture.origin, { waitUntil: "domcontentloaded" });
-    await waitForExactText(page, "#directory-title", "Sessions");
-    await waitForExactText(page, "#directory-count", "Live · 4");
-    await waitForExactText(page, ".all-clear-title", "All clear");
-    await waitForExactText(page, ".all-clear-copy", "Nothing needs you — 4 working.");
-    await waitForExactText(page, ".alerts-hint", "Enable alerts to get pinged");
+    await page.locator(".all-clear-summary").waitFor({ state: "visible" });
     await waitForCount(page, ".working-row", 4);
+    await page.locator(".alerts-hint").waitFor({ state: "visible" });
 
     await page.evaluate(async () => navigator.serviceWorker.ready);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator("#settings").click();
     await page.locator("#notification-settings").waitFor({ state: "visible" });
-    await waitForExactText(page, "#notify", "Enable background alerts");
+    await page.locator('#notify[data-state="idle"]').waitFor({ state: "visible" });
     await page.locator("#notify").click();
-    await waitForExactText(page, "#notify", "Disable background alerts");
+    await page.locator('#notify[data-state="enabled"]').waitFor({ state: "visible" });
     await page.locator("#notification-settings-close").click();
     await page.locator("#notification-settings").waitFor({ state: "hidden" });
-    // With alerts enabled the resting copy carries the ping promise and the hint chip is gone.
-    await waitForExactText(page, ".all-clear-copy", "Nothing needs you — 4 working. You'll get pinged.");
+    // Enabling the subscription removes the resting surface's enable-alerts hint.
     await waitForCount(page, ".alerts-hint", 0);
     await captureProductPng(page, paths.allClear);
 
     fixture.upsert(GATEWAY_WORKING);
-    await waitForExactText(page, "#directory-count", "Live · 5");
     await waitForCount(page, ".working-row", 5);
     await waitForExactText(
       page,
@@ -568,15 +563,10 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
 
     fixture.upsert(GATEWAY_WAITING);
     fixture.upsert(RELEASE_WAITING);
-    await waitForExactText(page, "#directory-title", "Needs you");
-    await waitForExactText(page, "#directory-count", "2 waiting");
     await waitForExactText(page, ".queue-hero h2", "Gateway auth hardening");
-    await waitForExactText(page, ".queue-hero .ask-preview", "How should ADR-0036 proceed?2 options to pick from");
-    await waitForExactText(page, ".action-request", "Open request");
-    await page.waitForFunction(() =>
-      [...document.querySelectorAll(".hero-alt")].map(element => element.textContent?.trim()).join("|") ===
-        "Hold for desk|Transcript",
-    );
+    await page.locator(".queue-hero .ask-preview").filter({ hasText: "How should ADR-0036 proceed?" }).waitFor({ state: "visible" });
+    await page.locator(".action-request").waitFor({ state: "visible" });
+    await waitForCount(page, ".hero-alt", 2);
     await waitForExactText(page, ".queue-row .row-title", "Release qualification");
     await waitForCount(page, ".queue-row", 1);
     await waitForCount(page, ".working-row", 3);
@@ -602,23 +592,17 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
     await waitForCount(page, ".gateway-shell", 1);
     await waitForCount(page, ".sh-header, .sh-rail, .sh-rail-backdrop", 0);
     await waitForCount(page, ".sh-composer-ask-embedded", 1);
-    await waitForExactText(page, ".sh-ask-kicker", "input required");
+    await page.locator(".sh-ask-kicker").waitFor({ state: "visible" });
     await waitForCount(page, ".sh-ask-option", 2);
     await waitForCount(page, ".sh-ask-option-recommended", 1);
-    await waitForExactText(page, ".sh-ask-option-recommended", "Recommended");
-    await waitForExactText(page, ".sh-ask-send", "Send");
+    await page.locator(".sh-ask-send:enabled").waitFor({ state: "visible" });
     const selectedClasses = await page.locator(".sh-ask-option").first().getAttribute("class");
     assertCondition(selectedClasses?.includes("sh-ask-option-checked") === true, "recommended ask option is not selected");
     // An open pending request offers couch triage: the hold bar is part of the product surface.
     await page.locator('.triage-bar[data-kind="hold"]').waitFor({ state: "visible" });
-    await waitForExactText(page, ".triage-copy", "Need the desk for this one?");
-    await waitForExactText(page, ".triage-action", "Hold → next");
+    await page.locator(".triage-action").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector(".sh-ask-option-label")?.textContent?.includes("Implement ADR-0036 locally"));
     await page.waitForFunction(() => document.querySelectorAll(".sh-ask-option-label")[1]?.textContent?.includes("Wait for upstream"));
-    await page.waitForFunction(() => {
-      const style = getComputedStyle(document.querySelector(".sh-ask-send") as HTMLElement);
-      return style.backgroundColor === "rgb(49, 196, 141)";
-    });
     await page.waitForFunction(() => document.querySelector(".gateway-shell")?.scrollWidth! <= window.innerWidth);
     await page.waitForFunction(() => document.querySelector(".sh-composer-ask-embedded")?.getBoundingClientRect().bottom! <= window.innerHeight);
     await page.waitForTimeout(150);
@@ -635,23 +619,18 @@ async function captureRuntimeScreens(browser: Browser, paths: CapturePaths): Pro
 
     fixture.setSnapshot(INITIAL_SESSIONS);
     await page.locator(".shell-back").click();
-    await waitForExactText(page, "#directory-title", "Sessions");
-    await waitForExactText(page, "#directory-count", "Live · 4");
-    await waitForExactText(page, ".all-clear-title", "All clear");
+    await page.locator(".all-clear-summary").waitFor({ state: "visible" });
+    await waitForCount(page, ".working-row", 4);
     await page.locator("#settings").click();
     await page.locator("#notification-settings").waitFor({ state: "visible" });
-    await waitForExactText(page, "#notify", "Disable background alerts");
+    await page.locator('#notify[data-state="enabled"]').waitFor({ state: "visible" });
     await page.locator("#notification-detail-options").waitFor({ state: "visible" });
     assertCondition(
       await page.locator('input[name="notification-detail"][value="session"]').isChecked(),
       "Session notification detail is not the real default",
     );
-    await waitForExactText(
-      page,
-      ".sheet-footnote",
-      "Per-device, stored with the push subscription on the gateway. Payloads are built at the chosen level — the phone never redacts.",
-    );
-    await page.waitForFunction(() => document.querySelector(".detail-warning")?.textContent?.includes("notification history"));
+    await page.locator(".sheet-footnote").waitFor({ state: "visible" });
+    await page.locator(".detail-warning").waitFor({ state: "visible" });
     const detailTargetHeights = await page
       .locator(".detail-option, #notification-settings-close, #notify")
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
@@ -951,12 +930,12 @@ async function buildManifest(
   runtimeUnexpectedRequests: number,
   compositorUnexpectedRequests: number,
 ): Promise<MediaManifest> {
-  const upstream = JSON.parse(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8")) as {
+  const upstream = JSON.parse(await readFile(join(REPOSITORY_ROOT, "packages/collab-client/upstream/UPSTREAM.json"), "utf8")) as {
     readonly tag: string;
     readonly commit: string;
-    readonly packageVersions: Readonly<Record<string, string>>;
+    readonly packageVersion: string;
   };
-  const upstreamClientVersion = upstream.packageVersions["@oh-my-pi/collab-web"];
+  const upstreamClientVersion = upstream.packageVersion;
   assertCondition(upstreamClientVersion !== undefined, "pinned collab client version is missing");
   assertCondition(runtimeUnexpectedRequests === 0, "runtime network audit is not clean");
   assertCondition(compositorUnexpectedRequests === 0, "compositor network audit is not clean");
@@ -1099,6 +1078,8 @@ function provenanceReadme(manifest: MediaManifest): string {
 
 These files are deterministic public fixtures. Every session title, project label, request, and notification shown here is synthetic. Never replace them with a personal or production capture.
 
+This is a synthetic product demonstration, not release-qualification evidence. Its source revision and browser-client provenance are recorded below. The notification toast is capture-only chrome, not a real system notification or proof of background Web Push delivery.
+
 ## Regenerate and verify
 
 From the repository root after installing the locked dependencies:
@@ -1108,7 +1089,7 @@ bun run media:capture
 bun run media:check
 \`\`\`
 
-\`media:capture\` builds the actual PWA and pinned collaboration client before capture. It publishes the canonical set only after staging the complete package. \`media:check\` verifies the binaries, manifest, public-safety rules, and root README references; it does not regenerate media.
+\`media:capture\` builds the actual PWA and pinned collaboration client before capture. It publishes the canonical set only after staging the complete package. \`media:check\` verifies the binaries, manifest, public-safety rules, and root README references; it does not regenerate media. Both use \`packages/collab-client/upstream/UPSTREAM.json\` for browser-client provenance, independently of the OMP host baseline.
 
 Source revision: \`${manifest.sourceRevision}\`  
 Pinned client: \`${manifest.upstreamClient.tag}\` / \`${manifest.upstreamClient.commit}\` (\`@oh-my-pi/collab-web\` ${manifest.upstreamClient.packageVersion})

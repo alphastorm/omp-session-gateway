@@ -10,7 +10,7 @@ readiness. This is an independent community project, not affiliated with or endo
 maintainers. Native integration means using the registry and controller shipped in stock OMP
 `>= 18.1.20`; it does not mean the gateway ships with OMP or needs no setup.
 
-Existing media is a **historical synthetic demo**, not a v0.4.0 capture or current qualification
+Existing media is a **synthetic product demo**, not a release-qualification
 receipt. Preserve its [recorded provenance](media/README.md). The Android toast is capture-only chrome,
 not a real system notification; background Web Push remains unqualified on the mainline matrix.
 Do not attach these assets without that context or replace them with personal session captures.
@@ -22,7 +22,7 @@ Do not attach these assets without that context or replace them with personal se
 - [ ] Setup still requires the separate gateway, Bun 1.4.0, one-time `collab.autoStart`,
       and TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
 - [ ] Exact host/client qualification and known limits still match the compatibility policy.
-- [ ] Attached media are canonical, unmodified, and explicitly labeled historical synthetic demos;
+- [ ] Attached media are canonical, unmodified, and explicitly labeled synthetic product demos;
       no real hostname, path, account, capability, or transcript appears.
 - [ ] No wording implies guaranteed alerts, production readiness, broader platform qualification,
       personal experience, or upstream affiliation.
@@ -62,8 +62,8 @@ for evidence and limits.
 
 Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
 
-*Optional media: `omp-session-gateway-product-flow.png`, labeled “Historical synthetic demo;
-not a v0.4.0 qualification capture.” Preserve the media provenance above.*
+*Optional media: `omp-session-gateway-product-flow.png`, labeled “Synthetic product demo;
+not release-qualification evidence.” Preserve the media provenance above.*
 
 ## X post — product-first
 
@@ -83,8 +83,8 @@ page using stock OMP ≥18.1.20. Separate gateway + Tailscale setup required.
 
 https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0
 
-*For either post, link-only is sufficient. If attaching existing media, include the historical
-synthetic-demo caption and notification caveat above; do not imply a fresh stable-release capture.*
+*For either post, link-only is sufficient. If attaching existing media, include the
+synthetic-demo caption and notification caveat above; do not imply fresh release qualification.*
 
 ## Show HN title
 

@@ -4,6 +4,15 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog and Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Validate media capture provenance against the vendored browser-client pin rather than the
+  independent OMP host baseline. Replace stale editorial-copy waits with rendered-state checks
+  and regenerate the canonical synthetic media with Bun 1.4.0 and the v18.1.14 browser client.
+  The strict media gate remains enabled; synthetic demonstrations do not qualify live workflows.
+
 ## [v0.4.0] — 2026-09-14
 
 ### Changed
