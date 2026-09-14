@@ -49,12 +49,16 @@ accent.
 
 ## Type
 
-- **Space Grotesk** (Google Fonts) 500/600 — headings, buttons, wordmark.
-  Wordmark: "OMP Session Gateway", weight 600, letter-spacing −0.015em.
-- **JetBrains Mono** 400/500 — eyebrows, session metadata, paths, chips.
-  Labels: 11–12px, uppercase, letter-spacing 0.1–0.22em.
-- Fallbacks: `system-ui, sans-serif` / `ui-monospace, monospace`. Self-host or
-  system-fallback in the PWA if offline-first matters; never block render.
+- **Runtime PWA and public site:** system/local font stacks only —
+  `system-ui, sans-serif` / `ui-monospace, monospace`. Runtime assets must remain
+  first-party; no remote fonts, Google Fonts requests, third-party scripts, or CDNs.
+  This is a privacy requirement, not an optional offline optimization.
+- **Exported artwork:** `assets/banner.html` uses Space Grotesk 500/600 and
+  JetBrains Mono 400/500 from Google Fonts to render static assets. That artwork
+  source is not a runtime shell; do not copy its font-loading links into the app
+  or site. Existing media retains its recorded provenance.
+- Artwork wordmark: "OMP Session Gateway", weight 600, letter-spacing −0.015em.
+  Mono labels: 11–12px, uppercase, letter-spacing 0.1–0.22em.
 
 ## Voice
 
@@ -67,7 +71,24 @@ the [release ledger](RELEASE_STATUS.md) and [compatibility policy](COMPATIBILITY
 Windows, background Web Push, specialized attention, and branch/resume outside that claim. Label
 fork-era release/host/client results as history rather than reusing their support badges.
 
+## Message hierarchy
+
+1. **Outcome:** live terminal sessions, one private mobile page; View or Control
+   without moving a collaboration link for each session.
+2. **Stock OMP, no fork:** OMP `>= 18.1.20` supplies the native registry and
+   controller. No custom OMP build or gateway-specific OMP plugin is needed.
+   The gateway remains a separate companion, not an official OMP product.
+3. **One-time setup:** install the gateway with Bun 1.4.0, enable
+   `collab.autoStart` once, and configure TUN-mode Tailscale Serve with an exact
+   user allowlist and Funnel disabled. Then start participating sessions with
+   plain `omp`. Say "no per-session link copying", not "no setup".
+4. **Evidence and limits:** link the published release, exact qualification matrix,
+   and known limits beside support claims. Stable does not mean every platform or
+   workflow is qualified. Separate historical synthetic media from live evidence.
+
 ## Asset inventory
+
+Paths below are relative to the repository root.
 
 | File | Purpose |
 |---|---|
@@ -76,12 +97,12 @@ fork-era release/host/client results as history rather than reusing their suppor
 | `assets/banner.html` | README banner source (1280×320) |
 | `assets/banner.png` | rendered banner @2x (2560×640) |
 | `assets/og.png` | GitHub social preview and site `og:image` (1280×640) |
-| `apps/web/icon.svg` | PWA icon source (512, rx116 tile) |
-| `apps/web/favicon.svg` | favicon (96, rx22 tile) |
-| `apps/web/icon-192.png` / `icon-512.png` | manifest icons, `purpose: any` |
-| `apps/web/icon-maskable-512.png` | manifest icon, `purpose: maskable` |
-| `apps/web/apple-touch-icon-180.png` | apple-touch-icon |
-| `apps/web/src/index.html` / `styles.css` / `manifest.webmanifest` | drop-in PWA shell implementing this spec (see `HANDOFF_NOTES.md`) |
+| `apps/web/src/icon.svg` | PWA icon source (512, rx116 tile); app favicon |
+| `apps/web/src/favicon.svg` | site favicon source (96, rx22 tile) |
+| `apps/web/src/icon-192.png` / `apps/web/src/icon-512.png` | manifest icons, `purpose: any` |
+| `apps/web/src/icon-maskable-512.png` | manifest icon, `purpose: maskable` |
+| `apps/web/src/apple-touch-icon-180.png` | apple-touch-icon |
+| `apps/web/src/index.html`, `apps/web/src/app.ts`, `apps/web/src/styles.css`, `apps/web/src/manifest.webmanifest` | maintained PWA shell, behavior, styles, and manifest; see [web app notes](../apps/web/README.md) |
 | `site/` | canonical public site (`alphastorm.github.io/omp-session-gateway`), system font stacks only; `pages.yml` stages the mark, favicon, `og.png`, and product-flow capture from their canonical sources at deploy time, so `site/` never carries copies |
 
 Manifest snippet:
@@ -90,6 +111,7 @@ Manifest snippet:
 "background_color": "#060809",
 "theme_color": "#060809",
 "icons": [
+  { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
   { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
   { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
   { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
@@ -101,7 +123,7 @@ on light GitHub). `<meta name="theme-color" content="#060809">`.
 
 ## PWA UI system ("OMP Sessions")
 
-Register: Stripe/Uber/Square-grade restraint — strong type, hard hierarchy,
+Register: restraint — strong type, clear hierarchy,
 few colors, no decoration that isn't information. One accent per state:
 emerald = live, amber = needs-you/privileged, red = unauthorized.
 
@@ -133,7 +155,7 @@ emerald = live, amber = needs-you/privileged, red = unauthorized.
   alert toggle, detail options (only while enabled), and a mono build line.
 - Status banner: full-width `surface` strip with a leading status dot
   (live/loading/danger). Unauthorized uses `danger` text + dot and hides rows.
-- Empty state: ghost mark (20% opacity), `NO LIVE SESSIONS` kicker, mono hint
+- Empty state: ghost mark (22% opacity), `NO LIVE SESSIONS` kicker, mono hint
   about `collab.autoStart`.
 - Focus: 2px `live` ring, 2px offset; dialogs take initial focus themselves.
   Motion: none on list re-renders; only the loading dot pulses, and

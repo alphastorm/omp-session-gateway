@@ -28,8 +28,8 @@ name: Droplet Linux qualification
 run-name: Stable qualification ${{ inputs.qualification_id || github.run_id }}
 
 on:
-  # Require an exact chosen candidate. Do not spend a droplet run on a stale fork-era default
-  # or silently follow the newest release while mainline qualification is pending.
+  # Require an exact chosen candidate. Never silently select a release or
+  # reuse a fork-era default for a new qualification run.
   workflow_dispatch:
     inputs:
       qualification_id:

@@ -29,7 +29,6 @@ import {
   MAX_BYTES,
   MEDIA_DIRECTORY,
   MEDIA_DIRECTORY_NAMES,
-  OPTIONAL_MEDIA_DIRECTORY_NAMES,
   PNG_DIMENSIONS,
   POSTER_FRAME_INDEX,
   REPOSITORY_ROOT,
@@ -1143,9 +1142,9 @@ Security boundary: loopback-only gateway · memory-only capabilities · no trans
 
 The opening contains four working sessions: Release qualification, Android reconnect soak, Docs & examples, and Upstream compatibility. Gateway auth hardening then arrives as a fifth working session before becoming the oldest of two waiting asks; Release qualification is second. Open request launches Control for the synthetic “How should ADR-0036 proceed?” ask with two synthetic options.
 
-The canonical directory contains the eight binaries, this provenance file, and \`manifest.json\`. \`LAUNCH_COPY.md\` is the sole optional extra: it is an unpublished copy draft maintained by the README/publicity branch. The checker rejects every other unexpected file, including concepts and contact sheets.
+The canonical directory contains only the eight binaries, this provenance file, and \`manifest.json\`. The [unposted launch-copy draft](../LAUNCH_COPY.md) lives outside the synthetic-media fixture directory. The checker rejects every unexpected file, including concepts and contact sheets.
 
-Regenerate the entire set after any visible PWA, pinned-client, copy, spacing, typography, or responsive-layout change. Do not hand-edit a binary or reuse a concept image from the desktop media pack.
+When intentionally refreshing media for a changed PWA, pinned client, capture copy, spacing, typography, or responsive layout, regenerate the entire set and update its provenance together. A documentation-only refresh does not recapture or relabel historical assets. Do not hand-edit a binary or reuse a concept image from the desktop media pack.
 `;
 }
 
@@ -1218,7 +1217,7 @@ async function publishPackage(stagingRoot: string): Promise<void> {
   await mkdir(MEDIA_DIRECTORY, { recursive: true });
   const existing = await readdir(MEDIA_DIRECTORY);
   const allowedNames: Readonly<Record<string, true>> = Object.fromEntries(
-    [...MEDIA_DIRECTORY_NAMES, ...OPTIONAL_MEDIA_DIRECTORY_NAMES].map(name => [name, true]),
+    MEDIA_DIRECTORY_NAMES.map(name => [name, true]),
   );
   for (const name of existing) {
     assertCondition(allowedNames[name] === true, "docs/media contains a non-canonical file; refusing to delete it");

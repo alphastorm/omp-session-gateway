@@ -5,7 +5,10 @@
 ### 1.1 Mainline OMP discovery reader
 
 Stock mainline OMP `>= 18.1.20` owns its collaboration controller and per-host local registry.
-[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). No gateway-specific OMP build is required.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). No fork, custom OMP build, or gateway-specific OMP plugin is required.
+The gateway remains a separate installation: enable `collab.autoStart` once, then start plain
+`omp`. Bun 1.4.0 and TUN-mode Tailscale Serve remain deployment prerequisites; see
+[OMP_INTEGRATION.md](OMP_INTEGRATION.md).
 
 `OmpHostReader` reads discovery entries under `~/.omp/run/collab-hosts` (or the configured
 `omp.discoveryDir`) and queries each entry’s published `endpoint` with its per-host token.
@@ -98,20 +101,28 @@ as Close or Exit. These bounded records contain no title, path, model, prompt, a
 or collaboration capability.
 
 An explicit Settings-sheet action enables background Web Push. Permission is never requested on load.
-The gateway sends only strict instance/generation attention metadata to the browser-provided push
-endpoint; visible text is fixed and contains no session label or prompt content. A tap opens a
-metadata-only attention route, which is synchronously scrubbed before the exact generation and
-current attention state are revalidated. Valid taps request Control through the ordinary no-store,
-in-memory launch flow; stale taps remain on the directory.
+The gateway sends strict Push v2 attention/clear envelopes with opaque request identity and a
+bounded pending count. Private detail uses a fixed title with no body; Session (the default) adds
+bounded session/project labels. Preview falls back to Session because stock OMP supplies no ask
+preview. Visible text may persist in notification history, screenshots, or wearables. A tap opens
+`/collab/:instanceId?request=:requestId`, synchronously scrubs the route, and revalidates the exact
+current ask and Control availability. Valid taps use the ordinary generation-bound, no-store,
+in-memory launch flow; stale taps remain on the directory. Background delivery remains best effort
+and outside the v0.4.0 qualified core matrix.
 
 PWA upgrades activate immediately after the new content-hashed shell is cached. The shell includes
 the pinned collaboration-client module and stylesheet, and an idle directory warms the module
 import so a launch pays only for its capability request and relay connect; launch-time loading
-remains the fallback. The service worker
-auto-navigates only an idle exact-root directory through the no-store `/update/` bootstrap, which
-the new document synchronously scrubs to `/`. A pending launch reserves `/client/` before any
-asynchronous work; active or pending collaboration is never reloaded. Deferred updates apply when a
-failed launch returns to the directory or when the user naturally leaves the collaboration client.
+remains the fallback. The service worker navigates exact-root directory clients through the
+no-store `/update/` bootstrap, which the new document synchronously scrubs to `/`. Active
+`/client/` documents are excluded. The page also defers its own update reload while a launch or
+collaboration client is active.
+
+**Implementation gap — ADR-018 remains binding:** `launch()` sets an in-page pending flag before
+asynchronous work, but reserves `/client/` only when the fetched capability is mounted. The worker
+sees only the URL and cannot distinguish that pending launch from an idle `/` client; activation
+can therefore navigate a pending launch. The required pre-launch route reservation and protection
+against that race are not implemented. Do not claim that all pending launches survive an upgrade.
 
 ### 1.5 Existing OMP collaboration client
 
@@ -192,7 +203,7 @@ OMP remains unaware of this browser-routing metadata.
 ### 2.4 View or Control launch
 
 1. The user taps **View** or **Control**.
-2. For a separate client page, browser code opens `/client/` synchronously to preserve the user gesture; for an integrated SPA, it reserves the client route in memory.
+2. The shipped same-document client marks the launch pending in page memory before loading its assets and requesting a capability. The URL changes to `/client/` only at mount; the ADR-018 reservation gap above remains unresolved.
 3. The PWA performs a same-origin `POST /api/v1/sessions/:instanceId/launch` with the observed generation and desired mode.
 4. The gateway verifies Tailscale identity, application allowlist, Origin, fetch metadata, content type, rate limits, generation, freshness, and mode availability.
 5. The launch broker queries OMP for the exact generation and role, revalidates current state, and
@@ -246,7 +257,9 @@ flowchart TB
 
 A malicious process running as the same desktop OS user is outside the intended threat boundary; it can generally read the user's files or interfere with OMP directly. OS permissions and per-host query tokens still reduce accidents and cross-user access but are not a sandbox against same-user malware.
 
-A compromised or unlocked phone with valid tailnet identity is also capable of requesting sessions until the device is revoked. Optional WebAuthn user verification reduces this risk for Control.
+A compromised or unlocked phone with valid tailnet identity is also capable of requesting sessions
+until the device is revoked. WebAuthn user verification is proposed in ADR-008, not implemented in
+v0.4.0; it is not an additional Control gate operators can rely on today.
 
 ## 4. Why not process scanning or terminal automation?
 
@@ -265,8 +278,12 @@ private deep imports, process inspection, or a second collaboration controller.
   is bounded to ten seconds, and sustained failure is identified as `Relay unavailable` without
   exposing the capability.
 - Tailscale unavailable on the phone: there is no public fallback.
-- Desktop asleep or offline: the static shell may show an offline message but no stale session metadata.
-- Dashboard SSE silence: after 12 seconds the PWA fails closed, terminates the half-open stream, and retries bounded snapshots with full jitter.
+- Desktop asleep or offline: a loaded shell retains the last authenticated metadata in volatile
+  memory, marks it stale with a freshness timestamp, and retries. Authorization denial clears it;
+  metadata is never an offline capability or a substitute for launch authorization.
+- Dashboard SSE silence: after 12 seconds the PWA closes the half-open stream and retries snapshots
+  without clearing last-known cards. Current request timeouts and retry bounds are documented in
+  [PROTOCOL.md](PROTOCOL.md#7-revisions-and-races).
 - Collaboration client radio transition: browser lifecycle/network signals trigger measurement rather
   than declaring health. Hidden pages cancel relay probes. Foreground gateway recovery requires two
   successful probes and replaces a potentially stale relay socket after the first success.

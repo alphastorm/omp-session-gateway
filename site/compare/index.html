@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway compared — omp-deck, oh-my-portal, claudecodeui, pi-agent-dashboard</title>
-<meta name="description" content="A candid, dated comparison of ways to reach Oh My Pi sessions from a phone or browser: OMP Session Gateway versus omp-deck, oh-my-portal, claudecodeui, and pi-agent-dashboard.">
+<meta name="description" content="Choose a phone or browser workflow: native stock-OMP session access with OMP Session Gateway, a browser workspace, or remote terminal access. Dated primary sources and support boundaries.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/compare/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway compared — omp-deck, oh-my-portal, claudecodeui, pi-agent-dashboard">
-<meta property="og:description" content="A candid, dated comparison of ways to reach Oh My Pi sessions from a phone or browser.">
+<meta property="og:description" content="Keep your running OMP terminal sessions, move work to a browser, or reach a remote terminal. Choose by workflow, with dated primary sources.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/compare/">
@@ -29,40 +29,69 @@
 </header>
 <main>
 <p class="eyebrow">Decision guide</p>
-<h1>Reaching OMP sessions from a phone or browser</h1>
-<p class="lede">Remote access to live OMP sessions is an active ecosystem — see the upstream
-<a href="https://github.com/can1357/oh-my-pi/discussions/6460">discussion</a> that inventories these
-efforts. Every project below is excellent at a different job; this page exists to make the call fast
-and honest.</p>
-<div class="wide">
-<table>
-<tr><th>Dimension</th><th>OMP Session Gateway</th><th>omp-deck</th><th>oh-my-portal</th><th>claudecodeui</th><th>pi-agent-dashboard</th></tr>
-<tr><td>Primary job</td><td>Private directory, attention queue, and View/Control broker for already-running terminal OMP sessions</td><td>Web cockpit hosting its own OMP SDK sessions plus kanban, inbox, routines</td><td>Skills plugin exposing an agent from the phone: chat, terminal, sharing, notify</td><td>Web, desktop, and mobile UI for Claude Code, Cursor CLI, and Codex</td><td>Browser dashboard for <code>pi</code> agents; OMP not supported</td></tr>
-<tr><td>Live terminal session discovery</td><td>Zero-touch: every interactive OMP process registers over authenticated local IPC</td><td>No terminal attach; sessions live in the deck</td><td>Per-surface skill setup; one OMP session shared at a time</td><td>Discovers session files; OMP proposal closed unmerged</td><td><code>pi</code> only, via a bridge extension</td></tr>
-<tr><td>Mobile surface</td><td>Android-first installable PWA, qualified on physical Pixel hardware</td><td>Responsive web app; Telegram bridge</td><td>Phone browser over encrypted Portal tunnels; ntfy push</td><td>Responsive design, hosted cloud, desktop apps</td><td>Mobile-friendly responsive layout</td></tr>
-<tr><td>Exact OMP collab client reuse</td><td>Yes — opens OMP's own encrypted <code>collab-web</code> from pinned upstream source</td><td>No — own chat surface</td><td>No — own web chat; collab links reused separately</td><td>No — own transcript UI</td><td>No — own mirror protocol</td></tr>
-<tr><td>Attention triage</td><td>Metadata-only FIFO <strong>Needs you</strong> queue with device-local Hold</td><td>Per-session plan approvals and queued prompts</td><td>Push when the agent needs you</td><td>Per-tool approvals in the UI</td><td>Interactive prompts inside a session view</td></tr>
-<tr><td>Capability and secret handling</td><td>Memory-only capabilities fetched <code>no-store</code> after an explicit tap; never in logs, URLs, push, or storage</td><td>Provider keys in local files, masked in UI</td><td>Auth gate per surface; hosted link option end-to-end encrypted</td><td>Agent tools off by default</td><td>Provider keys in <code>auth.json</code>; paired bearer tokens</td></tr>
-<tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS only; loopback bind, TUN mode required, Funnel unsupported</td><td>Loopback default; you front it yourself</td><td>Portal relay tunnels terminating on your machine</td><td>Self-hosted on your network, or hosted cloud</td><td>Localhost; optional zrok public tunnel</td></tr>
-<tr><td>Transcript storage</td><td>None — bounded metadata only; transcripts stay in OMP</td><td>Sessions persist and resume by design</td><td>Web chat keeps memory; terminal is live tmux</td><td>History persisted with resume</td><td>Mirrors live and historical <code>pi</code> sessions</td></tr>
-<tr><td>Best fit</td><td>Make every current terminal OMP session safely reachable from a phone without copying links</td><td>A persistent browser cockpit that hosts sessions</td><td>Broad agent coverage and raw terminal access from a phone</td><td>Established multi-agent web UI with hosted distribution</td><td>The <code>pi</code> ecosystem, not OMP</td></tr>
-</table>
-</div>
-<p class="verified">Source-verified against each project's public README and package metadata on 2026-08-21,
-with release metadata refreshed 2026-09-08. Capabilities change quickly — reverify before deciding. None of
-these projects, including this one, is affiliated with or endorsed by the Oh My Pi maintainers.</p>
-<h2>The one-sentence answer</h2>
-<p>If the desired change is narrowly “make every current terminal OMP session safely reachable from my phone
-without copying links,” OMP Session Gateway is the only option that attaches through OMP's own encrypted
-collaboration path and reuses the exact upstream client — at the cost of an exact OMP version pin plus the
-repository's controller/publisher patch. Choose one of the others for a broader browser-first working
-environment, multi-agent coverage, or raw terminal access.</p>
-<p>Full table with sources: <a href="https://github.com/alphastorm/omp-session-gateway#how-it-compares">how it compares</a></p>
+<h1>Keep the terminal, or move the work to a browser?</h1>
+<p class="lede">Start with the workflow you want to keep. A directory for running terminal sessions,
+a browser-hosted workspace, and remote shell access solve different problems.</p>
+
+<h2>Keep your running OMP terminal sessions</h2>
+<p><strong>OMP Session Gateway</strong> puts participating interactive sessions on one private mobile
+page and opens View or Control in OMP's existing encrypted collaboration client. The gateway keeps
+bounded metadata, not transcripts.</p>
+<p><strong>Stock OMP ≥18.1.20 supplies the native registry and controller.</strong> No fork, custom
+OMP build, or gateway-specific OMP plugin is needed. The gateway remains a separate companion.</p>
+<p><strong>One-time setup:</strong> install the gateway with Bun 1.4.0, enable
+<code>collab.autoStart</code>, and configure TUN-mode Tailscale Serve with an exact user allowlist
+and Funnel disabled. Then start sessions with plain <code>omp</code> — no per-session link copying.
+<a href="https://github.com/alphastorm/omp-session-gateway#build-and-run">Setup guide</a>.</p>
+
+<h2>Choose a different workflow</h2>
+<ul>
+<li><strong>A browser-hosted OMP workspace:</strong>
+<a href="https://github.com/bjb2/omp-deck">omp-deck</a> embeds the OMP SDK in-process and shares
+OMP's session/auth store. Choose it for persistent browser sessions and the work around chat,
+such as kanban, routines, and an inbox; its README says the OMP CLI need not be installed separately.
+Sources: <a href="https://github.com/bjb2/omp-deck/blob/main/README.md">README</a>,
+<a href="https://github.com/bjb2/omp-deck/blob/main/package.json">package</a>.</li>
+<li><strong>Agent web chat, sharing, or a remote terminal:</strong>
+<a href="https://github.com/gosuda/oh-my-portal">oh-my-portal</a> provides skills for several CLI
+agents over Portal tunnels. OMP web chat uses RPC; its optional <code>omp-collab</code> skill also
+shares a live session through OMP's own collaboration path. Choose the surface you need rather
+than treating it as a terminal-session directory.
+Sources: <a href="https://github.com/gosuda/oh-my-portal/blob/main/README.md">README</a>,
+<a href="https://github.com/gosuda/oh-my-portal/blob/main/package.json">package</a>.</li>
+<li><strong>A browser/mobile workspace for other coding CLIs:</strong>
+<a href="https://github.com/siteboon/claudecodeui">CloudCLI (claudecodeui)</a> advertises Claude Code,
+Cursor CLI, and Codex in its README, with self-hosted and hosted options. That README does not
+advertise OMP support; do not assume OMP compatibility from a similar interface.
+Sources: <a href="https://github.com/siteboon/claudecodeui/blob/main/README.md">README</a>,
+<a href="https://github.com/siteboon/claudecodeui/blob/main/package.json">package</a>.</li>
+<li><strong>A dashboard alongside the pi terminal:</strong>
+<a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">pi-agent-dashboard</a> mirrors
+pi sessions through a bridge extension and supports browser interaction. Its README explicitly
+says Oh My Pi is not supported; pi and OMP are different integration targets.
+Sources: <a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/README.md">README</a>,
+<a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/package.json">package</a>.</li>
+</ul>
+
+<h2>Evidence and limits</h2>
+<p><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0">Gateway v0.4.0</a>
+is published stable. Its minimum OMP version is an integration contract, not evidence that every
+later version or platform was tested. Qualification covers the exact OMP 18.1.20/Bun 1.4.0
+Debian/macOS/Pixel matrix and a <strong>1,800-second relay check, not eight hours</strong>.
+Windows, background Web Push, specialized attention, branch/resume, and broader host/browser
+combinations remain unqualified. The <a href="../status/">status page</a> and
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>
+retain the evidence and the initial intermittent Control-upgrade failure whose cause remains unknown.</p>
+<p class="verified">Primary READMEs and package metadata checked 2026-09-14. This is a workflow
+comparison, not a hands-on interoperability test or a security assessment of the other projects.
+Their scope can change; follow the source links before deciding. The upstream
+<a href="https://github.com/can1357/oh-my-pi/discussions/6460">discussion</a> provides further context.</p>
+<p><a href="https://github.com/alphastorm/omp-session-gateway#how-it-compares">Short repository guide</a></p>
 </main>
 <footer>
   Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
-  Evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway">repository</a>:
-  every claim on this site is bound to a versioned release ledger entry.
+  Gateway release evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>;
+  other projects' scope is attributed to the dated primary sources above.
 </footer>
 </body>
 </html>

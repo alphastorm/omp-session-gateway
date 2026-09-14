@@ -1,5 +1,9 @@
 # Linux qualification lane
 
+For normal use, install [published stable v0.4.0](OPERATIONS.md#2-cli-and-daemon-installation).
+This document records maintainer qualification evidence, not a requirement to provision a cloud
+host or build a custom OMP. Native discovery is supplied by stock OMP.
+
 ## Mainline qualification — Debian core lane passed
 
 The current workflow is on-demand and requires an exact signed candidate tag; it does not run a

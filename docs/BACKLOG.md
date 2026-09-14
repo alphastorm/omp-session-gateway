@@ -3,11 +3,17 @@
 GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) records qualification;
 [the changelog](../CHANGELOG.md) records shipped work. This file keeps only open product direction.
 
+Stable v0.4.0 is published with native stock-OMP integration and a passed core qualification
+matrix. Candidate qualification and the published-byte local/Android smoke are complete; exact
+evidence and remaining limits live in the [release ledger](RELEASE_STATUS.md).
+
 ## Current
 
-- Qualify a signed mainline-compatible gateway candidate against stock OMP `>= 18.1.20`; no
-  fork-era host/client/relay result transfers.
-- Repeat the required Android and lifecycle scenarios against that exact candidate.
+- Investigate the initial local View→Control upgrade failure whose cause remains undetermined,
+  despite subsequent passing probes and the full published-byte smoke.
+- Close the pending-launch service-worker update gap: the launch still occupies `/` until
+  capability resolution, contrary to the prelaunch route reservation described in ADR-018.
+- Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
 - Qualify background Push on the advertised physical Android/browser combination.
 - Decide whether to advertise Windows only after exact mainline discovery and signed-candidate
   install/reboot-login/upgrade/rollback/uninstall acceptance.

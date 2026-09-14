@@ -3,18 +3,21 @@
 ## 1. One-time prerequisites
 
 - stock mainline OMP `>= 18.1.20` on PATH;
-- Bun 1.4.0 for this gateway checkout;
-- Tailscale installed and signed into the same tailnet on the desktop and Android phone;
+- Bun 1.4.0 installed at a persistent path for the gateway runtime;
+- Tailscale installed and signed into the same tailnet on the desktop and Android phone, with
+  TUN-mode networking on the gateway host (not userspace networking);
 - tailnet HTTPS/DNS enabled as required by Tailscale Serve;
 - a tailnet policy restricting the gateway host’s HTTPS service to the intended user/device posture;
 - a browser/host combination qualified for the exact gateway artifact before claiming support.
 
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Stock OMP is sufficient: set
 `collab.autoStart` once, then use plain `omp`. The gateway only reads OMP’s discovery directory
-and queries each host; no gateway-specific OMP build or shared publication credential is needed.
+and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
+publication credential is needed. Install the separate gateway service once.
 
-Mainline core signed-candidate qualification passed for the exact Debian, macOS, and physical
-Pixel matrix in the [release ledger](RELEASE_STATUS.md); use the
+**Install published stable [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0).**
+Its signed-candidate qualification and published-byte local/Android smoke passed for the scopes
+recorded in the [release ledger](RELEASE_STATUS.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
 retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s
 matching instructions for those artifacts. Gateway rollback alone neither switches OMP nor
@@ -27,24 +30,48 @@ For v1 header-based authorization, the Android source must be a user-authenticat
 
 ## 2. CLI and daemon installation
 
-Provide an idempotent command:
+Use the published Bun-runtime archive, not a source checkout or candidate tag, for normal
+installation. Follow [Verify a published build](RELEASE.md#verify-a-published-build) for
+`v0.4.0` before extracting or executing it.
 
-```text
-omp-gateway install
+**Upgrading from a fork-era gateway?** Complete the matching-old-CLI stopped-service step below
+first. Do not run the new installer over an active fork-era service.
+
+From the directory containing the verified download, run as the desktop user, not root. Replace
+the example origin and login with the deployment’s exact Tailscale HTTPS origin and allowlist:
+
+```sh
+tar -xf omp-session-gateway-0.4.0-bun.tar
+cd omp-session-gateway-0.4.0-bun
+bun apps/gateway/src/cli.js install \
+  --origin https://host.tailnet.ts.net \
+  --allow you@example.com
+bun apps/gateway/src/cli.js serve-guidance
 ```
 
-It should:
+The archive contains one bundled JavaScript CLI and static web assets, not separate native
+`omp-gateway` and `omp-gatewayd` binaries. Both package command names refer to that CLI. The
+installer stages the verified payload in private, content-addressed storage, creates or retains
+the gateway-only readiness token, registers the current-user service, starts it, and requires
+authenticated readiness before activating the runtime. It prints Serve guidance; it does not
+configure Tailscale, validate tailnet policy, install OMP, or change OMP settings.
 
-1. install the exact signed/released `omp-gateway` and `omp-gatewayd` binaries plus static assets into a user-scoped location;
-2. create the config/state/runtime directories with current-user-only permissions;
-3. create the private readiness token atomically; it is never provisioned to OMP;
-4. install an autostart definition for the current OS;
-5. start or restart the daemon;
-6. run local health, listener, ACL, and permission checks;
-7. print the Tailscale Serve and policy steps without exposing secrets;
-8. show the PWA URL after Serve is configured.
+**Apply the printed private Serve command and the [tailnet policy](#6-tailnet-access-policy)
+before running `doctor`.** Inspect `tailscale serve status` and keep Funnel disabled. Then, from
+the same extraction root:
 
-On current source, an upgrade reads and validates the existing private configuration first.
+```sh
+bun apps/gateway/src/cli.js status
+bun apps/gateway/src/cli.js doctor
+```
+
+Open the configured HTTPS origin only after these checks pass; finish the allowed/denied-device
+checks below. The service records the Bun executable used during install: keep Bun 1.4.0 at that
+persistent path. The installer does not create a shell shortcut. Below, `omp-gateway <command>`
+means `bun apps/gateway/src/cli.js <command>` from this verified extraction root; keep the
+matching archive for recovery.
+
+An upgrade reads and validates the existing private configuration first.
 Continue passing the production `--origin` and `--allow` values on install and upgrade. An omitted
 `--port` preserves the existing port; hostname, identity-trust, registry settings, and explicitly
 authored `omp` overrides are retained. Omitted OMP fields remain derived rather than being pinned
@@ -61,14 +88,15 @@ upgrade is refused rather than weakening readiness authentication. The stopped u
 the new readiness credential and retires `publisher-token`. Use the explicit recovery procedure
 in [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md) to return across that boundary.
 
-Platform targets:
+Service mechanisms (qualification is limited to the exact release matrix):
 
-- Linux: systemd user service named `omp-session-gateway.service`, with an explicit support policy for non-systemd systems;
-- macOS: LaunchAgent under the current user;
+- Linux: systemd user service named `omp-session-gateway.service`; Debian 13 x86-64 is qualified,
+  not every Linux distribution or non-systemd host;
+- macOS: LaunchAgent under the current user; starts after that user logs in, not at unattended boot;
 - Windows: current-user scheduled task; mainline discovery and signed-candidate lifecycle
   qualification remain pending. No Windows support claim transfers from fork-era source acceptance.
 
-Also provide:
+Operator commands:
 
 ```text
 omp-gateway status
@@ -132,7 +160,7 @@ identities, unsafe paths, unknown fields, and invalid poll/TTL combinations.
 
 ## 5. Tailscale Serve
 
-After `omp-gatewayd` is healthy on loopback, configure a persistent private HTTPS proxy. Ask the
+After the gateway service is healthy on loopback, configure a persistent private HTTPS proxy. Ask the
 installed CLI for the command matching the configured public origin:
 
 ```bash
@@ -206,7 +234,7 @@ Do not ask the user to bookmark or copy an individual OMP collaboration link.
 - rotate the readiness token after suspected local exposure or ownership/permission failure;
   Rotation atomically replaces an unsafe regular-file/symlink leaf inside the verified private
   config directory, but refuses an unsafe parent or non-file token path.
-- verify release checksums and provenance before replacing binaries;
+- verify release checksums and provenance before replacing the gateway runtime payload;
 - retain matching gateway configuration and OMP versions for any planned rollback.
 
 An OMP process keeps code loaded at process start. Restart fork-era OMP processes under mainline
@@ -217,17 +245,20 @@ deliberately prints its bearer links.
 
 ## 10. Lost phone and revocation
 
-Document a direct checklist:
+If the phone is lost or compromised:
 
 1. remove or expire the Android device in Tailscale;
 2. revoke relevant identity-provider sessions when appropriate;
 3. narrow or temporarily disable the tailnet grant;
-4. restart `omp-gatewayd` to drop active browser sessions if necessary;
+4. stop the gateway with its matching CLI’s `uninstall` command if directory access must be
+   disabled immediately; this does not disconnect an already-established OMP relay session;
 5. stop/restart OMP collaboration hosts to rotate room capabilities;
 6. rotate the readiness token only when local desktop exposure is suspected—it does not revoke an
    OMP query token or a remote collaboration room.
 
-When WebAuthn Control protection is enabled, remove the lost credential and enroll a replacement.
+WebAuthn Control protection is not implemented in v0.4.0;
+[ADR-008](DECISIONS.md#adr-008--optional-webauthn-gate-not-native-biometrics) remains a proposal.
+Do not rely on a separate biometric or credential-enrollment gate for revocation.
 
 ## 11. `doctor` and diagnostics bundle
 
@@ -246,8 +277,11 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 - config validation and `compatibility`: the `omp` on PATH reports at least 18.1.20;
 - `discoveryReadable`: OMP discovery is absent or readable, owned by the current user, and not a symlink.
 
-`doctor` does not establish a signed-artifact or native-platform qualification. Mainline
-qualification must exercise the real host/query/launch path against the exact gateway candidate.
+`doctor` checks the configured host and an allowed HTTPS metadata request; it is not an
+independent tailnet-policy audit or proof that an unauthorized device is denied. Complete both
+[tailnet access checks](#6-tailnet-access-policy). It also does not establish a signed-artifact or
+native-platform qualification: qualification must exercise the real host/query/launch path
+against the exact gateway candidate.
 Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.
@@ -256,7 +290,8 @@ Never ask a user to paste a collaboration link into an issue.
 
 ## 12. Self-hosted relay mode
 
-Treat as a separate advanced installation:
+Self-hosted/proxied relays are outside v0.4.0 support. The following are qualification
+requirements for a separately designed deployment, not a supported installation recipe:
 
 - deploy a pinned compatible OMP relay;
 - use private DNS/TLS and explicit relay allowlisting;

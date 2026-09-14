@@ -6,6 +6,11 @@ OMP Session Gateway safely brokers existing OMP collaboration bearer capabilitie
 
 The project reduces manual secret handling; it does not make an OMP collaboration capability less powerful. A full-control link can read and steer a session, and a view-only link can read sensitive transcript/tool activity.
 
+Stock OMP `>= 18.1.20` supplies the native collaboration controller and local registry. No fork,
+custom OMP build, or gateway-specific OMP plugin is required. The separately installed gateway
+reads metadata and brokers one capability per authorized launch; native integration does not
+remove the TUN-mode Tailscale Serve, allowlist, or user-controlled-workstation requirements below.
+
 ## 2. Assets
 
 Highest-value assets:
@@ -255,6 +260,12 @@ Additional requirements:
 - reload returns to the metadata directory.
 - an activated shell update may navigate only an exact same-origin idle `/` client to the no-store `/update/` bootstrap; the new document synchronously scrubs it to `/`, while launch-pending, request-routed, and active `/client/` pages are never auto-navigated;
 
+**Unresolved implementation gap:** the last bullet is the accepted ADR-018 requirement, not a
+fully implemented guarantee. The worker excludes non-root URLs, but `launch()` changes the root
+URL to `/client/` only after its asynchronous asset/capability work. Its in-page pending flag
+protects the page's fallback reload, not worker-initiated navigation. Activation may therefore
+interrupt a pending directory launch. The pre-launch reservation requirement remains in force.
+
 If relay origins are configurable, generate `connect-src` only from administrator-controlled validated origins.
 
 ## 8. Tailnet authorization
@@ -314,7 +325,10 @@ Minimum guidance:
 - keep tailnet grants narrow;
 - persist no session capability in the PWA.
 
-Optional stronger Control protection:
+Proposed stronger Control protection — ADR-008, not implemented in v0.4.0:
+
+There is no current passkey enrollment or per-launch WebAuthn gate. The following remains a future
+contract, not a substitute for device revocation, lock, or tailnet policy:
 
 - enroll a WebAuthn credential with user verification;
 - require a fresh assertion for each Control launch or a very short verified window;
@@ -388,10 +402,12 @@ Before release, prove:
 - list/SSE/static HTML contain no capability canary;
 - launch responses are no-store and absent from logs/traces/caches;
 - browser URL, history, DOM, clipboard, cookies, Local Storage, IndexedDB, Cache Storage, service-worker state, test artifacts, and diagnostics contain no canary after leaving a session;
-- attention metadata, persisted push state, encrypted push payloads, visible notifications, and notification routes contain no prompt, option, answer, request, count, label, path, capability, or other content canary;
+- collaboration-capability canaries never enter attention metadata, persisted push state, push payloads, notifications, or notification routes;
+- persisted push state contains only the private subscription/VAPID/identity/detail contract, never session metadata or content;
+- attention and notification surfaces expose only ADR-019's approved bounded metadata: opaque request identity, count, and detail-selected labels; Private has no body, and Preview falls back to Session because current OMP snapshots supply no preview. Prompt/option/answer/transcript content, full paths, and any field outside that contract remain forbidden;
 - stopped, expired, and replaced generations cannot launch;
 - view-only mutation attempts are rejected by the OMP host;
-- cross-origin launch and WebAuthn requests fail;
+- cross-origin launches fail; any future WebAuthn endpoints must enforce the same exact-origin boundary;
 - malformed and oversized IPC/API input stays bounded;
 - gateway restart starts empty and discovery polling repopulates only live hosts;
 - release binaries bind loopback only and match published checksums.

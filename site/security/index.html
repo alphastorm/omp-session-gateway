@@ -30,17 +30,21 @@
 <main>
 <p class="eyebrow">Security</p>
 <h1>Private by design, fail-closed by default</h1>
-<p class="lede">OMP collaboration links are bearer capabilities. The gateway treats both View and Control
-links as secrets, and the invariants below block a release when they regress.</p>
+<p class="lede">Open the session, not a secret link. View can read sensitive work; Control can steer it.
+The gateway treats both as bearer capabilities and fetches one only for an authorized launch.</p>
+<p>Stock OMP <code>&gt;= 18.1.20</code> supplies the native collaboration controller and local registry.
+No fork, custom OMP build, or gateway-specific OMP plugin is required. The gateway is still a
+separate installation, and native integration does not relax the boundaries below.</p>
 <ul>
 <li><strong>Loopback-only listeners</strong> — the production HTTP server binds only to <code>127.0.0.1</code> and optionally <code>::1</code>; Tailscale Serve is the only supported remote path and Funnel is never enabled.</li>
 <li><strong>Allowlisted tailnet identity</strong> — production requires a verified <code>Tailscale-User-Login</code> that matches an exact allowlist, and identity headers are believed only while Tailscale's tunnel device is present. A userspace-networking client makes every peer look local, so the daemon returns <code>403</code> rather than trusting the header.</li>
-<li><strong>Memory-only capabilities</strong> — View and Control links exist only in the live OMP process, authenticated local IPC request memory, the gateway's in-memory store, one <code>no-store</code> launch response, and volatile client JavaScript. Never in files, logs, diagnostics, URLs, cookies, push payloads, browser storage, or service-worker caches.</li>
+<li><strong>No gateway capability store</strong> — View and Control links exist only in live OMP memory, a transient authenticated query and <code>no-store</code> launch response, and volatile client JavaScript. The gateway never stores or caches them, even in its memory-only registry. Never in files, logs, diagnostics, URLs, cookies, push payloads, browser storage, or service-worker caches.</li>
 <li><strong>Metadata-only APIs</strong> — session-list and SSE responses carry bounded metadata; a capability is fetched only after an explicit tap and only for the expected generation, so stale cards fail instead of receiving a newer secret.</li>
-<li><strong>Authenticated local IPC</strong> — each OMP process registers over a user-only Unix socket (or current-user named pipe on Windows) with a random per-install token of at least 256 bits; the registry is memory-only and restarts empty.</li>
-<li><strong>Prompt revocation</strong> — generation N is revoked before N+1 is published; stop, shutdown, and fatal host failure unregister immediately, with a 35-second TTL as the crash fallback.</li>
+<li><strong>OMP-owned discovery</strong> — the gateway reads private discovery files and queries each OMP-owned endpoint with its per-host token. Snapshots contain metadata only; a link query resolves one exact generation and role at launch. The gateway never writes or removes OMP's discovery files. Its own readiness token is separate and never sent to OMP.</li>
+<li><strong>Generation-bound launch</strong> — OMP owns host replacement and revocation; stale cards cannot exchange an old generation for a newer capability. The gateway polls every 10 seconds by default. Missing discovery or definitive endpoint failure removes the card; transient query failures retain metadata only until the 35-second TTL expires.</li>
 <li><strong>Hardened browser surface</strong> — exact <code>Origin</code> validation on state-changing requests, no wildcard CORS, strict CSP, <code>Referrer-Policy: no-referrer</code>, and a service worker that caches only immutable shell assets.</li>
-<li><strong>No transcript storage</strong> — the gateway never stores or renders transcripts; opening a session hands off to OMP's existing end-to-end-encrypted relay and client.</li>
+<li><strong>No gateway transcript storage</strong> — the directory never stores or renders transcripts; opening a session mounts the pinned OMP client, which connects directly through the encrypted relay. The relay still observes connection metadata, timing, and ciphertext sizes. OMP and the chosen model provider retain their own content-handling policies.</li>
+<li><strong>Notification detail is a choice</strong> — explicit opt-in enables capability-free Push v2 alerts. Private has no body; Session (the default) includes bounded session/project labels. Preview currently falls back to Session. Visible text may persist in notification history, screenshots, or wearables; background delivery is best effort and not in the qualified core matrix.</li>
 </ul>
 <p>Out of scope in v1: mutually untrusted local accounts on a shared shell host, Portal Tunnel, and self-hosted or
 proxied relays. Every release runs distinctive-synthetic-secret leak scans across logs, storage, caches, URLs, and
@@ -49,7 +53,14 @@ CI artifacts before it is qualified.</p>
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/SECURITY.md">docs/SECURITY.md</a> ·
 report a vulnerability privately via the
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/SECURITY.md">security policy</a>.</p>
-<p class="verified">Invariants as qualified for stable v0.3.0 on 2026-09-09.</p>
+<p>Device lock and prompt tailnet revocation matter: a still-authorized unlocked phone can request
+Control. Passkey verification is proposed, not implemented. The accepted protection against
+upgrades interrupting a pending launch also has an unresolved implementation gap; see
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/DECISIONS.md#current-implementation-audit--2026-09-14">ADR-018</a>.</p>
+<p class="verified">Stable v0.4.0 core qualification uses OMP 18.1.20 / Bun 1.4.0, Debian 13 x86-64,
+macOS 26.6.1 arm64, and Pixel 10 Pro / Android 17 / Chrome 152.0.7977.82. The fresh relay check ran
+1,800 seconds, not eight hours. Exact receipts, exclusions, and the initial unresolved
+Control-upgrade failure are in the <a href="../status/">release status</a>.</p>
 </main>
 <footer>
   Community project; not affiliated with or endorsed by the Oh My Pi maintainers.

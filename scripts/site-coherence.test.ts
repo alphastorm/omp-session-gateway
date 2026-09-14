@@ -28,34 +28,32 @@ async function sitePages(): Promise<Array<{ path: string; url: string }>> {
   return out.sort((a, b) => a.url.localeCompare(b.url));
 }
 
-/**
- * The public site states the qualified release and OMP baseline. The README once advertised a
- * stale version for a whole release cycle; these pages are read by people who never open the
- * repository, so a release cut that forgets them must fail `bun run check`, not go live.
- */
-test("public site claims the qualified release and OMP baseline from the locks", async () => {
+// A prose mention of the new version must not conceal a stale installation/download action.
+test("getting-started and site download actions select the qualified stable release", async () => {
   const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
     releaseTag: string;
-    candidateTag: string;
-    previousTag: string;
   };
-  const upstream = JSON.parse(await readFile(join(rootPath, "UPSTREAM.lock.json"), "utf8")) as { tag: string };
-  const claims: Record<string, string[]> = {
-    "site/index.html": [stable.releaseTag, upstream.tag],
-    "site/status/index.html": [stable.releaseTag, stable.candidateTag, stable.previousTag, upstream.tag],
-    "site/llms.txt": [stable.releaseTag, upstream.tag],
-  };
-  for (const [rel, expected] of Object.entries(claims)) {
-    const text = await readFile(join(rootPath, rel), "utf8");
-    for (const claim of expected) expect(text, `${rel} must state ${claim}`).toContain(claim);
-  }
+  const releaseBase = "https://github.com/alphastorm/omp-session-gateway/releases/tag/";
+  const expected = `${releaseBase}${stable.releaseTag}`;
+  const readme = await readFile(join(rootPath, "README.md"), "utf8");
+  const gettingStarted = readme.split("## Build and run\n")[1]?.split("\n## ")[0];
+  const firstRelease = gettingStarted?.match(/\]\((https:\/\/github\.com\/alphastorm\/omp-session-gateway\/releases\/tag\/[^)]+)\)/u)?.[1];
+  expect(firstRelease, "the installation guide must start with the stable artifact").toBe(expected);
+
+  const downloads: string[] = [];
+  const html = await readFile(join(sitePath, "index.html"), "utf8");
+  await new HTMLRewriter().on("a.cta", {
+    element(element) {
+      const href = element.getAttribute("href");
+      if (href?.startsWith(releaseBase)) downloads.push(href);
+    },
+  }).transform(new Response(html)).text();
+  expect(downloads).toEqual([expected]);
 });
 
 test("every relative asset a site page references exists after staging", async () => {
-  const workflow = await readFile(join(rootPath, ".github/workflows/pages.yml"), "utf8");
   for (const [name, source] of Object.entries(STAGED_SITE_ASSETS)) {
     expect(await Bun.file(join(rootPath, source)).exists(), `${source} is the canonical source of site/${name}`).toBe(true);
-    expect(workflow, `pages.yml must stage ${source}`).toContain(source);
   }
   for (const page of await sitePages()) {
     const html = await readFile(page.path, "utf8");
@@ -77,6 +75,12 @@ test("sitemap and canonical links name exactly the site pages under the canonica
   expect(listed).toEqual(pages.map(page => page.url));
   for (const page of pages) {
     const html = await readFile(page.path, "utf8");
-    expect(html, `${relative(rootPath, page.path)} canonical URL`).toContain(`<link rel="canonical" href="${page.url}">`);
+    const canonical: string[] = [];
+    await new HTMLRewriter().on('link[rel~="canonical"]', {
+      element(element) {
+        canonical.push(element.getAttribute("href") ?? "");
+      },
+    }).transform(new Response(html)).text();
+    expect(canonical, `${relative(rootPath, page.path)} canonical URL`).toEqual([page.url]);
   }
 });

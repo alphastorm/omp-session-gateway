@@ -1,12 +1,12 @@
 # OMP Session Gateway
 
-> Secure, zero-touch mobile access to every running Oh My Pi (OMP) session. An Android-first
-> PWA plus a loopback-only directory and just-in-time View/Control capability broker behind
-> Tailscale Serve; opening a session hands off to OMP's own end-to-end-encrypted collab-web
-> client. Signed candidate v0.4.0-prealpha.1 is qualified for the approved v0.4.0 target with
-> stock mainline OMP v18.1.20; the supported prerequisite is OMP >=18.1.20, Bun 1.4.0, with no
-> gateway-specific OMP build or publisher credential. Stable v0.4.0 is published as immutable GitHub Latest;
-> consult the release ledger. Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+> Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
+> gateway-specific OMP plugin, or publisher credential. Stable v0.4.0 is published as immutable
+> GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> sessions and opens OMP's own encrypted View/Control client from an Android-first PWA. One-time
+> setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
+> with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
+> with or endorsed by the Oh My Pi maintainers.
 
 ## Current qualification boundary
 
@@ -18,6 +18,7 @@
 - Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds, two transitions, final phase live. The founder replaced the v0.4.0 eight-hour gate with 30 minutes; eight-hour endurance was not rerun or claimed, no historical endurance transfers, and residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.
 - Windows OMP, background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Historical seeded-fixture media is not evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
 - v0.3.0 is the explicit fork-era migration/rollback predecessor: stopped matching-CLI uninstall/reinstall across the architecture boundary, no credential bundles. Gateway rollback does not switch OMP.
+- A worker update can interrupt a pending directory-page launch: prelaunch /client/ route reservation is not implemented. This is a source-level implementation gap, not a demonstrated explanation or fix for the separate initial Control-upgrade failure.
 - A separate published-byte local/Pixel smoke passed with existing OMP 18.1.21, doctor 18/18, View/Control, clean capability sinks, same-page recovery, and installed WebAPK; configuration, readiness token, and unrelated Serve mappings were preserved. This does not expand the exact candidate matrix. An initial Control-upgrade failure stopped reproducing in subsequent probes and the full smoke; its cause remains undetermined and no fix is claimed.
 
 ## Fork-era release history

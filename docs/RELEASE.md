@@ -8,7 +8,9 @@ by their signed-artifact qualification. Current source requires stock mainline O
 plain `omp`. The gateway reads discovery and queries hosts, with no OMP patch set or separate
 activation route. It fetches capabilities only per launch and never stores them.
 
-**Stable v0.4.0 is published.** The exact qualified candidate, promoted stable artifact,
+**Stable v0.4.0 is published as immutable GitHub Latest.** For normal installation, use
+[Installation and operations](OPERATIONS.md#2-cli-and-daemon-installation), not the maintainer
+qualification commands below. The exact qualified candidate, promoted stable artifact,
 host/client matrix, and post-release evidence are recorded in the
 [release ledger](RELEASE_STATUS.md). Candidate approval does not imply stable publication or a
 passed published-byte smoke. Fork-era locks and receipts cannot authorize the changed runtime bytes.
@@ -24,13 +26,15 @@ recovery explicitly; see [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
 
 ## v0.4.0 mainline campaign
 
-The `v0.4.0` target uses qualified signed candidate `v0.4.0-prealpha.1`; its selected gateway
-predecessor is published fork-era `v0.3.0`. All required signed-candidate lanes passed as recorded
-in the [release ledger](RELEASE_STATUS.md). `STABLE_RELEASE.lock.json` may be updated only after
-those lanes pass; a structurally valid historical lock cannot authorize a different version.
+Published `v0.4.0` was promoted from qualified signed candidate `v0.4.0-prealpha.1`; its selected
+gateway predecessor was published fork-era `v0.3.0`. All required signed-candidate lanes, final
+runtime comparison, and published-byte local/Android smoke passed as recorded in the
+[release ledger](RELEASE_STATUS.md). The following preserves that campaign’s maintainer procedure,
+not a request to rerun or republish either immutable tag. For a new release, select and qualify
+new exact artifacts; a structurally valid historical stable lock cannot authorize different bytes.
 
-Use the pinned Bun `1.4.0`. Before a qualification run, execute the read-only prerequisite path
-with the selected candidate tag, for example:
+Qualification uses pinned Bun `1.4.0`. Before live qualification and promotion, the read-only
+prerequisite command for this campaign was:
 
 ```sh
 bun run qualify:stable --tag v0.4.0-prealpha.1 --preflight
@@ -58,22 +62,24 @@ risk is explicitly accepted. **Eight-hour endurance is not rerun or claimed**, a
 eight-hour receipt transfers. The standalone long-duration harness remains available separately.
 
 The fresh 1,800-second candidate relay check passed with two transitions and final phase `live`.
-Full candidate qualification, including owned-fixture cleanup, passed. The prospective promotion
-comparison reproduced all 46 non-metadata candidate archive files by paths, bytes, and modes, with
-only the four workflow metadata exclusions; the final promotion comparison remains required.
-Exact evidence and the accepted prolonged-operation limit are in the [release ledger](RELEASE_STATUS.md).
+Full candidate qualification, including owned-fixture cleanup, passed. The final promotion
+comparison reproduced all 46 non-metadata candidate archive files by paths, bytes, and modes,
+with only the four workflow metadata exclusions. A stable-channel build also reproduced the
+entire published stable archive SHA-256. Exact evidence and the accepted prolonged-operation
+limit are in the [release ledger](RELEASE_STATUS.md).
 
-Only after host/client, explicit recovery, provenance, forbidden-sink, the approved relay check, and cleanup
-evidence is complete may the stable lock and public support claims be updated and the bare
-`v0.4.0` tag published. The stable workflow must still compare runtime bytes with the qualified
-candidate, and post-release installation/Android smoke must exercise the published bytes.
+Host/client, explicit recovery, provenance, forbidden-sink, the approved relay check, and cleanup
+evidence authorized the stable lock and bare `v0.4.0` publication. The stable workflow passed its
+runtime-byte comparison, and the separate post-release installation/Android smoke subsequently
+passed against the published bytes. These remain separate gates for future releases.
 
 ## v0.3.0 qualification and promotion
 
 **Fork-era record:** this section preserves the named v0.3.0 campaign, its commands, and its
 patched OMP evidence. It is not a command to republish that immutable version or a mainline result.
 
-Stable **v0.3.0** is published as immutable GitHub Latest; **v0.3.0-prealpha.3** is its signed qualification vehicle.
+Stable **v0.3.0** was published as immutable GitHub Latest for that campaign;
+**v0.3.0-prealpha.3** was its signed qualification vehicle.
 The host/client matrix, runtime equivalence, and fresh eight-hour relay endurance passed.
 The candidate uses exact patched OMP
 v18.1.14 and Bun 1.4.0, with **v0.2.1** as the rollback predecessor. Historical qualification
@@ -163,19 +169,25 @@ from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree ass
 counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
 mainline output.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`; `--previous-tag` changes the exact rollback predecessor.
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`. For this campaign, `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` must equal `v0.3.0`; they cannot select an arbitrary predecessor.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 
 ## Post-release local installation smoke
 
-After the stable mainline-compatible artifact is published, run its own
+From the matching release tooling checkout, run
 `bun run smoke:release -- --tag "$TAG" --archive-sha256 "$ARCHIVE_SHA256"` with the exact verified
-public digest. Use that artifact’s Bun/source pins and stock OMP `>= 18.1.20`; require current
-readiness-token/config preservation, mainline discovery and launch/revocation, physical Android
-recovery/isolation, and owned-fixture cleanup. This **published-stable-byte smoke is pending**
-until actually exercised; signed-candidate qualification and prior release smokes do not
-substitute for it.
+public digest. The runtime archive does not contain this maintainer script. Use the release’s
+Bun/source pins and stock OMP `>= 18.1.20`; require readiness-token/config preservation, mainline
+discovery and launch/revocation, physical Android recovery/isolation, and owned-fixture cleanup.
+Signed-candidate qualification and prior release smokes do not substitute for a published-byte run.
+
+**The v0.4.0 published-byte local/Android smoke passed on 2026-09-14.** It retained the existing
+local OMP 18.1.21 and persistent Bun 1.4.0, without reinstalling OMP or widening the exact
+OMP 18.1.20 qualification matrix. The initial intermittent Android Control-upgrade failure
+remains unexplained; the later passing run is not a product-code fix or a root-cause finding.
+See the [release ledger](RELEASE_STATUS.md#published-byte-local-installation-and-android-smoke)
+for exact source/digest, preservation, physical-client, and cleanup evidence.
 
 ### Fork-era post-release smoke procedure
 
@@ -360,18 +372,21 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=v0.1.0-beta.1
-WORKFLOW=$([ "$TAG" = v0.1.0-beta.1 ] && printf release.yml || printf signed-release.yml)
-ARCHIVE=omp-session-gateway-0.1.0-bun.tar
-SBOM=omp-session-gateway-0.1.0.spdx.json
+TAG=v0.4.0
+WORKFLOW=signed-release.yml
+ARCHIVE=omp-session-gateway-0.4.0-bun.tar
+SBOM=omp-session-gateway-0.4.0.spdx.json
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
 cd release-verification
 ```
 
-After GitHub's 24-hour grace period, verify the immutable release attestation and every
-release asset. A failure means the release is not yet immutable or the downloaded asset is
+These defaults verify the current stable release. When verifying a historical artifact, use
+its matching asset version and signing workflow: for example, `v0.1.0-beta.1` used `release.yml`,
+not `signed-release.yml`. Do not substitute today’s workflow identity for a historical receipt.
+
+Verify the immutable release attestation and every release asset. A failure means the release is not yet immutable or the downloaded asset is
 not part of the attested release:
 
 ```sh
@@ -422,12 +437,13 @@ done
 ```
 
 Successful checksum, build-attestation, Cosign, and immutable-release checks establish
-integrity and origin. They do not by themselves satisfy any additional deployment or
-support claim; the alpha and beta gates above still apply.
+integrity and origin. They do not by themselves establish host/client compatibility or complete
+the release qualification gates above. Continue with the
+[verified-archive installation steps](OPERATIONS.md#2-cli-and-daemon-installation).
 
 ## Versioning
 
-Use Semantic Versioning after implementation begins:
+Use Semantic Versioning:
 
 - breaking configuration/protocol/security behavior increments the appropriate version;
 - pre-1.0 minor versions may contain breaking changes but must state them prominently;

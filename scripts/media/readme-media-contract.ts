@@ -24,7 +24,6 @@ export const MEDIA_DIRECTORY_NAMES = [
   "README.md",
   "manifest.json",
 ] as const;
-export const OPTIONAL_MEDIA_DIRECTORY_NAMES = ["LAUNCH_COPY.md"] as const;
 
 export const PNG_DIMENSIONS: Readonly<Record<Extract<BinaryMediaName, `${string}.png`>, readonly [number, number]>> = {
   "omp-session-gateway-demo-poster.png": [960, 540],
