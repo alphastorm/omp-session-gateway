@@ -76,13 +76,12 @@ test("the sweep covers the modules the gateway actually ships", async () => {
     "apps/gateway/src/tailnet.ts",
     "apps/gateway/src/http.ts",
     "apps/gateway/src/registry.ts",
-    "apps/gateway/src/ipc.ts",
+    "apps/gateway/src/omp-registry.ts",
     "apps/gateway/src/config.ts",
     "apps/gateway/src/doctor.ts",
     "apps/gateway/src/service.ts",
     "apps/gateway/src/installation.ts",
     "apps/gateway/src/cli.ts",
-    "packages/protocol/src/ipc-auth.ts",
     "packages/protocol/src/validation.ts",
   ]) {
     expect(modules).toContain(required);

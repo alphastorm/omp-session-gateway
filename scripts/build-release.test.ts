@@ -14,7 +14,7 @@ import {
   resolveReleaseSource,
   runtimeDependenciesFromLock,
   type BunLockfile,
-  type UpstreamLockfile,
+  type VendoredClientLockfile,
 } from "./build-release.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,15 +47,15 @@ const expectedRuntimeDependencies = [
 ];
 const deterministicSource = releaseSourceFromEpoch("a".repeat(40), "1700000000");
 
-async function releaseInputs(): Promise<{ lock: BunLockfile; lockSha256: string; upstream: UpstreamLockfile }> {
-  const [lockText, upstreamText] = await Promise.all([
+async function releaseInputs(): Promise<{ lock: BunLockfile; lockSha256: string; client: VendoredClientLockfile }> {
+  const [lockText, clientText] = await Promise.all([
     readFile(join(root, "bun.lock"), "utf8"),
-    readFile(join(root, "UPSTREAM.lock.json"), "utf8"),
+    readFile(join(root, "packages/collab-client/upstream/UPSTREAM.json"), "utf8"),
   ]);
   return {
     lock: Bun.JSONC.parse(lockText) as BunLockfile,
     lockSha256: createHash("sha256").update(lockText).digest("hex"),
-    upstream: JSON.parse(upstreamText) as UpstreamLockfile,
+    client: JSON.parse(clientText) as VendoredClientLockfile,
   };
 }
 
@@ -117,13 +117,13 @@ test("derives only the bundled runtime dependency closure from bun.lock", async 
 });
 
 test("SPDX namespace, lock digest, and creation time bind reproducibly to release source", async () => {
-  const { lock, lockSha256, upstream } = await releaseInputs();
+  const { lock, lockSha256, client } = await releaseInputs();
   expect(deterministicSource.created).toBe("2023-11-14T22:13:20Z");
   expect(
     await resolveReleaseSource({ GITHUB_SHA: "b".repeat(40), SOURCE_DATE_EPOCH: "1700000000" }),
   ).toEqual({ commit: "b".repeat(40), created: "2023-11-14T22:13:20Z" });
 
-  const document = JSON.parse(createSpdxSbom(lock, deterministicSource, upstream, lockSha256)) as {
+  const document = JSON.parse(createSpdxSbom(lock, deterministicSource, client, lockSha256)) as {
     documentNamespace: string;
     creationInfo: { created: string };
     packages: Array<{ name: string; versionInfo: string; licenseDeclared: string; sourceInfo?: string }>;
@@ -135,15 +135,15 @@ test("SPDX namespace, lock digest, and creation time bind reproducibly to releas
   expect(document.packages.map(pkg => `${pkg.name}@${pkg.versionInfo}`)).toEqual([
     `omp-session-gateway@${PRODUCT_VERSION}`,
     "@oh-my-pi/collab-web@16.3.6",
-    "@oh-my-pi/pi-coding-agent-patch@18.1.14",
     ...expectedRuntimeDependencies,
   ]);
   expect(document.packages[0]?.sourceInfo).toContain(lockSha256);
+  expect(document.packages.find(pkg => pkg.name === "@oh-my-pi/collab-web")?.sourceInfo).toContain(client.commit);
   expect(document.packages.find(pkg => pkg.name === "lucide-react")?.licenseDeclared).toBe("ISC");
   expect(document.packages.find(pkg => pkg.name === "react")?.licenseDeclared).toBe("MIT");
 
   const otherSourceDocument = JSON.parse(
-    createSpdxSbom(lock, releaseSourceFromEpoch("c".repeat(40), "1700000000"), upstream, lockSha256),
+    createSpdxSbom(lock, releaseSourceFromEpoch("c".repeat(40), "1700000000"), client, lockSha256),
   ) as { documentNamespace: string };
   expect(otherSourceDocument.documentNamespace).not.toBe(document.documentNamespace);
 });
@@ -173,11 +173,7 @@ test(
       expect(entries.has(`${archivePrefix}licenses/collab-web/LICENSE`)).toBe(true);
       expect(entries.has(`${archivePrefix}licenses/oh-my-pi/LICENSE`)).toBe(true);
       expect(entries.has(`${archivePrefix}bun.lock`)).toBe(true);
-      expect(
-        entries.get(`${archivePrefix}patches/oh-my-pi/qualification.env`)?.equals(
-          await readFile(join(root, "patches/oh-my-pi/qualification.env")),
-        ),
-      ).toBe(true);
+      expect([...entries.keys()].some(path => path.startsWith(`${archivePrefix}patches/`))).toBe(false);
       for (const metadata of Object.values(RUNTIME_LICENSES)) {
         expect(entries.has(`${archivePrefix}${metadata.licensePath}`)).toBe(true);
       }
@@ -203,18 +199,6 @@ test("the recorded qualification comes from a closed channel set that fails shut
   expect(releaseQualification({ OMP_RELEASE_CHANNEL: "alpha" })).toBe(RELEASE_QUALIFICATIONS.alpha);
   expect(releaseQualification({ OMP_RELEASE_CHANNEL: "beta" })).toBe(RELEASE_QUALIFICATIONS.beta);
   expect(releaseQualification({ OMP_RELEASE_CHANNEL: "stable" })).toBe(RELEASE_QUALIFICATIONS.stable);
-  expect(RELEASE_QUALIFICATIONS["pre-alpha"]).toStartWith("pre-alpha;");
-  expect(RELEASE_QUALIFICATIONS.alpha).toStartWith("qualified alpha;");
-  expect(RELEASE_QUALIFICATIONS.alpha).toContain("not beta, stable, or production-qualified");
-  expect(RELEASE_QUALIFICATIONS.beta).toStartWith("qualified beta;");
-  expect(RELEASE_QUALIFICATIONS.beta).toContain("docs/COMPATIBILITY.md at this source commit");
-  expect(RELEASE_QUALIFICATIONS.beta).toContain("UPSTREAM.lock.json");
-  expect(RELEASE_QUALIFICATIONS.beta).toContain("not stable or production-qualified");
-
-  expect(RELEASE_QUALIFICATIONS.stable).toContain("docs/COMPATIBILITY.md at this source commit");
-  expect(RELEASE_QUALIFICATIONS.stable).toContain("UPSTREAM.lock.json");
-  expect(RELEASE_QUALIFICATIONS.stable).toContain("environment limitations and exclusions still apply");
-
   const refused = [
     "",
     " ",

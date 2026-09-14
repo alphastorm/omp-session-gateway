@@ -1,5 +1,35 @@
 # Upgrade and rollback lane
 
+## Mainline cutover and rollback boundary
+
+Current source uses stock OMP `>= 18.1.20` and `collab.autoStart` only, following
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Install mainline on PATH and restart participating OMP processes; a gateway
+upgrade cannot replace code already loaded in a fork-era process. The gateway now only reads OMP
+discovery and never stores capabilities.
+
+The new gateway configuration adds `omp.discoveryDir` and `omp.queryTimeoutMs`;
+`registry.heartbeatSeconds` becomes the poll interval. `readiness-token` and
+`rotate-readiness-token` serve gateway/CLI readiness only. Installation removes the legacy
+fork-era `publisher-token`; it is not retained as an OMP credential.
+
+A runtime-pointer rollback does not switch OMP, restore old configuration, or restore the deleted
+fork-era credential. Earlier gateways may reject the new `omp` section and require their own
+publication architecture. Retain matching non-capability configuration and verified historical
+artifacts privately; use that release’s installer and instructions for deliberate recovery. Do not
+point a fork-era daemon at mainline discovery or claim transparent mixed-version operation.
+
+**Mainline upgrade/rollback qualification is pending.** The existing 20/20 results below are not
+proof of this architecture-crossing transition. A new candidate must qualify its exact predecessor
+and recovery path without mutating unrelated services, OMP processes, or discovery files.
+
+## Fork-era lane and evidence archive
+
+**All procedures, defaults, path tables, token-preservation claims, and results below are fork-era
+records** for their named source/artifacts. Their patch settings and activation routes are not
+current prerequisites. Historical dates, measurements, and failures are retained without
+reclassifying them as mainline evidence.
+
+
 One throwaway root on the operator's own macOS workstation, driven by
 [`scripts/qualify-rollback.sh`](../scripts/qualify-rollback.sh). The selected signed predecessor is
 installed, upgraded to the selected signed candidate, and restored while the production daemon

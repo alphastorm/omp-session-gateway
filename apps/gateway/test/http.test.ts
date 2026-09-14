@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { PublishedSessionInput } from "@omp-session-gateway/protocol";
+import { SecretCapability, type ObservedSessionInput } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
 import { createHttpHandler } from "../src/http.ts";
 import { SafeLogger } from "../src/logger.ts";
@@ -33,13 +33,13 @@ function config(mode: GatewayConfig["auth"]["mode"] = "tailscale-serve"): Gatewa
       allowedLogins: mode === "tailscale-serve" ? ["allowed@example.com"] : [],
       ...(mode === "tailscale-serve" ? { trustIdentityWithoutTailnetDevice: true } : {}),
     },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
+    omp: { discoveryDir: "/private/omp/run/collab-hosts", queryTimeoutMs: 1_500 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10 },
     paths: {
       configDir: "/private/config",
       stateDir: "/private/state",
       runtimeDir: "/private/run",
-      socketPath: "/private/run/registry.sock",
-      tokenPath: "/private/config/publisher-token",
+      tokenPath: "/private/config/readiness-token",
       configPath: "/private/config/config.json",
     },
   };
@@ -51,7 +51,7 @@ function request(path: string, init: RequestInit = {}, identity = "allowed@examp
   return new Request(`${origin}${path}`, { ...init, headers });
 }
 
-function publishedSession(instanceId = "http-instance-000001", inputRequired = false): PublishedSessionInput {
+function observedSession(instanceId = "http-instance-000001", inputRequired = false): ObservedSessionInput {
   return {
     instanceId,
     generation: 3,
@@ -62,15 +62,30 @@ function publishedSession(instanceId = "http-instance-000001", inputRequired = f
     model: "fixture/model",
     startedAt: "2026-07-19T00:00:00.000Z",
     inputRequired,
-    viewLink: viewCapability,
-    controlLink: controlCapability,
+    canControl: true,
   };
 }
 
 function populatedRegistry(instanceId = "http-instance-000001"): SessionRegistry {
   const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
-  registry.upsert("owner", publishedSession(instanceId));
+  registry.reconcile({ observed: [observedSession(instanceId)], retained: new Set() });
   return registry;
+}
+
+/** Resolve on demand against the same metadata the handler serves; no registry fixture stores a link. */
+function createTestHttpHandler(
+  options: Omit<Parameters<typeof createHttpHandler>[0], "launchResolver">,
+): ReturnType<typeof createHttpHandler> {
+  return createHttpHandler({
+    ...options,
+    launchResolver: {
+      async resolve({ instanceId, generation, mode, requestId }) {
+        const authorization = options.registry.authorizeLaunch(instanceId, generation, mode, requestId);
+        if (authorization.status !== "ok") return authorization;
+        return { status: "ok", capability: SecretCapability.from(mode === "view" ? viewCapability : controlCapability) };
+      },
+    },
+  });
 }
 
 function launchRequest(
@@ -117,11 +132,11 @@ afterAll(async () => {
 });
 
 describe("HTTP boundary", () => {
-  test("proves loopback readiness with a publisher-token HMAC challenge", async () => {
+  test("proves loopback readiness with a readiness-token HMAC challenge", async () => {
     const readinessToken = "T".repeat(43);
     const challenge = "C".repeat(43);
     const readinessInstance = "I".repeat(43);
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(),
       staticAssets: assets,
@@ -145,10 +160,10 @@ describe("HTTP boundary", () => {
     expect((await handler(healthRequest, { address: "192.168.1.20" })).status).toBe(403);
   });
 
-  test("reports degraded readiness when the registry endpoint is unreachable", async () => {
+  test("reports degraded readiness when OMP discovery is unhealthy", async () => {
     const readinessToken = "T".repeat(43);
     const challenge = "C".repeat(43);
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(),
       staticAssets: assets,
@@ -171,7 +186,7 @@ describe("HTTP boundary", () => {
   });
 
   test("fails closed for missing, disallowed, forged remote, and tagged-style identities", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
     expect((await handler(request("/api/v1/sessions", {}, "other@example.com"), peer)).status).toBe(403);
     expect((await handler(request("/api/v1/sessions"), { address: "192.168.1.20" })).status).toBe(403);
@@ -179,7 +194,7 @@ describe("HTTP boundary", () => {
   });
 
   test("dev mode requires both a loopback peer and the configured loopback origin", async () => {
-    const handler = createHttpHandler({ config: config("dev-localhost"), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config("dev-localhost"), registry: populatedRegistry(), staticAssets: assets });
     const localRequest = new Request("http://127.0.0.1:4317/api/v1/sessions");
     expect((await handler(localRequest, { address: "10.0.0.8" })).status).toBe(403);
     expect((await handler(request("/api/v1/sessions", {}, ""), peer)).status).toBe(403);
@@ -199,7 +214,7 @@ describe("HTTP boundary", () => {
     }
 
     test("refuses an allowlisted identity when no tailnet interface vouches for Serve", async () => {
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -219,17 +234,16 @@ describe("HTTP boundary", () => {
      *
      * `/api/v1/health` is the single deliberate exception and is asserted as such. It is loopback-
      * gated only, carries no session data and no capability, and on a userspace-mode host a tailnet
-     * peer can read `{"status":"ready"}` and obtain `HMAC(publisherToken, challenge \0 instance)` for
-     * a challenge of its choice. That is bounded: the proof authenticates a daemon to an installer
-     * over loopback on the same host, which a remote caller cannot become, and it cannot be
-     * repurposed as a registry proof, because the IPC message begins
-     * `omp-session-gateway.registry.client.v1\n` while a readiness challenge is
-     * `[A-Za-z0-9_-]{43}` and so cannot contain that prefix's `.` characters. Gating it would also
-     * blind `doctor`, which reaches the daemon through this endpoint, exactly when it needs to report
-     * `loopbackTrustSound: false`.
+     * peer can read `{"status":"ready"}` and obtain `HMAC(readinessToken, challenge \0 instance)` for
+     * a challenge of its choice. That is bounded: the readiness token authenticates a daemon to an
+     * installer over loopback on the same host, which a remote caller cannot become, and it is the
+     * gateway's only use of that secret — OMP's discovery sockets authenticate with their own
+     * per-host tokens, which this daemon reads and never issues, so a readiness proof cannot be
+     * replayed against a host. Gating health would also blind `doctor`, which reaches the daemon
+     * through this endpoint, exactly when it needs to report `loopbackTrustSound: false`.
      */
     test("no route but health answers while identity trust is unsound", async () => {
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -256,7 +270,7 @@ describe("HTTP boundary", () => {
     });
 
     test("serves the same identity once a TUN device owns a tailnet address", async () => {
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -274,7 +288,7 @@ describe("HTTP boundary", () => {
      */
     test("an admitted stream stops when the topology stops justifying it", async () => {
       let present = true;
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -304,7 +318,7 @@ describe("HTTP boundary", () => {
 
     test("declared trust always leaves a record, because it disables the measurement", async () => {
       const lines: string[] = [];
-      createHttpHandler({
+      createTestHttpHandler({
         config: config(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -320,7 +334,7 @@ describe("HTTP boundary", () => {
 
     test("dev mode declares nothing, because it believes no identity header", async () => {
       const lines: string[] = [];
-      createHttpHandler({
+      createTestHttpHandler({
         config: config("dev-localhost"),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -332,7 +346,7 @@ describe("HTTP boundary", () => {
 
     test("a declared tailnet-less host trusts the header without measuring", async () => {
       let measurements = 0;
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: config(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -348,7 +362,7 @@ describe("HTTP boundary", () => {
 
     test("dev mode neither consults nor is blocked by the topology", async () => {
       let measurements = 0;
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: config("dev-localhost"),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -364,7 +378,7 @@ describe("HTTP boundary", () => {
 
     test("records the unsound topology once and marks the denial reason", async () => {
       const lines: string[] = [];
-      const handler = createHttpHandler({
+      const handler = createTestHttpHandler({
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
@@ -384,7 +398,7 @@ describe("HTTP boundary", () => {
   });
 
   test("does not expose an HTTP shutdown control endpoint", async () => {
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(),
       staticAssets: assets,
@@ -405,7 +419,7 @@ describe("HTTP boundary", () => {
 
   test("returns ordered metadata-only no-store list and SSE transitions", async () => {
     const registry = populatedRegistry();
-    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 1 });
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 1 });
     const list = await handler(request("/api/v1/sessions"), peer);
     const text = await list.text();
     expect(list.headers.get("Cache-Control")).toContain("no-store");
@@ -428,14 +442,14 @@ describe("HTTP boundary", () => {
     expect(keepalive).not.toContain(viewCapability);
     expect(keepalive).not.toContain(controlCapability);
 
-    registry.upsert("owner", publishedSession("http-instance-000001", true));
+    registry.reconcile({ observed: [observedSession("http-instance-000001", true)], retained: new Set() });
     const required = await readSseEvent(reader);
     expect(required).toContain("event: session_upsert");
     expect(required).toContain('"revision":2');
     expect(required).toContain('"inputRequired":true');
     expect(required).not.toContain(viewCapability);
 
-    registry.upsert("owner", publishedSession("http-instance-000001", false));
+    registry.reconcile({ observed: [observedSession("http-instance-000001", false)], retained: new Set() });
     const cleared = await readSseEvent(reader);
     expect(cleared).toContain('"revision":3');
     expect(cleared).toContain('"inputRequired":false');
@@ -450,9 +464,9 @@ describe("HTTP boundary", () => {
       maxSessions: 10,
       clock: { monotonicNowMs: () => monotonic, wallNowIso: () => "2026-07-19T00:00:00.000Z" },
     });
-    registry.upsert("owner", publishedSession("http-instance-000001"));
+    registry.reconcile({ observed: [observedSession("http-instance-000001")], retained: new Set() });
     monotonic += 35_000;
-    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 60_000 });
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 60_000 });
     const sse = await handler(request("/api/v1/events"), peer);
     const reader = sse.body?.getReader();
     if (reader === undefined) throw new Error("missing SSE body");
@@ -467,8 +481,11 @@ describe("HTTP boundary", () => {
     // Admission sweeps the expired record, so that removal is already inside the snapshot revision and
     // must not also be framed; the two later upserts must each arrive once, in revision order.
     const snapshot = await readSseEvent(reader);
-    registry.upsert("owner", publishedSession("http-instance-000002"));
-    registry.upsert("owner", publishedSession("http-instance-000003"));
+    registry.reconcile({ observed: [observedSession("http-instance-000002")], retained: new Set() });
+    registry.reconcile({
+      observed: [observedSession("http-instance-000002"), observedSession("http-instance-000003")],
+      retained: new Set(),
+    });
     const frames = [snapshot, await readSseEvent(reader), await readSseEvent(reader)];
 
     expect(frames.map(text => framed(text))).toEqual([
@@ -482,7 +499,7 @@ describe("HTTP boundary", () => {
   });
 
   test("releases exactly one requested capability with no-store", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const response = await handler(launchRequest(), peer);
     const payload = (await response.json()) as Record<string, unknown>;
     expect(response.status).toBe(200);
@@ -491,9 +508,32 @@ describe("HTTP boundary", () => {
     expect(JSON.stringify(payload)).not.toContain(controlCapability);
   });
 
+  test("returns a no-store 404 when a host disappears before launch", async () => {
+    const registry = populatedRegistry();
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets });
+    registry.reconcile({ observed: [], retained: new Set() });
+
+    const response = await handler(launchRequest(), peer);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(await response.json()).toMatchObject({ code: "not_found" });
+  });
+
+  test("refuses control with mode_unavailable when the host now shares view-only", async () => {
+    const registry = populatedRegistry();
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets });
+    registry.reconcile({ observed: [{ ...observedSession(), canControl: false }], retained: new Set() });
+
+    const response = await handler(launchRequest(3, "control"), peer);
+    expect(response.status).toBe(409);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(await response.json()).toMatchObject({ code: "mode_unavailable" });
+    expect((await handler(launchRequest(3, "view"), peer)).status).toBe(200);
+  });
+
   test("enforces the launch rate-limit boundary and resets it at the window edge", async () => {
     let now = 1_000;
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(),
       staticAssets: assets,
@@ -519,7 +559,7 @@ describe("HTTP boundary", () => {
       ...base,
       auth: { ...base.auth, allowedLogins: ["allowed@example.com", "other@example.com"] },
     };
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: gatewayConfig,
       registry: populatedRegistry(),
       staticAssets: assets,
@@ -538,7 +578,7 @@ describe("HTTP boundary", () => {
   });
 
   test("rejects a launch body declared over the endpoint maximum", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const response = await handler(
       request("/api/v1/sessions/http-instance-000001/launch", {
         method: "POST",
@@ -558,7 +598,7 @@ describe("HTTP boundary", () => {
   });
 
   test("rejects streamed launch bodies that cross the maximum with an acceptable or absent declaration", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const json = JSON.stringify({ mode: "view", generation: 3 });
     const firstChunk = new TextEncoder().encode(json + " ".repeat(4_096 - json.length));
     const finalChunk = new TextEncoder().encode(" ");
@@ -594,12 +634,12 @@ describe("HTTP boundary", () => {
       maxSessions: 10,
       requestIdFactory: () => requestIds.shift() ?? "http-request-id-fallback",
     });
-    registry.upsert("owner", publishedSession("http-instance-000001", true));
-    const handler = createHttpHandler({ config: config(), registry, staticAssets: assets });
+    registry.reconcile({ observed: [observedSession("http-instance-000001", true)], retained: new Set() });
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets });
 
     expect((await handler(launchRequest(3, "control", "http-instance-000001", "http-request-id-000001"), peer)).status).toBe(200);
-    registry.upsert("owner", publishedSession("http-instance-000001", false));
-    registry.upsert("owner", publishedSession("http-instance-000001", true));
+    registry.reconcile({ observed: [observedSession("http-instance-000001", false)], retained: new Set() });
+    registry.reconcile({ observed: [observedSession("http-instance-000001", true)], retained: new Set() });
     const stale = await handler(
       launchRequest(3, "control", "http-instance-000001", "http-request-id-000001"),
       peer,
@@ -612,7 +652,7 @@ describe("HTTP boundary", () => {
 
   test("launches a valid encoded colon-bearing instance ID", async () => {
     const instanceId = "http:instance:000001";
-    const handler = createHttpHandler({
+    const handler = createTestHttpHandler({
       config: config(),
       registry: populatedRegistry(instanceId),
       staticAssets: assets,
@@ -623,7 +663,7 @@ describe("HTTP boundary", () => {
   });
 
   test("rejects malformed and encoded-separator instance IDs", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(launchRequest(3, "view", "http%instance00001"), peer)).status).toBe(400);
     expect(
       (
@@ -640,7 +680,7 @@ describe("HTTP boundary", () => {
   });
 
   test("enforces generation, origin, fetch metadata, media type, and body shape", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     expect((await handler(launchRequest(2), peer)).status).toBe(409);
     expect(
       (
@@ -701,8 +741,7 @@ describe("HTTP boundary", () => {
         configDir: join(root, "config"),
         stateDir: join(root, "state"),
         runtimeDir: join(root, "run"),
-        socketPath: join(root, "run", "registry.sock"),
-        tokenPath: join(root, "config", "publisher-token"),
+        tokenPath: join(root, "config", "readiness-token"),
         configPath: join(root, "config", "config.json"),
       },
     };
@@ -712,7 +751,7 @@ describe("HTTP boundary", () => {
       registry,
       transport: { async send(): Promise<void> {} },
     });
-    const handler = createHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
+    const handler = createTestHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
     const configResponse = await handler(request("/api/v1/push/config"), peer);
     expect(configResponse.status).toBe(200);
     expect(configResponse.headers.get("Cache-Control")).toContain("no-store");
@@ -762,8 +801,7 @@ describe("HTTP boundary", () => {
         configDir: join(root, "config"),
         stateDir: join(root, "state"),
         runtimeDir: join(root, "run"),
-        socketPath: join(root, "run", "registry.sock"),
-        tokenPath: join(root, "config", "publisher-token"),
+        tokenPath: join(root, "config", "readiness-token"),
         configPath: join(root, "config", "config.json"),
       },
     };
@@ -773,7 +811,7 @@ describe("HTTP boundary", () => {
       registry,
       transport: { async send(): Promise<void> {} },
     });
-    const handler = createHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
+    const handler = createTestHttpHandler({ config: gatewayConfig, registry, staticAssets: assets, pushService });
     const sharedEndpoint = "https://push.example.test/send/shared-device";
     const otherEndpoint = "https://push.example.test/send/other-device";
     const mutate = (method: "POST" | "DELETE", identity: string, value: unknown): Request =>
@@ -831,7 +869,7 @@ describe("HTTP boundary", () => {
   });
 
   test("applies security headers to static and API responses", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     for (const response of [await handler(request("/"), peer), await handler(request("/api/v1/sessions"), peer)]) {
       expect(response.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
       expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
@@ -842,7 +880,7 @@ describe("HTTP boundary", () => {
   });
 
   test("rejects query-bearing assets and client routes while mapping clean client routes to the PWA shell", async () => {
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets });
     const rejected = await handler(request(`/assets/app.0123456789ab.js?token=${viewCapability}`), peer);
     expect(rejected.status).toBe(400);
     expect(rejected.headers.get("Cache-Control")).toContain("no-store");
@@ -876,7 +914,7 @@ describe("HTTP boundary", () => {
   test("never writes capability-bearing data to structured logs", async () => {
     const lines: string[] = [];
     const logger = new SafeLogger({ write: line => lines.push(line) });
-    const handler = createHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets, logger });
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: assets, logger });
     await handler(launchRequest(), peer);
     await handler(request("/api/v1/sessions", {}, "denied@example.com"), peer);
     expect(lines.join("\n")).not.toContain(viewCapability);

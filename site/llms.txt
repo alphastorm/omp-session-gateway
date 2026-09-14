@@ -3,7 +3,8 @@
 > Secure, zero-touch mobile access to every running Oh My Pi (OMP) session. An Android-first
 > PWA plus a loopback-only directory and just-in-time View/Control capability broker behind
 > Tailscale Serve; opening a session hands off to OMP's own end-to-end-encrypted collab-web
-> client. Stable v0.3.0 requires exact patched OMP v18.1.14. Community project; not affiliated
+> client. Stable v0.3.0 requires exact patched OMP v18.1.14; development targets stock mainline
+> OMP v18.1.20 or newer, which carries that patch upstream. Community project; not affiliated
 > with or endorsed by the Oh My Pi maintainers.
 
 ## Canonical documents

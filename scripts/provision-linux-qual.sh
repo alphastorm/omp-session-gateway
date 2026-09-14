@@ -12,7 +12,7 @@
 #   2. reboot and login persistence;
 #   3. a denied Tailscale identity;
 #   4. signed-candidate install/doctor/uninstall with checksum and provenance verification; and
-#   5. the mandatory exact patched-OMP build, activation, publication, launch, and revocation path.
+#   5. the mandatory exact mainline OMP build, activation, publication, launch, and revocation path.
 #
 # Two design decisions are worth knowing before editing this file.
 #
@@ -73,10 +73,22 @@ set -euo pipefail
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly SCRIPT_ROOT
-readonly OMP_PIN_PATH="$SCRIPT_ROOT/patches/oh-my-pi/qualification.env"
-[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP qualification pin: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
-# shellcheck source=../patches/oh-my-pi/qualification.env
-. "$OMP_PIN_PATH"
+readonly OMP_PIN_PATH="$SCRIPT_ROOT/UPSTREAM.lock.json"
+[ -r "$OMP_PIN_PATH" ] || { printf 'missing OMP upstream lock: %s\n' "$OMP_PIN_PATH" >&2; exit 1; }
+read -r OMP_PIN_SOURCE_COMMIT OMP_PIN_SOURCE_TREE OMP_PIN_VERSION OMP_PIN_BUN_VERSION OMP_PIN_NATIVE_TARBALL_SHA256 OMP_PIN_NATIVE_BINARY_SHA256 < <(
+  python3 - "$OMP_PIN_PATH" <<'PY'
+import json
+import re
+import sys
+with open(sys.argv[1]) as source:
+    lock = json.load(source)
+native = lock["darwinArm64Native"]
+values = [lock["commit"], lock["tree"], lock["packageVersion"], lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
+patterns = [r"[0-9a-f]{40}", r"[0-9a-f]{40}", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9a-f]{64}", r"[0-9a-f]{64}"]
+assert all(isinstance(value, str) and re.fullmatch(pattern, value) for value, pattern in zip(values, patterns)), "invalid OMP upstream lock"
+print(*values)
+PY
+)
 readonly REPO_SLUG="alphastorm/omp-session-gateway"
 readonly TAILNET_TAG="${OMP_QUAL_TAG:-tag:omp-session-gateway}"
 readonly DROPLET_NAME="${OMP_QUAL_NAME:-omp-gateway-qual}"
@@ -90,7 +102,7 @@ readonly GH_CLI_VERSION="${OMP_QUAL_GH_VERSION:-2.97.0}"
 readonly COSIGN_VERSION="${OMP_QUAL_COSIGN_VERSION:-3.1.3}"
 readonly GATEWAY_PORT="${OMP_QUAL_PORT:-4317}"
 readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
-readonly OMP_PATCHED_TREE="$OMP_PIN_PATCHED_TREE"
+readonly OMP_SOURCE_TREE="$OMP_PIN_SOURCE_TREE"
 readonly OMP_VERSION="$OMP_PIN_VERSION"
 
 # Which init system the droplet is expected to run. `systemd` is the historical and only supported
@@ -1006,7 +1018,7 @@ bun=~/.bun/bin/bun
 cli="$root/apps/gateway/src/cli.js"
 
 # install derives runtimeDir from XDG_RUNTIME_DIR, and so does the daemon systemd starts. If this
-# session lacks it, the two disagree and the registry socket lands where the service cannot use it.
+# session lacks it, the installer and managed service would disagree about their runtime paths.
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   echo "XDG_RUNTIME_DIR is unset in this session, so systemd --user paths would be inconsistent" >&2
   exit 1
@@ -1029,8 +1041,8 @@ show "unit ExecStart" "$(systemctl --user show -p ExecStart --value omp-session-
   sed 's/--readiness-instance [A-Za-z0-9_-]*/--readiness-instance <redacted>/' | tr -s ' ')"
 show "unit WantedBy / Restart" "$(systemctl --user show -p WantedBy -p Restart --value omp-session-gateway.service | tr '\n' ' ')"
 show "config mode / dir mode" "$(stat -c '%a' "$HOME/.config/omp-session-gateway/config.json") / $(stat -c '%a' "$HOME/.config/omp-session-gateway")"
-show "token mode / bytes" "$(stat -c '%a / %s' "$HOME/.config/omp-session-gateway/publisher-token")"
-show "socket mode / path" "$(stat -c '%a %n' "$XDG_RUNTIME_DIR/omp-session-gateway/registry.sock")"
+show "token mode / bytes" "$(stat -c '%a / %s' "$HOME/.config/omp-session-gateway/readiness-token")"
+show "OMP discovery directory" "$(if [ -d "$HOME/${PI_CONFIG_DIR:-.omp}/run/collab-hosts" ]; then stat -c '%a %n' "$HOME/${PI_CONFIG_DIR:-.omp}/run/collab-hosts"; else printf 'absent (no live hosts)'; fi)"
 show "listeners on gateway port" "$(ss -ltnH "sport = :${GATEWAY_PORT}" | awk '{print $4}' | tr '\n' ' ')"
 show "main pid" "$(systemctl --user show -p MainPID --value omp-session-gateway.service)"
 
@@ -1041,7 +1053,7 @@ show "doctor false checks" "$(printf '%s' "$report" |
   jq -r '[.checks | to_entries[] | select(.value == false) | .key] | join(",") | if . == "" then "<none>" else . end')"
 
 before="$(systemctl --user show -p MainPID --value omp-session-gateway.service)"
-"$bun" "$cli" rotate-publisher-token >/dev/null
+"$bun" "$cli" rotate-readiness-token >/dev/null
 after="$(systemctl --user show -p MainPID --value omp-session-gateway.service)"
 show "token rotation pid" "$before -> $after"
 show "status after rotation" "$("$bun" "$cli" status || true)"
@@ -1049,9 +1061,8 @@ show "status after rotation" "$("$bun" "$cli" status || true)"
 bundle="$HOME/diagnostics-$(date -u +%s).tar"
 "$bun" "$cli" doctor --bundle --output "$bundle" >/dev/null 2>&1 || true
 if [ -f "$bundle" ]; then
-  token="$(cat "$HOME/.config/omp-session-gateway/publisher-token")"
-  if grep -a -q -F "$token" "$bundle"; then
-    echo "the diagnostics bundle contains the publisher token" >&2
+  if grep -a -q -F -f "$HOME/.config/omp-session-gateway/readiness-token" "$bundle"; then
+    echo "the diagnostics bundle contains the readiness token" >&2
     exit 1
   fi
   show "diagnostics bundle bytes" "$(stat -c '%s' "$bundle")"
@@ -1062,37 +1073,34 @@ fi
 REMOTE
 }
 
-# Exact patched-OMP qualification on the same Debian host as the signed gateway. This lane is
-# intentionally after `artifact lifecycle`: it consumes the verified archive's patch and live
-# authenticated registry, then removes every OMP-specific process and file before later lanes run.
+# Exact mainline OMP qualification on the same Debian host as the signed gateway. This lane is
+# intentionally after `artifact lifecycle`: it checks out unmodified upstream source and queries
+# the live discovery registry, then removes every OMP-specific process and file before later lanes run.
 # Collaboration output is discarded rather than logged because a live OMP UI may render a bearer
 # link. Launch bodies flow directly to jq and are never written to disk.
 lane_omp() (
   set -euo pipefail
   local dns_name omp_input omp_ssh_pid=""
   dns_name="$(require_dns_name)"
-  step "Lane 4: exact patched OMP build, publication, launch, and revocation"
+  step "Lane 4: exact mainline OMP build, publication, launch, and revocation"
 
   remote_user \
     BUN_VERSION="$BUN_VERSION" OMP_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
-    OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
+    OMP_SOURCE_TREE="$OMP_SOURCE_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
 set -euo pipefail
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 root="$(cat ~/runtime-root)"
 omp_root="$HOME/omp-gateway-source"
 native_fixture="$HOME/omp-native-fixture"
-tree_short="${OMP_PATCHED_TREE:0:8}"
+tree_short="${OMP_SOURCE_TREE:0:8}"
 version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
 
 rm -rf "$omp_root" "$native_fixture" "$version_dir"
-rm -f "$HOME/.local/bin/omp-gateway-patched"
 git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$omp_root"
 git -C "$omp_root" checkout --detach "$OMP_SOURCE_COMMIT"
 test "$(git -C "$omp_root" rev-parse HEAD)" = "$OMP_SOURCE_COMMIT"
-git -C "$omp_root" -c user.name=omp-session-gateway -c user.email=qual@example.invalid \
-  am "$root/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
-test "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$OMP_PATCHED_TREE"
-show "source commit / patched tree" "${OMP_SOURCE_COMMIT:0:12} / ${OMP_PATCHED_TREE:0:12}"
+test "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$OMP_SOURCE_TREE"
+show "source commit / mainline tree" "${OMP_SOURCE_COMMIT:0:12} / ${OMP_SOURCE_TREE:0:12}"
 
 cd "$omp_root"
 test "$(~/.bun/bin/bun --version)" = "$BUN_VERSION"
@@ -1111,20 +1119,14 @@ timeout 1500 ~/.bun/bin/bun run ci:check:full
 ~/.bun/bin/bun --cwd=packages/coding-agent run build
 test "$(packages/coding-agent/dist/omp --version)" = "omp/${OMP_VERSION}"
 
-mkdir -p "$version_dir" "$HOME/.local/bin"
+mkdir -p "$version_dir"
 install -m 0755 packages/coding-agent/dist/omp "$version_dir/omp"
-ln -sfn "$version_dir/omp" "$HOME/.local/bin/omp-gateway-patched"
-test "$(readlink "$HOME/.local/bin/omp-gateway-patched")" = "$version_dir/omp"
-"$HOME/.local/bin/omp-gateway-patched" config set collab.autoStart control >/dev/null
-"$HOME/.local/bin/omp-gateway-patched" config set collab.registryEndpoint auto >/dev/null
-"$HOME/.local/bin/omp-gateway-patched" config get collab.autoStart --json |
+"$version_dir/omp" config set collab.autoStart control >/dev/null
+"$version_dir/omp" config get collab.autoStart --json |
   jq -e '.value == "control"' >/dev/null
-"$HOME/.local/bin/omp-gateway-patched" config get collab.registryEndpoint --json |
-  jq -e '.value == "auto"' >/dev/null
-show "binary version" "$("$HOME/.local/bin/omp-gateway-patched" --version)"
+show "binary version" "$("$version_dir/omp" --version)"
 show "binary sha256" "$(sha256sum "$version_dir/omp" | awk '{print $1}')"
-show "versioned symlink" "$(readlink "$HOME/.local/bin/omp-gateway-patched")"
-show "collab config" "autoStart=control registryEndpoint=auto"
+show "collab config" "autoStart=control"
 mkdir -p "$HOME/omp-linux-qualification"
 rm -rf "$native_fixture"
 REMOTE
@@ -1136,9 +1138,9 @@ REMOTE
       wait "$omp_ssh_pid" >/dev/null 2>&1 || true
     fi
     exec 9>&- 2>/dev/null || true
-    remote_user OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE' >/dev/null 2>&1
+    remote_user OMP_SOURCE_TREE="$OMP_SOURCE_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE' >/dev/null 2>&1
 set +e
-tree_short="${OMP_PATCHED_TREE:0:8}"
+tree_short="${OMP_SOURCE_TREE:0:8}"
 version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
 for exe in /proc/[0-9]*/exe; do
   [ "$(readlink "$exe" 2>/dev/null)" = "$version_dir/omp" ] || continue
@@ -1148,7 +1150,6 @@ done
 sleep 1
 rm -rf "$HOME/omp-gateway-source" "$HOME/omp-native-fixture" \
   "$HOME/omp-linux-qualification" "$version_dir" "$HOME/.omp"
-rm -f "$HOME/.local/bin/omp-gateway-patched"
 REMOTE
   )
   trap cleanup_omp_lane EXIT
@@ -1159,7 +1160,7 @@ REMOTE
   mkfifo "$omp_input"
   exec 9<>"$omp_input"
   ssh "${SSH_OPTS[@]}" -tt "${QUAL_USER}@${DROPLET_IP}" \
-    'cd "$HOME/omp-linux-qualification" && exec "$HOME/.local/bin/omp-gateway-patched" --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low' \
+    "cd \"\$HOME/omp-linux-qualification\" && exec \"\$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${OMP_SOURCE_TREE:0:8}/omp\" --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low" \
     <&9 >/dev/null 2>&1 &
   omp_ssh_pid=$!
 
@@ -1178,7 +1179,7 @@ curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
   ' >/dev/null
 REMOTE
   }
-  wait_for "patched OMP publication" 90 1 omp_session_present
+  wait_for "mainline OMP publication" 90 1 omp_session_present
 
   remote_user DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
     GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
@@ -1187,7 +1188,7 @@ show() { printf '   %-38s %s\n' "$1:" "$2"; }
 sessions="$(curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
   "http://127.0.0.1:${GATEWAY_PORT}/api/v1/sessions")"
 record="$(printf '%s' "$sessions" |
-  jq -c '[.sessions[] | select(.cwdLabel == "omp-linux-qualification")] | if length == 1 then .[0] else error("expected exactly one patched OMP session") end')"
+  jq -c '[.sessions[] | select(.cwdLabel == "omp-linux-qualification")] | if length == 1 then .[0] else error("expected exactly one mainline OMP session") end')"
 instance_id="$(printf '%s' "$record" | jq -r '.instanceId')"
 generation="$(printf '%s' "$record" | jq -r '.generation')"
 test "$(printf '%s' "$record" | jq -r '.canView and .canControl')" = true
@@ -1228,17 +1229,16 @@ curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
   jq -e '[.sessions[] | select(.cwdLabel == "omp-linux-qualification")] | length == 0' >/dev/null
 REMOTE
   }
-  wait_for "patched OMP revocation" 45 1 omp_session_absent
+  wait_for "mainline OMP revocation" 45 1 omp_session_absent
 
   cleanup_omp_lane
   trap - EXIT
-  remote_user OMP_PATCHED_TREE="$OMP_PATCHED_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
-tree_short="${OMP_PATCHED_TREE:0:8}"
+  remote_user OMP_SOURCE_TREE="$OMP_SOURCE_TREE" OMP_VERSION="$OMP_VERSION" <<'REMOTE'
+tree_short="${OMP_SOURCE_TREE:0:8}"
 version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${tree_short}"
-test ! -e "$HOME/.local/bin/omp-gateway-patched"
 test ! -e "$version_dir"
 test ! -e "$HOME/omp-gateway-source"
-printf '   %-38s %s\n' "OMP qualification cleanup:" "source, binary, symlink, config, and process removed"
+printf '   %-38s %s\n' "OMP qualification cleanup:" "source, binary, config, and process removed"
 REMOTE
 )
 
@@ -1573,8 +1573,12 @@ snapshot() {
   active_version="$(jq -r '.versionDirectory' "$state_dir/installation/current.json")"
   versions="$(find "$state_dir/installation/versions" -maxdepth 1 -mindepth 1 -type d -printf '%f ' | tr ' ' '\n' | sort | tr '\n' ' ')"
   config_digest="$(sha256sum "$HOME/.config/omp-session-gateway/config.json" | awk '{print $1}')"
-  token_digest="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
-  token_mode="$(stat -c '%a' "$HOME/.config/omp-session-gateway/publisher-token")"
+  token_digest=absent
+  token_mode=absent
+  if [ -f "$HOME/.config/omp-session-gateway/readiness-token" ]; then
+    token_digest="$(sha256sum "$HOME/.config/omp-session-gateway/readiness-token" | awk '{print $1}')"
+    token_mode="$(stat -c '%a' "$HOME/.config/omp-session-gateway/readiness-token")"
+  fi
   exec_path="$(systemctl --user show -p ExecStart --value omp-session-gateway.service | grep -o '/[^ ]*cli\.js' | head -1)"
   enabled="$(systemctl --user is-enabled omp-session-gateway.service 2>&1 || true)"
   main_pid="$(systemctl --user show -p MainPID --value omp-session-gateway.service)"
@@ -1604,8 +1608,10 @@ check "active version changes on upgrade" "$([ "$(field "$a" 1)" != "$(field "$b
 check "active version restored on rollback" "$(field "$c" 1)" "$(field "$a" 1)"
 check "predecessor version dir survives upgrade" "$(printf '%s' "$(field "$b" 2)" | grep -qF "$(field "$a" 1)" && echo present || echo missing)" present
 check "config identical across all steps" "$([ "$(field "$a" 3)" = "$(field "$b" 3)" ] && [ "$(field "$b" 3)" = "$(field "$c" 3)" ] && echo identical || echo differs)" identical
-check "token digest unchanged" "$([ "$(field "$a" 4)" = "$(field "$b" 4)" ] && [ "$(field "$b" 4)" = "$(field "$c" 4)" ] && echo unchanged || echo changed)" unchanged
-check "token mode unchanged" "$([ "$(field "$a" 5)" = "$(field "$c" 5)" ] && echo "$(field "$a" 5)" || echo drifted)" 600
+check "readiness credential created or preserved" "$([ "$(field "$b" 4)" != absent ] && { [ "$(field "$a" 4)" = absent ] || [ "$(field "$a" 4)" = "$(field "$b" 4)" ]; } && echo valid || echo invalid)" valid
+check "readiness credential survives rollback" "$(field "$c" 4)" "$(field "$b" 4)"
+check "readiness token mode after cutover" "$(field "$b" 5)" 600
+check "readiness token mode after rollback" "$(field "$c" 5)" 600
 check "ExecStart tracks active version" "$(printf '%s' "$(field "$c" 6)" | grep -qF "$(field "$c" 1)" && echo tracks || echo stale)" tracks
 check "unit still enabled after rollback" "$(field "$c" 7)" enabled
 check "main pid changed across upgrade" "$([ "$(field "$a" 8)" != "$(field "$b" 8)" ] && echo changed || echo same)" changed
@@ -1630,7 +1636,7 @@ REMOTE
 # not re-measure five things lane 4 already establishes on the reinstall path: that a predecessor
 # install names a version, that the active version changes on the forward upgrade, that the
 # predecessor's version directory survives that upgrade, that the unit stays `enabled`, and that a
-# reinstall preserves configuration and the publisher token. Those are lane 4's rows. They are
+# reinstall preserves configuration and the readiness token. Those are lane 4's rows. They are
 # printed here wherever they are cheap to read and never asserted, because two overlapping sources of
 # truth for one claim are worse than one.
 #
@@ -1673,7 +1679,7 @@ pointer="$state_dir/installation/current.json"
 history="$state_dir/installation/history.json"
 unit="$HOME/.config/systemd/user/omp-session-gateway.service"
 config="$HOME/.config/omp-session-gateway/config.json"
-token="$HOME/.config/omp-session-gateway/publisher-token"
+token="$HOME/.config/omp-session-gateway/readiness-token"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -2295,7 +2301,7 @@ rm -f "$install_log"
 # systemd, and whether a token and a staged runtime outlive the refusal, are the open questions.
 show "unit after install" "$(test -e "$unit" && echo present || echo absent)"
 show "config.json after install" "$(test -e "$config_dir/config.json" && stat -c 'mode %a' "$config_dir/config.json" || echo absent)"
-show "publisher-token after install" "$(test -e "$config_dir/publisher-token" && stat -c 'mode %a, %s bytes' "$config_dir/publisher-token" || echo absent)"
+show "readiness-token after install" "$(test -e "$config_dir/readiness-token" && stat -c 'mode %a, %s bytes' "$config_dir/readiness-token" || echo absent)"
 # busybox `find` has no `-printf`, and `ls` would miscount a name containing a newline, so count
 # directory entries with the intersection of GNU and busybox `find` that both support.
 show "staged version dirs" "$(find "$state_dir/installation/versions" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"

@@ -107,44 +107,33 @@ test.skipIf(process.platform === "win32").each([
 });
 
 describe("shared OMP qualification pin", () => {
-  test("parses the exact source, tree, runtime, Bun, and native-byte contract", () => {
-    expect(
-      parseQualificationPins(`
-# comment
-OMP_PIN_BUN_VERSION=1.3.14
-OMP_PIN_SOURCE_COMMIT=${"1".repeat(40)}
-OMP_PIN_PATCHED_TREE=${"2".repeat(40)}
-OMP_PIN_VERSION=17.4.1
-OMP_PIN_NATIVE_TARBALL_SHA256=${"3".repeat(64)}
-OMP_PIN_NATIVE_BINARY_SHA256=${"4".repeat(64)}
-`),
-    ).toEqual({
-      bunVersion: "1.3.14",
-      sourceCommit: "1".repeat(40),
-      patchedTree: "2".repeat(40),
-      version: "17.4.1",
-      nativeTarballSha256: "3".repeat(64),
-      nativeBinarySha256: "4".repeat(64),
-    });
-  });
-
-  test("fails closed when any pin is absent or malformed", () => {
-    expect(() => parseQualificationPins("OMP_PIN_BUN_VERSION=1.3.14\n")).toThrow("pin is invalid");
+  test("rejects missing pins, malformed native hashes, and a pre-mainline runtime", async () => {
+    const lock = JSON.parse(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
+    for (const value of [
+      {},
+      { ...lock, tree: "not-a-tree" },
+      { ...lock, packageVersion: "18.1.19" },
+      { ...lock, darwinArm64Native: { ...lock.darwinArm64Native, binarySha256: "not-a-digest" } },
+    ]) {
+      expect(() => parseQualificationPins(JSON.stringify(value))).toThrow("pin is invalid");
+    }
   });
 });
 
 test("Mac evidence follows the exact OMP pin and rejects a stale build", async () => {
-  const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "patches/oh-my-pi/qualification.env"), "utf8"));
+  const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
   const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
   const output = [
     `release-info commit:                   ${candidate.sourceCommit}`,
     candidate.archiveSha256,
     "doctor                                 17/17 true",
-    JSON.stringify({ version: pins.version, nativeSha256: pins.nativeBinarySha256 }),
+    JSON.stringify({ version: pins.version, sourceCommit: pins.sourceCommit, sourceTree: pins.sourceTree, nativeSha256: pins.nativeBinarySha256 }),
   ].join("\n");
   assertMacBuildOutput(output, candidate, pins);
   expect(() => assertMacBuildOutput(output.replace(pins.version, "17.4.1"), candidate, pins)).toThrow("version");
   expect(() => assertMacBuildOutput(output.replace(pins.nativeBinarySha256, "c".repeat(64)), candidate, pins)).toThrow("nativeSha256");
+  expect(() => assertMacBuildOutput(output.replace(pins.sourceTree, "d".repeat(40)), candidate, pins)).toThrow("sourceTree");
+  expect(() => assertMacBuildOutput(output.replace("17/17 true", "16/17 true"), candidate, pins)).toThrow("doctor");
 });
 
 describe("resumable receipt lanes", () => {
@@ -315,7 +304,7 @@ describe("Debian workflow dispatch resume", () => {
   });
 });
 
-test.skipIf(process.platform === "win32")("patched OMP helper refuses missing pins before host mutation", async () => {
+test.skipIf(process.platform === "win32")("mainline OMP helper refuses missing pins before host mutation", async () => {
   const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "build"], {
     cwd: REPOSITORY_ROOT,
     env: { PATH: process.env.PATH },
@@ -333,7 +322,7 @@ test.skipIf(process.platform === "win32")("patched OMP helper refuses missing pi
   expect(stderr).toContain("OMP_QUAL_GATEWAY_ROOT is required");
 });
 
-test.skipIf(process.platform === "win32")("patched OMP helper rejects path-special labels before cleanup", async () => {
+test.skipIf(process.platform === "win32")("mainline OMP helper rejects path-special labels before cleanup", async () => {
   for (const sessionLabel of ["..", ".ssh"]) {
     const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "clean"], {
       cwd: REPOSITORY_ROOT,
@@ -342,7 +331,7 @@ test.skipIf(process.platform === "win32")("patched OMP helper rejects path-speci
         HOME: "/tmp/omp-path-guard-never-used",
         OMP_QUAL_GATEWAY_ROOT: "/tmp/omp-candidate-never-used",
         OMP_PIN_SOURCE_COMMIT: "1".repeat(40),
-        OMP_PIN_PATCHED_TREE: "2".repeat(40),
+        OMP_PIN_SOURCE_TREE: "2".repeat(40),
         OMP_PIN_VERSION: "17.4.1",
         OMP_PIN_BUN_VERSION: "1.3.14",
         OMP_PIN_NATIVE_TARBALL_SHA256: "3".repeat(64),

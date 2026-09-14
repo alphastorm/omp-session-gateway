@@ -202,7 +202,7 @@ async function loadedServiceProgram(host: ServiceHost): Promise<ServiceProgramLo
  * `HOME`/`XDG_CONFIG_HOME` at a sandbox therefore isolates every file this program writes and none
  * of the state it reads back, so an install rooted in a temp directory observes the real service and
  * reports it as its own. On 2026-08-19 that cost a live daemon: an isolated archive smoke saw
- * `active: true` from the production service and `rotate-publisher-token` booted it out.
+ * `active: true` from the production service and `rotate-readiness-token` booted it out.
  *
  * The loaded service's own program path is the one piece of identity that does carry the root, so
  * compare against it rather than trusting the label. Returns false when nothing is loaded.

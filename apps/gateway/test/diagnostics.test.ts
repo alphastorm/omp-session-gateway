@@ -19,13 +19,13 @@ function config(): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
     auth: { mode: "tailscale-serve", allowedLogins: ["allowed@example.com"] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
+    omp: { discoveryDir: "/private/omp/run/collab-hosts", queryTimeoutMs: 1_500 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10 },
     paths: {
       configDir: "/private/config",
       stateDir: "/private/state",
       runtimeDir: "/private/run",
-      socketPath: "/private/run/registry.sock",
-      tokenPath: "/private/config/publisher-token",
+      tokenPath: "/private/config/readiness-token",
       configPath: "/private/config/config.json",
     },
   };

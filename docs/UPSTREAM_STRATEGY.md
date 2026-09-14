@@ -2,51 +2,45 @@
 
 ## Goal
 
-Keep OMP-specific changes minimal, independently testable, backward-compatible by default, and useful to OMP beyond this project.
+Consume the supported mainline collaboration registry and keep gateway-specific policy, Tailscale,
+PWA, and installers outside OMP. No downstream OMP patch set is maintained.
 
-## Preferred integration order
+## Landed upstream seam
 
-1. Use an existing supported OMP API if the pinned version now exposes collaboration lifecycle control.
-2. Otherwise, submit a behavior-preserving refactor that extracts a reusable collaboration controller used by the existing `/collab` command.
-3. Expose the smallest typed API or lifecycle events needed by a separately packaged publisher extension.
-4. Keep gateway protocol, Tailscale behavior, PWA code, and installers out of the OMP repository.
-5. If upstream declines the API, maintain a small rebased patch set in `patches/oh-my-pi/` and publish an explicit compatibility matrix.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Stock mainline OMP `>= 18.1.20` provides
+the shared controller, opt-in `collab.autoStart`, local discovery/query registry, and
+`omp collab list` / `omp collab link` commands. Earlier releases lack this registry and are
+unsupported by the current gateway. This supersedes the fork prerequisite accepted in ADR-024;
+ADR-028 records the cutover without rewriting the fork-era decisions or qualification evidence.
 
-## Suggested PR decomposition
+The gateway reads discovery and queries host snapshots, then resolves a link only for an explicit
+launch. It never writes OMP’s discovery directory, receives unsolicited OMP publications, or
+stores capabilities. The private readiness token belongs only to gateway/CLI readiness.
 
-### PR 1 — controller refactor
+## Integration boundaries
 
-- Extract the owner of `CollabHost` lifecycle.
-- Make existing slash commands delegate to it.
-- Add tests proving no behavior/settings change.
-- Do not mention the gateway as a requirement.
-
-### PR 2 — supported automation surface
-
-One of:
-
-- typed `ctx.collab.start/get/stop` extension API plus lifecycle events; or
-- opt-in core `collab.autoStart` and a publisher hook interface.
-
-Keep defaults off and document capability secrecy.
-
-### PR 3 — optional settings/documentation
-
-- `collab.autoStart` and local registry endpoint if upstream accepts core publication;
-- otherwise keep these in the extension package/config owned by this repository.
-
-Do not combine vendored web assets, Tailscale configuration, or gateway implementation with these PRs.
+- Use the published endpoint and per-host token from each discovery file, never a derived path.
+- Keep the supported OMP setting contract to `collab.autoStart` alone.
+- Keep HTTP/SSE, attention routing, private Tailscale authorization, and the PWA in this repository.
+- Keep the pinned in-memory `collab-web` integration and its attribution independently reviewable.
+- Propose generally useful registry/controller improvements upstream rather than reviving a fork
+  transport or importing private APIs.
+- Never fall back to process-memory inspection, terminal automation, QR decoding, or saved-session
+  scraping when the supported query surface fails.
 
 ## Compatibility discipline
 
-- Record every tested OMP commit in `UPSTREAM.lock.json` and the compatibility matrix.
-- Test manual `/collab`, `/collab view`, status, stop, join, leave, resume, branch, and session switching.
-- Verify full and view link formats using upstream parsers, not local regular expressions.
-- Detect API drift in CI against selected OMP versions.
-- Never silently fall back to terminal automation when the supported integration breaks.
+- Record exact engineering source and package pins in `UPSTREAM.lock.json`.
+- Validate discovery, both query operations, every error code, and generation/access races.
+- Preserve the liveness distinction: only `ENOENT`/`ECONNREFUSED` proves a queried host dead.
+- Exercise start, stop, switch, branch, resume, and gateway restart against the real mainline host.
+- Verify link formats through the pinned upstream parser without recording links.
+- Repeat exact signed-artifact host/client/relay qualification before making a release claim.
+  Mainline qualification is pending; no fork-era result transfers.
 
 ## Communication
 
-Before proposing public API names, open a focused upstream discussion or issue describing the general need: programmatic ownership of the existing collaboration host for extensions and automation. Avoid asking upstream to adopt the entire mobile gateway architecture.
+Cite the merged general-purpose collaboration/discovery contribution, not an obligation for OMP
+to adopt the gateway. Preserve the statement that OMP Session Gateway is independent and
+community-maintained unless upstream formally adopts or endorses it.
 
-Preserve the statement that OMP Session Gateway is independent and community-maintained unless upstream formally adopts or endorses it.

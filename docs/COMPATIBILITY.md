@@ -2,6 +2,30 @@
 
 ## Current claim
 
+Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.
+Earlier releases are unsupported because this local registry does not exist in them.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in
+[v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
+only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
+
+| Surface | Current contract | Qualification |
+|---|---|---|
+| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Mainline qualification pending |
+| Exact engineering source | `v18.1.20`, `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b` | Source pin, not a release result |
+| Gateway build/runtime | Bun `1.4.0` | No new host qualification claimed |
+| Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Exact mainline candidate must repeat the identity/exposure lane |
+| Native hosts, Android, relay | Named exact candidate/device versions required | All mainline qualification pending; Windows remains unadvertised |
+
+The gateway only reads OMP discovery, polls metadata, and fetches capabilities per launch without
+storing them. The minimum version is an integration contract, not proof that every later release
+or platform has been tested. No fork-era qualification, signed receipt, or endurance result
+transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
+
+## Fork-era published-release history
+
+Everything in this section records the named historical gateway artifacts, not current source.
+Their patch prerequisites and activation commands apply only to their matching release tags.
+
 **Published qualified stable:** `v0.3.0` (immutable GitHub Latest), exact patched OMP `v18.1.14`, Bun `1.4.0`.<br>
 **Signed candidate:** `v0.3.0-prealpha.3`, independently qualified and approved.<br>
 **Rollback predecessor:** published stable `v0.2.1`, retaining its own exact patched OMP v17.4.1.<br>
@@ -95,6 +119,10 @@ installation, lifecycle, and cleanup scenario passes. Blank version ranges never
 
 ## Exact OMP baseline
 
+**Fork-era evidence:** the table and pin-refresh records below are immutable published-release
+history, not the mainline support matrix above. Any local patch path or lock reference here means
+the file at that historical tag; it no longer describes the shipping prerequisite.
+
 Published releases and unreleased development targets use separate immutable upstream revisions:
 
 | Gateway line | OMP source | Nearest release baseline | OMP package baselines | Collab client | Registry protocol | Claim |
@@ -140,11 +168,11 @@ baseline only; it does not transfer to v0.3.0. The current candidate repeated en
 Issue #65 stays open for other process-wide Chrome failures, not as a
 qualification exception for the transitions the candidate actually passed.
 
-The immutable source paths, versions, observation date, and upstream findings live in
-[`UPSTREAM.lock.json`](../UPSTREAM.lock.json). The gateway integration currently requires:
+The fork-era source paths, versions, observation dates, and upstream findings remain in each
+release tag’s `UPSTREAM.lock.json`. Those historical integrations required:
 
 - the apply-ready OMP controller/auto-start/registry patch in
-  [`patches/oh-my-pi`](../patches/oh-my-pi/README.md);
+  [the fork-era patch directory](https://github.com/alphastorm/omp-session-gateway/tree/v0.3.0/patches/oh-my-pi);
 - the pinned collab-web source integration described by
   [`packages/collab-client/upstream/UPSTREAM.json`](../packages/collab-client/upstream/UPSTREAM.json);
 - the reviewed in-memory client bootstrap, because upstream collab-web writes a
@@ -157,16 +185,19 @@ The immutable source paths, versions, observation date, and upstream findings li
 Three compatibility surfaces change independently:
 
 | Surface | Current version | Current behavior |
-|---|---:|---|
-| OMP publisher to gateway registry | 1 | Strict runtime validation; unknown major versions are rejected. |
-| PWA to gateway HTTP API | `/api/v1` | One emitted API major; list/SSE remain metadata-only and launch remains generation-bound. |
-| Gateway patch to OMP internals | Exact commit above | Tested as a patch against the pinned checkout; no private-internals compatibility range is inferred. |
+|---|---|---|
+| Gateway client of OMP discovery/query | 1, mainline OMP `>= 18.1.20` | Strict discovery and reply validation; snapshot polling and per-launch link resolution. |
+| PWA to gateway HTTP API | `/api/v1` | Metadata-only list/SSE; generation-bound launch plus `409 mode_unavailable`. |
+| Pinned OMP browser client | Exact source/provenance in the client lock | In-memory bootstrap; not a claim to support arbitrary client/wire combinations. |
 
-Package version compatibility does not override a protocol major or exact OMP source pin.
-Rolling compatibility with an earlier publisher protocol may be added only after explicit
-cross-version tests exist.
+There is no gateway-owned publisher protocol and no cross-version publisher fallback. Unknown
+protocol majors fail closed. The host minimum does not supersede the pinned browser-client
+provenance or the need for exact release qualification.
 
 ## Host and client matrix
+
+**Fork-era evidence only:** every result and support label in this historical matrix belongs to
+the named patched-OMP artifacts. It does not qualify the mainline prerequisite.
 
 The following describes code, evidence, and each row's support boundary. Debian 13 x86-64, macOS
 26.6.1 arm64, and Chrome 152.0.7977.75 on the Android 17 Pixel have exact `v0.3.0-prealpha.3`
@@ -195,6 +226,10 @@ current-user/token protected.
 
 ## Deployment dependency matrix
 
+**Fork-era evidence only:** measured results below retain their original scope. The current
+Tailscale-only policy is unchanged, but the mainline candidate must repeat qualification; even
+unchanged browser or relay behavior does not inherit these passes.
+
 | Dependency or mode | Current state | Compatibility statement |
 |---|---|---|
 | Tailscale Serve over tailnet HTTPS | Required production architecture. Advertised evidence includes macOS-hosted Serve on macOS 26.5.2/26.6.1 arm64; supplemental Windows Server 2025 source acceptance used Authenticode-valid Tailscale `1.102.3`, TUN mode, and passed `doctor` 17/17. No Tailscale version range is qualified. | The signed-candidate identity matrix is closed for the advertised hosts: tagged/no-user identity denied, real non-allowlisted identity denied, real allowlisted identity admitted, forged headers ignored, direct backend addresses refused, and Funnel disabled. Windows repeats only the allowed self-node/Serve half in unsigned source acceptance and therefore gains no support claim. Direct loopback spoofing remains outside the explicitly single-user v1 trust boundary, and the full identity evidence must repeat on every newly advertised host. |
@@ -221,17 +256,18 @@ For every proposed OMP update:
 1. Inspect the new release/tag and collaboration-related source changes.
 2. Update `UPSTREAM.lock.json` with the exact tag, commit, package versions, Bun version,
    relevant paths, findings, and observation date.
-3. Rebase or regenerate the OMP patch series without unrelated changes.
+3. Check the supported mainline discovery/query contract and minimum host version; do not create a
+   downstream OMP patch or fallback transport.
 4. Rebuild the pinned collab-web integration and verify its provenance and license notices.
-5. Run controller, publisher, protocol, link parsing, View, and Control tests.
+5. Run discovery/query, protocol, link parsing, View, and Control verification.
 6. Run start, stop, switch, branch, resume/tree-navigation, relay-replacement, fatal-failure,
    and shutdown lifecycle tests.
 7. Run the complete capability-leak suite and real browser/Android acceptance.
 8. Qualify every advertised host installer and deployment path.
 9. Update this matrix, [`RELEASE_STATUS.md`](RELEASE_STATUS.md), and the changelog.
 
-Do not broaden the OMP range from one exact commit until CI and acceptance results prove
-each additional version independently.
+Do not call an additional OMP version or platform qualified merely because it satisfies the
+`>= 18.1.20` minimum; record exact CI and acceptance evidence for each advertised combination.
 
 ## Protocol evolution
 
@@ -240,7 +276,7 @@ each additional version independently.
 - Never reinterpret a field's security meaning in place.
 - Emit one browser API major at a time.
 - Record protocol versions in diagnostics without capability values.
-- Document upgrade order and rollback behavior before supporting mixed gateway/publisher versions.
+- Document upgrade order and rollback behavior when the gateway and mainline host contract changes.
 
 Every published release must identify the exact OMP and collab-web source, build command,
 Bun version, dependency lockfile hash, local patches, license notices, and shipped asset hashes.

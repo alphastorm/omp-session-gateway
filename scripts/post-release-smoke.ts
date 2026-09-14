@@ -8,7 +8,6 @@ import {
   mkdtemp,
   readFile,
   readdir,
-  readlink,
   rm,
   stat,
   writeFile,
@@ -18,7 +17,6 @@ import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { defaultGatewayPaths, loadGatewayConfig } from "../apps/gateway/src/config.ts";
-import { parseQualificationPins, type OmpPins } from "./stable-qualification.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_REPOSITORY = "alphastorm/omp-session-gateway";
@@ -69,7 +67,8 @@ interface VerifiedRelease {
   readonly archiveSha256: string;
   readonly archiveRoot: string;
   readonly appAsset: string;
-  readonly pins: OmpPins;
+  readonly ompVersion: string;
+  readonly bunVersion: string;
 }
 
 interface ServeStatus {
@@ -79,15 +78,9 @@ interface ServeStatus {
 }
 
 interface OmpInstall {
-  readonly exact: boolean;
-  readonly sourceExists: boolean;
-  readonly versionDirectoryExists: boolean;
-  readonly sourceExact: boolean;
-  readonly runtimeExact: boolean;
-  readonly sourceDirectory: string;
-  readonly versionDirectory: string;
-  readonly binary: string;
-  readonly symlink: string;
+  readonly compatible: boolean;
+  readonly binary?: string;
+  readonly version?: string;
   readonly binarySha256?: string;
 }
 
@@ -482,18 +475,16 @@ async function verifyPublishedRelease(
   const appAssets = assetFiles.filter(name => /^app\.[0-9a-f]+\.js$/u.test(name));
   if (appAssets.length !== 1) throw new Error("release archive did not contain exactly one hashed app asset");
   const appAsset = `/assets/${appAssets[0]!}`;
-  const pins = parseQualificationPins(await readFile(join(archiveRoot, "patches/oh-my-pi/qualification.env"), "utf8"));
   const upstream = parseJsonRecord(await readFile(join(archiveRoot, "UPSTREAM.lock.json"), "utf8"), "UPSTREAM.lock.json");
   if (
-    upstream.commit !== pins.sourceCommit ||
-    upstream.packageVersion !== pins.version ||
-    upstream.bunVersion !== pins.bunVersion ||
-    pins.bunVersion !== packageManifest.packageManager.replace(/^bun@/u, "")
+    typeof upstream.packageVersion !== "string" ||
+    !Bun.semver.satisfies(upstream.packageVersion, ">=18.1.20") ||
+    upstream.bunVersion !== packageManifest.packageManager.replace(/^bun@/u, "")
   ) {
-    throw new Error("release archive OMP and Bun pins disagree");
+    throw new Error("release archive must name a mainline OMP prerequisite and the repository Bun pin");
   }
 
-  return { version, sourceCommit, archiveSha256, archiveRoot, appAsset, pins };
+  return { version, sourceCommit, archiveSha256, archiveRoot, appAsset, ompVersion: upstream.packageVersion, bunVersion: upstream.bunVersion as string };
 }
 
 async function ensurePersistentBun(version: string): Promise<string> {
@@ -564,7 +555,7 @@ async function installOrVerifyGateway(
   }
   const paths = defaultGatewayPaths();
   const configBefore = await capturePrivateFile(paths.configPath, "gateway config");
-  const tokenBefore = await capturePrivateFile(paths.tokenPath, "publisher token");
+  const tokenBefore = await capturePrivateFile(paths.tokenPath, "readiness token");
   let installed = false;
   try {
     const currentMatches = await installedReleaseMatches(release.version, release.sourceCommit);
@@ -585,10 +576,10 @@ async function installOrVerifyGateway(
     }
 
     const configAfter = await capturePrivateFile(paths.configPath, "gateway config");
-    const tokenAfter = await capturePrivateFile(paths.tokenPath, "publisher token");
+    const tokenAfter = await capturePrivateFile(paths.tokenPath, "readiness token");
     try {
       if (!equalPrivateBytes(configBefore, configAfter)) throw new Error("gateway install changed the existing config bytes");
-      if (!equalPrivateBytes(tokenBefore, tokenAfter)) throw new Error("gateway install changed the publisher token bytes");
+      if (!equalPrivateBytes(tokenBefore, tokenAfter)) throw new Error("gateway install changed the readiness token bytes");
     } finally {
       configAfter.fill(0);
       tokenAfter.fill(0);
@@ -678,126 +669,50 @@ async function ensureServeMapping(): Promise<{ changed: boolean }> {
   return { changed };
 }
 
-async function inspectOmpInstall(pins: OmpPins): Promise<OmpInstall> {
-  const sourceDirectory = join(homedir(), "src", `oh-my-pi-gateway-v${pins.version}`);
-  const versionDirectory = join(
-    homedir(),
-    ".local",
-    "lib",
-    "omp-session-gateway",
-    "omp",
-    `v${pins.version}-${pins.patchedTree.slice(0, 8)}`,
-  );
-  const binary = join(versionDirectory, "omp");
-  const symlink = join(homedir(), ".local", "bin", "omp-gateway-patched");
-  const sourceExists = await pathExists(sourceDirectory);
-  const versionDirectoryExists = await pathExists(versionDirectory);
-  let sourceExact = false;
-  if (sourceExists) {
-    try {
-      const tree = await commandOutput("patched OMP tree", ["git", "-C", sourceDirectory, "rev-parse", "HEAD^{tree}"]);
-      const statusOutput = await commandOutput("patched OMP status", [
-        "git",
-        "-C",
-        sourceDirectory,
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
-        "--",
-        ".",
-        ":(exclude)packages/natives/native/pi_natives.darwin-arm64.node",
-      ]);
-      const nativeSha256 = await sha256File(join(sourceDirectory, "packages/natives/native/pi_natives.darwin-arm64.node"));
-      sourceExact = tree === pins.patchedTree && statusOutput === "" && nativeSha256 === pins.nativeBinarySha256;
-    } catch {
-      sourceExact = false;
-    }
+export async function inspectOmpInstall(): Promise<OmpInstall> {
+  const binary = Bun.which("omp", { PATH: process.env.PATH ?? "" });
+  if (binary === null) return { compatible: false };
+  try {
+    const output = await commandOutput("OMP version", [binary, "--version"]);
+    const version = /^omp[ /](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output)?.[1];
+    if (version === undefined || !Bun.semver.satisfies(version, ">=18.1.20")) return { compatible: false, binary };
+    const autoStart = parseJsonRecord(
+      await commandOutput("OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),
+      "OMP auto-start",
+    );
+    return {
+      compatible: autoStart.value === "off" || autoStart.value === "view" || autoStart.value === "control",
+      binary,
+      version,
+      binarySha256: await sha256File(binary),
+    };
+  } catch {
+    return { compatible: false, binary };
   }
-
-  let runtimeExact = false;
-  let symlinkExact = false;
-  let settingsExact = false;
-  let binarySha256: string | undefined;
-  if (await pathExists(binary)) {
-    try {
-      const version = await commandOutput("patched OMP version", [binary, "--version"]);
-      runtimeExact = version === `omp/${pins.version}`;
-      binarySha256 = await sha256File(binary);
-      symlinkExact = (await readlink(symlink)) === binary;
-      const autoStart = parseJsonRecord(
-        await commandOutput("patched OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),
-        "OMP auto-start",
-      );
-      const registry = parseJsonRecord(
-        await commandOutput("patched OMP registry", [binary, "config", "get", "collab.registryEndpoint", "--json"]),
-        "OMP registry",
-      );
-      settingsExact = autoStart.value === "control" && registry.value === "auto";
-    } catch {
-      runtimeExact = false;
-    }
-  }
-  return {
-    exact: sourceExact && runtimeExact && symlinkExact && settingsExact,
-    sourceExists,
-    versionDirectoryExists,
-    sourceExact,
-    runtimeExact,
-    sourceDirectory,
-    versionDirectory,
-    binary,
-    symlink,
-    ...(binarySha256 === undefined ? {} : { binarySha256 }),
-  };
-}
-
-function qualificationEnvironment(
-  release: VerifiedRelease,
-  bunExecutable: string,
-  staging: string,
-  label: string,
-): Record<string, string> {
-  return {
-    OMP_QUAL_GATEWAY_ROOT: release.archiveRoot,
-    OMP_PIN_SOURCE_COMMIT: release.pins.sourceCommit,
-    OMP_PIN_PATCHED_TREE: release.pins.patchedTree,
-    OMP_PIN_VERSION: release.pins.version,
-    OMP_PIN_BUN_VERSION: release.pins.bunVersion,
-    OMP_PIN_NATIVE_TARBALL_SHA256: release.pins.nativeTarballSha256,
-    OMP_PIN_NATIVE_BINARY_SHA256: release.pins.nativeBinarySha256,
-    OMP_PIN_BUN_EXECUTABLE: bunExecutable,
-    OMP_QUAL_NATIVE_FIXTURE: join(staging, "native-fixture"),
-    OMP_QUAL_BUILD_LOG: join(staging, "omp-build.log"),
-    OMP_QUAL_SESSION_LABEL: label,
-  };
 }
 
 async function installOrVerifyOmp(
   options: PostReleaseSmokeOptions,
   release: VerifiedRelease,
   bunExecutable: string,
-  staging: string,
-  label: string,
-): Promise<{ built: boolean; binarySha256: string }> {
-  let inspection = await inspectOmpInstall(release.pins);
-  let built = false;
-  if (options.rebuildOmp || !inspection.exact) {
-    if (inspection.sourceExists && !inspection.sourceExact) {
-      throw new Error(`refusing to replace changed or unverified patched OMP source at ${inspection.sourceDirectory}`);
-    }
-    if (inspection.versionDirectoryExists && !inspection.runtimeExact) {
-      throw new Error(`refusing to replace changed or unverified patched OMP runtime at ${inspection.versionDirectory}`);
-    }
-    await runCommand("patched OMP build", ["bash", join(repositoryRoot, "scripts/qualify-macos-omp.sh"), "build"], {
-      env: qualificationEnvironment(release, bunExecutable, staging, label),
+): Promise<{ installed: boolean; version: string; binary: string; binarySha256: string }> {
+  let inspection = await inspectOmpInstall();
+  let installed = false;
+  if (options.rebuildOmp || inspection.binary === undefined) {
+    await runCommand("mainline OMP install", [bunExecutable, "add", "--global", "--exact", "@oh-my-pi/pi-coding-agent@" + release.ompVersion], {
       timeoutMs: 1_800_000,
       safeFailureOutput: true,
     });
-    built = true;
-    inspection = await inspectOmpInstall(release.pins);
+    const globalBin = await commandOutput("Bun global bin", [bunExecutable, "pm", "bin", "--global"]);
+    process.env.PATH = globalBin + ":" + (process.env.PATH ?? "");
+    installed = true;
+    inspection = await inspectOmpInstall();
   }
-  if (!inspection.exact || inspection.binarySha256 === undefined) throw new Error("patched OMP install does not match the release pins");
-  return { built, binarySha256: inspection.binarySha256 };
+  if (!inspection.compatible || inspection.binary === undefined || inspection.binarySha256 === undefined || inspection.version === undefined) {
+    throw new Error("omp on PATH must be mainline >=18.1.20 with readable collab.autoStart; use --rebuild-omp to reinstall it");
+  }
+  await runCommand("OMP auto-start setup", [inspection.binary, "config", "set", "collab.autoStart", "control"]);
+  return { installed, version: inspection.version, binary: inspection.binary, binarySha256: inspection.binarySha256 };
 }
 
 function shellQuote(value: string): string {
@@ -817,16 +732,18 @@ async function createFixture(version: string): Promise<FixtureHandle> {
 
 async function startFixture(
   handle: FixtureHandle,
-  release: VerifiedRelease,
-  bunExecutable: string,
+  binary: string,
   staging: string,
 ): Promise<void> {
-  const environment = qualificationEnvironment(release, bunExecutable, staging, handle.label);
   const launcher = join(staging, "launch-omp-smoke.sh");
-  const exports = Object.entries(environment).map(([name, value]) => `export ${name}=${shellQuote(value)}`);
   await writeFile(
     launcher,
-    ["#!/usr/bin/env bash", "set -euo pipefail", ...exports, `exec bash ${shellQuote(join(repositoryRoot, "scripts/qualify-macos-omp.sh"))} run`, ""].join("\n"),
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `exec ${shellQuote(binary)} --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low >/dev/null 2>&1`,
+      "",
+    ].join("\n"),
     { mode: 0o700, flag: "wx" },
   );
   await runCommand("tmux smoke fixture", [
@@ -864,7 +781,7 @@ async function startFixture(
     }
     await sleep(1_000);
   }
-  throw new Error("patched OMP smoke fixture did not publish within 90 seconds");
+  throw new Error("mainline OMP smoke fixture did not publish within 90 seconds");
 }
 
 async function stopFixture(handle: FixtureHandle | undefined): Promise<void> {
@@ -1058,12 +975,12 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
       repository: options.repository,
       effects: [
         "verify published release provenance",
-        "install or verify the stable gateway without changing config or publisher token",
+        "install or verify the stable gateway without changing config or readiness token",
         "preserve unrelated Tailscale Serve mappings",
-        "build or verify exact patched OMP",
+        "install or verify mainline OMP >=18.1.20",
         "exercise an owned disposable tmux session on the physical Android client",
         "remove only the owned session and private staging",
-        "leave the stable gateway, patched OMP, and installed PWA in place",
+        "leave the stable gateway, mainline OMP, and installed PWA in place",
       ],
     };
   }
@@ -1075,13 +992,13 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
   let primaryError: unknown;
   try {
     const release = await verifyPublishedRelease(options, staging, packageManifest);
-    const bunExecutable = await ensurePersistentBun(release.pins.bunVersion);
+    const bunExecutable = await ensurePersistentBun(release.bunVersion);
     const gateway = await installOrVerifyGateway(options, release, bunExecutable);
     const serve = await ensureServeMapping();
     const doctorChecks = await verifyGatewayDoctor(release, bunExecutable);
-    const omp = await installOrVerifyOmp(options, release, bunExecutable, staging, "omp-post-release-build");
+    const omp = await installOrVerifyOmp(options, release, bunExecutable);
     fixture = await createFixture(release.version);
-    await startFixture(fixture, release, bunExecutable, staging);
+    await startFixture(fixture, omp.binary, staging);
     await runAndroidLanes(release, bunExecutable, fixture.label);
     return {
       tag: options.tag,
@@ -1091,11 +1008,11 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
       gateway: {
         installed: gateway.installed,
         configPreserved: true,
-        publisherTokenPreserved: true,
+        readinessTokenPreserved: true,
         doctorChecks,
       },
       tailscaleServe: { changed: serve.changed, unrelatedMappingsPreserved: true },
-      omp: { version: release.pins.version, built: omp.built, binarySha256: omp.binarySha256 },
+      omp: { version: omp.version, installed: omp.installed, binarySha256: omp.binarySha256 },
       android: {
         viewReadOnly: true,
         controlWritable: true,
@@ -1103,7 +1020,7 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
         samePageRecovery: true,
         installedWebApk: true,
       },
-      leaveInstalled: { gateway: true, patchedOmp: true, webApk: true },
+      leaveInstalled: { gateway: true, mainlineOmp: true, webApk: true },
     };
   } catch (error) {
     primaryError = error;

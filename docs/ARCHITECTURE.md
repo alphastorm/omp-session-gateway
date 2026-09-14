@@ -2,36 +2,37 @@
 
 ## 1. Components
 
-### 1.1 OMP collaboration controller
+### 1.1 Mainline OMP discovery reader
 
-A reusable controller owns OMP's existing `CollabHost` and its lifecycle. The current `/collab` slash command and automatic startup must delegate to the same owner so there is one source of truth for room creation, link roles, status, restart, and shutdown.
+Stock mainline OMP `>= 18.1.20` owns its collaboration controller and per-host local registry.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). No gateway-specific OMP build is required.
 
-Responsibilities:
+`OmpHostReader` reads discovery entries under `~/.omp/run/collab-hosts` (or the configured
+`omp.discoveryDir`) and queries each entry’s published `endpoint` with its per-host token.
+OMP may relocate a long socket path; deriving a socket name from the JSON filename is incorrect.
+The gateway never writes, renames, or unlinks anything in the discovery directory.
 
-- start, stop, and report status around the existing `CollabHost`;
-- expose full and view capabilities only to trusted in-process consumers;
-- emit lifecycle events such as `started`, `updated`, `stopped`, and `faulted`;
-- restart safely on active-session replacement when automatic startup is enabled;
-- preserve all current manual collaboration behavior.
+Snapshot queries return metadata only. OMP owns publication and cleanup, independently of the
+gateway. The file shape and one-request-per-connection wire contract are in [PROTOCOL.md](PROTOCOL.md).
 
-The exact API name should follow the pinned OMP revision. `CollabController` is a proposed shape, not a requirement to ignore a newer supported upstream API.
+### 1.2 Host poller and launch broker
 
-### 1.2 OMP registry publisher
+`startHostPoller` coalesces concurrent polls, reads host snapshots, and reconciles the metadata-only
+`SessionRegistry`. `registry.heartbeatSeconds` is the poll interval (default 10 seconds), not a
+publisher heartbeat. Hosts absent from discovery or conclusively dead are removed; transient query
+failures retain an existing card until `registry.ttlSeconds` (default 35 seconds) expires. Only
+`ENOENT`/`ECONNREFUSED` proves a queried host finished; a timeout, `EMFILE`, `EACCES`, or wire
+error such as `snapshot_unavailable` must not retire it immediately.
 
-A small in-process client publishes one live record per interactive OMP process to the local gateway.
+`OmpLaunchResolver` is the launch broker. After the HTTP authorization checks, it verifies the
+observed generation, requested access, and optional attention request identity; queries OMP for a
+`link` for that exact generation and access; and revalidates before returning a capability.
+`mode_unavailable` refuses a role no longer shared.
 
-Responsibilities:
-
-- discover the platform IPC endpoint;
-- authenticate both publisher and gateway with fresh nonces and domain-separated HMAC proofs derived from the private per-install key; never transmit that key;
-- publish minimal metadata plus the capabilities permitted by configuration, and refresh the same generation's bounded title, directory basename, model label, and boolean response-required state when they change;
-- heartbeat and reconnect with bounded jittered backoff;
-- revoke old generations before publishing replacements;
-- remove the entry on stop, shutdown, or fatal host error;
-- retain and replay only bounded serializable host-origin UI requests so a later writable guest can answer once, while View guests and unsafe/custom response surfaces remain local-only;
-- never persist, print, or log capability-bearing objects.
-
-The publisher may live in OMP core initially or in an extension after upstream exposes a supported collaboration API.
+The gateway fetches capabilities **only per explicit launch**. It never stores or caches them,
+including in the registry: their gateway lifetime is confined to the query and no-store launch
+response. This is strictly narrower than the fork-era in-memory secret store, which retained links
+for the lifetime of a published session.
 
 ### 1.3 `omp-gatewayd`
 
@@ -39,8 +40,8 @@ A per-user daemon is the sole aggregator and remote authorization point.
 
 Responsibilities:
 
-- listen on a Unix-domain socket or Windows named pipe for OMP publishers;
-- maintain an in-memory registry with process/session generations and heartbeat TTLs;
+- read OMP discovery and query per-host endpoints;
+- maintain an in-memory metadata registry with process/session generations and freshness TTLs;
 - expose a loopback-only HTTP server and static PWA;
 - authorize requests using Tailscale Serve identity plus an application allowlist;
 - return a single capability only after an explicit View or Control action;
@@ -50,7 +51,7 @@ Responsibilities:
 - persist private VAPID/subscription material separately from the memory-only session registry and send metadata-only Web Push attention/resolution envelopes;
 - provide `install`, `status`, `doctor`, token rotation, and `uninstall` through `omp-gateway`.
 
-The registry is intentionally empty after daemon restart. Live OMP publishers repopulate it; no capability database exists.
+The registry is intentionally empty after daemon restart. The next host poll repopulates it; no capability store exists.
 
 ### 1.4 OMP Sessions PWA
 
@@ -140,14 +141,9 @@ locally in OMP; ordinary OMP transcript/provider retention therefore still appli
 
 A same-origin child window plus `MessageChannel` is acceptable only when the browser preserves a distinct exact-origin opener: open `/client/` synchronously during the tap, fetch the capability in the opener, transfer it with a same-origin `postMessage`, and never put it into a URL or DOM attribute. Installed Android PWA launch must use the preferred same-document mount because Chrome may reuse the standalone window without an opener.
 
-Temporary compatibility fallback only:
-
-- navigate to a fragment-based OMP deep link;
-- parse synchronously;
-- immediately remove the secret with `history.replaceState`;
-- prohibit release until browser-history and cache tests prove the fragment is gone.
-
-The in-memory bootstrap is the target design because fragments can remain in browser history before replacement and can leak through screenshots or copied URLs.
+The pinned client uses the in-memory bootstrap. Do not introduce a fragment-based compatibility
+path: fragments can remain in browser history before replacement and leak through screenshots or
+copied URLs. Reload intentionally returns to the metadata directory.
 
 ### 1.6 Relay
 
@@ -160,29 +156,24 @@ The in-memory bootstrap is the target design because fragments can remain in bro
 ### 2.1 Desktop login
 
 1. The OS starts `omp-gatewayd` as the current user.
-2. The daemon atomically creates or reads the local publisher token.
-3. It creates the IPC endpoint with current-user-only permissions.
+2. The daemon atomically creates or reads its private readiness token for CLI readiness proofs.
+3. It starts polling OMP’s discovery directory; no gateway publisher endpoint is created.
 4. It binds HTTP to loopback, for example `127.0.0.1:4317`.
 5. A persistent Tailscale Serve mapping exposes that loopback server privately over tailnet HTTPS.
 
 ### 2.2 OMP process start
 
 1. Interactive OMP finishes creating the active session/context.
-2. If automatic collaboration is enabled, the shared controller starts the room.
-3. The publisher connects to the gateway, authenticates, and sends `upsert` for generation 1.
-4. The daemon stores metadata and capabilities in separate in-memory structures.
-5. It increments the directory revision and emits a metadata-only SSE event.
-6. The phone renders the new card.
+2. If `collab.autoStart` is `view` or `control`, OMP’s controller starts collaboration.
+3. OMP publishes its discovery file and owner-only per-host query endpoint.
+4. The next gateway poll fetches a metadata snapshot and reconciles the process card.
+5. A changed registry revision emits metadata-only SSE, and the phone renders the card.
 
-When an admitted host-origin response operation begins, the controller acquires a
-generation-scoped lease and republishes the same generation with `inputRequired: true`. The daemon
-turns each accepted false-to-true transition into one opaque in-memory attention identity with a
-receipt timestamp. Repeated true updates retain that identity; false, removal, expiry, and
-generation replacement destroy it. The browser receives the boolean plus `ask.requestId` and
-`ask.since`; the OMP publisher remains unaware of this browser-routing metadata. The host retains
-the bounded request until a writable guest joins or the local side settles it. The last lease
-release republishes `false` before any generation removal; stale releases from prior generations
-are ignored.
+OMP’s snapshot supplies the boolean `inputRequired`, not prompt or response content. Each accepted
+false-to-true transition creates one opaque in-memory attention identity and receipt timestamp.
+Repeated true observations preserve that identity; false, removal, expiry, and generation
+replacement destroy it. The browser receives the boolean plus `ask.requestId` and `ask.since`;
+OMP remains unaware of this browser-routing metadata.
 
 ### 2.3 Background attention push
 
@@ -204,29 +195,28 @@ are ignored.
 2. For a separate client page, browser code opens `/client/` synchronously to preserve the user gesture; for an integrated SPA, it reserves the client route in memory.
 3. The PWA performs a same-origin `POST /api/v1/sessions/:instanceId/launch` with the observed generation and desired mode.
 4. The gateway verifies Tailscale identity, application allowlist, Origin, fetch metadata, content type, rate limits, generation, freshness, and mode availability.
-5. The no-store response returns exactly one capability.
+5. The launch broker queries OMP for the exact generation and role, revalidates current state, and
+   returns exactly one capability in the no-store response without retaining it.
 6. The PWA passes the capability directly to the pinned collab client's in-memory bootstrap, optionally through a same-origin `MessageChannel`.
 7. The client connects directly to the relay encoded by OMP's parser.
 8. Leaving the client drops capability references and returns to the metadata directory. Reload does not reconnect automatically.
 
 ### 2.5 Session switch, resume, or branch
 
-Treat any lifecycle transition that invalidates OMP's current collaboration host as a generation change:
-
-1. mark generation N unavailable locally;
-2. send `remove` for generation N;
-3. stop/release the old host;
-4. start a fresh host for the new active session;
-5. publish generation N+1;
-6. update the existing process card without exposing the old capability.
-
-If steps 2 or 3 fail, do not publish N+1 until the local publisher state guarantees the old generation cannot be launched through the gateway.
+OMP owns host replacement and generation changes. The gateway observes replacement snapshots and
+updates the existing process card. A launch carries the generation seen by the browser; OMP’s
+`link` operation rejects `stale_generation`, and the broker revalidates after querying. An old
+card never silently receives a replacement capability.
 
 ### 2.6 Crash and stale cleanup
 
-The daemon records receipt time using a monotonic clock. A sweeper removes entries after the configured TTL; a recommended baseline is a 10-second heartbeat and 35-second TTL. Socket close may remove immediately, but TTL remains the crash and partial-failure safety net.
+The daemon records successful observation time using a monotonic clock. A missing discovery entry
+or a host query failing with `ENOENT`/`ECONNREFUSED` removes the card. Other query failures retain
+an existing card until its TTL expires; the default is a 10-second poll interval and 35-second TTL.
+A connection closing after a response is normal: OMP serves one request per connection.
 
-A stale or removed generation is deleted from both metadata and capability maps before an SSE removal event is emitted.
+Removal drops metadata before emitting SSE. There is no capability map to clear and no OMP-owned
+file or socket for the gateway to delete.
 
 ## 3. Trust boundaries
 
@@ -234,10 +224,12 @@ A stale or removed generation is deleted from both metadata and capability maps 
 flowchart TB
     subgraph DesktopUser[Desktop user security boundary]
       OMP[OMP processes]
-      IPC[User-only IPC + mutual HMAC]
+      IPC[OMP discovery + per-host query]
       GATEWAY[omp-gatewayd: in-memory registry]
       HTTP[Loopback HTTP]
-      OMP --> IPC --> GATEWAY --> HTTP
+      OMP --> IPC
+      GATEWAY -->|read and query| IPC
+      GATEWAY --> HTTP
     end
 
     subgraph Tailnet[Tailnet identity boundary]
@@ -252,7 +244,7 @@ flowchart TB
     PHONE <--> RELAY
 ```
 
-A malicious process running as the same desktop OS user is outside the intended threat boundary; it can generally read the user's files or interfere with OMP directly. OS permissions and the publisher token still reduce accidents and cross-user access but are not a sandbox against same-user malware.
+A malicious process running as the same desktop OS user is outside the intended threat boundary; it can generally read the user's files or interfere with OMP directly. OS permissions and per-host query tokens still reduce accidents and cross-user access but are not a sandbox against same-user malware.
 
 A compromised or unlocked phone with valid tailnet identity is also capable of requesting sessions until the device is revoked. Optional WebAuthn user verification reduces this risk for Control.
 
@@ -260,11 +252,12 @@ A compromised or unlocked phone with valid tailnet identity is also capable of r
 
 Process enumeration can find PIDs but cannot safely attach OMP's browser collaboration protocol to an existing interactive context or recover a capability without reading process memory. Simulated keystrokes, terminal scraping, QR decoding, and clipboard monitoring are fragile and create additional secret channels.
 
-The documented extension lifecycle can observe session events, but the handoff cannot assume it exposes ownership of the built-in collaboration host. A small supported API is cleaner than private deep imports. Revalidate this against the pinned OMP revision before implementing.
+Mainline OMP exposes the supported discovery/query surface needed here. Consume it rather than
+private deep imports, process inspection, or a second collaboration controller.
 
 ## 5. Availability behavior
 
-- Gateway unavailable: OMP continues normally; the publisher retries silently and boundedly. The
+- Gateway unavailable: OMP continues normally and its discovery publication remains independent. The
   visible client measures the same-origin path with adaptive RTT timeouts and identifies a sustained
   outage as `Gateway unavailable` without exposing session data.
 - Relay unavailable: cards remain visible. Passive host frames and optional encrypted idle probes
@@ -279,9 +272,8 @@ The documented extension lifecycle can observe session events, but the handoff c
   successful probes and replaces a potentially stale relay socket after the first success.
 - Terminal collaboration state: client recovery timers/listeners stop immediately; the ended status
   and return action remain stable and receive no later path-health publications.
-- Gateway restart: it starts empty; compatible live publishers reconnect and repopulate. An OMP
-  process retains the publisher code loaded at process start, so a process predating the current
-  publisher needs one manual `/collab` or an OMP restart at that upgrade boundary.
-- OMP crash: socket closure or TTL removes the card and capability.
+- Gateway restart: it starts empty; polling discovers already-published mainline OMP hosts without
+  any OMP reconnect or per-session command. Restart a fork-era OMP process under mainline at cutover.
+- OMP crash: missing discovery, definitive endpoint failure, or TTL expiry removes the card.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.
 - Browser push service unavailable or delivery delayed: the dashboard and collaboration paths continue normally; alerts are best effort and never bypass current-state validation.

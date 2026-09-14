@@ -10,6 +10,7 @@
     "repository",
     "tag",
     "commit",
+    "tree",
     "packageVersion",
     "packageVersions",
     "bunVersion",
@@ -17,32 +18,94 @@
     "notes"
   ],
   "properties": {
-    "$schema": { "type": "string" },
-    "status": { "type": "string", "minLength": 1 },
-    "observedAt": { "type": "string", "format": "date" },
-    "repository": { "type": "string", "format": "uri" },
-    "tag": { "type": ["string", "null"] },
-    "commit": {
-      "oneOf": [
-        { "type": "null" },
-        { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+    "$schema": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date"
+    },
+    "repository": {
+      "type": "string",
+      "format": "uri"
+    },
+    "tag": {
+      "type": [
+        "string",
+        "null"
       ]
     },
-    "packageVersion": { "type": ["string", "null"] },
+    "commit": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      ]
+    },
+    "packageVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "packageVersions": {
       "type": "object",
-      "additionalProperties": { "type": "string", "minLength": 1 },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
       "minProperties": 1
     },
-    "bunVersion": { "type": ["string", "null"] },
+    "bunVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "relevantPaths": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
     "notes": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tree": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "darwinArm64Native": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tarballSha256",
+        "binarySha256"
+      ],
+      "properties": {
+        "tarballSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "binarySha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     }
   }
 }

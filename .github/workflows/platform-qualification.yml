@@ -22,35 +22,28 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
+          ref: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
           path: .qualification/oh-my-pi
           persist-credentials: false
-      - name: Apply and test the Windows OMP publisher
+      - name: Verify and test the Windows mainline OMP registry
         shell: pwsh
         run: |
           $upstream = "$env:GITHUB_WORKSPACE\.qualification\oh-my-pi"
-          git -C $upstream config core.autocrlf false
-          git -C $upstream reset --hard HEAD
-          if ($LASTEXITCODE -ne 0) { throw "OMP source line endings could not be normalized" }
-          $patchSource = "$env:GITHUB_WORKSPACE\patches\oh-my-pi\0001-collab-controller-autostart-registry.patch"
-          $normalizedPatch = "$env:RUNNER_TEMP\omp-session-gateway-omp.patch"
-          $patchText = [System.IO.File]::ReadAllText($patchSource).Replace("`r`n", "`n")
-          [System.IO.File]::WriteAllText($normalizedPatch, $patchText, [System.Text.UTF8Encoding]::new($false))
-          git -C $upstream apply $normalizedPatch
-          if ($LASTEXITCODE -ne 0) { throw "OMP patch did not apply" }
+          if ((git -C $upstream rev-parse HEAD) -ne "1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b") { throw "OMP source commit differs from the pin" }
+          if ((git -C $upstream rev-parse 'HEAD^{tree}') -ne "aca949970fb8b73170b05f6a23bf18e23fb5841f") { throw "OMP source tree differs from the pin" }
           Push-Location $upstream
           try {
             bun install --frozen-lockfile
             if ($LASTEXITCODE -ne 0) { throw "OMP dependencies failed to install" }
-            bun test packages/coding-agent/test/collab/registry-publisher.test.ts
-            if ($LASTEXITCODE -ne 0) { throw "OMP Windows publisher tests failed" }
+            bun test packages/coding-agent/test/collab
+            if ($LASTEXITCODE -ne 0) { throw "OMP Windows registry tests failed" }
             bun run ci:check:full
-            if ($LASTEXITCODE -ne 0) { throw "patched OMP coding-agent typecheck failed" }
+            if ($LASTEXITCODE -ne 0) { throw "mainline OMP full checks failed" }
           } finally {
             Pop-Location
           }
       - name: Validate Windows contracts and ACLs
-        run: bun test apps/gateway/test/config.test.ts apps/gateway/test/ipc.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
+        run: bun test apps/gateway/test/config.test.ts apps/gateway/test/omp-registry.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
       - name: Install and start current-user task
         run: bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
       - name: Verify active service
@@ -65,52 +58,34 @@ jobs:
             Select-Object -First 1
           if ($null -eq $process) { throw "gateway process was not found" }
           $process.ProcessId | Set-Content -NoNewline "$env:RUNNER_TEMP\gateway-pid.txt"
-      - name: Reject another local user's publisher write access
+      - name: Reject another local user's readiness-token read access
         shell: pwsh
         run: |
-          $domain = if ($env:USERDOMAIN) { $env:USERDOMAIN } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "local" }
-          $identity = "$domain\$env:USERNAME".ToLowerInvariant()
-          $digest = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($identity))
-          $pipeName = "omp-session-gateway-$([Convert]::ToHexString($digest).ToLowerInvariant().Substring(0, 20))"
-
-          $currentUserProbe = [System.IO.Pipes.NamedPipeClientStream]::new(
-            ".",
-            $pipeName,
-            [System.IO.Pipes.PipeDirection]::InOut
-          )
+          $tokenPath = "$env:LOCALAPPDATA\OMP Session Gateway\readiness-token"
+          $ownerProbe = [System.IO.File]::OpenRead($tokenPath)
           try {
-            $currentUserProbe.Connect(1000)
-            if (-not $currentUserProbe.IsConnected) { throw "current user could not connect to publisher pipe" }
+            if ($ownerProbe.Length -ne 43) { throw "current user could not read a valid readiness token" }
           } finally {
-            $currentUserProbe.Dispose()
+            $ownerProbe.Dispose()
           }
-
-          $probePath = "$env:PUBLIC\omp-gateway-pipe-probe.ps1"
+          $probePath = "$env:PUBLIC\omp-gateway-token-probe.ps1"
           @'
-          param([string]$PipeName)
-          foreach ($direction in @(
-            [System.IO.Pipes.PipeDirection]::Out,
-            [System.IO.Pipes.PipeDirection]::InOut
-          )) {
-            $probe = [System.IO.Pipes.NamedPipeClientStream]::new(".", $PipeName, $direction)
-            $connected = $false
-            try {
-              $probe.Connect(750)
-              $connected = $probe.IsConnected
-            } catch [System.UnauthorizedAccessException] {
-            } catch [System.TimeoutException] {
-            } finally {
-              $probe.Dispose()
-            }
-            if ($connected) { exit 91 }
+          param([string]$TokenPath)
+          try {
+            $probe = [System.IO.File]::OpenRead($TokenPath)
+            $probe.Dispose()
+            exit 91
+          } catch [System.UnauthorizedAccessException] {
+            exit 0
+          } catch {
+            exit 92
           }
-          exit 0
           '@ | Set-Content -LiteralPath $probePath -Encoding utf8
 
           $otherUser = "ompgatewayprobe"
           $password = "Omp!" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + "1"
           & net.exe user $otherUser $password /add /expires:never
-          if ($LASTEXITCODE -ne 0) { throw "failed to create pipe ACL probe user" }
+          if ($LASTEXITCODE -ne 0) { throw "failed to create token ACL probe user" }
           try {
             $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
             $credential = [System.Management.Automation.PSCredential]::new(
@@ -120,25 +95,25 @@ jobs:
             $probeProcess = Start-Process `
               -FilePath "powershell.exe" `
               -Credential $credential `
-              -ArgumentList @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $probePath, $pipeName) `
+              -ArgumentList @("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$probePath`"", "`"$tokenPath`"") `
               -Wait `
               -PassThru
             if ($probeProcess.ExitCode -ne 0) {
-              throw "publisher pipe granted write access to another local user (probe exit $($probeProcess.ExitCode))"
+              throw "readiness-token read refusal failed for another local user (probe exit $($probeProcess.ExitCode))"
             }
           } finally {
             Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
             & net.exe user $otherUser /delete | Out-Null
           }
-      - name: Rotate token and reinstall
+      - name: Rotate readiness token and reinstall
         shell: pwsh
         run: |
-          $token = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\publisher-token"
+          $token = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\readiness-token"
           $beforeWrite = $token.LastWriteTimeUtc
           Start-Sleep -Milliseconds 1100
-          bun apps/gateway/src/cli.ts rotate-publisher-token
+          bun apps/gateway/src/cli.ts rotate-readiness-token
           if ($LASTEXITCODE -ne 0) { throw "token rotation failed" }
-          $rotated = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\publisher-token"
+          $rotated = Get-Item "$env:LOCALAPPDATA\OMP Session Gateway\readiness-token"
           if ($rotated.LastWriteTimeUtc -le $beforeWrite) { throw "token file was not replaced" }
           bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
           if ($LASTEXITCODE -ne 0) { throw "active reinstall failed" }
@@ -179,7 +154,7 @@ jobs:
             Select-Object -First 1
           if ($null -ne $process) { throw "gateway process remained after uninstall" }
 
-  # Native aarch64 coverage for the repository's own suites and for the pinned OMP patch.
+  # Native aarch64 coverage for the repository's own suites and for the pinned mainline OMP source.
   #
   # Why this job exists. The real Linux lane moved from a Debian 13 aarch64 container to an x86-64
   # DigitalOcean droplet (docs/LINUX_QUALIFICATION.md section 8). That trade bought a machine that
@@ -191,12 +166,9 @@ jobs:
   #
   # What a green run proves, on aarch64:
   #   - the repository suite, every workspace typecheck, and the production PWA build;
-  #   - that the pinned OMP patch applies and its documented collab fixtures pass, together with the
-  #     coding-agent typecheck. This is the half that earns the run: the publisher fixtures drive the
-  #     POSIX Unix-socket path with its owner, mode, and mutual-HMAC checks, and the guest/read-only
-  #     fixtures drive a real in-memory relay, so between them they reach Bun's native crypto,
-  #     socket, and WebSocket code. Nothing else in this repository's CI reaches those paths on
-  #     aarch64.
+  #   - that unmodified mainline OMP matches its commit and tree pins, its collaboration fixtures
+  #     pass, and its full upstream checks pass. Registry fixtures exercise discovery and
+  #     authenticated per-host socket queries; guest/read-only fixtures exercise the relay.
   #
   # What a green run does NOT prove. It is not arm64 platform qualification:
   #   - no service is installed, so nothing here bears on a host lifecycle row. `install` on Linux
@@ -217,7 +189,7 @@ jobs:
   #     the capability- and identifier-leak scans read tracked text, so they cannot differ by
   #     architecture, and duplicating them here would only make a failure ambiguous.
   #
-  # Ledger bearing: evidence toward `Repository automated suite` and `OMP patch compatibility` on an
+  # Ledger bearing: evidence toward `Repository automated suite` and `Mainline OMP compatibility` on an
   # architecture neither has been run on. It closes no row, promotes nothing, and is deliberately not
   # on any required-checks list until it has proven stable.
   linux-arm64-source-checkout:
@@ -273,45 +245,28 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: daf07999c2fee9b22edc7bf8fea1fb6272e0df5e
+          ref: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
           path: .qualification/oh-my-pi
           persist-credentials: false
-      - name: Apply the OMP patch and run its collab fixtures on aarch64
+      - name: Verify mainline OMP source and run its collab fixtures on aarch64
         working-directory: .qualification/oh-my-pi
         run: |
           set -euo pipefail
           fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
 
-          # No `core.autocrlf` handling and no `reset --hard`, unlike windows-service-lifecycle above:
-          # that job normalizes because the Windows checkout rewrites the working tree to CRLF while
-          # the patch is stored with LF. Here `git apply` sees exactly the bytes the patch was
-          # generated from.
-          patch="$GITHUB_WORKSPACE/patches/oh-my-pi/0001-collab-controller-autostart-registry.patch"
-          git apply --check "$patch" ||
-            fail "OMP patch does not apply" \
-              "patches/oh-my-pi/0001-collab-controller-autostart-registry.patch no longer applies to the pinned OMP checkout at daf07999. This is patch/pin drift, not an architecture result."
-          git apply "$patch"
-          printf 'patch applied to pin daf07999c2fee9b22edc7bf8fea1fb6272e0df5e\n'
+          test "$(git rev-parse HEAD)" = 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
+          test "$(git rev-parse 'HEAD^{tree}')" = aca949970fb8b73170b05f6a23bf18e23fb5841f
+          printf 'unmodified mainline OMP v18.1.20 source verified\n'
 
           bun install --frozen-lockfile
 
-          # v18.1.14 publishes the ARM64 addon. Stage it because the source workspace shadows npm.
+          # v18.1.20 publishes the ARM64 addon. Stage it because the source workspace shadows npm.
           native_fixture="$(mktemp -d)"
           trap 'rm -rf "$native_fixture"' EXIT
-          printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-linux-arm64":"18.1.14"}}' >"$native_fixture/package.json"
+          printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-linux-arm64":"18.1.20"}}' >"$native_fixture/package.json"
           (cd "$native_fixture" && bun install --ignore-scripts)
           cp "$native_fixture/node_modules/@oh-my-pi/pi-natives-linux-arm64/pi_natives.linux-arm64.node" \
             packages/natives/native/pi_natives.linux-arm64.node
 
-          bun test packages/coding-agent/test/collab/registry-publisher.test.ts \
-            packages/coding-agent/test/collab/controller.test.ts \
-            packages/coding-agent/test/collab/collab-command-publication.test.ts \
-            packages/coding-agent/test/config/collab-settings.test.ts \
-            packages/coding-agent/test/collab/guest-ui-request.test.ts \
-            packages/coding-agent/test/collab/read-only.test.ts \
-            packages/coding-agent/test/hook-editor.test.ts \
-            packages/coding-agent/test/interactive-mode-default-plan-mode.test.ts \
-            packages/coding-agent/test/agent-session-bash-session-ownership.test.ts \
-            packages/coding-agent/test/session-manager-branch-order.test.ts \
-            packages/coding-agent/test/slash-commands/collab-qrcode.test.ts
+          bun test packages/coding-agent/test/collab
           bun run ci:check:full

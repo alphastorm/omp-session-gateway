@@ -2,30 +2,29 @@
 
 ## Pre-alpha, alpha, beta, and stable artifacts
 
-The repository produces working Bun-runtime engineering candidates and advertised alpha, beta,
-and stable releases. The v0.3.0 stable line is bound to signed candidate v0.3.0-prealpha.3,
-rollback predecessor v0.2.1, and the exact evidence in `STABLE_RELEASE.lock.json` and
-`RELEASE_STATUS.md`; generated artifacts never promote themselves.
+The repository produces Bun-runtime candidates and publishes only the exact support claim proven
+by their signed-artifact qualification. Current source requires stock mainline OMP `>= 18.1.20`;
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Configure `collab.autoStart` alone and launch
+plain `omp`. The gateway reads discovery and queries hosts, with no OMP patch set or separate
+activation route. It fetches capabilities only per launch and never stores them.
 
-Stable is a bounded support claim, not an expansion to platform families. It covers only the
-hosts, Android client, TUN-mode Tailscale Serve path, and exact patched OMP baseline recorded in
-COMPATIBILITY.md at the release commit. Windows, background Push qualification, Portal Tunnel,
-userspace networking, Funnel, self-hosted/proxied relays, stock OMP, and every unnamed combination
-remain unsupported.
+**Mainline qualification is pending.** No published mainline-compatible gateway artifact or
+successful mainline host/client/relay qualification is asserted here. The existing v0.3.0 stable
+lock and receipts are fork-era history and cannot authorize the changed runtime bytes.
 
-The supported OMP procedure is the
-[versioned omp-gateway-patched route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route).
-Upstreaming and paired packaging remain deferred under ADR-024 and ADR-025. Every participating OMP
-process must use the exact verified binary; the gateway release alone cannot add the missing stock
-OMP controller/publication seam.
+The remote boundary remains TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
+Windows, background Push qualification, Portal Tunnel, userspace networking, public forwarding,
+and self-hosted/proxied relays remain outside the core claim. A minimum OMP version does not
+qualify every future release or platform.
 
-Gateway rollback does not implicitly switch OMP. The v0.3.0 campaign's v0.2.1 stable predecessor
-requires its exact v17.4.1 patched OMP prerequisite; use managed gateway rollback when the
-predecessor archive remains in installation history, otherwise reinstall the signed v0.2.1
-archive. Any change to the active OMP binary or symlink remains the separate documented manual
-operation.
+Gateway rollback does not switch OMP, restore the previous configuration, or restore the removed
+fork-era publication credential. Qualify the selected predecessor and architecture-crossing
+recovery explicitly; see [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
 
 ## v0.3.0 qualification and promotion
+
+**Fork-era record:** this section preserves the named v0.3.0 campaign, its commands, and its
+patched OMP evidence. It is not a command to republish that immutable version or a mainline result.
 
 Stable **v0.3.0** is published as immutable GitHub Latest; **v0.3.0-prealpha.3** is its signed qualification vehicle.
 The host/client matrix, runtime equivalence, and fresh eight-hour relay endurance passed.
@@ -63,7 +62,8 @@ COMPATIBILITY.md. Generated or signed artifacts do not promote themselves.
 Every advertised release requires:
 
 - private vulnerability reporting and repository security controls enabled;
-- an exact OMP commit, reviewed patch, collab-web provenance, and license inventory;
+- an exact mainline OMP commit, validated discovery/query contract, collab-web provenance, and
+  license inventory;
 - all automated unit, integration, browser, type, build, and secret/identifier-leak checks green;
 - advertised host installers qualified against the exact signed candidate;
 - loopback-only exposure plus positive and negative Tailscale identity/Origin evidence;
@@ -74,7 +74,8 @@ Every advertised release requires:
 
 Stable publication additionally requires that the exact signed tag's tree contain a fully passed
 STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
-retained Mac14,3, physical Pixel, patched-OMP publication, provenance, and secret-sink evidence.
+retained Mac14,3, physical Pixel, mainline OMP discovery/query and launch/revocation, provenance,
+and secret-sink evidence. No fork-era receipt can stand in for one of these new candidate lanes.
 The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
 published candidate digest, requires a GitHub-verified signed annotated tag, and rechecks tag state
 before public provenance, draft creation, and promotion. Issue #65 remains a browser-process
@@ -82,14 +83,19 @@ environment limitation: after 45 uninterrupted visible failure seconds, the load
 retry and force-stop/reopen help without a third-party probe or a claim that JavaScript repaired
 Chrome.
 
-The historical v0.2.1 qualification ran this sequence from its clean, published Darwin-arm64 branch
-(use the v0.3.0 command above for current source):
+The following command and its result are **fork-era v0.2.1 history**, run from that release’s
+clean, published Darwin-arm64 branch, not instructions for a mainline candidate:
 
 ```sh
 bun run qualify:stable --tag v0.2.1-prealpha.2
 ```
 
-The command re-verifies the signed tag, six release assets, checksums, three GitHub attestations, and three Sigstore bundles; dispatches or resumes the Debian workflow; discovers the retained Scaleway Mac by name; runs install, doctor, exposure, reboot, stable-to-candidate rollback, exact patched-OMP build/publication/revocation, physical-Pixel acceptance and forbidden-sink sweep, and a bounded relay smoke; then uninstalls and removes qualification-owned Mac state. It writes one mode-`0600` receipt at `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`.
+For a selected mainline candidate, `bun run qualify:stable --tag "$TAG"` must re-verify signed
+assets and provenance, exercise Debian and retained-Mac lifecycle, the exact predecessor, real
+mainline discovery/launch/revocation, physical Pixel acceptance and secret sinks, bounded relay
+smoke, and cleanup. It writes a private receipt under
+`~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
+scripts are not qualification evidence until these lanes run against the exact candidate.
 
 The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 
@@ -97,13 +103,30 @@ Qualification is a single-operator procedure: run exactly one orchestrator proce
 
 If a persisted Debian dispatch UUID is not discoverable, do not start a second process or delete the receipt blindly. Search Actions for the exact `Stable qualification <uuid>` title and orchestrator commit. Resume when that run appears. Only after API evidence proves no matching run exists and every Mac-related lane has zero attempts may the operator archive the entire private qualification directory and restart; otherwise recover the recorded Mac cleanup state first. Automatic redispatch is intentionally refused because an accepted-but-delayed workflow cannot be distinguished safely from a rejected request.
 
-Mac qualification receives the archive SHA-256 already verified by the orchestrator and rejects different bytes. The workstation verifies and stages rollback assets, including their Sigstore bundles, so the retained Mac needs no GitHub credential. OMP source commit, patched tree, Bun version, native-package tarball, and extracted native binary are exact pins from `patches/oh-my-pi/qualification.env`.
+Mac qualification receives the archive SHA-256 already verified by the orchestrator and rejects
+different bytes. The workstation verifies and stages rollback assets, including their Sigstore
+bundles, so the retained Mac needs no GitHub credential. Mainline source and toolchain pins come
+from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree assertion, and cleanup
+counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
+mainline output.
 
 Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`; `--previous-tag` changes the exact rollback predecessor.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 
 ## Post-release local installation smoke
+
+After a mainline-compatible artifact is published, run its own
+`bun run smoke:release -- --tag "$TAG" --archive-sha256 "$ARCHIVE_SHA256"` with the exact verified
+public digest. Use that artifact’s Bun/source pins and stock OMP `>= 18.1.20`; require current
+readiness-token/config preservation, mainline discovery and launch/revocation, physical Android
+recovery/isolation, and owned-fixture cleanup. This mainline smoke is **pending**, not inherited
+from any prior run.
+
+### Fork-era post-release smoke procedure
+
+All commands, prerequisites, preservation claims, and results in this subsection are retained
+for their named historical release checkout. They do not describe mainline setup.
 
 After a stable release is public, run its published bytes on the configured local Darwin-arm64 Mac
 and the attached physical Android client. This is a post-publication install/upgrade smoke, not a
@@ -117,9 +140,9 @@ origin. The Android qualification PIN stays in the documented macOS Keychain ser
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
 fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
 
-For the current stable, run from the `v0.2.1` checkout with its own Bun and OMP pins.
-Current engineering source uses Bun 1.4.0 and OMP v18.1.14; do not mix those bytes with this
-historical stable smoke:
+This fork-era example ran from the `v0.2.1` checkout with its own Bun and OMP pins. The later
+fork-era v0.3.0 engineering source used Bun 1.4.0 and OMP v18.1.14; neither set of bytes is the
+current mainline source or a transferable qualification:
 
 
 ```sh
@@ -182,7 +205,7 @@ not removed and remain failed-attempt provenance.
 
 ## Default-relay soak qualification
 
-Keep a patched OMP process and the gateway running, then exercise a view-only client for the default
+Keep a stock mainline OMP `>= 18.1.20` host and the gateway running, then exercise a view-only client for the default
 eight hours:
 
 ```sh
@@ -196,9 +219,10 @@ gateway origin, requires `no-store` metadata and launch responses, never prints 
 fails if the collaboration client ends or is not live at completion. Set
 `OMP_GATEWAY_SOAK_INSTANCE_ID` to select one published session. `OMP_GATEWAY_SOAK_SECONDS` may shorten
 a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
-long-lived relay scenario. Record the gateway commit, pinned OMP commit/patch, output JSON, final
+long-lived relay scenario. Record the gateway commit, exact mainline OMP commit, output JSON, final
 gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
-required before claiming bounded memory growth.
+required before claiming bounded memory growth. Mainline endurance is pending; no fork-era
+long-window result transfers to the changed host/query/client baseline.
 
 ## Fleet CI runtime
 

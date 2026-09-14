@@ -36,17 +36,29 @@ test("detects URL, bare, legacy, percent-encoded, and authorization leaks", () =
     "OMP bare capability",
     "OMP bare capability",
     "long Bearer token",
+    "OMP collaboration fragment",
+    "OMP collaboration fragment",
   ]);
 });
 
-test("detects generated publisher tokens in IPC JSON and token-file diagnostics", () => {
+test("detects generated readiness tokens in JSON and token-file diagnostics", () => {
   const token = randomBytes(32).toString("base64url");
   expect(
-    findCapabilityLeaks([JSON.stringify({ type: "hello", token }), `publisher-token=${token}`].join("\n")).map(
+    findCapabilityLeaks([JSON.stringify({ token }), `readiness-token=${token}`].join("\n")).map(
       finding => finding.label,
     ),
-  ).toEqual(["OMP publisher token", "OMP publisher token"]);
-  expect(findCapabilityLeaks(token).map(finding => finding.label)).toEqual(["raw publisher token"]);
+  ).toEqual(["gateway readiness token", "gateway readiness token"]);
+  expect(findCapabilityLeaks(token).map(finding => finding.label)).toEqual(["raw readiness token"]);
+});
+
+test("detects discovery credentials and collaboration fragments without a URL prefix", () => {
+  const token = randomBytes(32).toString("hex");
+  expect(findCapabilityLeaks(JSON.stringify({ version: 1, token })).map(finding => finding.label)).toEqual([
+    "OMP discovery token",
+  ]);
+  const fragment = ["#", room, ".", key].join("");
+  expect(findCapabilityLeaks(fragment).map(finding => finding.label)).toEqual(["OMP collaboration fragment"]);
+  expect(findCapabilityLeaks(JSON.stringify({ sha256: token }))).toEqual([]);
 });
 
 test("does not flag documented placeholders or ordinary URLs", () => {

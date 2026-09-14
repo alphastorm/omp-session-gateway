@@ -1,5 +1,22 @@
 # Branch and saved-session resume lane
 
+## Mainline lifecycle qualification — pending
+
+The current gateway consumes stock OMP `>= 18.1.20` ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)) with
+`collab.autoStart` alone. It observes snapshots through OMP-owned discovery and resolves an exact
+generation/role only at launch, without storing capabilities or writing discovery files. A new
+branch/resume lane must exercise that query path and stale-generation refusal on real mainline
+OMP. Mainline lifecycle qualification is **pending**.
+
+## Fork-era measurement archive
+
+**Every command, setting, path, measured transition, and conclusion below is fork-era evidence**
+from the named 2026-08-20 runtime. It retains its original dates, digests, limitations, and
+observations; it does not describe the shipping prerequisite or qualify mainline behavior.
+Publisher endpoint settings, socket-close removal, token proofs, and push-era timing apply only
+to that historical build. Use [OMP_INTEGRATION.md](OMP_INTEGRATION.md) for the current contract.
+
+
 Two OMP lifecycle transitions — `/branch` and saved-session resume — measured against the live
 tailnet gateway on 2026-08-20, using scratch OMP sessions created under `/tmp` and read-only
 `curl`/HTTP observation of the production daemon.

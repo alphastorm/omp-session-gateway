@@ -2,24 +2,23 @@
 
 ## 1. One-time prerequisites
 
-- the exact OMP v18.1.14 gateway patch for gateway 0.3.0, built and activated through the
-  [versioned prerequisite route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route);
+- stock mainline OMP `>= 18.1.20` on PATH;
+- Bun 1.4.0 for this gateway checkout;
 - Tailscale installed and signed into the same tailnet on the desktop and Android phone;
 - tailnet HTTPS/DNS enabled as required by Tailscale Serve;
-- a tailnet policy restricting the gateway host's HTTPS service to the intended user/device posture;
-- an Android browser supported by the release compatibility matrix.
+- a tailnet policy restricting the gateway host’s HTTPS service to the intended user/device posture;
+- a browser/host combination qualified for the exact gateway artifact before claiming support.
 
-The v0.3.0 qualified path uses Bun 1.4.0 and the exact patched OMP v18.1.14 prerequisite above.
-Historical `v0.2.1` retains exact patched OMP v17.4.1; use its
-[matching operations guide](https://github.com/alphastorm/omp-session-gateway/blob/v0.2.1/docs/OPERATIONS.md)
-when rolling back. Gateway rollback does not switch the separately installed OMP executable.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Stock OMP is sufficient: set
+`collab.autoStart` once, then use plain `omp`. The gateway only reads OMP’s discovery directory
+and queries each host; no gateway-specific OMP build or shared publication credential is needed.
 
-The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login, gateway installation, and OMP configuration happen once.
+Mainline qualification is pending. Published `v0.3.0` and `v0.2.1` retain their **fork-era**
+patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s matching instructions for
+those artifacts. Gateway rollback alone neither switches OMP nor restores fork-era configuration.
 
-Stock OMP does not provide automatic startup or authenticated registry publication. Operators
-must launch participating sessions with the versioned `omp-gateway-patched` executable; the route
-keeps the user's ordinary `omp` installation untouched and includes explicit provenance and
-rollback checks.
+The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login,
+gateway installation, and OMP configuration happen once.
 
 For v1 header-based authorization, the Android source must be a user-authenticated Tailscale device. Tagged source devices do not receive the user identity header used by the default auth mode.
 
@@ -35,30 +34,26 @@ It should:
 
 1. install the exact signed/released `omp-gateway` and `omp-gatewayd` binaries plus static assets into a user-scoped location;
 2. create the config/state/runtime directories with current-user-only permissions;
-3. create the publisher token atomically;
+3. create the private readiness token atomically; it is never provisioned to OMP;
 4. install an autostart definition for the current OS;
 5. start or restart the daemon;
 6. run local health, listener, ACL, and permission checks;
 7. print the Tailscale Serve and policy steps without exposing secrets;
 8. show the PWA URL after Serve is configured.
 
-On current 0.3.0 source, an upgrade reads and validates the existing private configuration first.
+On current source, an upgrade reads and validates the existing private configuration first.
 Continue passing the production `--origin` and `--allow` values on install and upgrade. An omitted
 `--port` preserves the existing port; hostname, identity-trust, and registry settings are retained.
 A malformed existing configuration fails closed instead of being replaced with defaults. The
-publisher token is retained, and an unchanged configuration is not rewritten.
+readiness token is retained, and an unchanged configuration is not rewritten. Installation removes
+the legacy fork-era publication token; this is not a reversible credential migration.
 
 Platform targets:
 
 - Linux: systemd user service named `omp-session-gateway.service`, with an explicit support policy for non-systemd systems;
 - macOS: LaunchAgent under the current user;
-- Windows: current-user scheduled task or equivalently scoped user service, plus a current-user named pipe ACL.
-
-The pre-alpha OMP patch derives the same current-user pipe name, verifies the private token ACL, and
-authenticates the named-pipe server before releasing its proof or capabilities. The hosted
-source-checkout publisher/lifecycle workflow passes. Do not advertise Windows session discovery
-until the signed-candidate lifecycle, reboot/login, upgrade/rollback, namespace-squatting, and
-cross-user acceptance gates pass.
+- Windows: current-user scheduled task; mainline discovery and signed-candidate lifecycle
+  qualification remain pending. No Windows support claim transfers from fork-era source acceptance.
 
 Also provide:
 
@@ -66,7 +61,7 @@ Also provide:
 omp-gateway status
 omp-gateway doctor
 omp-gateway doctor --bundle
-omp-gateway rotate-publisher-token
+omp-gateway rotate-readiness-token
 omp-gateway uninstall
 ```
 
@@ -80,13 +75,13 @@ Install snapshots the prior private config, validates any existing managed servi
 authenticated foreground listeners on both the prior and requested endpoints, stages a
 content-addressed runtime, and verifies its manifest and payload digest. It starts that exact CLI
 with a one-time readiness-instance nonce and advances the current pointer only after a
-publisher-token HMAC bound to that nonce succeeds. A generic loopback
+readiness-token HMAC bound to that nonce succeeds. A generic loopback
 `{"status":"ready"}` response and a same-token prior process are insufficient. If config, service
 registration, startup, readiness, or pointer activation fails, install restores the prior config,
 service state, and verified runtime. An unavailable token is repaired only while the prior service
 is inactive and its loopback endpoint is unoccupied.
 
-Publisher-token rotation validates the managed runtime before replacing the token. If the service
+Readiness-token rotation validates the managed runtime before replacing the token. If the service
 cannot restart on the fresh token, the fresh token remains authoritative and the service is
 stopped; the prior potentially exposed token is never restored. Repair the failure, then rerun the
 normal install command to restore service registration. Mutation commands reject unknown options,
@@ -94,49 +89,33 @@ missing values, and misspelled safety flags before changing state.
 
 ## 3. Paths
 
-Recommended defaults:
-
-### Linux/XDG
-
-- config: `${XDG_CONFIG_HOME:-$HOME/.config}/omp-session-gateway/config.jsonc`;
-- token: `${XDG_CONFIG_HOME:-$HOME/.config}/omp-session-gateway/publisher-token`;
-- runtime: `$XDG_RUNTIME_DIR/omp-session-gateway/`;
-- state/logs: `${XDG_STATE_HOME:-$HOME/.local/state}/omp-session-gateway/`.
-
-### macOS
-
-Use `~/Library/Application Support/OMP Session Gateway/` for config/state and a current-user temporary runtime directory for the socket. Use unified logging or a bounded user log with secret-safe fields.
-
-### Windows
-
-Use `%LOCALAPPDATA%\OMP Session Gateway\` for config/state and a current-user named pipe.
-
+The gateway’s private config directory contains `config.json` and `readiness-token`; its private
+state directory holds the managed runtime and optional push state. Use the installed CLI’s
+configuration/diagnostics rather than assuming an OMP path from a gateway runtime directory.
 Capabilities are never stored in any of these paths.
+
+OMP separately owns `~/.omp/run/collab-hosts`. `PI_CONFIG_DIR` changes the `.omp` directory name
+relative to the home directory. The gateway reads each discovery file’s `endpoint` verbatim because
+OMP can relocate long socket paths. Never delete or repair entries from the gateway.
 
 ## 4. Gateway configuration
 
-Example `config.jsonc`:
+`install --origin https://host.tailnet.ts.net --allow you@example.com` creates the private gateway
+configuration. The mainline integration adds these fields:
 
-```jsonc
-{
-  "listen": "127.0.0.1:4317",
-  "auth": {
-    "mode": "tailscale-serve",
-    "allowedLogins": ["you@example.com"]
-  },
-  "registry": {
-    "heartbeatSeconds": 10,
-    "ttlSeconds": 35,
-    "metadataPathMode": "basename"
-  },
-  "controlProtection": "tailnet",
-  "relayAllowlist": ["wss://my.omp.sh"]
-}
-```
+| Field | Default | Meaning |
+|---|---|---|
+| `omp.discoveryDir` | OMP discovery directory resolved as above | Explicit directory override for the reader. |
+| `omp.queryTimeoutMs` | `1500` | Per-host query deadline in milliseconds. |
+| `registry.heartbeatSeconds` | `10` | Discovery poll interval in seconds, not a publisher heartbeat. |
+| `registry.ttlSeconds` | `35` | Retention of an existing card during transient query failure. |
 
-Validate strictly and fail closed. Reject wildcard listen addresses in production, wildcard identities, unsupported relay schemes, unsafe paths, unknown fields, and heartbeat/TTL combinations that make stale control likely.
+TTL must exceed twice the poll interval. Only `ENOENT`/`ECONNREFUSED` proves a queried host dead;
+timeouts, permission/resource errors, and wire errors retain the card until TTL expiry. A host
+absent from discovery is removed. An absent discovery directory is valid when no hosts are sharing.
 
-`controlProtection` may later support `webauthn`; it must not silently downgrade to `tailnet` after enrollment.
+Validate strictly and fail closed. Reject wildcard listen addresses in production, wildcard
+identities, unsafe paths, unknown fields, and invalid poll/TTL combinations.
 
 ## 5. Tailscale Serve
 
@@ -184,15 +163,15 @@ See `examples/omp-settings.jsonc`:
 ```jsonc
 {
   "collab": {
-    "autoStart": "control",
-    "registryEndpoint": "auto"
+    "autoStart": "control"
   }
 }
 ```
 
 The upstream-safe default remains `off`. A conservative deployment can choose `view` and retain manual full-control collaboration for occasional use.
 
-If the implementation lands as an extension rather than core settings, provide equivalent extension configuration without changing the security or lifecycle semantics.
+Set it with `omp config set collab.autoStart control` (or `view`), then start interactive sessions
+with plain `omp`. No other OMP setting is required for gateway discovery.
 
 ## 8. Android/PWA installation
 
@@ -210,20 +189,18 @@ Do not ask the user to bookmark or copy an individual OMP collaboration link.
 - pin the collab-web integration to an exact OMP commit and record it in `UPSTREAM.lock.json` and the compatibility matrix;
 - run parser/client compatibility fixtures before updating OMP;
 - support explicit protocol versions and a safe rolling-upgrade overlap where practical;
-- gateway restart begins empty and compatible live publishers reconnect;
-- rotate the publisher token after suspected local exposure or ownership/permission failure;
+- gateway restart begins empty and the next poll rediscovers live mainline hosts;
+- rotate the readiness token after suspected local exposure or ownership/permission failure;
   Rotation atomically replaces an unsafe regular-file/symlink leaf inside the verified private
   config directory, but refuses an unsafe parent or non-file token path.
 - verify release checksums and provenance before replacing binaries;
-- provide rollback instructions for gateway and OMP patch/extension versions.
+- retain matching gateway configuration and OMP versions for any planned rollback.
 
-An OMP process keeps the collaboration controller and publisher code that was loaded when that
-process started. A gateway upgrade cannot retrofit a session launched from an older OMP build, and
-changing `collab.autoStart` does not rerun startup in an already-initialized session. Current
-publishers reconnect and repopulate the memory-only registry after a daemon replacement. During a
-one-time cutover from older publisher code or from `autoStart: "off"`, run `/collab` once in the
-long-running session (or restart that OMP process); subsequent gateway restarts require no manual
-session command.
+An OMP process keeps code loaded at process start. Restart fork-era OMP processes under mainline
+at cutover; a gateway upgrade cannot retrofit them. Changing `collab.autoStart` does not rerun
+initialization in an existing session either. Once mainline OMP has published a host, gateway
+restarts require no per-session command. Avoid manual `/collab` in recorded terminals because OMP
+deliberately prints its bearer links.
 
 ## 10. Lost phone and revocation
 
@@ -234,7 +211,8 @@ Document a direct checklist:
 3. narrow or temporarily disable the tailnet grant;
 4. restart `omp-gatewayd` to drop active browser sessions if necessary;
 5. stop/restart OMP collaboration hosts to rotate room capabilities;
-6. rotate the publisher token only when local desktop exposure is suspected—it does not revoke a remote collaboration room by itself.
+6. rotate the readiness token only when local desktop exposure is suspected—it does not revoke an
+   OMP query token or a remote collaboration room.
 
 When WebAuthn Control protection is enabled, remove the lost credential and enroll a replacement.
 
@@ -244,20 +222,19 @@ When WebAuthn Control protection is enabled, remove the lost credential and enro
 
 - daemon and autostart state;
 - loopback-only listener;
-- IPC endpoint/token ownership and permissions;
+- private readiness-token permissions and OMP discovery readability;
 - Tailscale connectivity and Serve mapping;
 - absence of Funnel exposure;
 - trusted identity header flow through Serve;
 - allowed-login match;
 - PWA, manifest, CSP, and service-worker availability;
 - relay DNS/TLS connectivity without creating or logging a real capability;
-- publisher count and heartbeat health without exposing capabilities;
-- config validation plus the presence and exact pin of the bundled `UPSTREAM.lock.json` and OMP patch artifacts.
+- `sessionHealth` without exposing capabilities;
+- config validation and `compatibility`: the `omp` on PATH reports at least 18.1.20;
+- `discoveryReadable`: OMP discovery is absent or readable, owned by the current user, and not a symlink.
 
-The compatibility check validates the gateway distribution's pinned integration artifacts. It does
-not inspect or claim that a separately installed OMP executable contains the patch; installation
-and qualification must run the source-tree, symlink, version, and config assertions in the
-[versioned patch route](../patches/oh-my-pi/README.md#current-v18114-gateway-prerequisite-route).
+`doctor` does not establish a signed-artifact or native-platform qualification. Mainline
+qualification must exercise the real host/query/launch path against the exact gateway candidate.
 Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.

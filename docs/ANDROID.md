@@ -2,6 +2,11 @@
 
 ## Decision: PWA first
 
+Current hosts use stock mainline OMP `>= 18.1.20` with `collab.autoStart` alone. The gateway polls
+OMP metadata and fetches a capability per explicit launch without storing it; Android HTTP/SSE and
+in-memory client bootstrap are unchanged. Physical Android results in the release ledger are
+**fork-era** evidence, not qualification of this cutover. Mainline qualification is pending.
+
 The existing OMP collaboration client is already a browser application and includes the core live-control experience. The Android deliverable should therefore be the OMP Sessions PWA that launches the existing client, not a new native implementation of the collaboration protocol.
 
 Benefits:
@@ -84,12 +89,13 @@ Canary completes the recorded cycle gate.
 Recommended card behavior:
 
 - tapping the card body opens **View**;
-- a distinct **Control** button is present only when the OMP process published control capability;
+- a distinct **Control** action is present only when the OMP snapshot reports control access;
 - mount the pinned collab client in the current standalone PWA document through its in-memory capability bootstrap;
 - do not depend on `window.open`/`window.opener` in an installed Android PWA because Chrome may reuse the standalone window;
 - only an ordinary browser context that preserves an exact same-origin opener may use the separate `/client/` `MessageChannel` fallback;
 - never put the capability in a URL, DOM attribute, clipboard, or persistent state;
-- show a short, non-sensitive error if the generation changed or process ended;
+- show a short, non-sensitive error if the generation changed, the process ended, or the requested
+  role is no longer shared (`mode_unavailable`);
 - never show or copy the raw link by default.
 
 ## Optional passkey/biometric gate

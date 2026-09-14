@@ -1,18 +1,18 @@
-# Scheduled fifty-publisher capacity measurement on a hosted Linux runner.
+# Scheduled fifty-host capacity measurement on a hosted Linux runner.
 #
 # This is the one qualification lane in this repository that needs nothing but a runner. The
 # procedure is entirely self-contained: an isolated config/state/runtime root under `RUNNER_TEMP`, a
-# port that is not the founder's 4317, the in-repository `synthetic-publisher.ts` rather than real
+# port that is not the founder's 4317, inline synthetic discovery hosts rather than real
 # OMP processes, no Tailscale, no device, no cloud resource, and no repository secret. There is
 # nothing to schedule around and nothing to pay for, which makes `Fifty-publisher capacity` the
 # cheapest row in `docs/RELEASE_STATUS.md` to keep permanently current. It had been going stale for
 # one reason only: somebody had to remember to run it by hand.
 #
 # What a green run measures, on one hosted x86-64 Linux runner:
-#   - N synthetic publishers complete the real mutual-HMAC registry handshake over the private Unix
-#     socket and register N sessions;
-#   - the session count never drops below N for the whole window, so heartbeat refresh is holding
-#     records inside the 35-second TTL rather than the sweeper reaping them;
+#   - N synthetic hosts publish private OMP discovery files and answer authenticated snapshot
+#     queries over per-host Unix sockets, and the gateway observes N sessions;
+#   - the session count never drops below N for the whole window, so successful discovery polling
+#     keeps the records fresh rather than the sweeper reaping them;
 #   - the daemon's CPU time and resident set size across that window, sampled on a fixed cadence;
 #   - every `GET /api/v1/sessions` response in the window is free of capability-bearing fields.
 #
@@ -20,10 +20,9 @@
 #   - it is one ephemeral GitHub-hosted `ubuntu-24.04` runner, not a qualified host. Nothing is
 #     installed as a service, nothing reboots, nothing persists, and the machine is destroyed with
 #     the job. `scripts/provision-linux-qual.sh` and `droplet-qualification.yml` own that dimension.
-#   - the publishers are synthetic. `synthetic-publisher.ts` drives the real registry protocol, but
-#     it is not a patched OMP process: no agent, no collab controller, no real capability, and its
-#     view/control values are fixtures. A capacity result says nothing about whether real OMP
-#     sessions are discovered.
+#   - the hosts are synthetic, not OMP processes: no agent, no collaboration controller and no
+#     capability is generated. This measures the reader wire path, not mainline OMP publication
+#     or View/Control interoperability; those still require live-host qualification.
 #   - it says nothing about the HTTP surface as a user reaches it. There is no Tailscale, no Serve,
 #     no TLS, and no browser. This job reads loopback HTTP and supplies the `Tailscale-User-Login`
 #     header itself, which is precisely the header Serve overwrites, so identity allowlisting,
@@ -46,7 +45,7 @@ on:
   workflow_dispatch:
     inputs:
       publishers:
-        description: Synthetic publishers to register (1 to 50)
+        description: Synthetic hosts to register (1 to 50)
         required: false
         default: "50"
       window_seconds:
@@ -112,12 +111,6 @@ jobs:
       # 15s. With the default 600s window this yields 41 samples, which is the cadence and the
       # sample count the recorded manual run reports.
       CAPACITY_SAMPLE_SECONDS: "15"
-      # `synthetic-publisher.ts` builds its fixture view and control values as
-      # `SYNTHETIC__VIEW__<suffix>__VALUE`. The uppercase, double-underscored form is what makes it
-      # searchable: the lowercase `synthetic-instance-...` and `synthetic-session-...` identifiers
-      # legitimately do appear in metadata, so a case-insensitive search for "synthetic" would be
-      # useless. This marker appears only inside a capability value.
-      CAPACITY_MARKER: SYNTHETIC__
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,15 +151,15 @@ jobs:
           } >>"$GITHUB_ENV"
 
           # Both knobs are validated here, where the message can name the bound, rather than being
-          # left to fail somewhere less obvious. 1..50 is not arbitrary: `synthetic-publisher.ts`
+          # left to fail somewhere less obvious. 1..50 is not arbitrary: the inline discovery fixture
           # itself refuses a count outside that range, so a larger request would die after the
           # daemon was already up. The 900s ceiling is the other half of `timeout-minutes` above.
           case "$CAPACITY_PUBLISHERS" in
-            '' | *[!0-9]*) fail "publishers is not a number" "Got '$CAPACITY_PUBLISHERS'. Dispatch with a whole number from 1 to 50." ;;
+            '' | *[!0-9]*) fail "hosts is not a number" "Got '$CAPACITY_PUBLISHERS'. Dispatch with a whole number from 1 to 50." ;;
           esac
           if [ "$CAPACITY_PUBLISHERS" -lt 1 ] || [ "$CAPACITY_PUBLISHERS" -gt 50 ]; then
-            fail "publishers is out of range" \
-              "Got '$CAPACITY_PUBLISHERS'. apps/gateway/src/synthetic-publisher.ts accepts 1 to 50, so nothing outside that range can be measured."
+            fail "hosts is out of range" \
+              "Got '$CAPACITY_PUBLISHERS'. the inline discovery fixture accepts 1 to 50, so nothing outside that range can be measured."
           fi
           case "$CAPACITY_WINDOW_SECONDS" in
             '' | *[!0-9]*) fail "window_seconds is not a number" "Got '$CAPACITY_WINDOW_SECONDS'. Dispatch with a whole number of seconds from 30 to 900." ;;
@@ -189,7 +182,7 @@ jobs:
           fi
 
           # Two directories with two different lifetimes, kept apart on purpose. The isolated root
-          # holds live state and secrets — the publisher token and the generated VAPID private key —
+          # holds live state and secrets — the readiness token and the generated VAPID private key —
           # and is deleted in teardown. The evidence directory holds only what may be published, is
           # never deleted, and is what the artifact step uploads. Nothing is ever copied out of the
           # root into the evidence directory.
@@ -198,7 +191,7 @@ jobs:
           # If either already exists this step should fail rather than adopt whatever is in it.
           mkdir -m 700 "$root" "$evidence"
           mkdir -m 700 "$root/config" "$root/state" "$root/run"
-          mkdir -m 700 "$root/config/omp-session-gateway" "$root/state/omp-session-gateway" "$root/run/omp-session-gateway"
+          mkdir -m 700 "$root/config/omp-session-gateway" "$root/state/omp-session-gateway" "$root/run/collab-hosts"
 
           # Written into the evidence directory first and then installed, so the artifact records
           # the exact bytes the daemon loaded instead of a hand-written description of them.
@@ -221,10 +214,11 @@ jobs:
               "allowedLogins": ["$CAPACITY_LOGIN"],
               "trustIdentityWithoutTailnetDevice": true
             },
+            "omp": { "discoveryDir": "$root/run/collab-hosts" },
             "registry": {
               "heartbeatSeconds": 10,
               "ttlSeconds": 35,
-              "maxPublishers": 100,
+              "maxHosts": 100,
               "maxSessions": 100
             }
           }
@@ -234,9 +228,9 @@ jobs:
           install -m 600 "$evidence/gateway-config.json" "$root/config/omp-session-gateway/config.json"
 
           # 32 random bytes as unpadded base64url is 43 characters, which is exactly what
-          # `readExistingPublisherToken` accepts. Generated here rather than left to the daemon so
+          # `loadReadinessToken` accepts. Generated here rather than left to the daemon so
           # this step, and not a later failure, owns the file's mode. The value is never printed:
-          # its length is the measurement, and the token itself authenticates every publisher.
+          # its length is the measurement, and the token proves gateway loopback readiness only.
           token="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
           case "$token" in
             *[!A-Za-z0-9_-]*) fail "Generated token is not base64url" "openssl produced characters outside the accepted alphabet." ;;
@@ -245,15 +239,15 @@ jobs:
             fail "Generated token is the wrong length" \
               "Got ${#token} characters; the daemon accepts exactly 43. The value was not written."
           fi
-          printf '%s\n' "$token" >"$root/config/omp-session-gateway/publisher-token"
-          chmod 600 "$root/config/omp-session-gateway/publisher-token"
+          printf '%s\n' "$token" >"$root/config/omp-session-gateway/readiness-token"
+          chmod 600 "$root/config/omp-session-gateway/readiness-token"
 
           printf 'isolated root:        %s\n' "$root"
           printf 'root mode:            %s\n' "$(stat -c %a "$root")"
           printf 'config file mode:     %s\n' "$(stat -c %a "$root/config/omp-session-gateway/config.json")"
-          printf 'token file mode:      %s\n' "$(stat -c %a "$root/config/omp-session-gateway/publisher-token")"
+          printf 'token file mode:      %s\n' "$(stat -c %a "$root/config/omp-session-gateway/readiness-token")"
           printf 'token length:         %s base64url characters (value never printed)\n' "${#token}"
-          printf 'publishers requested: %s\n' "$CAPACITY_PUBLISHERS"
+          printf 'hosts requested: %s\n' "$CAPACITY_PUBLISHERS"
           printf 'window requested:     %ss\n' "$CAPACITY_WINDOW_SECONDS"
           printf 'listener port:        %s\n' "$CAPACITY_PORT"
 
@@ -263,7 +257,7 @@ jobs:
           fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
 
           log="$CAPACITY_EVIDENCE/daemon.log"
-          socket="$CAPACITY_ROOT/run/omp-session-gateway/registry.sock"
+          discovery="$CAPACITY_ROOT/run/collab-hosts"
 
           # Every gateway variable is applied as an `env` prefix on this one child. None is
           # exported into the job shell and none is written to `$GITHUB_ENV`, for the reason
@@ -272,13 +266,8 @@ jobs:
           # that failure unreachable — a later step cannot inherit a path this job is about to
           # delete.
           #
-          # `XDG_RUNTIME_DIR` is pinned even though the shared procedure names only the other three.
-          # On macOS `privateRuntimeDir()` (apps/gateway/src/config.ts) derives the socket directory
-          # from `TMPDIR`, so three variables contain it there. On Linux the same function prefers
-          # `XDG_RUNTIME_DIR` and only falls back to `XDG_STATE_HOME`, so leaving it to whatever the
-          # runner image happens to export would put the registry socket outside the isolated root
-          # on some images and inside it on others. Pinning it makes the path below the socket path
-          # on every host.
+          # Config selects OMP's isolated discovery directory. XDG and temporary
+          # paths remain child-scoped so neither gateway state nor fixtures can escape this root.
           #
           # stdin from /dev/null and both output streams into a file, because a background child
           # that keeps the step's own pipe open can hang the step until the job times out.
@@ -294,9 +283,8 @@ jobs:
           # Readiness is observed, never slept for. Three independent conditions have to hold, and
           # each of them is a thing a fixed sleep would have guessed at:
           #   - `/api/v1/health` answers `ready` rather than `degraded`, which reflects the registry
-          #     endpoint's health and not merely process liveness (apps/gateway/src/http.ts);
-          #   - the private registry socket exists inside the isolated root, which proves the daemon
-          #     bound the endpoint this job built rather than one it inherited;
+          #     discovery reader's health and not merely process liveness (apps/gateway/src/http.ts);
+          #   - the private discovery directory exists inside the isolated root;
           #   - `/api/v1/sessions` answers 200 for the allowlisted identity, which proves the
           #     surface the measurement reads is live before the window opens.
           started="$(date +%s)"
@@ -310,10 +298,10 @@ jobs:
             if [ "$(date +%s)" -ge "$deadline" ]; then
               cat "$log"
               fail "Daemon did not become ready within 90s" \
-                "Health, the registry socket, or the session listing never all became good. The daemon output is above."
+                "Health, the discovery directory, or the session listing never all became good. The daemon output is above."
             fi
             status="$(curl -fsS --max-time 5 "http://127.0.0.1:$CAPACITY_PORT/api/v1/health" 2>/dev/null | jq -r '.status' 2>/dev/null || printf 'unavailable')"
-            if [ "$status" = ready ] && [ -S "$socket" ] &&
+            if [ "$status" = ready ] && [ -d "$discovery" ] &&
               curl -fsS --max-time 5 -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
                 "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions" 2>/dev/null |
                 jq -e 'has("revision")' >/dev/null 2>&1; then
@@ -324,47 +312,95 @@ jobs:
 
           printf 'daemon pid:      %s\n' "$daemon_pid"
           printf 'health status:   %s\n' "$status"
-          printf 'registry socket: %s\n' "$socket"
-          printf 'socket mode:     %s\n' "$(stat -c %a "$socket")"
+          printf 'discovery directory: %s\n' "$discovery"
+          printf 'directory mode:      %s\n' "$(stat -c %a "$discovery")"
           printf 'readiness wait:  %ss\n' "$(( $(date +%s) - started ))"
 
-      - name: Register the synthetic publishers
+      - name: Register the synthetic hosts
         run: |
           set -euo pipefail
           fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
 
-          log="$CAPACITY_EVIDENCE/publisher.log"
+          log="$CAPACITY_EVIDENCE/host.log"
           daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
 
-          # The count is `argv[2]`. Same child-scoped `env` prefix as the daemon, and for the same
-          # reason: the publisher resolves the token path and the socket path through exactly these
-          # variables, so both processes have to agree on them without either one leaking into the
-          # job shell. It stays alive holding its connections and heartbeating until it is signalled,
-          # which is why it runs in the background and is stopped in teardown.
-          env \
-            "XDG_CONFIG_HOME=$CAPACITY_ROOT/config" \
-            "XDG_STATE_HOME=$CAPACITY_ROOT/state" \
-            "XDG_RUNTIME_DIR=$CAPACITY_ROOT/run" \
-            "TMPDIR=$CAPACITY_ROOT/run" \
-            bun apps/gateway/src/synthetic-publisher.ts "$CAPACITY_PUBLISHERS" >"$log" 2>&1 </dev/null &
-          publisher_pid=$!
-          printf '%s\n' "$publisher_pid" >"$CAPACITY_EVIDENCE/publisher.pid"
+          # Discovery and socket credentials stay in the private runtime root, never evidence.
+          cat >"$CAPACITY_ROOT/synthetic-hosts.ts" <<'TYPESCRIPT'
+          import { randomBytes } from "node:crypto";
+          import { createServer } from "node:net";
+          import { chmod, unlink, writeFile } from "node:fs/promises";
+          import { join } from "node:path";
+          
+          const directory = process.argv[2];
+          const count = Number(process.argv[3]);
+          if (!directory || !Number.isInteger(count) || count < 1 || count > 50) process.exit(64);
+          const hosts = [];
+          for (let index = 0; index < count; index++) {
+            const instanceId = randomBytes(12).toString("hex");
+            const token = randomBytes(32).toString("hex");
+            const endpoint = join(directory, instanceId + ".sock");
+            const discovery = join(directory, instanceId + ".json");
+            const createdAt = Date.now();
+            const snapshot = {
+              instanceId, generation: 1, pid: process.pid, sessionId: instanceId,
+              sessionName: "Synthetic discovery host " + index, cwd: "capacity-qualification",
+              startedAt: createdAt, participants: 0, relayConnected: true, inputRequired: false, access: "control",
+            };
+            const server = createServer(socket => {
+              let frame = "";
+              socket.on("error", () => socket.destroy());
+              socket.on("data", chunk => {
+                frame += chunk.toString("utf8");
+                if (frame.length > 16384) { socket.destroy(); return; }
+                if (!frame.includes("\n")) return;
+                socket.removeAllListeners("data");
+                let reply = { ok: false, v: 1, error: "malformed_request" };
+                try {
+                  const request = JSON.parse(frame.slice(0, frame.indexOf("\n")));
+                  if (request.v !== 1) reply.error = "unsupported_protocol";
+                  else if (request.token !== token) reply.error = "authentication_failed";
+                  else if (request.op === "snapshot") reply = { ok: true, v: 1, snapshot };
+                  else reply.error = request.op === "link" ? "access_unavailable" : "invalid_operation";
+                } catch {}
+                socket.end(JSON.stringify(reply) + "\n");
+              });
+            });
+            await new Promise((resolve, reject) => { server.once("error", reject); server.listen(endpoint, resolve); });
+            await chmod(endpoint, 0o600);
+            await writeFile(discovery, JSON.stringify({ version: 1, instanceId, pid: process.pid, endpoint, createdAt, token }), { mode: 0o600, flag: "wx" });
+            hosts.push({ server, discovery });
+          }
+          let stopping = false;
+          async function stop() {
+            if (stopping) return;
+            stopping = true;
+            await Promise.all(hosts.map(async ({ server, discovery }) => {
+              await unlink(discovery);
+              await new Promise(resolve => server.close(resolve));
+            }));
+          }
+          process.on("SIGTERM", stop);
+          process.on("SIGINT", stop);
+          console.log(JSON.stringify({ hosts: count }));
+          TYPESCRIPT
+          bun "$CAPACITY_ROOT/synthetic-hosts.ts" "$CAPACITY_ROOT/run/collab-hosts" "$CAPACITY_PUBLISHERS" >"$log" 2>&1 </dev/null &
+          host_pid=$!
+          printf '%s\n' "$host_pid" >"$CAPACITY_EVIDENCE/host.pid"
 
-          # Each publisher publishes exactly one session, so the session count reaching N is the
-          # observable form of "all N registered": it is the far side of N complete mutual-HMAC
-          # handshakes. Bounded, and failing names how many of the N arrived.
+          # Each discovery host has one session. Reaching N on the HTTP surface proves that the
+          # gateway read all N files and received their authenticated metadata snapshots.
           sessions=0
           deadline=$(( $(date +%s) + 120 ))
           while :; do
-            if ! kill -0 "$publisher_pid" 2>/dev/null; then
+            if ! kill -0 "$host_pid" 2>/dev/null; then
               cat "$log"
-              fail "Publisher exited during registration" \
-                "The synthetic publisher process is gone after registering $sessions of $CAPACITY_PUBLISHERS sessions. Its output is above."
+              fail "Host exited during registration" \
+                "The synthetic host process is gone after registering $sessions of $CAPACITY_PUBLISHERS sessions. Its output is above."
             fi
             if ! kill -0 "$daemon_pid" 2>/dev/null; then
               cat "$CAPACITY_EVIDENCE/daemon.log"
               fail "Daemon exited during registration" \
-                "The gateway died while publishers were registering, after $sessions of $CAPACITY_PUBLISHERS. Its output is above."
+                "The gateway died while hosts were registering, after $sessions of $CAPACITY_PUBLISHERS. Its output is above."
             fi
             sessions="$(curl -fsS --max-time 10 --retry 2 --retry-all-errors \
               -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
@@ -372,13 +408,13 @@ jobs:
             if [ "$sessions" -ge "$CAPACITY_PUBLISHERS" ]; then break; fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
               cat "$log"
-              fail "Only $sessions of $CAPACITY_PUBLISHERS publishers registered" \
-                "Registration did not complete within 120s. The publisher output is above; the window was never opened."
+              fail "Only $sessions of $CAPACITY_PUBLISHERS hosts registered" \
+                "Registration did not complete within 120s. The host output is above; the window was never opened."
             fi
             sleep 1
           done
 
-          printf 'publisher pid:       %s\n' "$publisher_pid"
+          printf 'host pid:       %s\n' "$host_pid"
           printf 'registered sessions: %s of %s requested\n' "$sessions" "$CAPACITY_PUBLISHERS"
 
       - name: Sample RSS, CPU, and the live session count through the window
@@ -388,7 +424,7 @@ jobs:
 
           samples="$CAPACITY_EVIDENCE/samples.csv"
           daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
-          publisher_pid="$(cat "$CAPACITY_EVIDENCE/publisher.pid")"
+          host_pid="$(cat "$CAPACITY_EVIDENCE/host.pid")"
           page_kib=$(( $(getconf PAGESIZE) / 1024 ))
           clock_ticks="$(getconf CLK_TCK)"
 
@@ -423,13 +459,9 @@ jobs:
               "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions")"
             sessions="$(printf '%s' "$body" | jq '.sessions | length')"
 
-            # Two independent capability checks on the same response, because they fail for
-            # different reasons. The first looks for a capability-bearing *key* at any depth, which
-            # catches a new or re-exposed field. The second looks for the fixture capability
-            # *value*, which catches the same field under a name nobody thought to list. Neither
-            # subsumes the other, and both were exercised against a real `SessionRegistry` snapshot
-            # before this lane was committed. Only the offending key names are ever printed; a
-            # capability value is never echoed, not even to prove it leaked.
+            # Check both capability-bearing field names and the real leak patterns. Compare the
+            # live discovery credentials in memory too, so renaming a leaked token field cannot
+            # bypass the gate. Neither response bytes nor credential values are printed.
             #
             # `index` rather than jq's `IN`: `IN` lives in jq's jq-coded standard library and is
             # absent from some jq-compatible binaries, where the whole expression then aborts as an
@@ -446,11 +478,10 @@ jobs:
               fail "Metadata response carries a capability-bearing field" \
                 "GET /api/v1/sessions exposed: $leaked_keys. SessionMetadata is defined to be browser-safe, so this is a contract violation, not a capacity result."
             fi
-            case "$body" in
-              *"$CAPACITY_MARKER"*)
-                fail "Metadata response carries a fixture capability value" \
-                  "The synthetic capability marker appeared in GET /api/v1/sessions under a field name this check does not list. The value is deliberately not printed." ;;
-            esac
+            if ! printf '%s' "$body" | bun -e 'import { readdir } from "node:fs/promises"; import { join } from "node:path"; import { findCapabilityLeaks } from "./scripts/capability-leak-rules.ts"; const body = await Bun.stdin.text(); const directory = process.argv[1]; const entries = await Promise.all((await readdir(directory)).filter(name => name.endsWith(".json")).map(name => Bun.file(join(directory, name)).json())); process.exit(findCapabilityLeaks(body).length > 0 || entries.some(entry => body.includes(entry.token)) ? 1 : 0);' "$CAPACITY_ROOT/run/collab-hosts"; then
+              fail "Metadata response carries a secret value" \
+                "A capability pattern or discovery credential reached metadata. Values are deliberately not printed."
+            fi
 
             sample=$(( sample + 1 ))
             printf '%s,%s,%s,%s,%s,1\n' \
@@ -463,8 +494,8 @@ jobs:
             if [ "$remaining" -gt 0 ]; then sleep "$remaining"; fi
           done
 
-          if ! kill -0 "$publisher_pid" 2>/dev/null; then
-            printf '::warning title=Publisher exited during the window::The session-count floor asserted in the next step is the real detector for this; it is noted here because it changes what the RSS and CPU numbers describe.\n'
+          if ! kill -0 "$host_pid" 2>/dev/null; then
+            printf '::warning title=Host exited during the window::The session-count floor asserted in the next step is the real detector for this; it is noted here because it changes what the RSS and CPU numbers describe.\n'
           fi
           printf 'samples written:  %s\n' "$sample"
           printf 'clock ticks/s:    %s\n' "$clock_ticks"
@@ -514,11 +545,11 @@ jobs:
           fi
 
           # All N registered, and the count never fell below N at any sample. The floor is the
-          # assertion that matters: it is the one that fails if heartbeat refresh stops keeping
-          # records inside the 35-second TTL, or if a publisher connection dies mid-window.
+          # assertion that matters: it is the one that fails if discovery polling stops keeping
+          # records inside the 35-second TTL, or if a host connection dies mid-window.
           if [ "$sessions_min" -lt "$CAPACITY_PUBLISHERS" ]; then
             fail "Session count fell to $sessions_min" \
-              "The floor across $count samples was $sessions_min, below the $CAPACITY_PUBLISHERS publishers registered. samples.csv in the artifact names the sample."
+              "The floor across $count samples was $sessions_min, below the $CAPACITY_PUBLISHERS hosts registered. samples.csv in the artifact names the sample."
           fi
 
           # Every sample recorded a capability-free metadata response. The sampling step aborts on
@@ -529,15 +560,7 @@ jobs:
               "samples.csv carries rows whose capability_free column is not 1, so the file does not support the claim the summary would make."
           fi
 
-          # No capability marker anywhere in what is about to be published. `-l` prints file names
-          # only, never a matching value. The daemon log is structurally incapable of carrying one
-          # — SafeLogger accepts only numeric and boolean fields (apps/gateway/src/logger.ts) — but
-          # an uncaught stack trace is not a log event, so the files are scanned rather than
-          # trusted.
-          if grep -rlF "$CAPACITY_MARKER" "$CAPACITY_EVIDENCE"; then
-            fail "A capability marker reached the evidence files" \
-              "The files named above carry the synthetic capability marker and must not be uploaded. Values are deliberately not printed."
-          fi
+          # The always-run secret-sink gate below scans evidence before allowing artifact upload.
 
           # The daemon is still alive at the end. A daemon that served the whole window and then
           # died before this line would otherwise pass every other assertion.
@@ -556,7 +579,7 @@ jobs:
             printf 'Fifty-publisher capacity: measured on one hosted ubuntu-24.04 runner.\n'
             printf 'Nothing here promotes a ledger row.\n'
             printf '\n'
-            printf '  publishers requested:   %s\n' "$CAPACITY_PUBLISHERS"
+            printf '  hosts requested:   %s\n' "$CAPACITY_PUBLISHERS"
             printf '  session count min/max:  %s / %s\n' "$sessions_min" "$sessions_max"
             printf '  window requested:       %ss\n' "$CAPACITY_WINDOW_SECONDS"
             printf '  window measured:        %ss\n' "$window_measured"
@@ -611,7 +634,7 @@ jobs:
             --arg platform "$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" \
             --arg osVersion "$(. /etc/os-release && printf '%s kernel %s' "$PRETTY_NAME" "$(uname -r)")" \
             --arg recordedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg publishers "$CAPACITY_PUBLISHERS" \
+            --arg hosts "$CAPACITY_PUBLISHERS" \
             --arg sessionsMin "$sessions_min" \
             --arg samples "$count" \
             --arg window "$window_measured" \
@@ -628,20 +651,20 @@ jobs:
               recordedAt: $recordedAt,
               assertions: [
                 {
-                  name: "publishers-registered",
-                  narrative: "All {count=\($publishers)} synthetic publishers completed the mutual-HMAC registry handshake and each registered one session.",
+                  name: "hosts-registered",
+                  narrative: "All {count=\($hosts)} synthetic hosts completed the authenticated host snapshot query and each registered one session.",
                   measured: $sessionsMin,
                   outcome: "pass"
                 },
                 {
                   name: "session-count-floor",
-                  narrative: "The registry retained {count=\($publishers)} fresh records at every one of \($samples) samples across a \($window)-second window, so heartbeat refresh held them inside the 35-second TTL.",
+                  narrative: "The registry retained {count=\($hosts)} fresh records at every one of \($samples) samples across a \($window)-second window, so discovery polling held them inside the 35-second TTL.",
                   measured: $sessionsMin,
                   outcome: "pass"
                 },
                 {
                   name: "capability-free-metadata",
-                  narrative: "No metadata response carried a capability-bearing field or a fixture capability value: {count=0} of the \($samples) sampled GET /api/v1/sessions responses exposed one.",
+                  narrative: "No metadata response carried a capability-bearing field or a discovery credential: {count=0} of the \($samples) sampled GET /api/v1/sessions responses exposed one.",
                   measured: "0",
                   outcome: "pass"
                 },
@@ -679,14 +702,36 @@ jobs:
       # daemon loaded, and both process logs. The record is the one a human hands to
       # `scripts/check-evidence.ts` instead of retyping numbers into a ledger row.
       # Everything here is from the evidence directory; nothing from inside the isolated root, which
-      # holds the publisher token and the generated VAPID private key, is ever uploaded.
+      # holds the readiness token and the generated VAPID private key, is ever uploaded.
+      - name: Reject secret-bearing evidence before upload
+        id: secret_sinks
+        if: always() && steps.root.outcome == 'success'
+        run: |
+          set -euo pipefail
+          bun -e '
+            import { readdir } from "node:fs/promises";
+            import { join } from "node:path";
+            import { findCapabilityLeaks } from "./scripts/capability-leak-rules.ts";
+            const [evidence, discovery, readiness] = process.argv.slice(1);
+            const entries = await Promise.all((await readdir(discovery)).filter(name => name.endsWith(".json")).map(name => Bun.file(join(discovery, name)).json()));
+            const tokens = entries.map(entry => entry.token);
+            tokens.push((await Bun.file(readiness).text()).trim());
+            let findings = 0;
+            for await (const name of new Bun.Glob("**/*").scan({ cwd: evidence, onlyFiles: true })) {
+              const text = await Bun.file(join(evidence, name)).text();
+              if (findCapabilityLeaks(text).length > 0 || tokens.some(token => token.length > 0 && text.includes(token))) findings++;
+            }
+            console.log(JSON.stringify({ secretFiles: findings }));
+            if (findings > 0) process.exit(1);
+          ' "$CAPACITY_EVIDENCE" "$CAPACITY_ROOT/run/collab-hosts" "$CAPACITY_ROOT/config/omp-session-gateway/readiness-token"
+
       - name: Upload the raw samples
         # `always()`, so the samples from a run that failed an assertion mid-window are still
         # published — that is the run whose numbers somebody most wants to read. Gated on the setup
         # step rather than on nothing, because the evidence directory exists if and only if that
         # step succeeded: without the guard, a job that died in `bun install` would fail here too,
         # for "no files found", and bury its real cause under a second error.
-        if: always() && steps.root.outcome == 'success'
+        if: always() && steps.root.outcome == 'success' && steps.secret_sinks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: capacity-samples-${{ github.run_id }}-${{ github.run_attempt }}
@@ -742,18 +787,16 @@ jobs:
             printf '%s: did not stop within 10s and was killed\n' "$name"
           }
 
-          # Publisher first and by SIGTERM, because on that signal it sends a `remove` frame for
-          # every session it published before closing its sockets. That is the clean-shutdown path,
-          # and the count below is what it leaves behind.
-          stop_process publisher "${evidence:-$root}/publisher.pid"
-          # One second for the daemon to drain the frames the publisher wrote just before exiting.
-          # Reported, not asserted: on a SIGKILLed publisher the sessions stay until the 35-second
-          # TTL sweeps them, and that is a true observation rather than a failure of this job.
-          sleep 1
+          # Hosts first and by SIGTERM: they remove only their own discovery files and close
+          # their sockets. The next gateway poll observes those hosts as gone.
+          stop_process host "${evidence:-$root}/host.pid"
+          # Allow one poll interval for removal. Reported, not asserted: forced termination can
+          # leave files whose socket liveness is resolved by a subsequent poll.
+          sleep 11
           remaining="$(curl -fsS --max-time 5 -H "Tailscale-User-Login: $CAPACITY_LOGIN" \
             "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions" 2>/dev/null |
             jq '.sessions | length' 2>/dev/null || printf 'not observed')"
-          printf 'sessions remaining after clean publisher shutdown: %s\n' "$remaining"
+          printf 'sessions remaining after clean host shutdown: %s\n' "$remaining"
           stop_process daemon "${evidence:-$root}/daemon.pid"
 
           # Deleting the root is safe precisely because no step ever exported `TMPDIR` or an `XDG_*`

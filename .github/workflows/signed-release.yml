@@ -224,7 +224,7 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Exact patched OMP $upstream_tag integration and Bun 1.4.0 toolchain.
+          - Mainline OMP $upstream_tag registry integration and Bun 1.4.0 toolchain.
           - Native MathML formula rendering without external fonts, stylesheets, or a weaker CSP.
           - Transcript tail recovery when collaboration reconnects; View, Ask, and photo-composer boundaries remain intact.
           - Managed upgrades preserve existing configuration unless an option is explicitly overridden.
@@ -241,7 +241,7 @@ jobs:
 
           ### Required deployment preconditions
 
-          - Run OMP $upstream_tag at $upstream_commit with the patch included in this archive. Stock OMP is not sufficient at any version. Paired OMP packaging is not provided; use the documented versioned omp-gateway-patched route.
+          - Install mainline OMP >=18.1.20 (source reference: $upstream_tag at $upstream_commit), set collab.autoStart to control or view, and start sessions with plain omp. No gateway integration patch is required.
           - Run Tailscale's TUN-mode client and Tailscale Serve over tailnet HTTPS. Userspace networking, Funnel, Portal Tunnel, and self-hosted or proxied relays are not supported.
 
           ### Known environment limitation
@@ -251,14 +251,14 @@ jobs:
 
           ### Install or upgrade
 
-          Extract omp-session-gateway-$PACKAGE_VERSION-bun.tar, then run bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com with the deployment's real values. Repeat --allow for additional identities. Active reinstall preserves configuration and the publisher token.
+          Extract omp-session-gateway-$PACKAGE_VERSION-bun.tar, then run bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow user@example.com with the deployment's real values. Repeat --allow for additional identities. Active reinstall preserves configuration and the readiness token.
 
           ### Rollback
 
-          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed $QUALIFIED_PREVIOUS_TAG stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately activated patched OMP executable.
+          Run bun apps/gateway/src/cli.js rollback when the predecessor is present in managed installation history. Otherwise reinstall the signed $QUALIFIED_PREVIOUS_TAG stable archive with the deployment's existing origin and allowlist. Gateway rollback does not roll back the separately installed mainline OMP executable.
 
           - Source commit: $GITHUB_SHA
-          - OMP baseline: $upstream_commit (tag $upstream_tag) with the included patch
+          - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2
           - Verification: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/RELEASE.md
           EOF
@@ -277,7 +277,7 @@ jobs:
 
           ### Required OMP prerequisite
 
-          Run OMP $upstream_tag at $upstream_commit with the exact patch included in this archive. Stock OMP is not sufficient. Use the versioned omp-gateway-patched route; paired packaging remains deferred.
+          Install mainline OMP >=18.1.20 (source reference: $upstream_tag at $upstream_commit) and set collab.autoStart to control or view. Start sessions with plain omp; the gateway reads OMP discovery and needs no integration patch.
 
           ### Qualification boundary
 

@@ -1,5 +1,21 @@
 # Windows qualification
 
+## Mainline qualification — pending
+
+Stock OMP `>= 18.1.20` is the current prerequisite; [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Configure only
+`collab.autoStart` and use plain `omp`. Mainline Windows discovery/query and exact signed-candidate
+lifecycle qualification are **pending**. Windows remains unadvertised.
+
+## Fork-era procedure and evidence archive
+
+**Every diagnosis, measurement, command, and release requirement below is a fork-era record**
+against the named patched OMP/source artifacts. Preserve its dates, failures, timings, counts,
+checksums, and signature caveats; none now describes the shipping prerequisite or a mainline pass.
+The final historical paired-patch requirement below is superseded: a new Windows claim must
+instead qualify exact mainline OMP and gateway artifacts through discovery, View/Control,
+revocation, install, reboot/login, readiness-token rotation, upgrade/rollback, and cleanup.
+
+
 Hosted CI (`platform-qualification.yml`, job `windows-service-lifecycle`) proves install,
 named-pipe derivation, token ACLs, rotation and uninstall on Windows. The runner is then
 destroyed, so nothing there can prove the service comes back after a reboot. That is the same

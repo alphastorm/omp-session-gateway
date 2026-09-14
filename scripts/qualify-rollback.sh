@@ -6,8 +6,8 @@
 # This harness measures the isolated installer's cross-version state machine without touching a live
 # LaunchAgent. The first-class `omp-gateway rollback` command has separate Linux and unit coverage;
 # this path deliberately exercises rollback-by-reinstall because that is the recovery available from
-# an older predecessor archive. OMP binary rollback is separate and must restore the matching exact
-# patched OMP version before sessions restart.
+# an older predecessor archive. OMP runtime rollback is separate: a fork-era predecessor does not
+# read the mainline registry. This gateway-only harness does not qualify collaboration after that restore.
 #
 # WHY THE launchctl GATE EXISTS
 #
@@ -39,7 +39,7 @@
 # trap still boots one out if launchd somehow holds a label whose program lives inside the scratch
 # root, using the real /bin/launchctl and only after confirming the program path is ours.
 #
-# The publisher token is compared by digest and mode. Its bytes are never read into a variable,
+# The readiness token is compared by digest and mode. Its bytes are never read into a variable,
 # printed, or copied.
 #
 # Usage:
@@ -82,7 +82,7 @@ die() { printf '\nABORT: %s\n' "$*" >&2; exit 2; }
 digest_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 mode_of() { stat -f '%Lp' "$1"; }
 
-# Full digest used only for in-memory equality checks. Never print a publisher-token fingerprint.
+# Full digest used only for in-memory equality checks. Never print a readiness-token fingerprint.
 token_digest() {
   if [ -f "$1" ]; then digest_of "$1"; else printf 'absent'; fi
 }
@@ -307,7 +307,7 @@ step_scratch() {
   : >"$SCRATCH/launchctl-gate.log"
   write_shim
   ISO_CONFIG_JSON="$SCRATCH/config/omp-session-gateway/config.json"
-  ISO_TOKEN="$SCRATCH/config/omp-session-gateway/publisher-token"
+  ISO_TOKEN="$SCRATCH/config/omp-session-gateway/readiness-token"
   ISO_VERSIONS="$SCRATCH/state/omp-session-gateway/installation/versions"
   ISO_POINTER="$SCRATCH/state/omp-session-gateway/installation/current.json"
   ISO_PLIST="$SCRATCH/home/Library/LaunchAgents/$LABEL.plist"
@@ -455,12 +455,12 @@ snapshot() { # index
   STEP_POINTER[$i]=$(pointer_version "$ISO_POINTER")
   STEP_CONFIG[$i]=$(digest_of "$ISO_CONFIG_JSON")
   STEP_TOKEN[$i]=$(token_digest "$ISO_TOKEN")
-  STEP_TOKEN_MODE[$i]=$(mode_of "$ISO_TOKEN")
+  STEP_TOKEN_MODE[$i]=$(if [ -f "$ISO_TOKEN" ]; then mode_of "$ISO_TOKEN"; else printf absent; fi)
   STEP_PLIST[$i]=$(plist_version "$ISO_PLIST")
   fact "current.json -> versionDirectory" "${STEP_POINTER[$i]}"
   fact "version directories present" "$(version_dirs | tr '\n' ' ')"
   fact "config.json sha256" "${STEP_CONFIG[$i]}"
-  fact "publisher token mode" "${STEP_TOKEN_MODE[$i]} (content retained only for equality checks)"
+  fact "readiness token mode" "${STEP_TOKEN_MODE[$i]} (content retained only for equality checks)"
   fact "LaunchAgent ProgramArguments version" "${STEP_PLIST[$i]}"
 }
 
@@ -532,11 +532,13 @@ step_invariants() {
   row_expect "predecessor dir survives the upgrade" "${STEP_POINTER[0]}" "$PREDECESSOR_AFTER_UPGRADE" "present"
   row_same "config.json identical install->upgrade" "${STEP_CONFIG[0]}" "${STEP_CONFIG[1]}"
   row_same "config.json identical upgrade->rollback" "${STEP_CONFIG[1]}" "${STEP_CONFIG[2]}"
-  row_expect "token unchanged install->upgrade" "unchanged" \
-    "$([ "${STEP_TOKEN[0]}" = "${STEP_TOKEN[1]}" ] && echo unchanged || echo changed)" unchanged
+  # Fork-era predecessors have no readiness credential. The candidate must create one, or
+  # preserve an existing mainline credential; rollback must retain the candidate credential.
+  row_expect "readiness credential created or preserved" "valid" \
+    "$([ "${STEP_TOKEN[1]}" != absent ] && { [ "${STEP_TOKEN[0]}" = absent ] || [ "${STEP_TOKEN[0]}" = "${STEP_TOKEN[1]}" ]; } && echo valid || echo invalid)" valid
   row_expect "token unchanged upgrade->rollback" "unchanged" \
     "$([ "${STEP_TOKEN[1]}" = "${STEP_TOKEN[2]}" ] && echo unchanged || echo changed)" unchanged
-  row_same "token mode identical install->upgrade" "${STEP_TOKEN_MODE[0]}" "${STEP_TOKEN_MODE[1]}"
+  row_expect "readiness token mode after upgrade" "600" "${STEP_TOKEN_MODE[1]}" "600"
   row_same "token mode identical upgrade->rollback" "${STEP_TOKEN_MODE[1]}" "${STEP_TOKEN_MODE[2]}"
   row_same "LaunchAgent follows active (install)" "${STEP_POINTER[0]}" "${STEP_PLIST[0]}"
   row_same "LaunchAgent follows active (upgrade)" "${STEP_POINTER[1]}" "${STEP_PLIST[1]}"
@@ -581,7 +583,7 @@ step_uninstall() {
   preserved="missing"
   if [ -f "$ISO_CONFIG_JSON" ] && [ -f "$ISO_TOKEN" ]; then preserved="present"; fi
   fact "files left under config/ and state/" "$residue (two runtime payloads plus config and token)"
-  fact "config.json + publisher-token" "$preserved (token fingerprint withheld; mode $(mode_of "$ISO_TOKEN"))"
+  fact "config.json + readiness-token" "$preserved (token fingerprint withheld; mode $(mode_of "$ISO_TOKEN"))"
   fact "version directories left" "$(version_dirs | tr '\n' ' ')"
   held=$(loaded_program_path)
   fact "launchd label held by" "${held:-nothing}"

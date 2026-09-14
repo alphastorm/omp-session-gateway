@@ -16,13 +16,13 @@ import {
 const config: GatewayConfig = {
   http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net" },
   auth: { mode: "tailscale-serve", allowedLogins: ["user@example.com"] },
-  registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 },
+  omp: { discoveryDir: "/Users/test/.omp/run/collab-hosts", queryTimeoutMs: 1_500 },
+  registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 100 },
   paths: {
     configDir: "/Users/test/.config/omp-session-gateway",
     stateDir: "/Users/test/.local/state/omp-session-gateway",
     runtimeDir: "/private/tmp/omp-session-gateway-501",
-    socketPath: "/private/tmp/omp-session-gateway-501/registry.sock",
-    tokenPath: "/Users/test/.config/omp-session-gateway/publisher-token",
+    tokenPath: "/Users/test/.config/omp-session-gateway/readiness-token",
     configPath: "/Users/test/.config/omp-session-gateway/config.json",
   },
 };
@@ -176,7 +176,7 @@ describe("service packaging", () => {
     try {
       const linuxConfig: GatewayConfig = {
         ...config,
-        paths: { ...config.paths, runtimeDir, socketPath: join(runtimeDir, "registry.sock") },
+        paths: { ...config.paths, runtimeDir },
       };
       const definition = serviceDefinition(linuxConfig, "linux");
       expect(definition.content).toContain("RuntimeDirectory=omp-session-gateway");
@@ -839,8 +839,7 @@ describe("service ownership across install roots", () => {
         configDir,
         stateDir: join(root, "state", "omp-session-gateway"),
         runtimeDir: join(root, "run", "omp-session-gateway"),
-        socketPath: join(root, "run", "omp-session-gateway", "registry.sock"),
-        tokenPath: join(configDir, "publisher-token"),
+        tokenPath: join(configDir, "readiness-token"),
         configPath: join(configDir, "config.json"),
       },
     };

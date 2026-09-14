@@ -1,15 +1,8 @@
 {
-  // Requires the proposed OMP patch. Upstream-safe default is "off".
+  // Requires stock mainline OMP >= 18.1.20. The default remains "off".
   "collab": {
-    // "off" | "view" | "control"
-    "autoStart": "control",
-
-    // "auto" discovers the current-user gateway socket/pipe.
-    // "off" disables publication even if collaboration is automatic.
-    "registryEndpoint": "auto",
-
-    // Existing OMP settings remain available:
-    "relayUrl": "wss://my.omp.sh",
-    "webUrl": ""
+    // "off" | "view" | "control"; discovery is provided by OMP itself.
+    "autoStart": "control"
   }
 }
+

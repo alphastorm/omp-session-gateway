@@ -4,6 +4,7 @@ import {
   MAX_PUSH_SUBSCRIPTION_BYTES,
   PUSH_API_VERSION,
   ProtocolValidationError,
+  type LaunchMode,
   type SessionEvent,
   parseJsonFrame,
   parseLaunchRequest,
@@ -18,6 +19,20 @@ import { SessionRegistry } from "./registry.ts";
 import type { PushService } from "./push.ts";
 
 import { StaticAssetStore } from "./static.ts";
+import type { LaunchResolution } from "./omp-registry.ts";
+
+/**
+ * The launch side of the OMP reader, narrowed to what HTTP needs. Keeping it an interface means the
+ * handler tests drive refusals without a live host, and the daemon binds the real socket client.
+ */
+export interface LaunchBroker {
+  resolve(request: {
+    readonly instanceId: string;
+    readonly generation: number;
+    readonly mode: LaunchMode;
+    readonly requestId?: string;
+  }): Promise<LaunchResolution>;
+}
 
 const API_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store, max-age=0",
@@ -230,6 +245,8 @@ function eventStream(
 export function createHttpHandler(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
+  /** Brokers one capability per explicit launch, straight from the owning OMP host. */
+  readonly launchResolver: LaunchBroker;
   readonly staticAssets: StaticAssetStore;
   readonly pushService?: PushService;
   readonly logger?: SafeLogger;
@@ -239,9 +256,9 @@ export function createHttpHandler(options: {
   /** Supplies wall-clock time for deterministic rate-window enforcement. */
   readonly now?: () => number;
   /**
-   * Reports whether the registry rendezvous point is still reachable by publishers. A daemon whose
-   * socket path was removed underneath it keeps serving HTTP while no session can ever register, so
-   * readiness must reflect the IPC endpoint rather than process liveness alone.
+   * Reports whether OMP's collaboration discovery directory is still readable. A daemon whose
+   * discovery root turned into a symlink or another user's directory keeps serving HTTP while no
+   * session can ever appear, so readiness must reflect discovery rather than process liveness.
    */
   readonly endpointHealthy?: () => boolean;
   /**
@@ -250,7 +267,7 @@ export function createHttpHandler(options: {
    */
   readonly tailnetPresent?: () => boolean;
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
-  const { config, registry, staticAssets } = options;
+  const { config, registry, staticAssets, launchResolver } = options;
   const logger = options.logger ?? new SafeLogger();
   const identityCapacity = config.auth.mode === "dev-localhost" ? 1 : config.auth.allowedLogins.length;
   // Each admitted identity can own exactly two keys (`launch` and `push`), so configured identities
@@ -421,23 +438,26 @@ export function createHttpHandler(options: {
       if (!limiter.allow(`${authorization.identityKey}\0launch`, now())) {
         return problem(429, "rate_limited", "Too many requests");
       }
-      const lookup = registry.lookupCapability(
+      const resolution = await launchResolver.resolve({
         instanceId,
-        launchRequest.generation,
-        launchRequest.mode,
-        launchRequest.requestId,
-      );
-      if (lookup.status === "generation_mismatch") {
+        generation: launchRequest.generation,
+        mode: launchRequest.mode,
+        ...(launchRequest.requestId === undefined ? {} : { requestId: launchRequest.requestId }),
+      });
+      if (resolution.status === "generation_mismatch") {
         return problem(409, "generation_mismatch", "Session changed; refresh and try again");
       }
-      if (lookup.status === "request_mismatch") {
+      if (resolution.status === "request_mismatch") {
         return problem(409, "request_mismatch", "Request changed; refresh and try again");
       }
-      if (lookup.status === "missing") return problem(404, "not_found", "Session unavailable");
+      if (resolution.status === "mode_unavailable") {
+        return problem(409, "mode_unavailable", "Session no longer shares that access; refresh and try again");
+      }
+      if (resolution.status !== "ok") return problem(404, "not_found", "Session unavailable");
       const response = Response.json({
         mode: launchRequest.mode,
         generation: launchRequest.generation,
-        capability: lookup.capability.reveal(),
+        capability: resolution.capability.reveal(),
       });
       return withSecurityHeaders(response, true);
     }
@@ -456,6 +476,7 @@ export function createHttpHandler(options: {
 export function startHttpServer(options: {
   readonly config: GatewayConfig;
   readonly registry: SessionRegistry;
+  readonly launchResolver: LaunchBroker;
   readonly staticAssets: StaticAssetStore;
   readonly pushService?: PushService;
   readonly logger?: SafeLogger;

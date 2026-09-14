@@ -20,13 +20,13 @@ function config(root: string): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317" },
     auth: { mode: "dev-localhost", allowedLogins: [] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 10, maxSessions: 10 },
+    omp: { discoveryDir: join(root, "omp", "run", "collab-hosts"), queryTimeoutMs: 1_500 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 10 },
     paths: {
       configDir: join(root, "config"),
       stateDir: join(root, "state"),
       runtimeDir: join(root, "run"),
-      socketPath: join(root, "run", "registry.sock"),
-      tokenPath: join(root, "config", "publisher-token"),
+      tokenPath: join(root, "config", "readiness-token"),
       configPath: join(root, "config", "config.json"),
     },
   };
@@ -37,7 +37,6 @@ async function sourceFixture(root: string): Promise<{ sourceRoot: string; cliSou
   const cliSource = join(sourceRoot, "cli.js");
   for (const directory of [
     "apps/web/dist",
-    "patches/oh-my-pi",
     "licenses/runtime/example",
     "packages/collab-client/upstream",
   ]) {
@@ -48,7 +47,6 @@ async function sourceFixture(root: string): Promise<{ sourceRoot: string; cliSou
     writeFile(join(sourceRoot, "apps/web/dist/index.html"), "<!doctype html>"),
     writeFile(join(sourceRoot, "apps/web/dist/manifest.webmanifest"), "{}"),
     writeFile(join(sourceRoot, "apps/web/dist/service-worker.js"), "// worker"),
-    writeFile(join(sourceRoot, "patches/oh-my-pi/0001.patch"), "synthetic patch"),
     writeFile(join(sourceRoot, "licenses/runtime/example/LICENSE"), "synthetic runtime license"),
     writeFile(join(sourceRoot, "packages/collab-client/upstream/LICENSE"), "synthetic collab license"),
     writeFile(join(sourceRoot, "LICENSE"), "gateway license"),
@@ -91,6 +89,7 @@ test("stages immutable content-addressed runtimes and atomically advances the cu
     expect(basename(first.directory)).toMatch(new RegExp(`^${GATEWAY_VERSION.replaceAll(".", "\\.")}-[0-9a-f]{12}$`, "u"));
     expect(first.readinessProtocol).toBe("instance-v1");
     expect((await lstat(first.cliPath)).isFile()).toBe(true);
+    expect(await readdir(first.directory)).not.toContain("patches");
     expect((await lstat(join(first.directory, "bun.lock"))).isFile()).toBe(true);
     expect((await lstat(join(first.directory, "SBOM.spdx.json"))).isFile()).toBe(true);
     expect((await lstat(join(first.directory, "release-info.json"))).isFile()).toBe(true);
@@ -218,7 +217,7 @@ test("rollback leaves configuration and the publisher token untouched", async ()
     const source = await sourceFixture(root);
     await mkdir(gatewayConfig.paths.configDir, { recursive: true, mode: 0o700 });
     // Synthetic and distinctive so a leak into the new installation metadata fails the assertion.
-    const syntheticToken = "omp-synthetic-publisher-token-DO-NOT-SHIP-8f21c4";
+    const syntheticToken = "omp-synthetic-readiness-token-DO-NOT-SHIP-8f21c4";
     await writeFile(gatewayConfig.paths.configPath, '{"http":{"port":4317}}\n', { mode: 0o600 });
     await writeFile(gatewayConfig.paths.tokenPath, `${syntheticToken}\n`, { mode: 0o600 });
     const configDigest = await sha256(gatewayConfig.paths.configPath);
@@ -357,7 +356,7 @@ test("refuses an installed runtime whose payload no longer matches its manifest 
 
     // An addition is as much a mismatch as a truncation: the digest covers the whole tree, so a
     // smuggled file cannot ride along inside an otherwise intact payload.
-    await writeFile(join(staged.directory, "patches", "oh-my-pi", "0002.patch"), "smuggled patch");
+    await writeFile(join(staged.directory, "apps", "web", "dist", "smuggled.js"), "smuggled code");
     await expect(currentInstalledRuntime(gatewayConfig)).rejects.toThrow(
       "installed runtime payload failed its content hash",
     );

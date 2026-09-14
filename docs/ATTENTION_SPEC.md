@@ -15,8 +15,11 @@ bounded gateway metadata:
 - an optional bounded request preview and option count.
 
 It never renders a transcript, response option labels, prefills, answers, or collaboration
-capabilities. Boolean-only publishers remain fully supported: the hero says `Waiting for your
-input` and Control opens the authoritative ask in the pinned collaboration client.
+capabilities. Mainline OMP snapshots supply only the boolean `inputRequired`, so preview and option
+count remain absent: the hero says `Waiting for your input`, Preview notifications fall back to
+Session detail, and Control opens the authoritative ask in the pinned collaboration client.
+The gateway polls this metadata and fetches a capability only for an explicit launch; it never
+stores links. The browser HTTP/SSE and Push contracts are unchanged.
 
 ## Directory behavior
 
@@ -128,6 +131,10 @@ capabilities remain forbidden from push state/payloads, notifications, URLs, his
 worker messages, browser storage, caches, logs, and diagnostics.
 
 ## Acceptance checklist
+
+The checked items below record pre-cutover implementation acceptance, including **fork-era**
+layout and leak-suite evidence. They are not a mainline OMP qualification result; the exact
+mainline host, physical-client, and background-Push qualification remains pending.
 
 - [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
 - [x] Seven exact notification states; permission only after explicit enable.

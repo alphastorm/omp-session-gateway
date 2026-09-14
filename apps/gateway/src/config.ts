@@ -1,7 +1,8 @@
-import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { dirname, isAbsolute, join } from "node:path";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { resolveOmpDiscoveryDirectory } from "./omp-registry.ts";
 
 export type AuthMode = "tailscale-serve" | "dev-localhost";
 
@@ -27,16 +28,23 @@ export interface GatewayConfig {
     readonly trustIdentityWithoutTailnetDevice?: boolean;
   };
   readonly registry: {
+    /** Seconds between discovery polls of OMP's collaboration host directory. */
     readonly heartbeatSeconds: number;
+    /** Seconds a published host may stay unreadable before its card is dropped. */
     readonly ttlSeconds: number;
-    readonly maxPublishers: number;
+    /** Admitted discovery hosts; the gateway observes hosts rather than accepting connections. */
     readonly maxSessions: number;
+  };
+  readonly omp: {
+    /** OMP's own collaboration host directory; the gateway only ever reads it. */
+    readonly discoveryDir: string;
+    /** Per-host query budget for one `snapshot` or `link` round trip. */
+    readonly queryTimeoutMs: number;
   };
   readonly paths: {
     readonly configDir: string;
     readonly stateDir: string;
     readonly runtimeDir: string;
-    readonly socketPath: string;
     readonly tokenPath: string;
     readonly configPath: string;
   };
@@ -179,19 +187,13 @@ export function defaultGatewayPaths(): GatewayConfig["paths"] {
       ? join(windowsBase, "OMP Session Gateway", "state")
       : join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "omp-session-gateway");
   const runtimeDir = process.platform === "win32" ? stateDir : privateRuntimeDir();
-  const socketPath =
-    process.platform === "win32"
-      ? `\\\\.\\pipe\\omp-session-gateway-${createHash("sha256")
-          .update(`${process.env.USERDOMAIN ?? process.env.COMPUTERNAME ?? "local"}\\${process.env.USERNAME ?? "user"}`.toLowerCase())
-          .digest("hex")
-          .slice(0, 20)}`
-      : join(runtimeDir, "registry.sock");
   return {
     configDir,
     stateDir,
     runtimeDir,
-    socketPath,
-    tokenPath: join(configDir, "publisher-token"),
+    // Proves loopback readiness to the CLI. Nothing publishes to the gateway any more, so this is
+    // the gateway's own health secret rather than a credential handed to another process.
+    tokenPath: join(configDir, "readiness-token"),
     configPath: join(configDir, "config.json"),
   };
 }
@@ -245,16 +247,26 @@ function normalizeLogin(value: string): string {
   return normalized;
 }
 
+/** An override must be an absolute path; a relative one would resolve against the daemon's cwd. */
+function requireDiscoveryDir(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0") || !isAbsolute(value)) {
+    throw new Error("omp.discoveryDir must be an absolute path");
+  }
+  return value;
+}
+
 function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("config must be an object");
   const record = raw as Record<string, unknown>;
   for (const key of Object.keys(record)) {
-    if (!["http", "auth", "registry"].includes(key)) throw new Error(`unknown config key: ${key}`);
+    if (!["http", "auth", "registry", "omp"].includes(key)) throw new Error(`unknown config key: ${key}`);
   }
   const http = (record.http ?? {}) as Record<string, unknown>;
   const auth = (record.auth ?? {}) as Record<string, unknown>;
   const registry = (record.registry ?? {}) as Record<string, unknown>;
-  if ([http, auth, registry].some(value => typeof value !== "object" || value === null || Array.isArray(value))) {
+  const omp = (record.omp ?? {}) as Record<string, unknown>;
+  if ([http, auth, registry, omp].some(value => typeof value !== "object" || value === null || Array.isArray(value))) {
     throw new Error("config sections must be objects");
   }
   for (const key of Object.keys(http)) {
@@ -266,9 +278,15 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
     }
   }
   for (const key of Object.keys(registry)) {
+    // `maxPublishers` bounded inbound publisher connections, which no longer exist. A fork-era
+    // config file still carries it, and installing over one must not fail on a key whose value is
+    // now meaningless, so it is accepted, ignored, and dropped the next time the file is written.
     if (!["heartbeatSeconds", "ttlSeconds", "maxPublishers", "maxSessions"].includes(key)) {
       throw new Error(`unknown registry config key: ${key}`);
     }
+  }
+  for (const key of Object.keys(omp)) {
+    if (!["discoveryDir", "queryTimeoutMs"].includes(key)) throw new Error(`unknown omp config key: ${key}`);
   }
   const hostname = http.hostname ?? defaults.http.hostname;
   if (hostname !== "127.0.0.1" && hostname !== "::1") throw new Error("http.hostname must be loopback");
@@ -320,17 +338,23 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
     registry: {
       heartbeatSeconds,
       ttlSeconds,
-      maxPublishers: validateBoundedInteger(
-        registry.maxPublishers ?? defaults.registry.maxPublishers,
-        1,
-        1_000,
-        "registry.maxPublishers",
-      ),
       maxSessions: validateBoundedInteger(
         registry.maxSessions ?? defaults.registry.maxSessions,
         1,
         1_000,
         "registry.maxSessions",
+      ),
+    },
+    // A service-managed daemon does not inherit the operator's `PI_CONFIG_DIR`, so the discovery
+    // directory is derivable but also overridable. Absent means "derive it", which is the default
+    // every ordinary install keeps.
+    omp: {
+      discoveryDir: requireDiscoveryDir(omp.discoveryDir) ?? defaults.omp.discoveryDir,
+      queryTimeoutMs: validateBoundedInteger(
+        omp.queryTimeoutMs ?? defaults.omp.queryTimeoutMs,
+        250,
+        10_000,
+        "omp.queryTimeoutMs",
       ),
     },
     paths: defaults.paths,
@@ -346,7 +370,8 @@ export async function loadGatewayConfig(overrides: ConfigOverrides = {}): Promis
       publicOrigin: overrides.publicOrigin ?? `http://127.0.0.1:${overrides.port ?? 4317}`,
     },
     auth: { mode: overrides.mode ?? "tailscale-serve", allowedLogins: [] },
-    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 },
+    registry: { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 100 },
+    omp: { discoveryDir: resolveOmpDiscoveryDirectory(), queryTimeoutMs: 1_500 },
     paths: { ...paths, configPath: overrides.configPath ?? paths.configPath },
   };
   const configPath = overrides.configPath ?? paths.configPath;
@@ -500,15 +525,18 @@ export async function writeGatewayConfigFile(options: {
     },
     registry:
       priorConfig === undefined
-        ? { heartbeatSeconds: 10, ttlSeconds: 35, maxPublishers: 100, maxSessions: 100 }
+        ? { heartbeatSeconds: 10, ttlSeconds: 35, maxSessions: 100 }
         : {
             heartbeatSeconds: priorConfig.registry.heartbeatSeconds,
             ttlSeconds: priorConfig.registry.ttlSeconds,
-            maxPublishers: priorConfig.registry.maxPublishers,
             maxSessions: priorConfig.registry.maxSessions,
           },
   };
-  const authoredConfig = parseConfigObject(configDocument, { ...configDocument, paths });
+  const authoredConfig = parseConfigObject(configDocument, {
+    ...configDocument,
+    omp: priorConfig?.omp ?? { discoveryDir: resolveOmpDiscoveryDirectory(), queryTimeoutMs: 1_500 },
+    paths,
+  });
   const unchanged =
     priorConfig !== undefined &&
     authoredConfig.http.hostname === priorConfig.http.hostname &&
@@ -520,15 +548,14 @@ export async function writeGatewayConfigFile(options: {
     authoredConfig.auth.trustIdentityWithoutTailnetDevice === priorConfig.auth.trustIdentityWithoutTailnetDevice &&
     authoredConfig.registry.heartbeatSeconds === priorConfig.registry.heartbeatSeconds &&
     authoredConfig.registry.ttlSeconds === priorConfig.registry.ttlSeconds &&
-    authoredConfig.registry.maxPublishers === priorConfig.registry.maxPublishers &&
     authoredConfig.registry.maxSessions === priorConfig.registry.maxSessions;
   if (unchanged) return priorConfig;
   await writePrivateTextFile(paths.configPath, `${JSON.stringify(configDocument, null, 2)}\n`);
   return loadGatewayConfig({ configPath: paths.configPath });
 }
 
-async function writePublisherToken(path: string, token: string): Promise<string> {
-  if (!TOKEN_PATTERN.test(token)) throw new Error("publisher token has invalid encoding or length");
+async function writeReadinessToken(path: string, token: string): Promise<string> {
+  if (!TOKEN_PATTERN.test(token)) throw new Error("readiness token has invalid encoding or length");
   const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {
@@ -544,42 +571,42 @@ async function writePublisherToken(path: string, token: string): Promise<string>
 }
 
 async function writeFreshToken(path: string): Promise<string> {
-  return writePublisherToken(path, randomBytes(32).toString("base64url"));
+  return writeReadinessToken(path, randomBytes(32).toString("base64url"));
 }
 
-async function readExistingPublisherToken(config: GatewayConfig): Promise<string> {
+async function readExistingReadinessToken(config: GatewayConfig): Promise<string> {
   const tokenBytes = await assertPrivateRegularFile(config.paths.tokenPath);
-  if (tokenBytes < 43 || tokenBytes > 45) throw new Error("publisher token has invalid encoding or length");
+  if (tokenBytes < 43 || tokenBytes > 45) throw new Error("readiness token has invalid encoding or length");
   const token = (await readFile(config.paths.tokenPath, "utf8")).trim();
-  if (!TOKEN_PATTERN.test(token)) throw new Error("publisher token has invalid encoding or length");
+  if (!TOKEN_PATTERN.test(token)) throw new Error("readiness token has invalid encoding or length");
   return token;
 }
 
-export async function assertPublisherTokenPrivate(config: GatewayConfig): Promise<void> {
-  await readExistingPublisherToken(config);
+export async function assertReadinessTokenPrivate(config: GatewayConfig): Promise<void> {
+  await readExistingReadinessToken(config);
 }
 
-export async function loadOrCreatePublisherToken(config: GatewayConfig): Promise<string> {
+export async function loadOrCreateReadinessToken(config: GatewayConfig): Promise<string> {
   await ensureRuntimeDirectories(config);
   try {
-    return await readExistingPublisherToken(config);
+    return await readExistingReadinessToken(config);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return writeFreshToken(config.paths.tokenPath);
   }
 }
-export async function loadPublisherToken(config: GatewayConfig): Promise<string> {
+
+export async function loadReadinessToken(config: GatewayConfig): Promise<string> {
   await ensureRuntimeDirectories(config);
-  return readExistingPublisherToken(config);
+  return readExistingReadinessToken(config);
 }
 
-
-export async function rotatePublisherToken(config: GatewayConfig): Promise<string> {
+export async function rotateReadinessToken(config: GatewayConfig): Promise<string> {
   await ensureRuntimeDirectories(config);
   try {
     const existing = await lstat(config.paths.tokenPath);
     if (!existing.isFile() && !existing.isSymbolicLink()) {
-      throw new Error("refusing to replace a non-file publisher token path");
+      throw new Error("refusing to replace a non-file readiness token path");
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -587,7 +614,7 @@ export async function rotatePublisherToken(config: GatewayConfig): Promise<strin
   return writeFreshToken(config.paths.tokenPath);
 }
 
-export function publisherTokenMatches(expected: string, supplied: string): boolean {
+export function readinessTokenMatches(expected: string, supplied: string): boolean {
   const expectedBytes = Buffer.from(expected, "utf8");
   const suppliedBytes = Buffer.from(supplied, "utf8");
   const padded = Buffer.alloc(expectedBytes.length);
@@ -595,24 +622,20 @@ export function publisherTokenMatches(expected: string, supplied: string): boole
   return timingSafeEqual(expectedBytes, padded) && suppliedBytes.length === expectedBytes.length;
 }
 
-export async function removeRuntimeSocket(config: GatewayConfig): Promise<void> {
-  if (process.platform === "win32") return;
+/**
+ * Mainline OMP publishes into its own directory, so the gateway holds no endpoint of its own to
+ * remove. What is left is a one-time cleanup: the fork era wrote a publisher credential that no
+ * process consumes any more, and a dead secret is worth deleting rather than leaving on disk.
+ */
+export async function removeLegacyPublisherToken(config: GatewayConfig): Promise<boolean> {
+  const legacyPath = join(config.paths.configDir, "publisher-token");
   try {
-    const info = await lstat(config.paths.socketPath);
-    if (!info.isSocket() || info.isSymbolicLink() || info.uid !== currentUserId()) {
-      throw new Error("refusing to replace unsafe registry endpoint");
-    }
-    await rm(config.paths.socketPath);
+    const info = await lstat(legacyPath);
+    if (!info.isFile()) return false;
+    await rm(legacyPath);
+    return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return false;
   }
-}
-
-export async function assertSocketPrivate(config: GatewayConfig): Promise<void> {
-  if (process.platform === "win32") return;
-  const info = await stat(config.paths.socketPath);
-  if (!info.isSocket() || info.uid !== currentUserId() || (info.mode & 0o077) !== 0) {
-    throw new Error("registry socket permissions are unsafe");
-  }
-  if (dirname(config.paths.socketPath) !== config.paths.runtimeDir) throw new Error("unexpected registry socket path");
 }

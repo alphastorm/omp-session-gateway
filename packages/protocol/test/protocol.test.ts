@@ -3,11 +3,11 @@ import {
   MAX_FRAME_BYTES,
   ProtocolValidationError,
   SecretCapability,
-  parseAuthenticateFrame,
-  parseAuthenticatedPublisherFrame,
-  parseHelloFrame,
-  parseChallengeFrame,
-  parseHelloOkFrame,
+  parseOmpDiscoveryEntry,
+  parseOmpHostSnapshot,
+  parseOmpSnapshotReply,
+  parseOmpLinkReply,
+  observedSessionFromSnapshot,
   parseJsonFrame,
   parseLaunchRequest,
   parseLaunchResponse,
@@ -18,34 +18,41 @@ import {
   parsePushUnsubscribeRequest,
   parseSessionEvent,
   parseSessionListResponse,
-  separatePublishedSession,
+  sessionMetadataFromObserved,
 } from "../src/index.ts";
 
 const encoder = new TextEncoder();
-const instanceId = "instance-test-0001";
-const token = "A".repeat(43);
-const nonce = "B".repeat(43);
+const instanceId = "aaaa1111bbbb2222";
+const entryId = "eaaa1111bbbb2222";
 const capability = ["VIEW", "CANARY", "VALUE", "0000000000000000"].join("__");
 
-function hello(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { v: 1, op: "hello", clientNonce: nonce, instanceId, pid: 1234, ...overrides };
+function discoveryFile(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    instanceId,
+    pid: 1234,
+    endpoint: "/tmp/omp-host-double/relocated.sock",
+    createdAt: Date.parse("2026-07-19T00:00:00.000Z"),
+    token: "a".repeat(64),
+    ...overrides,
+  };
 }
 
-function upsert(generation = 1): Record<string, unknown> {
+function hostSnapshot(overrides: Record<string, unknown> = {}) {
   return {
-    v: 1,
-    op: "upsert",
-    session: {
-      instanceId,
-      generation,
-      pid: 1234,
-      sessionId: "session-one",
-      title: "Example session",
-      cwdLabel: "repository",
-      model: "provider/model",
-      startedAt: "2026-07-19T00:00:00.000Z",
-      viewLink: capability,
-    },
+    instanceId,
+    generation: 1,
+    pid: 1234,
+    sessionId: "session-one",
+    sessionName: "Example session",
+    cwd: "/Users/you/projects/repository/",
+    model: { provider: "provider", id: "model" },
+    startedAt: Date.parse("2026-07-19T00:00:00.000Z"),
+    participants: 1,
+    relayConnected: true,
+    inputRequired: false,
+    access: "view" as const,
+    ...overrides,
   };
 }
 
@@ -64,50 +71,61 @@ function metadata(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe("strict protocol validation", () => {
-  test("accepts strict mutual-authentication and publisher frames", () => {
-    expect(parseHelloFrame(hello()).instanceId).toBe(instanceId);
-    expect(parseChallengeFrame({ v: 1, op: "challenge", serverNonce: "C".repeat(43), proof: "D".repeat(43) }).op).toBe(
-      "challenge",
-    );
-    expect(parseAuthenticateFrame({ v: 1, op: "authenticate", proof: "E".repeat(43) }).op).toBe("authenticate");
-    expect(parseHelloOkFrame({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 35 }).ttlSeconds).toBe(35);
-    const parsed = parseAuthenticatedPublisherFrame(upsert());
-    expect(parsed.op).toBe("upsert");
-    if (parsed.op !== "upsert") throw new Error("expected upsert");
-    expect(parsed.session.inputRequired).toBe(false);
+  test("round-trips a discovery file and a host snapshot using the mainline wire shape", () => {
+    const entry = parseOmpDiscoveryEntry(entryId, parseJsonFrame(encoder.encode(JSON.stringify(discoveryFile()))));
+    expect(entry).toEqual({ entryId, ...discoveryFile() });
+    const snapshot = hostSnapshot();
+    expect(parseOmpHostSnapshot(snapshot)).toEqual(snapshot);
+    expect(
+      parseOmpSnapshotReply(parseJsonFrame(encoder.encode(JSON.stringify({ ok: true, v: 1, snapshot })))),
+    ).toEqual({ ok: true, value: snapshot });
   });
 
   test("rejects unknown versions, fields, duplicate keys, and invalid UTF-8", () => {
-    expect(() => parseHelloFrame(hello({ v: 2 }))).toThrow(ProtocolValidationError);
-    expect(() => parseHelloFrame(hello({ extra: true }))).toThrow(ProtocolValidationError);
-    expect(() => parseHelloFrame(hello({ token }))).toThrow(ProtocolValidationError);
-    expect(() => parseChallengeFrame({ v: 1, op: "challenge", serverNonce: "short", proof: "D".repeat(43) })).toThrow(
-      ProtocolValidationError,
-    );
-    expect(() => parseAuthenticateFrame({ v: 1, op: "authenticate", proof: "E".repeat(43), extra: true })).toThrow(
-      ProtocolValidationError,
-    );
-    expect(() =>
-      parseHelloOkFrame({ v: 1, op: "hello_ok", heartbeatSeconds: 10, ttlSeconds: 20 }),
-    ).toThrow(ProtocolValidationError);
+    expect(() => parseOmpSnapshotReply({ ok: true, v: 2, snapshot: hostSnapshot() })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpLinkReply({ ok: true, v: 2, url: capability })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpDiscoveryEntry(entryId, discoveryFile({ extra: true }))).toThrow(ProtocolValidationError);
+    expect(() => parseOmpDiscoveryEntry(entryId, discoveryFile({ token: "short" }))).toThrow(ProtocolValidationError);
+    expect(() => parseOmpSnapshotReply({ ok: true, v: 1, snapshot: hostSnapshot(), extra: true })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpLinkReply({ ok: true, v: 1, url: capability, extra: true })).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(encoder.encode('{"v":1,"v":1}'))).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(new Uint8Array([0xc3, 0x28]))).toThrow(ProtocolValidationError);
     for (const inputRequired of ["true", 1, {}, []]) {
-      expect(() =>
-        parseAuthenticatedPublisherFrame({
-          ...upsert(),
-          session: { ...(upsert().session as Record<string, unknown>), inputRequired },
-        }),
-      ).toThrow(ProtocolValidationError);
+      expect(() => parseOmpHostSnapshot(hostSnapshot({ inputRequired }))).toThrow(ProtocolValidationError);
     }
     for (const forbiddenKey of ["prompt", "question", "options", "prefill", "answer", "requestId", "count"]) {
-      expect(() =>
-        parseAuthenticatedPublisherFrame({
-          ...upsert(),
-          session: { ...(upsert().session as Record<string, unknown>), [forbiddenKey]: "CONTENT_CANARY" },
-        }),
-      ).toThrow(ProtocolValidationError);
+      expect(() => parseOmpHostSnapshot(hostSnapshot({ [forbiddenKey]: "CONTENT_CANARY" }))).toThrow(ProtocolValidationError);
     }
+  });
+
+  test("requires the discovery, snapshot, and reply fields rather than supplying defaults", () => {
+    const discovery: Record<string, unknown> = discoveryFile();
+    delete discovery.token;
+    expect(() => parseOmpDiscoveryEntry(entryId, discovery)).toThrow(ProtocolValidationError);
+    const snapshot: Record<string, unknown> = hostSnapshot();
+    delete snapshot.startedAt;
+    expect(() => parseOmpHostSnapshot(snapshot)).toThrow(ProtocolValidationError);
+    expect(() => parseOmpSnapshotReply({ ok: true, v: 1 })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpLinkReply({ ok: true, v: 1 })).toThrow(ProtocolValidationError);
+  });
+
+  test("parses every upstream wire error without mistaking it for a successful snapshot or link", () => {
+    for (const error of [
+      "malformed_request",
+      "unsupported_protocol",
+      "authentication_failed",
+      "snapshot_unavailable",
+      "invalid_operation",
+      "invalid_access",
+      "stale_generation",
+      "access_unavailable",
+    ] as const) {
+      const reply = { ok: false, v: 1, error };
+      expect(parseOmpSnapshotReply(reply)).toEqual({ ok: false, error });
+      expect(parseOmpLinkReply(reply)).toEqual({ ok: false, error });
+    }
+    expect(() => parseOmpSnapshotReply({ ok: false, v: 1, error: "unknown_error" })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpLinkReply({ ok: false, v: 1, error: "unknown_error" })).toThrow(ProtocolValidationError);
   });
 
   test("rejects oversized frames and ambiguous launch bodies", () => {
@@ -137,14 +155,32 @@ describe("strict protocol validation", () => {
     ).toThrow(ProtocolValidationError);
   });
 
-  test("separates serializable metadata from non-serializable capabilities", () => {
-    const frame = parseAuthenticatedPublisherFrame(upsert());
-    if (frame.op !== "upsert") throw new Error("expected upsert");
-    const split = separatePublishedSession(frame.session, "2026-07-19T00:00:01.000Z");
-    expect(split.metadata.inputRequired).toBe(false);
-    expect(JSON.stringify(split.metadata)).not.toContain(capability);
-    expect(split.secret.view.reveal()).toBe(capability);
-    expect(() => JSON.stringify(split.secret)).toThrow("must not be serialized");
+  test("projects a host into basename-only metadata rather than exposing its full path or identity", () => {
+    const observed = observedSessionFromSnapshot(parseOmpHostSnapshot(hostSnapshot()));
+    expect(observed).toMatchObject({
+      cwdLabel: "repository",
+      model: "provider/model",
+      startedAt: "2026-07-19T00:00:00.000Z",
+      canControl: false,
+    });
+    const projected = sessionMetadataFromObserved(observed, "2026-07-19T00:00:01.000Z");
+    expect(JSON.parse(JSON.stringify(projected.metadata))).toEqual(metadata({ cwdLabel: "repository", model: "provider/model" }));
+    const windows = observedSessionFromSnapshot(parseOmpHostSnapshot(hostSnapshot({
+      cwd: "C:\\Users\\operator\\projects\\repository\\",
+      access: "control",
+    })));
+    expect(windows).toMatchObject({ cwdLabel: "repository", model: "provider/model", canControl: true });
+  });
+
+  test("wraps a link reply URL before it can be serialized or inspected", () => {
+    const url = new URL("https://collab.example.test");
+    url.hash = capability;
+    const reply = parseOmpLinkReply({ ok: true, v: 1, url: url.href });
+    if (!reply.ok) throw new Error("expected a successful link reply");
+    expect(reply.value).toBeInstanceOf(SecretCapability);
+    expect(reply.value.reveal() === url.href).toBe(true);
+    expect(() => JSON.stringify(reply)).toThrow("must not be serialized");
+    expect(Bun.inspect(reply)).not.toContain(capability);
   });
 
   test("redacts secret string and inspector conversions", () => {
@@ -154,12 +190,8 @@ describe("strict protocol validation", () => {
   });
 
   test("removes control and bidi characters from display labels", () => {
-    const frame = parseAuthenticatedPublisherFrame({
-      ...upsert(),
-      session: { ...(upsert().session as Record<string, unknown>), title: "safe\u202etext\u0007" },
-    });
-    if (frame.op !== "upsert") throw new Error("expected upsert");
-    expect(frame.session.title).toBe("safetext");
+    const snapshot = parseOmpHostSnapshot(hostSnapshot({ sessionName: "safe\u202etext\u0007" }));
+    expect(observedSessionFromSnapshot(snapshot).title).toBe("safetext");
   });
 
   test("validates browser metadata, events, and one-time launch responses", () => {

@@ -14,7 +14,7 @@ Highest-value assets:
 - view-only collaboration capabilities;
 - transcript/tool/subagent data reachable through those capabilities;
 - session metadata such as project names, models, activity timing, and whether human input is required;
-- the local publisher token;
+- per-host OMP query tokens and the gateway-only readiness token;
 - tailnet and WebAuthn identity material;
 - private VAPID key material and browser push subscription endpoints/keys;
 - release-signing and update infrastructure.
@@ -61,9 +61,9 @@ Keep the backend on localhost because another remotely reachable path would let 
 cryptographically from Serve-originated requests, so every untrusted process or OS account able
 to run on the desktop host is outside the v1 HTTP trust boundary. V1 is for a user-controlled
 workstation without mutually untrusted local accounts; do not deploy it on a shared shell host.
-The private publisher token and IPC permissions still prevent a different local account from
-registering sessions or satisfying managed-install readiness, but they do not authenticate browser
-API requests.
+OMP’s private discovery files and endpoints restrict per-host queries to their OS-user boundary.
+The gateway-only readiness token proves managed-install readiness; neither credential authenticates
+browser API requests.
 
 Concretely, and stated as an operator rule because the reasoning above is easy to read as advisory:
 **never point any other forwarder at the gateway's loopback port.** A tunnel, reverse proxy, port
@@ -181,10 +181,12 @@ the gateway keeps `Permissions-Policy: camera=()` and never invokes `getUserMedi
 
 Mandatory rules:
 
-- keep capabilities only in OMP process memory, gateway memory, and the active browser client memory;
-- use structurally separate metadata and secret-bearing types/maps;
+- keep capabilities only in OMP process memory, transient gateway query/launch-response memory, and
+  active browser client memory; the gateway never stores or caches them;
+- keep the memory-only registry metadata-only, structurally separate from secret-bearing responses;
 - never give capability-bearing objects generic serializers, inspectors, debug printers, or telemetry hooks;
-- delete references promptly on stop, generation change, TTL expiry, launch disposal, and shutdown;
+- minimize query/response references and drop browser references on launch disposal;
+- revalidate generation, access, and attention identity before releasing a queried capability;
 - never pre-render, prefetch, preload, or include capabilities in HTML, SSE, manifests, or hydration data;
 - release exactly one requested role through a no-store POST after an explicit user action;
 - prefer in-memory client bootstrap; do not use a URL path, query, fragment, window name, DOM attribute, clipboard, cookie, Local Storage, IndexedDB, Cache Storage, service-worker message, BroadcastChannel, notification, or crash/error SDK;
@@ -192,11 +194,11 @@ Mandatory rules:
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
 
-`inputRequired` remains the only attention field accepted from the OMP publisher. The gateway may
+`inputRequired` remains the only attention field accepted from the OMP snapshot. The gateway may
 derive an opaque random request ID and receipt timestamp in memory for each false-to-true
 transition, expose them in list/SSE and routing URLs, and destroy them on clear, removal, expiry, or
 generation replacement. They are metadata, not authorization. Prompt text, options, answers, and
-transcript content remain prohibited unless a later publisher protocol explicitly introduces a
+transcript content remain prohibited unless a later OMP snapshot contract explicitly introduces a
 bounded plain-text preview contract; the current implementation always uses the boolean fallback.
 
 The PWA may persist two bounded, non-secret local routing record types: an exact held ask
@@ -265,44 +267,42 @@ In `auth.mode = "tailscale-serve"`:
 4. reject wildcard defaults;
 5. treat external users who accepted a device share as ordinary identities requiring explicit allowlisting;
 6. optionally display the current identity without persisting it;
-7. log only a process-salted hash or allow/deny category at normal verbosity;
+7. log only numeric or boolean fields, never identity strings or hashes;
 8. maintain a separate `dev-localhost` mode that starts only with an explicit flag and accepts loopback clients only.
 
 Tailnet grants and application allowlisting are both required defense layers. Future device-specific policy may use posture or Tailscale app capabilities, but must have tests and must not fall back to “any tailnet member.”
 
-## 9. Local IPC
+## 9. Local discovery and queries
 
-- current-user-only socket/pipe permissions;
-- random authentication key with at least 256 bits of entropy, never transmitted over IPC;
-- fresh client/server nonces and domain-separated HMAC proofs that authenticate both peers before capability release;
-- strict frame validation, constant-time proof comparison, and prompt scrubbing of mutable key and pre-authentication frame buffers;
-- one instance ID per authenticated connection;
-- message, connection, and rate limits;
-- bounded queues and backpressure;
-- reject unsafe owners, modes, ACLs, symlinks, and endpoint replacement;
-- atomic token creation and rotation;
-- no capability-bearing data in parse errors;
-- capability parsing only after authentication;
-- publisher reconnect cannot resurrect an older generation.
+Stock mainline OMP `>= 18.1.20` owns the discovery/query endpoint, introduced by [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).
+The gateway is a reader and query client, not a publisher server. Required boundaries:
 
-The token prevents accidents and cross-user access; it is not protection from same-user malware.
+- read only private, current-user-owned discovery entries and endpoints; reject symlinks and
+  unsafe ownership or permissions;
+- use each entry’s endpoint and per-host query token, never a guessed socket path;
+- bound newline-framed requests, responses, connection time, and discovery entries;
+- never write, rename, or unlink OMP-owned files or sockets;
+- fetch metadata with `snapshot`, capabilities only with an explicit generation-bound `link`;
+- never log query tokens, raw replies, transport error strings, or capability-bearing parse errors;
+- treat only `ENOENT`/`ECONNREFUSED` as conclusive host death; permission, timeout, resource,
+  and wire failures retain existing metadata until TTL expiry;
+- reject stale generations and unavailable roles rather than substituting a newer or stronger link.
+
+A discovery token is not a collaboration capability, but permits querying that host for links and
+therefore remains private. These controls reduce accidental and cross-user access; they are not a
+sandbox against same-user malware. The gateway has no capability store, even in memory.
 
 Service installation and `doctor` do not trust a generic loopback health response. The daemon
-returns an HMAC over a fresh 256-bit challenge using the private publisher token; managed startup
+returns an HMAC over a fresh 256-bit challenge using its private `readiness-token`; managed startup
 also binds the HMAC to a one-time instance nonce written into the new service definition. The CLI
 requires that exact nonce before activating the staged runtime, so an older same-token process
-cannot satisfy replacement readiness. Runtime manifests record the readiness protocol so rollback
-to a verified pre-nonce runtime can use a service-manager-checked legacy proof. The challenge,
-nonce, and proof disclose no publisher token. Token rotation validates the managed runtime first
-and never restores the prior token after replacement; a failed restart retains the fresh token and
-stops the service.
+cannot satisfy replacement readiness. This token belongs only to gateway/CLI readiness and is
+never provisioned to OMP. Token rotation validates the managed runtime first and never restores
+the prior token after replacement; a failed restart retains the fresh token and stops the service.
 
-On POSIX, the publisher also verifies that the registry endpoint is a socket owned by the current
-user and that both the socket and its immediate parent are private before reading capabilities.
-On Windows, the gateway applies a current-user-and-SYSTEM-only pipe DACL, while the nonce-bound
-mutual HMAC handshake authenticates the server before the publisher sends its proof or any
-capability-bearing frame. Same-user malware that can read the private token remains outside the
-v1 threat boundary.
+Fork-era runtimes used a shared publication/readiness credential. Their recorded readiness and
+rollback results are historical, not proof that a mainline cutover can be reversed by changing
+only the gateway pointer; follow [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
 
 ## 10. Lost phone and user presence
 
@@ -326,20 +326,19 @@ Optional stronger Control protection:
 
 Allowed at normal verbosity:
 
-- event name;
-- protocol version;
-- generic success/failure category;
-- opaque or process-salted instance hash;
-- generation;
-- bounded counts and durations;
-- generic IPC/relay/Serve health.
+- fixed event names selected by the implementation, not data from a host or request;
+- numeric protocol versions, generations, counts, and durations;
+- boolean success/failure and health fields.
+
+All gateway log fields are numeric or boolean. Never attach string-valued identifiers, hashes,
+paths, error messages, metadata, or serialized query objects.
 
 Forbidden:
 
 - capabilities or substrings;
 - request/response bodies for launch endpoints;
 - authorization or identity headers;
-- publisher token;
+- per-host query tokens or the readiness token;
 - transcript, prompt, tool, or subagent content;
 - full filesystem paths by default;
 - browser network traces containing secret responses;
@@ -394,5 +393,5 @@ Before release, prove:
 - view-only mutation attempts are rejected by the OMP host;
 - cross-origin launch and WebAuthn requests fail;
 - malformed and oversized IPC/API input stays bounded;
-- gateway restart starts empty and only live authenticated publishers repopulate it;
+- gateway restart starts empty and discovery polling repopulates only live hosts;
 - release binaries bind loopback only and match published checksums.

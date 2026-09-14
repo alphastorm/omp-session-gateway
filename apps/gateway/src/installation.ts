@@ -279,9 +279,6 @@ export async function stageRuntimePayload(
     await cp(join(sourceRoot, "apps", "web", "dist"), join(staging, "apps", "web", "dist"), {
       recursive: true,
     });
-    await cp(join(sourceRoot, "patches", "oh-my-pi"), join(staging, "patches", "oh-my-pi"), {
-      recursive: true,
-    });
     await cp(join(sourceRoot, "licenses"), join(staging, "licenses"), { recursive: true });
     await mkdir(join(staging, "licenses", "collab-web"), { recursive: true, mode: 0o700 });
     await copyOptionalFile(sourceRoot, staging, "licenses/collab-web/LICENSE");

@@ -118,7 +118,7 @@ interface StagedMacRun {
 export interface OmpPins {
   readonly bunVersion: string;
   readonly sourceCommit: string;
-  readonly patchedTree: string;
+  readonly sourceTree: string;
   readonly version: string;
   readonly nativeTarballSha256: string;
   readonly nativeBinarySha256: string;
@@ -693,42 +693,32 @@ function parseCredentialAssignments(text: string): Record<string, string> {
 }
 
 export function parseQualificationPins(text: string): OmpPins {
-  const values: Record<string, string> = {};
-  for (const rawLine of text.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator <= 0) throw new Error("OMP qualification pin contains an unsupported line");
-    values[line.slice(0, separator)] = line.slice(separator + 1);
-  }
-  const pins: OmpPins = {
-    bunVersion: values.OMP_PIN_BUN_VERSION ?? "",
-    sourceCommit: values.OMP_PIN_SOURCE_COMMIT ?? "",
-    patchedTree: values.OMP_PIN_PATCHED_TREE ?? "",
-    version: values.OMP_PIN_VERSION ?? "",
-    nativeTarballSha256: values.OMP_PIN_NATIVE_TARBALL_SHA256 ?? "",
-    nativeBinarySha256: values.OMP_PIN_NATIVE_BINARY_SHA256 ?? "",
+  const value: unknown = JSON.parse(text);
+  if (!isRecord(value) || !isRecord(value.darwinArm64Native)) throw new Error("OMP qualification pin is invalid");
+  const pins = {
+    bunVersion: value.bunVersion,
+    sourceCommit: value.commit,
+    sourceTree: value.tree,
+    version: value.packageVersion,
+    nativeTarballSha256: value.darwinArm64Native.tarballSha256,
+    nativeBinarySha256: value.darwinArm64Native.binarySha256,
   };
   if (
-    !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.bunVersion) ||
-    !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) ||
-    !/^[0-9a-f]{40}$/u.test(pins.patchedTree) ||
-    !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.version) ||
-    !/^[0-9a-f]{64}$/u.test(pins.nativeTarballSha256) ||
-    !/^[0-9a-f]{64}$/u.test(pins.nativeBinarySha256)
+    typeof pins.bunVersion !== "string" || !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.bunVersion) ||
+    typeof pins.sourceCommit !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) ||
+    typeof pins.sourceTree !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceTree) ||
+    typeof pins.version !== "string" || !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.version) ||
+    !Bun.semver.satisfies(pins.version, ">=18.1.20") ||
+    typeof pins.nativeTarballSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeTarballSha256) ||
+    typeof pins.nativeBinarySha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeBinarySha256)
   ) {
     throw new Error("OMP qualification pin is invalid");
   }
-  return pins;
+  return pins as OmpPins;
 }
 
 async function loadQualificationPins(): Promise<OmpPins> {
-  const pins = parseQualificationPins(await readFile(join(repositoryRoot, "patches/oh-my-pi/qualification.env"), "utf8"));
-  const upstream = JSON.parse(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8")) as { commit?: unknown; packageVersion?: unknown; bunVersion?: unknown };
-  if (pins.sourceCommit !== upstream.commit || pins.version !== upstream.packageVersion || pins.bunVersion !== upstream.bunVersion) {
-    throw new Error("OMP qualification pin does not match UPSTREAM.lock.json");
-  }
-  return pins;
+  return parseQualificationPins(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
 }
 
 async function recoverRetainedMac(options: StableQualificationOptions): Promise<MacTarget> {
@@ -787,11 +777,15 @@ function macEnvironment(
 }
 
 export function assertMacBuildOutput(output: string, candidate: CandidateIdentity, pins: OmpPins): void {
+  if (!/doctor\s+([1-9][0-9]*)\/\1 true/u.test(output)) {
+    throw new Error("Mac build output missed a passing doctor summary");
+  }
   for (const expected of [
     `release-info commit:                   ${candidate.sourceCommit}`,
     candidate.archiveSha256,
-    "doctor                                 17/17 true",
     `"version":"${pins.version}"`,
+    `"sourceCommit":"${pins.sourceCommit}"`,
+    `"sourceTree":"${pins.sourceTree}"`,
     `"nativeSha256":"${pins.nativeBinarySha256}"`,
   ]) {
     if (!output.includes(expected)) throw new Error(`Mac build output missed required evidence: ${expected}`);
@@ -914,7 +908,7 @@ function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins): s
   return [
     'export PATH="$HOME/.bun/bin:$PATH"',
     'root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"',
-    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_PATCHED_TREE=${shellQuote(pins.patchedTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
+    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
   ].join("; ");
 }
 
@@ -958,14 +952,14 @@ async function waitForPublishedSession(origin: string, label: string): Promise<R
       if (session) {
         if (!response.headers.get("cache-control")?.includes("no-store")) throw new Error("session list was cacheable");
         if (session.canView !== true || session.canControl !== true || session.generation !== 1) {
-          throw new Error("patched OMP metadata did not publish View and Control at generation 1");
+          throw new Error("mainline OMP metadata did not publish View and Control at generation 1");
         }
         return session;
       }
     }
     await Bun.sleep(1_000);
   }
-  throw new Error("patched OMP session did not publish within 90 seconds");
+  throw new Error("mainline OMP session did not publish within 90 seconds");
 }
 
 async function verifyLaunchContracts(origin: string, session: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -999,7 +993,7 @@ async function waitForRevocation(origin: string, label: string): Promise<void> {
     if (!(payload.sessions ?? []).some(session => session.cwdLabel === label)) return;
     await Bun.sleep(1_000);
   }
-  throw new Error("patched OMP session did not revoke within 45 seconds");
+  throw new Error("mainline OMP session did not revoke within 45 seconds");
 }
 
 function chooseTunnelPort(): number {
@@ -1183,7 +1177,7 @@ async function cleanupMac(
       'TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" serve reset >/dev/null',
     ]);
   });
-  await attempt("patched OMP cleanup", async () => {
+  await attempt("mainline OMP cleanup", async () => {
     ompOutput = await runMacScript(context.environment, ["omp-clean"], 10 * 60 * 1_000);
   });
   await attempt("qualification artifact cleanup", async () => {
@@ -1202,7 +1196,7 @@ async function cleanupMac(
   });
 
   for (const [output, expected] of [
-    [ompOutput, '"patchedOmpProcessCount":0,"symlinkPresent":false,"sourcePresent":false'],
+    [ompOutput, '"liveOmpHosts":0,"binaryPresent":false,"sourcePresent":false'],
     [uninstallOutput, "plist present:                         no"],
     [uninstallOutput, "gui job:                               absent"],
     [uninstallOutput, "gateway pids:                          0"],
@@ -1214,7 +1208,7 @@ async function cleanupMac(
   return {
     gatewayProcesses: 0,
     gatewayListeners: 0,
-    patchedOmpProcesses: 0,
+    liveOmpHosts: 0,
     outputSha256: sha256(`${uninstallOutput}${ompOutput}`),
   };
 }
