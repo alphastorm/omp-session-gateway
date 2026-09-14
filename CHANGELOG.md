@@ -4,14 +4,18 @@ All notable project changes will be documented here.
 
 The format is based on Keep a Changelog and Semantic Versioning.
 
-## [Unreleased]
+## [v0.4.0] — 2026-09-14
 
 ### Changed
 
-- Prepare `0.4.0` as the first stock-mainline-compatible release, with published `v0.3.0` as the
-  explicit fork-era predecessor. Qualification remains pending; the historical stable lock is
-  unchanged. Require an exact candidate for on-demand Debian qualification rather than spending
-  scheduled runs on a stale fork-era default.
+- Qualify `v0.4.0-prealpha.1` for `0.4.0`, the first stock-mainline-compatible release, with
+  published `v0.3.0` as the explicit fork-era predecessor. The stable lock binds the exact
+  qualified candidate; publication status is recorded in the release ledger. Require an exact
+  candidate for on-demand Debian qualification instead of scheduled runs on a stale default.
+- Pass fresh Debian 13 x86-64, Mac14,3/macOS 26.6.1 arm64, and Pixel 10 Pro/Android 17/Chrome
+  152.0.7977.82 qualification with stock OMP 18.1.20 and Bun 1.4.0. The approved 1,800-second
+  relay check replaces the eight-hour gate for this release: eight-hour endurance was not rerun,
+  no historical evidence transfers, and residual prolonged-operation risk is accepted.
 - Scope Linux ARM64 upstream checks to the three discovery/query registry suites consumed by the
   gateway, rather than unrelated collaboration tests and upstream-wide checks. Keep the required
   Windows gate on gateway contracts, ACLs, and service lifecycle; upstream Windows fixtures fail
@@ -23,8 +27,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
   to `readiness-token` and its rotation command to `rotate-readiness-token`; installation removes
   the legacy fork-era `publisher-token`. Add `omp.discoveryDir` and `omp.queryTimeoutMs` config;
   `registry.heartbeatSeconds` now controls polling. Launch returns `409 mode_unavailable` when
-  the host no longer shares the requested role. Mainline release qualification is pending; no
-  published fork-era result transfers.
+  the host no longer shares the requested role. Qualification uses fresh mainline evidence;
+  no published fork-era result transfers.
 
 ### Added
 
@@ -44,7 +48,7 @@ The format is based on Keep a Changelog and Semantic Versioning.
   sockets without sending a request after timeout.
 - Reject snapshot timestamps outside the JavaScript date range before ISO projection.
 - Enforce the approved 1,800-second relay floor and reject inadequate resumed proof without
-  bypassing pending cleanup. These are source fixes, not fresh signed-candidate qualification.
+  bypassing pending cleanup.
 - Verify Windows active reinstall through nonce-bound readiness and a changed listening port rather
   than PID inequality; describe the gateway readiness credential accurately in maintenance output.
 - Preserve authored `omp.discoveryDir` and `omp.queryTimeoutMs` when an install changes the origin,

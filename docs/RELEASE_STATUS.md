@@ -1,23 +1,82 @@
 # Release status
 
-## Mainline v0.4.0 — qualification pending
+## Mainline v0.4.0 — qualified candidate; publication pending
 
-**Decision recorded:** 2026-09-14. Current source requires stock OMP `>= 18.1.20`;
-the development gateway version is `0.4.0`, with published `v0.3.0` as the explicit predecessor.
-[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Exact engineering source is
-`v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`. This records a source/architecture
-cutover, not a new release, signature, test count, or qualification result.
+**Updated:** 2026-09-14. **Decision: GO for stable v0.4.0** on the exact matrix below.
+The seven-lane candidate receipt completed at **13:05:26.972 UTC**. Stable publication and the
+published-byte local installation/Android smoke are still pending; GitHub Latest remains v0.3.0.
 
-The gateway reads OMP discovery, polls snapshots, and fetches capabilities only per launch without
-storing them. Native Linux/macOS/Windows, physical Android, relay endurance, signed-artifact
-installation, and cross-architecture upgrade/rollback qualification are **pending** for mainline.
-No recorded fork-era result transfers. The retained v0.3.0 stable lock and published artifacts
-remain historical evidence, not authorization to ship these changed bytes as qualified.
+**Qualified candidate:** [v0.4.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1).<br>
+**Candidate source:** `cd796a7f2c4ea98f8d8bedafb3b6ff24b6e44221`.<br>
+**Candidate archive SHA-256:** `90a2037b75272ddb70a1965f771494abdf32906163846a0c14f4d93b8fc7181c`.<br>
+**Signed release run:** [34829484922](https://github.com/alphastorm/omp-session-gateway/actions/runs/34829484922), passed.<br>
+**Gateway rollback predecessor:** published v0.3.0, retaining its own fork-era OMP prerequisite.
 
-**Founder-approved assurance amendment, 2026-09-14:** replace the eight-hour gate for v0.4.0
-with a fresh 30-minute signed-candidate relay check, keeping every other release gate intact.
-Eight-hour endurance is **not rerun or claimed**; residual prolonged-operation risk is accepted.
-The bounded check is still pending, and historical endurance evidence does not transfer.
+Stock mainline OMP **>=18.1.20** is the integration prerequisite. The exact qualified host is
+**OMP 18.1.20**, source `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`, with **Bun 1.4.0**.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) supplies discovery/query upstream;
+no gateway-specific OMP build or gateway publisher credential is required. The gateway reads
+metadata and fetches each View/Control capability only at launch, without storing it.
+
+### Exact signed-candidate evidence
+
+- **Artifacts:** signed tag, all six published asset digests, archive/SBOM checksums, three GitHub attestations, and three
+  Sigstore bundles verified independently.
+- **Debian 13 (trixie) x86-64**, Linux 6.12.94+deb13-amd64: signed-artifact lifecycle,
+  **69/69** migration/recovery invariants, stock OMP generation-1 View/Control publication and
+  revocation, reboot persistence, tagged-identity denial/exposure, and uninstall passed in
+  [run 34830668687](https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687).
+  Droplet and ephemeral SSH-key destruction passed. Its early doctor snapshot was 13/18 before
+  OMP installation and from a tagged caller; it is not an all-green doctor claim. Positive
+  allowed-user HTTPS access was measured on the retained Mac and Pixel, not that tagged CI caller.
+- **Mac14,3 / macOS 26.6.1 arm64:** doctor **18/18**, rollback **23/23**, install/rotation,
+  reboot-to-console-login persistence, allowed-user HTTPS, forged-header behavior, and direct
+  tailnet/public-backend refusal passed. The exact source/native-addon build was verified.
+- **Pixel 10 Pro / Android 17**, build **CP2A.260805.005**, **Chrome 152.0.7977.82**:
+  View read-only, Control writable, prompt acceptance, and return to directory passed. Same-page
+  unlock, Airplane, and forced-Doze recovery measured **10,398 / 16,821 / 8,475 ms** respectively.
+  All **seven** forbidden capability sinks were proven detectable and clean. The application
+  asset was `/assets/app.e57732a82351.js`.
+- **Live OMP query/launch:** generation-1 View and Control returned 200 with no-store responses;
+  the owned session revoked after shutdown. A separate live generation-1-to-2 stale request
+  returned **409**, no-store, without a capability at 13:02:07.920 UTC.
+- **Relay:** **1,800 seconds**, 11:04:50.160–11:34:50.200 UTC, **two transitions**, final phase
+  **live**. The supervised phone-independent runner exited 0 with no restarts.
+- **Final cleanup:** zero gateway processes, zero gateway listeners, and zero owned OMP hosts
+  on the retained Mac. Its ordinary installed stock OMP prerequisite is intentionally retained.
+
+The receipt is `~/.local/share/omp-session-gateway/qualification/v0.4.0-prealpha.1/stable-qualification.json`,
+bound to orchestrator `cd796a7f2c4ea98f8d8bedafb3b6ff24b6e44221` and predecessor v0.3.0.
+The host/relay portion used the unchanged lane implementations through a disposable phone-independent
+scheduler while Android was held; its archived source digest is
+`d38c2670d3a25d3d6a241cb4de40e669d1c3cb450684f7a80b3f15907e2f6e19`.
+The standard orchestrator then resumed Android and final cleanup without redispatching Debian,
+repeating Mac lifecycle, or rerunning the relay. The scheduler source and metadata-only
+`stale-generation-smoke.json` are retained beside the receipt, not installed product machinery.
+
+### Runtime equivalence and release checks
+
+A local build of the frozen candidate reproduced the **entire published archive SHA-256**.
+The harness-only OMP banner repair at `e8c1f02485908e0fa6e681b8778d0a384fd8b4cc` also matched
+all **46** non-metadata archive files by name, bytes, and mode. Only `release-info.json`,
+`SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`
+are excluded, matching the publication gate. The final promotion build must pass that comparison
+again before publication. Required checks passed for [PR #169](https://github.com/alphastorm/omp-session-gateway/pull/169)
+and the narrow [PR #170](https://github.com/alphastorm/omp-session-gateway/pull/170) repair.
+
+The first Mac attempt exposed a missing ordinary OMP installation: the same stopped candidate's
+compatibility check changed from false to true after installing stock OMP 18.1.20. A subsequent
+SSH failure occurred before rollback staging; its cause remains undetermined. The isolated
+rollback probe then passed 23/23, followed by the complete Mac lane. Cleanup passed after both
+failed attempts. No replacement candidate or duplicate Debian dispatch was used.
+
+### Assurance boundary
+
+**Founder-approved amendment, 2026-09-14:** the fresh 30-minute check replaces the eight-hour gate
+for v0.4.0 only; every other release gate remains intact. **Eight-hour endurance was NOT RERUN
+and is NOT CLAIMED.** Residual prolonged-operation risk is accepted; no fork-era result transfers.
+There is no bounded-memory-growth claim. Windows OMP, background Web Push, specialized attention
+and branch/resume matrices, and broader host/browser combinations remain unqualified.
 
 ## Fork-era release and qualification archive
 

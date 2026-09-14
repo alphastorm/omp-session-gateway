@@ -19,11 +19,11 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[Latest release](https://github.com/alphastorm/omp-session-gateway/releases/latest)**
+**[Qualified candidate](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
-[![Latest release][release-badge]][releases]
+[![Releases][release-badge]][releases]
 [![OMP baseline][omp-badge]][omp-lock]
 [![License][license-badge]][license]
 
@@ -50,12 +50,12 @@ and opens the exact encrypted OMP collaboration surface — without QR codes or 
 > `collab.autoStart` to `view` or `control`, then start sessions with plain `omp`.
 > No gateway-specific OMP build or activation route is needed.
 >
-> **Mainline qualification is pending.** Published
-> [v0.3.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0) and its signed
-> candidate `v0.3.0-prealpha.3` retain their **fork-era** exact patched OMP v18.1.14 evidence:
-> Debian 13 x86-64, macOS 26.6.1 arm64, Pixel/Android, relay endurance, and runtime equivalence.
-> Those results do not qualify this cutover. Tailscale Serve with the TUN-mode client, Funnel
-> disabled, and Bun 1.4.0 remain required. Details:
+> **Mainline candidate qualified; v0.4.0 approved for promotion.** Signed
+> [v0.4.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)
+> passed FULL qualification on 2026-09-14 with stock OMP v18.1.20: exact Debian/macOS hosts,
+> physical Pixel core flows, migration/recovery, and a fresh 1,800-second relay check.
+> **Stable v0.4.0 publication is pending.** No fork-era evidence transfers. Tailscale Serve
+> with the TUN-mode client, Funnel disabled, and Bun 1.4.0 remain required. Details:
 > [compatibility matrix](docs/COMPATIBILITY.md) · [release ledger](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
@@ -150,25 +150,29 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-The current checkout consumes stock mainline OMP; a minimum host version is not a qualification
-claim for every host, browser, or future OMP release.
+The approved v0.4.0 target is bound to signed candidate `v0.4.0-prealpha.1`. Its fresh
+qualification is limited to the exact combinations below; the minimum OMP version does not
+qualify every host, browser, or future OMP release.
 
 | | Current contract |
 |---|---|
 | OMP prerequisite | Stock mainline `>= 18.1.20`; earlier releases lack the local registry |
-| Exact engineering source | `v18.1.20`, commit `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b` |
+| Exact qualified OMP | `v18.1.20`, commit `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`; Bun `1.4.0` |
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
-| Mainline host/client/relay qualification | Pending; no fork-era result transfers |
-| Published-release history | `v0.3.0`: fork-era patched v18.1.14; `v0.2.1`: fork-era patched v17.4.1 |
+| Qualified Linux host | Debian 13 (trixie) x86-64, Linux `6.12.94+deb13-amd64`; 69/69 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown |
+| Qualified Mac host | `Mac14,3`, macOS `26.6.1` arm64; `doctor` 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, allowlisted identity and forged-header/exposure checks |
+| Qualified core client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `152.0.7977.82`; View read-only, Control writable, prompt accepted, return to directory, same-page lock/Airplane/Doze recovery, seven forbidden capability sinks detectable and clean |
+| Fresh relay check | 1,800 seconds, two transitions, final phase `live`; founder-approved 30-minute gate for v0.4.0, not eight-hour endurance |
+| Migration/rollback predecessor | `v0.3.0`, fork-era; stopped matching-CLI uninstall/reinstall across the architecture boundary, no credential bundles |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP
 sufficient starting with [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).
 
-Published `v0.3.0`, `v0.2.1`, and earlier prereleases keep their matching source and instructions;
-they are not mainline-compatible gateway artifacts. Gateway rollback does not switch the OMP
-executable or restore the fork-era configuration. See [upgrade and rollback](docs/UPGRADE_ROLLBACK.md).
+The signed-candidate provenance, exact device measurements, and runtime-byte comparison are
+recorded in the [release ledger](docs/RELEASE_STATUS.md). Gateway rollback does not switch the
+OMP executable or restore fork-era configuration. See [upgrade and rollback](docs/UPGRADE_ROLLBACK.md).
 
 Known limits are part of the claim — read them before installing:
 
@@ -182,15 +186,18 @@ Known limits are part of the claim — read them before installing:
   and, after 45 seconds of uninterrupted visible failure, opens force-stop/reopen help already
   loaded in the PWA shell; it does not
   claim page JavaScript can repair Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
+- **The fresh relay gate is 30 minutes, not eight hours.** Eight-hour endurance was not rerun
+  and is not claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth
+  claim follows from this check.
+- **Specialized attention, branch/resume, and new media qualification are not claimed.** The
+  current physical checks qualify the core directory/View/Control path, not these separate lanes.
 - **Background Web Push is outside the stable core claim.** Repository and desktop Chromium
   coverage exists, but the exact physical closed-PWA, lock-screen, tap-to-Control,
   stale-generation, force-stop, network-change, and forbidden-sink matrix has not passed.
 - **Preview notification detail currently falls back to Session detail** — the OMP snapshot
   carries no bounded preview field.
-- **Windows is not advertised.** Fork-era source acceptance on a persistent Server 2025 VM
-  passed install, reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback,
-  patched OMP publication, and uninstall. This is not mainline evidence; exact signed gateway and
-  mainline OMP artifacts must repeat the lane before support is claimed ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)).
+- **Windows OMP remains unqualified and unadvertised.** Exact signed gateway and mainline OMP
+  artifacts must repeat the lane before support is claimed ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)).
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.
@@ -201,12 +208,24 @@ The [compatibility matrix](docs/COMPATIBILITY.md) defines the supported boundary
 [release ledger](docs/RELEASE_STATUS.md) holds the exact per-candidate evidence and is
 authoritative where they disagree.
 
+### Fork-era published-release history
+
+Published `v0.3.0` and signed candidate `v0.3.0-prealpha.3` retain their exact patched OMP
+v18.1.14 evidence: Debian 13 x86-64, macOS 26.6.1 arm64, Pixel/Android, relay endurance, and
+runtime equivalence. Published `v0.2.1` retains its fork-era patched OMP v17.4.1 baseline. These
+archives require their matching source and instructions; no result transfers to mainline.
+
+Fork-era Windows source acceptance on a persistent Server 2025 VM passed install,
+reboot→interactive-login startup, `doctor` 17/17, rotation, upgrade/rollback, patched OMP
+publication, and uninstall. This is historical evidence only, not Windows OMP qualification.
+
 ## Build and run
 
-Build this mainline-compatible checkout with **Bun 1.4.0** and install stock
-`@oh-my-pi/pi-coding-agent@18.1.20` or later. The published `v0.3.0` archive predates this
-cutover; use its matching fork-era instructions only for that historical release. No mainline
-release qualification is claimed yet.
+Use the [qualified signed candidate](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1)
+for the exact combinations above, or build this mainline-compatible checkout with **Bun 1.4.0**.
+Install stock `@oh-my-pi/pi-coding-agent@18.1.20` or later; there is no gateway-specific OMP
+build or publisher credential. A source build does not inherit the signed candidate
+qualification. The fork-era `v0.3.0` archive requires its matching historical instructions.
 
 ```sh
 omp --version # must report at least 18.1.20
@@ -232,8 +251,9 @@ Tailscale login:
 
 If a fork-era gateway is already installed, retain its signed archive and private configuration,
 then run that archive's `uninstall` command first to stop and unregister its service. Config and
-staged runtimes remain in place. This first mainline upgrade is not an active in-place credential
-migration; see [upgrade and recovery](docs/UPGRADE_ROLLBACK.md).
+staged runtimes remain in place. Reinstall the mainline gateway only after that stopped
+uninstall; do not import fork-era credential bundles. This is not an active in-place credential
+migration, and gateway rollback never switches OMP; see [upgrade and recovery](docs/UPGRADE_ROLLBACK.md).
 
 ```sh
 bun run build
@@ -334,13 +354,13 @@ describes this cutover, while the other projects retain the dated comparison abo
 |---|---|---|---|---|---|
 | Workflow boundary | Private directory, attention queue, and just-in-time View/Control broker for already-running terminal OMP sessions; not a second client | Web cockpit hosting its own OMP SDK sessions plus kanban, plan mode, inbox, knowledge base, routines, and messaging bridges | Skills plugin that exposes an agent from the phone — web chat, real terminal, sharing, notify — for OMP, Claude Code, Codex, Gemini CLI, and opencode | Web/desktop/mobile UI for Claude Code, Cursor CLI, and Codex with chat, shell, file and git explorers | Browser dashboard to spawn, mirror, and drive [`pi`](https://github.com/badlogic/pi-mono) agents; its README states Oh My Pi is **not** supported |
 | Zero-touch discovery of live terminal sessions | Yes — reads mainline OMP discovery and queries host metadata; no per-session command | No terminal attach; the deck creates and hosts its own sessions in-process | Per-surface setup through skills; its `omp-collab` skill shares one OMP session over OMP's own path | Discovers existing session files automatically; the OMP mirroring proposal linked below was closed without merging | For `pi` only, via a bridge extension loaded into every session |
-| Mobile surface | Android-first installable PWA; physical Pixel directory/View/Control/lock-resume/isolation results are fork-era evidence, with mainline qualification pending; opt-in Web Push remains unqualified | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
+| Mobile surface | Android-first installable PWA; signed v0.4.0 candidate qualifies the exact Pixel directory/View/Control/recovery/isolation matrix above; opt-in Web Push remains unqualified | Responsive web app; Telegram bridge for DM-driven use | Phone browser over encrypted Portal tunnels; push via self-hosted ntfy | Responsive mobile design, hosted cloud, and desktop companion apps | Mobile-friendly responsive layout |
 | Exact OMP collab client reuse | Yes — View/Control opens OMP's own encrypted `collab-web` client from pinned upstream source; no second chat surface | No — own chat surface over the embedded OMP SDK (`@oh-my-pi/*` 15.1.7) | No — own web chat over OMP RPC; `omp-collab` reuses OMP collab links separately | No — own transcript UI over ACP stdio | No — own WebSocket mirror protocol, `pi` only |
-| Attention triage | Metadata-only FIFO **Needs you** queue with device-local exact-ask Hold; non-attention rows can be dismissed and restored on one device without stopping OMP | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session attention queue described | Interactive `ask_user` prompts inside a session view |
+| Attention triage | Metadata-only FIFO **Needs you** queue with device-local exact-ask Hold; non-attention rows can be dismissed and restored on one device without stopping OMP; specialized attention qualification is not claimed | Plan-mode approvals and queued prompts per session; no cross-session attention queue described | `agent-notify` pushes when the agent needs you (labels-only content) | Interactive per-tool approvals in the UI; no cross-session attention queue described | Interactive `ask_user` prompts inside a session view |
 | Capability and secret handling | Collaboration capabilities stay memory-only, fetched `no-store` after an explicit tap; never in logs, URLs, push, or browser storage | Provider OAuth/API keys in `~/.omp/agent/auth.db` and a deck-managed `.env`, masked in the UI | Password/token gate per surface; hosted `my.omp.sh` link option is end-to-end encrypted | Agent tools disabled by default and enabled selectively; uses your own provider subscriptions | Provider keys in `auth.json`; paired-device bearer tokens for its MCP endpoint |
 | Remote path | Tailscale Serve over tailnet HTTPS only; loopback-only bind, TUN mode required; Funnel, Portal Tunnel, SSH/public tunnels, proxies, and public access unsupported | Loopback-only default; you front it with Tailscale Serve, an SSH tunnel, or an authenticated reverse proxy | Portal relay tunnels — end-to-end encrypted, terminating on your machine, behind a mandatory auth gate | Self-hosted on your network (`[yourip]:port`), documented remote-server setup, or the hosted CloudCLI Cloud | `localhost:8000` by default; optional zrok public tunnel with persistent URLs; mDNS LAN discovery |
 | Transcript storage | None — the directory renders bounded metadata only; transcripts stay in OMP | Sessions persist and resume by design (shared `~/.omp/agent` store; deck state in SQLite and markdown) | Web chat keeps conversation memory; the terminal is a live tmux | Session history persisted, with resume and paging | Mirrors live sessions and lazy-loads historical `pi` session files |
-| Install maturity and support | **Stock OMP >=18.1.20; mainline qualification pending.** Published v0.3.0 Debian/macOS/Pixel and endurance evidence is fork-era only | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP integration PR [#1143](https://github.com/siteboon/claudecodeui/pull/1143) is closed, unmerged as of 2026-09-08** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
+| Install maturity and support | **Stock OMP >=18.1.20; signed v0.4.0 candidate qualified.** Exact Debian/macOS/Pixel matrix and fresh 30-minute relay check; [publication status](docs/RELEASE_STATUS.md) | npm `0.6.1` global install or `bunx`; CI matrix and container builds | Plugin-marketplace install; contract-tested frontend bridge | Established npm/Docker/desktop/cloud distribution (AGPL-3.0); **OMP integration PR [#1143](https://github.com/siteboon/claudecodeui/pull/1143) is closed, unmerged as of 2026-09-08** | Mature npm/Electron/Docker installers for `pi`; the only OMP route is a community fork ([`omp-agent-dashboard`](https://github.com/oldschoola/omp-agent-dashboard)), with no upstream integration described |
 | Official OMP affiliation | None — independent community project | None | None | None | None; targets `pi`, not OMP |
 
 Where each one shines:

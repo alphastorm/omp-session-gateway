@@ -612,8 +612,8 @@ truthful per device state, and media, e2e, and unit fixtures encode the new pres
 
 **Context:** [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Mainline OMP now owns the
 collaboration controller and local registry. Maintaining a second OMP transport, activation route,
-and shared credential is no longer necessary. Published gateway artifacts still carry their
-original fork-era compatibility and qualification evidence.
+and shared credential is no longer necessary. Fork-era gateway artifacts retain their original
+compatibility and qualification evidence.
 
 **Decision:** Require stock OMP `>= 18.1.20` and only `collab.autoStart`. Remove the downstream
 OMP patch set and gateway publisher listener. Read OMP’s private discovery directory, query
@@ -642,5 +642,9 @@ OMP reconnect. Discovery visibility is bounded by polling rather than push timin
 engineering pin is `v18.1.20` / `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`; the minimum
 host version is not a claim that every future version is qualified. Fork-era OMP processes must
 restart under mainline at cutover. Older gateway configuration/credentials must be handled through
-the matching historical release during rollback, not a transport shim. **Mainline qualification is
-pending**; no old test count, signed receipt, native result, or relay endurance result is transferred.
+the matching historical release during rollback, not a transport shim. Mainline core qualification
+and explicit stopped-predecessor recovery passed for the exact signed candidate and matrix in
+the [release ledger](RELEASE_STATUS.md). Windows, background Web Push, specialized attention, and
+branch/resume remain unqualified. The approved fresh 30-minute relay check passed; eight-hour
+endurance is **not rerun or claimed**, with prolonged-operation risk accepted. No old test count,
+signed receipt, native result, or relay endurance result is transferred.

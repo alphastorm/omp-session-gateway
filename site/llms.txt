@@ -3,9 +3,25 @@
 > Secure, zero-touch mobile access to every running Oh My Pi (OMP) session. An Android-first
 > PWA plus a loopback-only directory and just-in-time View/Control capability broker behind
 > Tailscale Serve; opening a session hands off to OMP's own end-to-end-encrypted collab-web
-> client. Stable v0.3.0 requires exact patched OMP v18.1.14; development targets stock mainline
-> OMP v18.1.20 or newer, which carries that patch upstream. Community project; not affiliated
-> with or endorsed by the Oh My Pi maintainers.
+> client. Signed candidate v0.4.0-prealpha.1 is qualified for the approved v0.4.0 target with
+> stock mainline OMP v18.1.20; the supported prerequisite is OMP >=18.1.20, Bun 1.4.0, with no
+> gateway-specific OMP build or publisher credential. Stable v0.4.0 publication is pending;
+> consult the release ledger. Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+
+## Current qualification boundary
+
+- FULL signed-candidate qualification passed 2026-09-14T13:05:26.972Z; no historical transfer or claim for arbitrary builds from main.
+- Exact OMP v18.1.20 source: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway.
+- Debian 13 (trixie) x86-64, Linux 6.12.94+deb13-amd64: 69/69 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown.
+- Mac14,3 / macOS 26.6.1 arm64: doctor 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.
+- Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 152.0.7977.82: View read-only, Control writable, prompt accepted, return to directory; same-page unlock 10,398 ms, Airplane 16,821 ms, Doze 8,475 ms; all seven forbidden capability sinks detectable and clean.
+- Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds, two transitions, final phase live. The founder replaced the v0.4.0 eight-hour gate with 30 minutes; eight-hour endurance was not rerun or claimed, no historical endurance transfers, and residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.
+- Windows OMP, background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Historical seeded-fixture media is not evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
+- v0.3.0 is the explicit fork-era migration/rollback predecessor: stopped matching-CLI uninstall/reinstall across the architecture boundary, no credential bundles. Gateway rollback does not switch OMP.
+
+## Fork-era release history
+
+- v0.3.0 requires its exact patched OMP v18.1.14 and matching historical instructions. Its qualification does not transfer to the mainline architecture.
 
 ## Canonical documents
 
@@ -16,7 +32,7 @@
 - [Architecture](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/ARCHITECTURE.md): trust boundaries and components
 - [Protocol](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/PROTOCOL.md): IPC and HTTP contracts
 - [Operations](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OPERATIONS.md): install, Tailscale Serve, doctor, upgrade
-- [OMP patch route](https://github.com/alphastorm/omp-session-gateway/blob/main/patches/oh-my-pi/README.md): exact controller/publisher patch for the pinned OMP
+- [OMP integration](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OMP_INTEGRATION.md): stock mainline discovery/query contract, supported settings, and exact qualification boundary
 - [Stable release lock](https://github.com/alphastorm/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json) and [upstream lock](https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json): machine-readable current claim
 
 ## Web pages

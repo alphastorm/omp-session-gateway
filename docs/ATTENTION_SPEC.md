@@ -133,8 +133,10 @@ worker messages, browser storage, caches, logs, and diagnostics.
 ## Acceptance checklist
 
 The checked items below record pre-cutover implementation acceptance, including **fork-era**
-layout and leak-suite evidence. They are not a mainline OMP qualification result; the exact
-mainline host, physical-client, and background-Push qualification remains pending.
+layout and leak-suite evidence. They do not qualify this specialized attention/notification
+matrix on mainline OMP; its exact host, physical-client, and background-Push qualification
+remains pending. The [release ledger](RELEASE_STATUS.md) records passed mainline core checks,
+not qualification of these specialized scenarios.
 
 - [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
 - [x] Seven exact notification states; permission only after explicit enable.

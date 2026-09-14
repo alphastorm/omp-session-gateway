@@ -13,9 +13,12 @@
 `collab.autoStart` once, then use plain `omp`. The gateway only reads OMP’s discovery directory
 and queries each host; no gateway-specific OMP build or shared publication credential is needed.
 
-Mainline qualification is pending. Published `v0.3.0` and `v0.2.1` retain their **fork-era**
-patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s matching instructions for
-those artifacts. Gateway rollback alone neither switches OMP nor restores fork-era configuration.
+Mainline core signed-candidate qualification passed for the exact Debian, macOS, and physical
+Pixel matrix in the [release ledger](RELEASE_STATUS.md); use the
+[compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
+retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s
+matching instructions for those artifacts. Gateway rollback alone neither switches OMP nor
+restores fork-era configuration.
 
 The system is zero-effort per OMP session, not zero-effort to install. Initial Tailscale login,
 gateway installation, and OMP configuration happen once.
