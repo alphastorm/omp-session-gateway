@@ -35,10 +35,26 @@ jobs:
           try {
             bun install --frozen-lockfile
             if ($LASTEXITCODE -ne 0) { throw "OMP dependencies failed to install" }
-            bun test packages/coding-agent/test/collab
+            # The source workspace shadows npm; stage the published Windows addon explicitly.
+            $nativeFixture = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $nativeFixture | Out-Null
+            try {
+              '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-win32-x64":"18.1.20"}}' |
+                Set-Content -LiteralPath (Join-Path $nativeFixture "package.json") -Encoding utf8
+              Push-Location $nativeFixture
+              try {
+                bun install --ignore-scripts
+                if ($LASTEXITCODE -ne 0) { throw "OMP Windows native failed to install" }
+              } finally {
+                Pop-Location
+              }
+              Copy-Item -LiteralPath (Join-Path $nativeFixture "node_modules/@oh-my-pi/pi-natives-win32-x64/pi_natives.win32-x64-baseline.node") -Destination "packages/natives/native/pi_natives.win32-x64-baseline.node"
+            } finally {
+              Remove-Item -LiteralPath $nativeFixture -Recurse -Force
+            }
+            # Gate the registry contract we consume, not unrelated upstream suites or repo checks.
+            bun test packages/coding-agent/test/collab/registry.test.ts packages/coding-agent/test/collab/registry-smoke.test.ts packages/coding-agent/test/collab/host-registry.test.ts
             if ($LASTEXITCODE -ne 0) { throw "OMP Windows registry tests failed" }
-            bun run ci:check:full
-            if ($LASTEXITCODE -ne 0) { throw "mainline OMP full checks failed" }
           } finally {
             Pop-Location
           }
@@ -166,9 +182,10 @@ jobs:
   #
   # What a green run proves, on aarch64:
   #   - the repository suite, every workspace typecheck, and the production PWA build;
-  #   - that unmodified mainline OMP matches its commit and tree pins, its collaboration fixtures
-  #     pass, and its full upstream checks pass. Registry fixtures exercise discovery and
-  #     authenticated per-host socket queries; guest/read-only fixtures exercise the relay.
+  #   - that unmodified mainline OMP matches its commit and tree pins and its registry fixtures
+  #     pass, exercising discovery and authenticated per-host socket queries. Both platform jobs
+  #     gate the upstream registry contract we consume, not unrelated collab/relay suites or full
+  #     upstream repo checks. Those remain upstream's responsibility.
   #
   # What a green run does NOT prove. It is not arm64 platform qualification:
   #   - no service is installed, so nothing here bears on a host lifecycle row. `install` on Linux
@@ -194,11 +211,8 @@ jobs:
   # on any required-checks list until it has proven stable.
   linux-arm64-source-checkout:
     runs-on: ubuntu-24.04-arm
-    # Not yet measured; no run of this job exists. For scale, `implementation-checks` in ci.yml
-    # observes ~20s for `bun run check` on x86-64, and windows-service-lifecycle above bounds a
-    # strictly larger amount of work at 25 minutes. The genuine unknowns here are the pinned OMP
-    # checkout, its install, and its coding-agent typecheck. Thirty bounds a hung step far short of
-    # the 6h default; tighten it once a real run reports a duration.
+    # Bound checkout, dependency installation, and gateway/registry fixtures well below the
+    # six-hour runner default. This is not a full upstream typecheck or test-suite lane.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -248,7 +262,7 @@ jobs:
           ref: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
           path: .qualification/oh-my-pi
           persist-credentials: false
-      - name: Verify mainline OMP source and run its collab fixtures on aarch64
+      - name: Verify mainline OMP source and run its registry fixtures on aarch64
         working-directory: .qualification/oh-my-pi
         run: |
           set -euo pipefail
@@ -268,5 +282,6 @@ jobs:
           cp "$native_fixture/node_modules/@oh-my-pi/pi-natives-linux-arm64/pi_natives.linux-arm64.node" \
             packages/natives/native/pi_natives.linux-arm64.node
 
-          bun test packages/coding-agent/test/collab
-          bun run ci:check:full
+          bun test packages/coding-agent/test/collab/registry.test.ts \
+            packages/coding-agent/test/collab/registry-smoke.test.ts \
+            packages/coding-agent/test/collab/host-registry.test.ts

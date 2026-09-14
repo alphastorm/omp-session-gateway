@@ -21,6 +21,12 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
+The Windows and Linux ARM64 source-checkout jobs stage their published platform native packages
+at `18.1.20` and run upstream's `registry.test.ts`, `registry-smoke.test.ts`, and
+`host-registry.test.ts`. They gate only the discovery/query contract consumed by the gateway,
+not upstream's unrelated collaboration suites or full repository checks. They do not qualify
+either platform's real OMP-to-gateway discovery path; Windows remains unadvertised.
+
 ## Fork-era published-release history
 
 Everything in this section records the named historical gateway artifacts, not current source.
@@ -34,8 +40,6 @@ with Chrome `152.0.7977.75` on Android 17 (Pixel 10 Pro). Nothing else is advert
 
 Fresh signed-artifact provenance, Debian/macOS/Pixel qualification, 49-file runtime equivalence,
 and 28,800-second default-relay endurance passed. Historical qualification does not transfer.
-The current Linux ARM64 source-checkout lane stages `pi-natives-linux-arm64@18.1.14` and requires
-its native fixtures, but it does not qualify a Linux ARM64 runtime.
 
 Tailscale Serve over tailnet HTTPS is the only supported remote path. Funnel must remain disabled
 and Tailscale must run its TUN-mode client; userspace-networking tailscaled does not establish the
