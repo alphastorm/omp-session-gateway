@@ -1,10 +1,18 @@
 # Release status
 
-## Mainline v0.4.0 — qualified candidate; publication pending
+## Mainline v0.4.0 — published stable
 
 **Updated:** 2026-09-14. **Decision: GO for stable v0.4.0** on the exact matrix below.
-The seven-lane candidate receipt completed at **13:05:26.972 UTC**. Stable publication and the
-published-byte local installation/Android smoke are still pending; GitHub Latest remains v0.3.0.
+The seven-lane candidate receipt completed at **13:05:26.972 UTC**. Stable v0.4.0 was published
+at **13:34:03 UTC** as immutable GitHub Latest. Published-byte local installation and the
+complete local/physical-Android post-release smoke passed.
+
+**Published stable:** [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0).<br>
+**Stable source:** `7fc85ca00644711f0d7390efc8ec0c438ec2511a`.<br>
+**Stable archive SHA-256:** `6e8548b593cb6504e1bf75694a0b97777e223fdb14e270390bef1ecfcfaa596c`.<br>
+**Stable release run:** [34849943386](https://github.com/alphastorm/omp-session-gateway/actions/runs/34849943386), passed.
+All six published asset digests, three GitHub attestations, three Sigstore bundles, signed tag,
+and release identity were independently verified after publication.
 
 **Qualified candidate:** [v0.4.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1).<br>
 **Candidate source:** `cd796a7f2c4ea98f8d8bedafb3b6ff24b6e44221`.<br>
@@ -60,15 +68,49 @@ A local build of the frozen candidate reproduced the **entire published archive 
 The harness-only OMP banner repair at `e8c1f02485908e0fa6e681b8778d0a384fd8b4cc` also matched
 all **46** non-metadata archive files by name, bytes, and mode. Only `release-info.json`,
 `SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`
-are excluded, matching the publication gate. The final promotion build must pass that comparison
-again before publication. Required checks passed for [PR #169](https://github.com/alphastorm/omp-session-gateway/pull/169)
-and the narrow [PR #170](https://github.com/alphastorm/omp-session-gateway/pull/170) repair.
+are excluded, matching the publication gate. The final promotion source `7fc85ca00644711f0d7390efc8ec0c438ec2511a`
+passed that same 46-file comparison. Its Bun 1.4.0 build with `OMP_RELEASE_CHANNEL=stable` also
+reproduced the **entire published stable archive SHA-256** above. Required checks passed for
+[PR #169](https://github.com/alphastorm/omp-session-gateway/pull/169), the narrow
+[PR #170](https://github.com/alphastorm/omp-session-gateway/pull/170) repair, and
+[PR #171](https://github.com/alphastorm/omp-session-gateway/pull/171) qualification approval;
+the signed stable release workflow passed its publication gates.
 
 The first Mac attempt exposed a missing ordinary OMP installation: the same stopped candidate's
 compatibility check changed from false to true after installing stock OMP 18.1.20. A subsequent
 SSH failure occurred before rollback staging; its cause remains undetermined. The isolated
 rollback probe then passed 23/23, followed by the complete Mac lane. Cleanup passed after both
 failed attempts. No replacement candidate or duplicate Debian dispatch was used.
+
+### Published-byte local installation and Android smoke
+
+The configured local Darwin-arm64 gateway was upgraded from v0.3.0 using its matching signed
+CLI to uninstall the old service before installing the verified published v0.4.0 payload.
+The private configuration remained byte-for-byte unchanged in place; no credential bundle was
+copied. The retired publisher token was removed and a private readiness token created.
+The managed service is installed, active, ready, and non-diverged; doctor passed **18/18**.
+It uses the persistent Bun **1.4.0** runtime. The existing local OMP **18.1.21** was retained,
+not rebuilt or replaced; this local check does not expand the exact OMP 18.1.20 qualification matrix.
+
+The first full post-release smoke stopped at Android View/Control. An isolated probe observed
+View succeed, followed by Control returning to the directory. Four subsequent instrumented
+owned-fixture probes and one unchanged Android-stage run passed View, Control, prompt acceptance,
+and return. All owned fixtures were cleaned. **The initial failure cause remains undetermined;
+no product-code fix is claimed.** The full published-byte smoke was then restarted from that
+passing narrow boundary, without clearing browser storage or changing the published runtime.
+
+The complete unchanged `bun run smoke:release` run for `v0.4.0`, bound to the
+published digest above, then **passed with exit 0** in **4 minutes 19 seconds** with no supervisor
+restarts. It verified the exact published provenance and application asset, reused the already
+installed stable gateway, preserved configuration/readiness-token bytes and unrelated Serve
+mappings, and passed doctor **18/18**. Serve required no change. On the physical Pixel, View
+read-only, Control writable, capability-sink checks, same-page recovery, and installed-WebAPK
+checks passed. The existing OMP **18.1.21** binary digest was
+`7a14ea7dab973cb2a3b948ffd8aac33cdb9b662a0d9ca8163c412cd3072ada5a`; OMP was not reinstalled.
+Owned fixture and private staging cleanup completed before success was returned. Gateway, OMP,
+and WebAPK remain installed. The native metadata-only result is retained as
+`published-v0.4.0/post-release-smoke.json` beside the candidate receipt. This passing run does
+not establish the cause of the earlier intermittent Control-upgrade failure.
 
 ### Assurance boundary
 

@@ -8,9 +8,13 @@ Earlier releases are unsupported because this local registry does not exist in t
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 
-**Qualified candidate:** `v0.4.0-prealpha.1`, approved for stable `v0.4.0` with `v0.3.0` as the
-fork-era predecessor. Stable publication is pending; GitHub Latest is still `v0.3.0`.
+**Published stable:** [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0),
+immutable GitHub Latest, promoted from qualified `v0.4.0-prealpha.1` with identical runtime bytes.
+`v0.3.0` is the fork-era predecessor.
 The [release ledger](RELEASE_STATUS.md) records exact source, archive, and completion evidence.
+The separate published-byte local/Pixel smoke also passed with existing OMP 18.1.21 and Bun
+1.4.0; it does not expand the exact signed-candidate matrix below. Its initial intermittent
+Control-upgrade failure remains documented with an undetermined cause.
 
 | Surface | Current contract | Qualification |
 |---|---|---|

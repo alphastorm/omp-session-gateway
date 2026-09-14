@@ -8,8 +8,8 @@ by their signed-artifact qualification. Current source requires stock mainline O
 plain `omp`. The gateway reads discovery and queries hosts, with no OMP patch set or separate
 activation route. It fetches capabilities only per launch and never stores them.
 
-**Mainline core signed-candidate qualification passed.** The exact candidate, approved v0.4.0
-target, qualified host/client matrix, and publication state are recorded in the
+**Stable v0.4.0 is published.** The exact qualified candidate, promoted stable artifact,
+host/client matrix, and post-release evidence are recorded in the
 [release ledger](RELEASE_STATUS.md). Candidate approval does not imply stable publication or a
 passed published-byte smoke. Fork-era locks and receipts cannot authorize the changed runtime bytes.
 
