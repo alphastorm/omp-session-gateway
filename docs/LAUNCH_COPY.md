@@ -26,6 +26,10 @@ Do not attach these assets without that context or replace them with personal se
       no real hostname, path, account, capability, or transcript appears.
 - [ ] No wording implies guaranteed alerts, production readiness, broader platform qualification,
       personal experience, or upstream affiliation.
+- [ ] Every open external report has a maintainer reply; nobody's setup or words are reused
+      without their permission.
+- [ ] The target subreddit's sidebar and pinned threads were re-read immediately before
+      submission; a held or removed post goes to the moderators, never to a reposted variant.
 
 ## GitHub repository description
 
@@ -86,7 +90,76 @@ https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0
 *For either post, link-only is sufficient. If attaching existing media, include the
 synthetic-demo caption and notification caveat above; do not imply fresh release qualification.*
 
-## Show HN title
+## Reddit — r/PiCodingAgent (first gateway launch)
+
+One relevant resource/demo post. Name Oh My Pi explicitly: the gateway targets OMP, not vanilla
+pi. Publish when the first discussion window can be monitored, spaced apart from other
+promotional posts; the subreddit's promotion rules take precedence over any schedule.
+
+**Title:** A private phone dashboard for live Oh My Pi sessions—now works with stock OMP
+
+**Body:**
+
+i built a small companion for people running several Oh My Pi sessions: one private page on your
+phone showing what's running and what needs your input.
+
+it discovers collaboration-enabled sessions automatically, surfaces the ones waiting for you, and
+opens the right session in OMP's existing encrypted View/Control client. the agent keeps running
+in your terminal.
+
+v0.4.0 now works with stock OMP 18.1.20+, so there's no gateway-specific OMP fork to install.
+enable collaboration once; no copying a fresh link or scanning a QR code for each session.
+
+it uses Tailscale Serve on your private tailnet, not a public dashboard. Android/Chrome is the
+qualified phone path; iOS and background notifications aren't stable support claims. the README
+has the exact host/client matrix.
+
+repo and setup: https://github.com/alphastorm/omp-session-gateway
+
+would love a few existing OMP users to try opening one of their own sessions from their phone and
+tell me what felt clunky.
+
+**Asset:** the existing `omp-session-gateway-demo.mp4`/`.gif` — directory → Needs you → the exact
+OMP request. **Caption:** "Synthetic demo data: session directory → Needs you → the exact OMP
+request."
+
+## X post — clip reuse
+
+which of your coding agents is waiting for you?
+
+omp-session-gateway puts live Oh My Pi sessions on one private phone page. open the exact request
+through OMP's existing encrypted client.
+
+now works with stock OMP; no custom fork.
+
+[synthetic-demo-labelled clip + repo link]
+
+## OMP Discord — tester request
+
+Use the one durable gateway thread. Post only for a real change or a new tester task; keep
+ongoing support in the thread. Ask maintainers whether a resource link or pin is appropriate.
+Never ask for upvotes on external posts.
+
+small update: [one material change]. i'm looking for 2–3 people on [supported setup] to try
+[opening one of their own live sessions from their phone with View or Control]. demo + exact
+setup: https://github.com/alphastorm/omp-session-gateway. please reply in this thread with your
+environment and the first step that gets stuck—no private logs or prompts needed.
+
+## Moderator query — when promotion eligibility is unclear
+
+hi—i maintain omp-session-gateway and have shared a few relevant replies here. i'd like to make
+one dedicated post showing [specific workflow], with a short demo, the supported setup and an
+explicit author disclosure. would that be appropriate under the current promotion rules, or
+should i use a designated thread?
+
+For r/LocalLLaMA, separately describe the actual AI involvement in development and ask how its
+rule on LLM-generated content applies; do not paste these drafts there. r/selfhosted requires
+the New Project Megathread for projects younger than three months by creation date.
+
+## Show HN title — deferred
+
+Deferred until an independent clean install and a clear demonstration exist; Show HN expects
+something readers can try with a low trial barrier.
 
 **Show HN: OMP Session Gateway – live terminal sessions, one private mobile page**
 
@@ -113,6 +186,30 @@ also retains an initial intermittent Control-upgrade failure whose cause remains
 passing post-release smoke. Feedback on setup friction and real phone workflows is welcome.
 
 Independent community project; not affiliated with or endorsed by the Oh My Pi maintainers.
+
+## Launch ledger
+
+A user outcome is someone outside the maintainer's machines seeing their own live OMP session
+from their phone, opening the correct session, and using View or Control. Repeat use a week later
+is a separate observation. Ask for host OS, phone/browser, OMP version, the first failed setup
+step, and whether the workflow was useful; never for prompts, capabilities, tokens, or logs.
+Star changes after a post are temporal association, not attribution; clone counts include
+automation. GitHub traffic snapshots stay out of this public file.
+
+Baseline, 2026-09-18 (GitHub API): **21 stars**, 2 forks, repository created 2026-07-19.
+
+| Date | Channel/post | Stars before | Stars +72h | Stars +7d | Post views +72h | Qualified attempts | First successes | Returned after 7d | Minutes spent |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| | | | | | | | | | |
+
+| Handle | Self-reported source | Host/phone/OMP | Tried install | First success | Return use | Main blocker | Permission to share |
+|---|---|---|---|---|---|---|---|
+| | | | | | | | |
+
+Decision rules: few views → recheck eligibility, title, audience, distribution; views and stars
+but few attempts → clarify eligibility and the first step; attempts but few successes → fix the
+observed blockers before more promotion; successes but no return use → investigate the recurring
+use case; repeat users in one community → spend the next month's effort there.
 
 ## Phrases to avoid
 

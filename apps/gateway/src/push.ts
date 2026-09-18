@@ -31,6 +31,13 @@ const PUSH_TIMEOUT_MS = 10_000;
 const VAPID_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9_-]{80,128}$/u;
 const VAPID_PRIVATE_KEY_PATTERN = /^[A-Za-z0-9_-]{40,64}$/u;
 const IDENTITY_PATTERN = /^[^\0\r\n]{1,320}$/u;
+/**
+ * RFC 8292 makes the VAPID `sub` claim a contact the push service can reach about this
+ * application server. Apple rejects the whole JWT (`403 BadJwtToken`) when that contact cannot
+ * exist, which a reserved `.invalid` name guaranteed; FCM never checks it, so the qualified
+ * Android path hid the defect (#173). The repository is the one address every install shares.
+ */
+const VAPID_SUBJECT = "https://github.com/alphastorm/omp-session-gateway";
 
 interface VapidKeyPair {
   readonly publicKey: string;
@@ -438,7 +445,7 @@ export class PushService {
       subscriptions.map(async subscription => {
         try {
           await this.#transport.send(subscription, JSON.stringify(messageFor(subscription)), {
-            subject: "mailto:security@omp-session-gateway.invalid",
+            subject: VAPID_SUBJECT,
             publicKey: this.#vapid.publicKey,
             privateKey: this.#vapid.privateKey,
             ttlSeconds: PUSH_TTL_SECONDS,

@@ -414,6 +414,8 @@ The project is intended to be developed in public. See:
 
 The project has no telemetry, analytics, or hosted control plane.
 
+Useful, but not installing today? Star the repo so you can find it again.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

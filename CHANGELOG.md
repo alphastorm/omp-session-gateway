@@ -8,6 +8,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Sign Web Push requests with the repository URL as the VAPID contact instead of a reserved
+  `.invalid` `mailto:` address. Apple's push service rejected every JWT carrying the unreachable
+  contact with `403 BadJwtToken`, so no iOS subscriber received an attention alert; FCM never
+  checked it, which hid the defect on the qualified Android path. Reported and reproduced
+  externally in [#173](https://github.com/alphastorm/omp-session-gateway/issues/173). iOS Safari
+  remains outside every compatibility claim.
 - Reject malformed media manifests before using their asset records, preserving validation
   diagnostics instead of throwing a type error. Cover canonical-package acceptance and realistic
   corruption, private metadata, and stale provenance with isolated package-level tests.
