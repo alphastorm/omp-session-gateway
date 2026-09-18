@@ -260,6 +260,8 @@ The encrypted payload is exactly one of:
 `body` is omitted for `private`; `preview` may append one bounded preview line and otherwise falls
 back to `session`. Presentation fields are built at send time and never persisted in gateway push
 state. Send with high urgency, a five-minute TTL, and an instance-derived coalescing topic. The
+VAPID `sub` claim is the repository URL, `https://github.com/alphastorm/omp-session-gateway`: a
+contact the push service can reach, which Apple enforces by rejecting the JWT otherwise. The
 service worker uses one notification tag per instance, updates it silently, closes it on `clear`,
 and sets or clears the app badge from `pendingAskCount`.
 

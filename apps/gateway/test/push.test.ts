@@ -158,6 +158,30 @@ describe("Web Push service", () => {
     await reopened.stop();
   });
 
+  test("signs each send with a VAPID contact a push service can reach", async () => {
+    const root = await createRoot();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    await service.subscribe(
+      "dev-localhost",
+      parsePushSubscriptionRequest({ version: PUSH_API_VERSION, detailLevel: "private", subscription }),
+    );
+
+    registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
+    registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
+    await service.flush();
+    await service.stop();
+
+    expect(transport.calls).toHaveLength(1);
+    // Apple returns 403 BadJwtToken for a `sub` whose contact host cannot exist (#173); RFC
+    // 2606/6761 reserve these names, and web-push itself warns that `localhost` is rejected.
+    const subject = new URL(transport.calls[0]?.options.subject ?? "");
+    expect(["https:", "mailto:"]).toContain(subject.protocol);
+    const host = subject.protocol === "mailto:" ? subject.pathname.slice(subject.pathname.lastIndexOf("@") + 1) : subject.hostname;
+    expect(host).not.toMatch(/(^|\.)(invalid|test|example|localhost)$/u);
+  });
+
   test("builds per-device detail, re-pings silently, and clears the exact request", async () => {
     const root = await createRoot();
     const registry = new SessionRegistry({
