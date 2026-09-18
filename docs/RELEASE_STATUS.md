@@ -125,19 +125,29 @@ and branch/resume matrices, and broader host/browser combinations remain unquali
 The development gateway version is `0.4.1`. Published stable `v0.4.0` remains GitHub Latest,
 the advertised release, and the only qualified artifact; nothing below widens its claim.
 
-### v0.4.1-prealpha.1 — engineering candidate for external push verification
+### v0.4.1-prealpha.1 — published engineering candidate for external push verification
 
-**Classification:** signed pre-alpha prerelease, not Latest, unqualified on every host and client.
+**Source:** `cd7d83e7be3a152891333f0fbda100544605f896`.<br>
+**Archive SHA-256:** `8b33baebda87217bf5021648c370c6a1b801031fdfc47fed9474d2e48be2f3f7`.<br>
+**Release run:** [`35292381016`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35292381016), passed; published 2026-09-18 at 00:44:28 UTC.<br>
+**Classification:** signed pre-alpha prerelease, immutable, not Latest, unqualified on every host
+and client. Stable `v0.4.0` remained GitHub Latest after publication.
+
 **Purpose:** let the reporter of [#173](https://github.com/alphastorm/omp-session-gateway/issues/173)
 verify the Web Push fix against Apple's push service from published, signed bytes. The change is
 one constant: the VAPID `sub` contact moved from a reserved `.invalid` `mailto:` address, which
 Apple rejected with `403 BadJwtToken`, to the repository URL. The regression test pins the
 transport-observed contact; the real `web-push` signer places the URL in the JWT `sub` claim.
 
+The release published six assets. The immutable-release attestation, all six asset digests,
+`SHA256SUMS`, three GitHub build attestations, and three Sigstore bundles verified against the
+signed tag and `signed-release.yml` identity after publication. The downloaded archive's
+`release-info.json` reports `0.4.1`, the source above, and pre-alpha qualification; its bundled
+CLI carries the repository-URL contact and no `.invalid` string.
+
 No host, physical-client, relay, migration, or rollback lane has run against these bytes. A
 successful external report is one anecdote from an unadvertised iOS/Ubuntu combination, not iOS
-support; background Web Push stays outside the stable core claim. Source commit, archive
-SHA-256, and release run are recorded here after publication.
+support; background Web Push stays outside the stable core claim.
 
 ## Fork-era release and qualification archive
 
