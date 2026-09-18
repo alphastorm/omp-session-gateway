@@ -1,10 +1,23 @@
 version: 2
 updates:
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # The collaboration client is copied from the exact OMP source pinned in its provenance
+      # manifest. Move these only as part of an explicit upstream-client refresh.
+      - dependency-name: "@oh-my-pi/pi-wire"
+      - dependency-name: katex
+      - dependency-name: lucide-react
+      - dependency-name: marked
+      - dependency-name: react
+      - dependency-name: react-dom
+      # Keep the type surface aligned with the packageManager/CI Bun runtime.
+      - dependency-name: "@types/bun"
+      # Canonical media records the exact capture tool and browser; move this only when recapturing.
+      - dependency-name: "@playwright/test"
   - package-ecosystem: github-actions
     directory: /
     schedule:

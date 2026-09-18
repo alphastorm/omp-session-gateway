@@ -98,6 +98,36 @@ if (packageJson.name !== "omp-session-gateway") {
   errors.push(`package.json: expected name omp-session-gateway, got ${String(packageJson.name)}`);
 }
 
+const dependabot = Bun.YAML.parse(await readFile(join(rootPath, ".github/dependabot.yml"), "utf8")) as {
+  updates?: Array<{
+    "package-ecosystem"?: string;
+    directory?: string;
+    ignore?: Array<{ "dependency-name"?: string }>;
+  }>;
+};
+const bunUpdates = dependabot.updates?.filter(update => update["package-ecosystem"] === "bun") ?? [];
+if (bunUpdates.length !== 1 || bunUpdates[0]?.directory !== "/") {
+  errors.push("dependabot.yml: expected one root Bun ecosystem update");
+}
+if (dependabot.updates?.some(update => update["package-ecosystem"] === "npm") === true) {
+  errors.push("dependabot.yml: npm cannot maintain bun.lock; use the Bun ecosystem");
+}
+const collabClientPackage = JSON.parse(
+  await readFile(join(rootPath, "packages/collab-client/package.json"), "utf8"),
+) as { dependencies?: Record<string, string> };
+const ignoredBunDependencies = new Set(
+  bunUpdates[0]?.ignore?.map(entry => entry["dependency-name"]).filter(name => name !== undefined),
+);
+for (const dependency of [
+  ...Object.keys(collabClientPackage.dependencies ?? {}),
+  "@types/bun",
+  "@playwright/test",
+]) {
+  if (!ignoredBunDependencies.has(dependency)) {
+    errors.push(`dependabot.yml: ${dependency} must move with its pinned runtime owner, not Dependabot`);
+  }
+}
+
 // Fleet images are shared across repositories and may carry an older Bun. Every CI job
 // must establish this repository's runtime, independently of the runner environment.
 const ci = Bun.YAML.parse(await readFile(join(rootPath, ".github/workflows/ci.yml"), "utf8")) as {
