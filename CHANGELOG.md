@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.1-prealpha.1] — 2026-09-18
+
 ### Fixed
 
 - Sign Web Push requests with the repository URL as the VAPID contact instead of a reserved

@@ -120,6 +120,25 @@ and is NOT CLAIMED.** Residual prolonged-operation risk is accepted; no fork-era
 There is no bounded-memory-growth claim. Windows OMP, background Web Push, specialized attention
 and branch/resume matrices, and broader host/browser combinations remain unqualified.
 
+## 0.4.1 engineering track — unqualified
+
+The development gateway version is `0.4.1`. Published stable `v0.4.0` remains GitHub Latest,
+the advertised release, and the only qualified artifact; nothing below widens its claim.
+
+### v0.4.1-prealpha.1 — engineering candidate for external push verification
+
+**Classification:** signed pre-alpha prerelease, not Latest, unqualified on every host and client.
+**Purpose:** let the reporter of [#173](https://github.com/alphastorm/omp-session-gateway/issues/173)
+verify the Web Push fix against Apple's push service from published, signed bytes. The change is
+one constant: the VAPID `sub` contact moved from a reserved `.invalid` `mailto:` address, which
+Apple rejected with `403 BadJwtToken`, to the repository URL. The regression test pins the
+transport-observed contact; the real `web-push` signer places the URL in the JWT `sub` claim.
+
+No host, physical-client, relay, migration, or rollback lane has run against these bytes. A
+successful external report is one anecdote from an unadvertised iOS/Ubuntu combination, not iOS
+support; background Web Push stays outside the stable core claim. Source commit, archive
+SHA-256, and release run are recorded here after publication.
+
 ## Fork-era release and qualification archive
 
 **Every result, support decision, prerequisite, command, and “current” label below belongs to its
