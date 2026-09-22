@@ -1,5 +1,55 @@
 # Release status
 
+## Mainline v0.4.2 — qualified candidate, awaiting publication
+
+**Updated:** 2026-09-22. **Decision: GO for stable v0.4.2** on the exact matrix recorded under the
+0.4.1 engineering track below, which this campaign re-exercised unchanged. The seven-lane candidate
+campaign passed against `v0.4.2-prealpha.1` with orchestrator `a2c43d6`, starting
+**14:23:37.957 UTC** and completing **15:07:10.105 UTC**. Every lane passed on its first attempt.
+
+**Qualified candidate:** [v0.4.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.2-prealpha.1).<br>
+**Candidate source:** `a2c43d60edbe21ff73a38baab478725798055723`.<br>
+**Candidate archive SHA-256:** `4a1c0cddeecb9e6e75811e9890f53a10f9c739c4192a7aaa9d3d94a716385135`.<br>
+**Rollback predecessor:** published stable `v0.4.1`, derived from the stable lock rather than a
+hand-maintained constant.
+
+**What this release changes for a user:** returning to a backgrounded session lands back in that
+session instead of the session directory, so switching apps on a phone no longer looks like the
+session dying. A Windows-only ACL helper retry also lands, on a platform that stays unqualified and
+unadvertised.
+
+**Limits, unchanged from v0.4.1:** eight-hour endurance is NOT rerun and is NOT CLAIMED; the
+1,800-second relay check stands in for it and residual prolonged-operation risk is accepted. There
+is no bounded-memory-growth claim. Windows OMP, background Web Push, specialized attention and
+branch/resume matrices, iOS, Safari, WebKit, and broader host/browser combinations remain
+unqualified. Session resume is proven by the browser lane and the physical Pixel only; it carries no
+iOS claim.
+
+### Candidate evidence — seven lanes, 2026-09-22
+
+| Lane | Result |
+| --- | --- |
+| artifacts | signed tag, checksums passed, GitHub attestations **3/3**, Sigstore bundles **3/3** |
+| debian | run [`35740074929`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35740074929) success on head `a2c43d6` |
+| macos | retained Mac14,3, macOS 26.6.1 arm64, `doctor` **18/18**, rollback invariants **23/23** |
+| ompPublication | instance `5ecf6865…` generation 1; View and Control both `200` with capability present and `no-store`; published then revoked |
+| android | physical Pixel 10 Pro (serial recorded in the private receipt, not published), Android 17 `CP2A.260805.005`, Chrome 153.0.8010.52; unlock 9,230 ms, airplane recovery 8,394 ms, doze recovery 8,449 ms |
+| relay | **1,800 s** exactly, 2 transitions, final phase `live` |
+| cleanup | 0 gateway processes, 0 listeners, 0 live OMP hosts |
+
+**Secret sinks: clean.** The capability was absent from all seven sinks, from resource timings, and
+from the DOM; the tailnet address was recorded as a zero-character hash.
+
+**Runtime byte comparison: passed.** A stable-channel build of the promotion tree reproduced the
+qualified candidate archive across **49 of 50 files with zero differences**, with file modes
+identical across all 50. The single difference is `release-info.json`, and only its `qualification`
+string — the channel claim the build derives from `OMP_RELEASE_CHANNEL`. A pre-alpha-channel build
+of the same tree reproduced the published candidate archive SHA-256 `4a1c0cdd…85135` exactly. The
+comparison requires the pinned Bun on `PATH`, not merely as the invoked binary: `release:build`
+spawns the web build through a nested `bun`.
+
+**Publication and post-release smoke are separate gates** and are not claimed here.
+
 ## Mainline v0.4.1 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.1** on the exact matrix recorded under

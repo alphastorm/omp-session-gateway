@@ -24,7 +24,7 @@ copied links, or per-session setup.
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[Stable v0.4.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1)**
+**[Stable v0.4.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.2)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
@@ -52,7 +52,7 @@ copied links, or per-session setup.
 > shipped in [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)
 > ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908)). Enable `collab.autoStart` once,
 > install the gateway, and configure Tailscale Serve. Then start sessions with plain `omp`.
-> **[Get started with stable v0.4.1](#build-and-run)** ·
+> **[Get started with stable v0.4.2](#build-and-run)** ·
 > [Exact support and limits](docs/COMPATIBILITY.md) · [Release evidence](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
@@ -65,7 +65,7 @@ This is a community project and is not affiliated with or endorsed by the Oh My 
 
 ## Build and run
 
-Start with the [stable v0.4.1 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1),
+Start with the [stable v0.4.2 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.2),
 **Bun 1.4.0**, and stock **OMP 18.1.20 or later**. Read the
 [exact supported combinations and limits](docs/COMPATIBILITY.md) before installing.
 The gateway and phone need Tailscale on the same tailnet; the gateway host must use the TUN-mode
@@ -85,7 +85,7 @@ custom build, or publisher credential is required.
 ### 2. Install the gateway
 
 Download and [verify the published archive](docs/RELEASE.md#verify-a-published-build), then extract
-`omp-session-gateway-0.4.1-bun.tar` and enter `omp-session-gateway-0.4.1-bun/`.
+`omp-session-gateway-0.4.2-bun.tar` and enter `omp-session-gateway-0.4.2-bun/`.
 The release contains a Bun JavaScript entry point, not standalone native binaries.
 
 **Upgrading from v0.3.0 or earlier?** Retain its signed archive and private configuration, then
@@ -226,7 +226,7 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-Published stable **v0.4.1** was promoted from qualified candidate `v0.4.1-prealpha.3` with
+Published stable **v0.4.2** was promoted from qualified candidate `v0.4.2-prealpha.1` with
 identical runtime bytes. Qualification is limited to the exact combinations below; the minimum OMP version does not
 qualify every host, browser, or future OMP release.
 
@@ -239,8 +239,8 @@ qualify every host, browser, or future OMP release.
 | Qualified Linux host | Debian 13 (trixie) x86-64, Linux `6.12.94+deb13-amd64`; 83/83 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown |
 | Qualified Mac host | `Mac14,3`, macOS `26.6.1` arm64; `doctor` 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, allowlisted identity and forged-header/exposure checks |
 | Qualified core client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `153.0.8010.52`; View read-only, Control writable, prompt accepted, return to directory, same-page lock/Airplane/Doze recovery, seven forbidden capability sinks detectable and clean |
-| Fresh relay check | 1,800 seconds, two transitions, final phase `live`; founder-approved 30-minute gate for v0.4.1, not eight-hour endurance |
-| Migration/rollback predecessor | `v0.4.0`, mainline; the predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential |
+| Fresh relay check | 1,800 seconds, two transitions, final phase `live`; founder-approved 30-minute gate, not eight-hour endurance |
+| Migration/rollback predecessor | `v0.4.1`, mainline; the predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP

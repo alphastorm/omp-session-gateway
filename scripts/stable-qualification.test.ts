@@ -27,10 +27,13 @@ import {
 
 const TAG = `v${PRODUCT_VERSION}-prealpha.21`;
 // Derived exactly as the orchestrator derives it, so this suite cannot pass against a predecessor
-// the campaign would refuse.
-const PREVIOUS_TAG = JSON.parse(
+// the campaign would refuse. The lock names the published stable while a candidate is being
+// qualified, and names this version with that stable as `previousTag` once the ledger is approved.
+const STABLE_LOCK = JSON.parse(
   readFileSync(fileURLToPath(new URL("../STABLE_RELEASE.lock.json", import.meta.url)), "utf8"),
-).releaseTag as string;
+) as { readonly releaseTag: string; readonly previousTag: string };
+const PREVIOUS_TAG =
+  STABLE_LOCK.releaseTag === `v${PRODUCT_VERSION}` ? STABLE_LOCK.previousTag : STABLE_LOCK.releaseTag;
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 

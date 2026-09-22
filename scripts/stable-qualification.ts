@@ -36,22 +36,28 @@ const LANE_NAMES = ["artifacts", "debian", "macos", "ompPublication", "android",
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 /**
- * The stable release this working tree's next candidate must upgrade from. Reads the lock directly
- * because argument parsing is synchronous, and fails loudly rather than qualifying against a
- * predecessor nobody can name.
+ * The stable release this working tree's candidate must upgrade from and roll back to. Reads the
+ * lock directly because argument parsing is synchronous, and fails loudly rather than qualifying
+ * against a predecessor nobody can name.
+ *
+ * The lock answers this across both phases of a release, so both are handled rather than assuming
+ * one: while a candidate is being qualified it still names the published stable, and once the ledger
+ * is approved it names this version and records that same stable as `previousTag`.
  */
 function publishedStableTag(): string {
   const lock: unknown = JSON.parse(readFileSync(join(repositoryRoot, "STABLE_RELEASE.lock.json"), "utf8"));
   const releaseTag = isRecord(lock) ? lock.releaseTag : undefined;
-  if (typeof releaseTag !== "string" || !/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(releaseTag)) {
-    throw new Error("STABLE_RELEASE.lock.json must record a published stable releaseTag");
+  const previousTag = isRecord(lock) ? lock.previousTag : undefined;
+  const predecessor = releaseTag === `v${VERSION}` ? previousTag : releaseTag;
+  if (typeof predecessor !== "string" || !/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(predecessor)) {
+    throw new Error("STABLE_RELEASE.lock.json must record the stable this version rolls back to");
   }
-  // The lock is rewritten only when a candidate is promoted, so it naming the in-development version
-  // means promotion already happened and this campaign would roll back to itself.
-  if (releaseTag === `v${VERSION}`) {
-    throw new Error(`STABLE_RELEASE.lock.json already records v${VERSION}; a candidate cannot roll back to itself`);
+  // A release that claims itself as its own predecessor would qualify the upgrade and rollback pair
+  // against nothing at all.
+  if (predecessor === `v${VERSION}`) {
+    throw new Error(`STABLE_RELEASE.lock.json names v${VERSION} as its own predecessor`);
   }
-  return releaseTag;
+  return predecessor;
 }
 /**
  * The rollback predecessor a candidate must upgrade from and fall back to: always the currently
