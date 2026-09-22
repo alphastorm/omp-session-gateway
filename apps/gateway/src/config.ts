@@ -128,6 +128,10 @@ interface WindowsAclHelper {
   readonly send: (line: string) => Promise<void>;
   readonly receive: () => Promise<Uint8Array | undefined>;
   readonly kill: () => void;
+  /** Hold the event loop open while a reply is outstanding. */
+  readonly hold: () => void;
+  /** Release it again once the round trip has settled. */
+  readonly release: () => void;
   readonly drainStderr: () => Promise<string>;
   readonly decoder: TextDecoder;
   buffer: string;
@@ -161,8 +165,12 @@ function startWindowsAclHelper(): WindowsAclHelper {
     ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACL_HELPER_SCRIPT],
     { env: windowsPowerShellEnvironment(), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   );
-  // The helper must never hold the daemon's event loop open. It ends by itself: closing our stdin at
-  // exit makes its `ReadLine` return null and the loop break.
+  // Idle, the helper must not hold the daemon's event loop open: it ends by itself, because closing
+  // our stdin at exit makes its `ReadLine` return null and the loop break. But `unref` alone is
+  // wrong while a reply is outstanding. The pending `stdout.read()` below belongs to this child, so
+  // an unref'd helper leaves the loop with nothing to keep the process alive and it exits mid-await
+  // with status 0 — observed as a `install` that returned in half a second having done nothing.
+  // Hold the reference for exactly the duration of a round trip instead.
   subprocess.unref();
   const stdout = subprocess.stdout.getReader();
   const stderr = subprocess.stderr as ReadableStream<Uint8Array>;
@@ -173,6 +181,8 @@ function startWindowsAclHelper(): WindowsAclHelper {
     },
     receive: async () => (await stdout.read()).value,
     kill: () => subprocess.kill(),
+    hold: () => subprocess.ref(),
+    release: () => subprocess.unref(),
     // Read only after the helper has been killed, never as a standing background task. An
     // open-ended read of this pipe is not free: a pending read keeps the process alive even though
     // the child is unref'd, which hung `bun test` on Windows for 23 minutes until CI cancelled it.
@@ -245,8 +255,13 @@ async function performWindowsAclRequest(
     active = helper;
     requestId = helper.nextRequestId;
     helper.nextRequestId += 1;
-    await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
-    reply = JSON.parse(await readWindowsAclReply(helper));
+    helper.hold();
+    try {
+      await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
+      reply = JSON.parse(await readWindowsAclReply(helper));
+    } finally {
+      helper.release();
+    }
     if (helper.spawnCostMs === undefined) {
       // Only the first round trip pays for `powershell.exe` starting; the rest are pipe writes.
       helper.spawnCostMs = performance.now() - started;

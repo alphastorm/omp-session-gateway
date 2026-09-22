@@ -233,6 +233,7 @@ function installFakePowerShell(): () => void {
           controller.close();
         },
       }),
+      ref: (): undefined => undefined,
       unref: (): undefined => undefined,
       kill: (): undefined => undefined,
     };
