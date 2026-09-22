@@ -183,11 +183,14 @@ reporter's earlier confirmation was made on an unsigned source-checkout install 
 it is one anecdote from an unadvertised iOS client, not iOS support and not a qualification result.
 iOS, Safari, and WebKit remain outside every row of `docs/COMPATIBILITY.md`.
 
-### v0.4.1-prealpha.3 — stable qualification candidate
+### v0.4.1-prealpha.3 — qualified stable candidate
 
-**Classification:** signed pre-alpha prerelease, immutable, not Latest. It is the qualification
-vehicle for a prospective stable `v0.4.1`; until that campaign passes, it is unqualified on every
-host and client and stable `v0.4.0` remains GitHub Latest and the only qualified artifact.
+**Source:** `e9c70d922337096b706a69108fb93cc539449c8d`.<br>
+**Archive SHA-256:** `0ae48db3db7d178bf17c7f60a861d63bb8730ad054fc7f3dc96cc3db2a39eccf`.<br>
+**Release:** [v0.4.1-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1-prealpha.3), six assets, immutable prerelease.<br>
+**Qualification orchestrator:** `6160ff722c8f848e50f3d195830828ff14f9ea2b`.<br>
+**Classification:** signed pre-alpha prerelease, not Latest. The seven-lane campaign passed against
+these exact bytes on the matrix below; stable `v0.4.0` remains GitHub Latest until promotion.
 
 **Contents beyond stable `v0.4.0`.** Three behaviour changes, no more: the VAPID `sub` contact is
 the repository URL instead of a reserved `.invalid` address; the gateway chrome sizes from the live
@@ -207,8 +210,35 @@ runs only on Windows, which the endurance lane does not exercise. **Eight-hour e
 RERUN and is NOT CLAIMED for v0.4.1.** Residual prolonged-operation risk is accepted and there is
 no bounded-memory-growth claim. Every other release gate remains intact.
 
-Source commit, archive SHA-256, release run, and the seven-lane qualification receipt are recorded
-here as the campaign completes.
+### Seven-lane campaign — passed 2026-09-22
+
+- **Artifacts:** signed tag, published asset checksums, **3/3** GitHub attestations and **3/3**
+  Sigstore bundles verified against the candidate release.
+- **Debian 13 x86-64** disposable droplet, [run 35715529188](https://github.com/alphastorm/omp-session-gateway/actions/runs/35715529188):
+  artifact lifecycle, installed-service contracts, mainline OMP publication, and the explicit
+  upgrade/rollback pair from published `v0.4.0`. Droplet and ephemeral SSH key destroyed.
+- **Mac14,3 / macOS 26.6.1 arm64:** `doctor` **18/18**, rollback invariants **23/23**, exact
+  archive and native-addon digests verified.
+- **Live OMP publication:** generation-1 View and Control both returned **200** with `no-store` and
+  a capability present; the owned session was revoked afterwards.
+- **Pixel 10 Pro / Android 17** build `CP2A.260805.005`, **Chrome 153.0.8010.52**: View read-only
+  and Control writable against the qualified host. Same-page unlock **8,983 ms**, Airplane recovery
+  **16,657 ms**, forced-Doze recovery **8,337 ms**. Application asset `/assets/app.e57732a82351.js`.
+- **Relay:** **1,800 seconds**, 10:34:00–11:04:00 UTC, **two transitions**, final phase **live**.
+- **Cleanup:** zero gateway processes, zero gateway listeners, zero live OMP hosts.
+
+**Qualification-harness corrections made during this campaign.** The first three dispatches failed
+on the harness, not the candidate, and every failure was a fork-era assumption exposed by moving the
+predecessor from `v0.3.0` to `v0.4.0`: Lane 4 hashed a retired publisher credential that a mainline
+predecessor never mints; every predecessor default across the droplet workflow, the Linux lane, the
+macOS host script and the rollback harness still named the superseded stable; and Lane 4 asserted
+that an old installer and both rollback selections must *refuse*, which was true only across the
+fork-era boundary. That lane now qualifies the compatible path instead — the predecessor installer
+takes over a running candidate and each rollback selection activates the predecessor, preserving
+configuration and the readiness credential. A separate defect made the Android lane wait on the
+browser process leaving `CACHED_EMPTY` rather than on DevTools accepting connections. None of these
+changed candidate bytes; the passing run used orchestrator `6160ff7` throughout, and the receipt
+refuses to resume evidence across orchestrator commits, so no lane result was carried over a fix.
 
 ## Fork-era release and qualification archive
 
