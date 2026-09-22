@@ -293,4 +293,9 @@ private deep imports, process inspection, or a second collaboration controller.
   any OMP reconnect or per-session command. Restart a fork-era OMP process under mainline at cutover.
 - OMP crash: missing discovery, definitive endpoint failure, or TTL expiry removes the card.
 - Browser reload: returns to the directory; capability persistence is intentionally absent.
+- Browser background and restore: the collaboration client is disposed and its capability dropped on
+  `pagehide`, and the restored page relaunches the same session when the directory still lists it at
+  the same generation with the same access, falling back to the directory otherwise (ADR-029). The
+  capability is fetched again at resume time, never retained — which is why a reload, whose heap is
+  gone, still lands on the directory instead.
 - Browser push service unavailable or delivery delayed: the dashboard and collaboration paths continue normally; alerts are best effort and never bypass current-state validation.
