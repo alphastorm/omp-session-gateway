@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.1-prealpha.2] — 2026-09-22
+
 ### Fixed
 
 - Size the gateway chrome around the collaboration client from the live visual viewport instead of

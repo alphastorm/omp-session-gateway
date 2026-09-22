@@ -149,6 +149,29 @@ No host, physical-client, relay, migration, or rollback lane has run against the
 successful external report is one anecdote from an unadvertised iOS/Ubuntu combination, not iOS
 support; background Web Push stays outside the stable core claim.
 
+### v0.4.1-prealpha.2 — engineering candidate for external software-keyboard verification
+
+**Classification:** signed pre-alpha prerelease, immutable, not Latest, unqualified on every host
+and client. Stable `v0.4.0` remains GitHub Latest and the only qualified artifact.
+
+**Purpose:** let the reporter of [#189](https://github.com/alphastorm/omp-session-gateway/issues/189)
+verify the software-keyboard fix from published, signed bytes rather than a source checkout. The
+change is two CSS declarations: `body.collab-shell-active` and `.gateway-shell` size from
+`var(--viewport-height, 100dvh)` instead of `100dvh`, so the gateway chrome follows the same
+visual-viewport measurement the mounted collaboration client already publishes. A browser test
+drives a shrinking visual viewport and asserts the composer's bottom edge stays inside it; it fails
+without the change.
+
+This candidate also carries the shared browser-test transport helper and the continuous-integration
+lane documentation from [#194](https://github.com/alphastorm/omp-session-gateway/pull/194), neither
+of which changes shipped bytes.
+
+No host, physical-client, relay, migration, or rollback lane has run against these bytes. The
+reporter's earlier confirmation was made on an unsigned source-checkout install of the fix branch;
+it is one anecdote from an unadvertised iOS client, not iOS support and not a qualification result.
+iOS, Safari, and WebKit remain outside every row of `docs/COMPATIBILITY.md`. Source commit, archive
+SHA-256, and release run are recorded here after publication.
+
 ## Fork-era release and qualification archive
 
 **Every result, support decision, prerequisite, command, and “current” label below belongs to its
