@@ -8,12 +8,13 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { defaultGatewayPaths, loadGatewayConfig } from "../apps/gateway/src/config.ts";
@@ -82,6 +83,8 @@ interface OmpInstall {
   readonly binary?: string;
   readonly version?: string;
   readonly binarySha256?: string;
+  /** False when the resolved binary is some other product wearing the `omp` name. */
+  readonly stock?: boolean;
 }
 
 interface PublishedSession {
@@ -669,13 +672,28 @@ async function ensureServeMapping(): Promise<{ changed: boolean }> {
   return { changed };
 }
 
+/**
+ * Whether a resolved `omp` is stock mainline rather than another product installed under the same
+ * name. The version banner cannot answer this: a derivative build reports a compatible-looking
+ * version, so a version-only check accepted a Code Mode launcher and ran the entire physical-client
+ * acceptance against an agent carrying trusted extensions and a routed config. Requiring the
+ * mainline npm package that `UPSTREAM.lock.json` names, in the symlink-resolved path, is what
+ * separates them; `--rebuild-omp` installs exactly that package.
+ */
+export function isStockOmpBinary(realPath: string): boolean {
+  return realPath.split(sep).join("/").includes("/@oh-my-pi/pi-coding-agent/");
+}
+
 export async function inspectOmpInstall(): Promise<OmpInstall> {
   const binary = Bun.which("omp", { PATH: process.env.PATH ?? "" });
   if (binary === null) return { compatible: false };
   try {
+    const stock = isStockOmpBinary(await realpath(binary));
     const output = await commandOutput("OMP version", [binary, "--version"]);
     const version = /^(?:omp[ /])?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output)?.[1];
-    if (version === undefined || !Bun.semver.satisfies(version, ">=18.1.20")) return { compatible: false, binary };
+    if (version === undefined || !Bun.semver.satisfies(version, ">=18.1.20")) return { compatible: false, binary, stock };
+    // `compatible` stays a statement about version and settings only; product identity is a
+    // separate fact that `installOrVerifyOmp` refuses on, so the two never mask each other.
     const autoStart = parseJsonRecord(
       await commandOutput("OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),
       "OMP auto-start",
@@ -685,6 +703,7 @@ export async function inspectOmpInstall(): Promise<OmpInstall> {
       binary,
       version,
       binarySha256: await sha256File(binary),
+      stock,
     };
   } catch {
     return { compatible: false, binary };
@@ -707,6 +726,12 @@ async function installOrVerifyOmp(
     process.env.PATH = globalBin + ":" + (process.env.PATH ?? "");
     installed = true;
     inspection = await inspectOmpInstall();
+  }
+  if (inspection.stock === false) {
+    throw new Error(
+      "the omp on PATH is not stock mainline: it resolves outside @oh-my-pi/pi-coding-agent, so it is a different product wearing the same name. " +
+        "Qualifying a release against it would prove nothing about the advertised prerequisite. Use --rebuild-omp to install and use the pinned mainline package.",
+    );
   }
   if (!inspection.compatible || inspection.binary === undefined || inspection.binarySha256 === undefined || inspection.version === undefined) {
     throw new Error("omp on PATH must be mainline >=18.1.20 with readable collab.autoStart; use --rebuild-omp to reinstall it");

@@ -10,6 +10,7 @@ import {
   assertReleaseArchiveIdentity,
   createSmokeLabel,
   findWebApkForHost,
+  isStockOmpBinary,
   isWebApkAppTarget,
   formatCommandFailure,
   parsePostReleaseSmokeArgs,
@@ -48,6 +49,19 @@ fi
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("distinguishes stock mainline omp from another product wearing the name", () => {
+  // A bun global install resolves the shim to the mainline package entrypoint.
+  expect(isStockOmpBinary("/Users/x/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js")).toBe(true);
+  expect(isStockOmpBinary("/opt/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js")).toBe(true);
+  // The real regression: a Code Mode launcher reports a compatible version banner, so only the
+  // resolved path shows it is a different product. Accepting it qualified a release against an
+  // agent carrying trusted extensions and a routed config.
+  expect(isStockOmpBinary("/Users/x/.local/lib/omp-code-mode/releases/18.2.8-abc/omp-code-mode-launcher")).toBe(false);
+  // Near misses must not pass: a lookalike package name or a path merely mentioning the vendor.
+  expect(isStockOmpBinary("/Users/x/node_modules/@oh-my-pi/pi-coding-agent-fork/dist/cli.js")).toBe(false);
+  expect(isStockOmpBinary("/Users/x/oh-my-pi/pi-coding-agent/dist/cli.js")).toBe(false);
 });
 
 describe("post-release smoke arguments", () => {
