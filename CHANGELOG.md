@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.2] — 2026-09-22
+
 ### Fixed
 
 - Serve a Windows private-path ACL request from a second helper when the cached one dies before
@@ -23,6 +25,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
   restarted host bumped its generation and legitimately ended that session, so that case still falls
   back to the directory rather than opening its successor. No capability is retained across the
   background: the resume fetches one from OMP exactly as the first launch did. Recorded as ADR-029.
+
+### Changed
+
+- Derive the qualification campaign's rollback predecessor from `STABLE_RELEASE.lock.json` instead
+  of a hand-maintained constant. That constant went stale exactly once per release and then
+  qualified the upgrade and rollback pair against a release nobody was running: #200 corrected it
+  from `v0.3.0` to `v0.4.0`, and it was still `v0.4.0` while `0.4.2` was being cut. Publication
+  rewrites the lock, so every later campaign inherits the right predecessor with no edit, and a
+  reintroduced literal now fails the orchestrator's tests.
 
 ## [v0.4.1] — 2026-09-22
 

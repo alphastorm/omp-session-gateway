@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -7,11 +8,6 @@ import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
-// The rollback predecessor a candidate must upgrade from and fall back to: always the currently
-// published stable, which the Debian and macOS lanes both install before the candidate. Promoting
-// 0.4.1 makes that v0.4.0; leaving it at an older stable would qualify the upgrade/rollback pair
-// against a release nobody is running.
-const PREVIOUS_TAG = "v0.4.0";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
 const SIGNED_WORKFLOW = "signed-release.yml";
@@ -38,6 +34,36 @@ const ATTESTED_ASSETS = [
 ] as const;
 const LANE_NAMES = ["artifacts", "debian", "macos", "ompPublication", "android", "relay", "cleanup"] as const;
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+
+/**
+ * The stable release this working tree's next candidate must upgrade from. Reads the lock directly
+ * because argument parsing is synchronous, and fails loudly rather than qualifying against a
+ * predecessor nobody can name.
+ */
+function publishedStableTag(): string {
+  const lock: unknown = JSON.parse(readFileSync(join(repositoryRoot, "STABLE_RELEASE.lock.json"), "utf8"));
+  const releaseTag = isRecord(lock) ? lock.releaseTag : undefined;
+  if (typeof releaseTag !== "string" || !/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(releaseTag)) {
+    throw new Error("STABLE_RELEASE.lock.json must record a published stable releaseTag");
+  }
+  // The lock is rewritten only when a candidate is promoted, so it naming the in-development version
+  // means promotion already happened and this campaign would roll back to itself.
+  if (releaseTag === `v${VERSION}`) {
+    throw new Error(`STABLE_RELEASE.lock.json already records v${VERSION}; a candidate cannot roll back to itself`);
+  }
+  return releaseTag;
+}
+/**
+ * The rollback predecessor a candidate must upgrade from and fall back to: always the currently
+ * published stable, which the Debian and macOS lanes both install before the candidate.
+ *
+ * Derived from the stable lock rather than restated as a literal. A hand-maintained constant goes
+ * stale exactly once per release and then qualifies the upgrade/rollback pair against a release
+ * nobody is running: #200 fixed it from `v0.3.0` to `v0.4.0`, and it was still `v0.4.0` when 0.4.2
+ * was cut. Publication rewrites the lock, so every later campaign inherits the right predecessor
+ * with no edit here.
+ */
+const PREVIOUS_TAG = publishedStableTag();
 
 export type StableQualificationLane = (typeof LANE_NAMES)[number];
 export type LaneStatus = "pending" | "running" | "passed" | "failed";

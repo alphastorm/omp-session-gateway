@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,11 @@ import {
 } from "./stable-qualification.ts";
 
 const TAG = `v${PRODUCT_VERSION}-prealpha.21`;
-const PREVIOUS_TAG = "v0.4.0";
+// Derived exactly as the orchestrator derives it, so this suite cannot pass against a predecessor
+// the campaign would refuse.
+const PREVIOUS_TAG = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../STABLE_RELEASE.lock.json", import.meta.url)), "utf8"),
+).releaseTag as string;
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -52,13 +57,26 @@ describe("stable qualification arguments", () => {
     expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], {}).previousTag).toBe(
       PREVIOUS_TAG,
     );
-    // `v0.3.0` matters here: it was the predecessor for the 0.4.0 campaign, so accepting it now
-    // would silently qualify the upgrade and rollback pair against a superseded stable.
-    for (const previous of ["v0.1.0", "v0.2.0", "v0.3.0", "v0.2.1-prealpha.1", "v0.4.0-prealpha.1", "v0.2.1", ""]) {
+    // Every superseded stable is rejected by name. Each was the correct predecessor for exactly one
+    // campaign, and accepting one now would silently qualify the upgrade and rollback pair against a
+    // release nobody is running.
+    for (const previous of ["v0.1.0", "v0.2.0", "v0.3.0", "v0.4.0", "v0.2.1-prealpha.1", "v0.4.0-prealpha.1", "v0.2.1", ""]) {
+      expect(previous).not.toBe(PREVIOUS_TAG);
       expect(() => parseStableQualificationArgs(["--tag", TAG, "--previous-tag", previous], {})).toThrow(
         "--previous-tag",
       );
     }
+  });
+
+  test("defaults the predecessor to the published stable this tree would roll back to", () => {
+    // The constant this replaced went stale once per release: #200 corrected it from v0.3.0 to
+    // v0.4.0, and it was still v0.4.0 while 0.4.2 was being cut. Deriving it from the lock that
+    // publication rewrites is what stops that recurring, so the derivation itself is the assertion.
+    expect(parseStableQualificationArgs(["--tag", TAG], {}).previousTag).toBe(PREVIOUS_TAG);
+    expect(PREVIOUS_TAG).toMatch(/^v[0-9]+\.[0-9]+\.[0-9]+$/u);
+    // A candidate cannot roll back to itself: the lock must still name the superseded stable while
+    // this version is in development.
+    expect(PREVIOUS_TAG).not.toBe(`v${PRODUCT_VERSION}`);
   });
 
   test("rejects an unbounded relay duration before any external effect", () => {
