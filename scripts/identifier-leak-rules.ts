@@ -38,6 +38,12 @@ const ALLOWED = [
   /^172\.(1[6-9]|2\d|3[01])\./,
   /^169\.254\./, // link-local
   /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT, which Tailscale uses; addresses are not routable
+  // RFC 5737 reserves these three ranges so documentation and tests never name a real host. They
+  // identify nobody by construction, which is a stronger guarantee than the ad-hoc literals below:
+  // `8.8.8.8` and `93.184.216.34` are real addresses that convention merely tolerates.
+  /^192\.0\.2\./, // TEST-NET-1
+  /^198\.51\.100\./, // TEST-NET-2
+  /^203\.0\.113\./, // TEST-NET-3
   /^(1\.2\.3\.4|8\.8\.8\.8|93\.184\.216\.34)$/, // conventional documentation addresses
   /^\d+\.\d+\.\d+\.\d+$/u.source === "" ? /^$/ : /^(?:0|1)\.\d+\.\d+\.\d+$/, // version-like leading 0./1.
 ];

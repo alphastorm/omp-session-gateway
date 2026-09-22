@@ -7,7 +7,9 @@ describe("identifier leak detection", () => {
   test("catches every class that actually leaked from this repository", () => {
     // Each of these was published for real and had to be removed by rewriting history and
     // deleting releases. Synthetic stand-ins here, same shapes.
-    expect(labels("connect to 203.0.113.45 now")).toContain("public IPv4 address");
+    // The stand-in must sit outside every reserved range, because what leaked was a routable
+    // address. An RFC 5737 documentation address would be exempt and prove nothing.
+    expect(labels("connect to 51.75.22.9 now")).toContain("public IPv4 address");
     expect(labels("origin https://somebody-macbook.tailabc123.ts.net/")).toContain("tailnet hostname");
     expect(labels("node nQ7XyzAbCd42CNTRL joined")).toContain("tailnet node id");
     expect(labels("cd /Users/somebody/Development")).toContain("absolute home path");
@@ -28,6 +30,14 @@ describe("identifier leak detection", () => {
     }
   });
 
+  test("does not fire on the ranges RFC 5737 reserves for documentation", () => {
+    // These exist so examples and tests can name an address that cannot belong to anyone. Firing on
+    // them pushes authors toward either a real address or a blanket opt-out, and both are worse.
+    for (const text of ["192.0.2.1", "198.51.100.7", "203.0.113.7", "X-Forwarded-For: 203.0.113.7"]) {
+      expect(findIdentifierLeaks(text)).toEqual([]);
+    }
+  });
+
   test("does not mistake version strings or system paths for identifiers", () => {
     // Regressions observed while building this: Chrome's UA reports 151.0.0.0, and $HOME/Library is
     // a system directory rather than an account name.
@@ -38,6 +48,9 @@ describe("identifier leak detection", () => {
   });
 
   test("honours an explicit reviewed opt-out", () => {
-    expect(findIdentifierLeaks("203.0.113.45 // identifier-leak-allow")).toEqual([]);
+    // Deliberately an address outside every allowed range: a documentation address would make this
+    // pass whether or not the opt-out works.
+    expect(labels("51.75.22.9")).toEqual(["public IPv4 address"]);
+    expect(findIdentifierLeaks("51.75.22.9 // identifier-leak-allow")).toEqual([]);
   });
 });
