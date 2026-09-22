@@ -191,7 +191,12 @@ function startWindowsAclHelper(): WindowsAclHelper {
   };
 }
 
-function stopWindowsAclHelper(): void {
+/**
+ * Drop the cached helper process. Production calls this when a reply proves the protocol has
+ * desynchronised; tests call it to guarantee the next ACL request spawns fresh, which is the only
+ * way to evict a real `powershell.exe` on Windows where one is genuinely running.
+ */
+export function stopWindowsAclHelper(): void {
   const helper = windowsAclHelper;
   windowsAclHelper = undefined;
   if (helper === undefined) return;

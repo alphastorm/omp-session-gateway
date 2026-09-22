@@ -18,6 +18,7 @@ import {
   removeLegacyPublisherToken,
   restoreGatewayConfigFile,
   rotateReadinessToken,
+  stopWindowsAclHelper,
   windowsAclSpawnCostMs,
   writeGatewayConfigFile,
   writePrivateTextFile,
@@ -238,9 +239,15 @@ function installFakePowerShell(): () => void {
   };
   Bun.spawn = fakeSpawn as unknown as typeof Bun.spawn;
   setPlatform("win32");
+  // On Windows the preceding tests spawn a real `powershell.exe` helper and `config.ts` caches it.
+  // Swapping `Bun.spawn` does not reach that live process, so every request below would be answered
+  // by the real helper and none of the fake's outcomes would be observable. Evict it explicitly.
+  stopWindowsAclHelper();
   return () => {
     Bun.spawn = realSpawn;
     setPlatform(realPlatform);
+    // Symmetrically, never leave the fake cached for a real Windows test that follows.
+    stopWindowsAclHelper();
     fakeAcl.outcomes.clear();
     fakeAcl.desynchronise = false;
     fakeAcl.stderr = "";
@@ -249,9 +256,10 @@ function installFakePowerShell(): () => void {
 }
 
 /**
- * Discards whatever helper process an earlier test left cached inside `config.ts`, by answering one
- * request with the wrong id. The product treats that desynchronisation as fatal and drops the
- * helper, which both pins that guard and makes the following spawn count exact.
+ * Pins the desynchronisation guard: an out-of-order reply is fatal and makes `config.ts` drop the
+ * helper. `installFakePowerShell` has already evicted any cached process, so the helper this
+ * discards is always the fake — which is what makes the following spawn count exact on every
+ * platform, including a real Windows host.
  */
 async function dropCachedAclHelper(config: GatewayConfig): Promise<void> {
   fakeAcl.desynchronise = true;
