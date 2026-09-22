@@ -229,6 +229,73 @@ describe("HTTP boundary", () => {
     });
 
     /**
+     * The exposure both #158 and #74 ask for. A tunnel or reverse proxy runs on this host, so it
+     * satisfies the loopback check by being local, and the tunnel device is present because the host
+     * really is on a tailnet — every existing signal says yes. The identity header is then whatever
+     * the remote caller typed, which is a full authentication bypass to View and Control.
+     *
+     * A caller cannot suppress what the proxy in front of it inserts, so these requests are refused
+     * on that evidence. Not authentication: a raw TCP forwarder inserts nothing and is still
+     * indistinguishable from Serve.
+     */
+    test("refuses an allowlisted identity carrying evidence of a second HTTP hop", async () => {
+      const handler = createTestHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+      });
+      const proxied = [
+        // cloudflared and ngrok both report the public client here; Serve reports the tailnet peer.
+        { "X-Forwarded-For": "203.0.113.7" },
+        // A proxy chained in front of Serve appends rather than replacing.
+        { "X-Forwarded-For": "100.101.102.103, 203.0.113.7" },
+        // Serve sets this to the tailnet host it answered on, never to a tunnel hostname.
+        { "X-Forwarded-Host": "gateway.example.com" },
+        { "CF-Connecting-IP": "203.0.113.7" },
+        { "CF-Ray": "8f2b1c0d4e5a6b7c-SJC" },
+        { "X-Real-IP": "203.0.113.7" },
+        { Forwarded: "for=203.0.113.7;proto=https" },
+        { "X-Forwarded-Server": "tunnel-edge-01" },
+        // Funnel is never a supported path.
+        { "Tailscale-Funnel-Request": "?1" },
+      ];
+      const proxiedLaunch = (headers: Record<string, string>): Request =>
+        request(`/api/v1/sessions/http-instance-000001/launch`, {
+          method: "POST",
+          headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json", ...headers },
+          body: JSON.stringify({ mode: "view", generation: 3 }),
+        });
+      for (const headers of proxied) {
+        expect((await handler(request("/api/v1/sessions", { headers }), peer)).status).toBe(403);
+        // The launch surface mints capabilities, so it must refuse on the same evidence.
+        expect((await handler(proxiedLaunch(headers), peer)).status).toBe(403);
+      }
+    });
+
+    test("admits the request shape Tailscale Serve actually produces", async () => {
+      const handler = createTestHttpHandler({
+        config: measured(),
+        registry: populatedRegistry(),
+        staticAssets: assets,
+      });
+      // Measured against `addProxyForwardedHeaders` in Tailscale's `ipn/ipnlocal/serve.go`: the
+      // single tailnet source address, the host Serve answered on, and `https`. Refusing any of
+      // these would break the only supported remote path.
+      const served = await handler(
+        request("/api/v1/sessions", {
+          headers: {
+            "X-Forwarded-For": "100.101.102.103",
+            "X-Forwarded-Host": new URL(origin).host,
+            "X-Forwarded-Proto": "https",
+            "Tailscale-Headers-Info": "https://tailscale.com/s/serve-headers",
+          },
+        }),
+        peer,
+      );
+      expect(served.status).toBe(200);
+    });
+
+    /**
      * The class, not the two instances above. Every route that can answer must sit behind the
      * identity gate, so adding one in front of it fails here rather than in a later qualification.
      *
