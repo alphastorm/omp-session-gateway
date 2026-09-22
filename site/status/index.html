@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway status — current qualified release and support boundary</title>
-<meta name="description" content="Published stable v0.4.0, stock OMP v18.1.20, the exact qualified Debian/macOS/Pixel matrix, verified release provenance, and known limits.">
+<meta name="description" content="Published stable v0.4.1, stock OMP v18.1.20, the exact qualified Debian/macOS/Pixel matrix, verified release provenance, and known limits.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
-<meta property="og:description" content="Stable v0.4.0 is published with stock OMP v18.1.20. Exact qualification, verified provenance, and support boundaries are recorded in the release ledger.">
+<meta property="og:description" content="Stable v0.4.1 is published with stock OMP v18.1.20. Exact qualification, verified provenance, and support boundaries are recorded in the release ledger.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
@@ -29,11 +29,11 @@
 </header>
 <main>
 <p class="eyebrow">Native OMP integration · release status</p>
-<h1>Stable v0.4.0</h1>
+<h1>Stable v0.4.1</h1>
 <p class="lede"><strong>Works with stock OMP 18.1.20+.</strong> No OMP fork, custom build, or
 gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
 setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve. Stable
-<strong>v0.4.0</strong> was promoted from qualified <code>v0.4.0-prealpha.1</code> with identical
+<strong>v0.4.1</strong> was promoted from qualified <code>v0.4.1-prealpha.3</code> with identical
 runtime bytes. Support applies to the exact combinations below, not every later OMP version,
 platform family, or arbitrary build from <code>main</code>.</p>
 <table>
@@ -41,9 +41,9 @@ platform family, or arbitrary build from <code>main</code>.</p>
 <tr><td>Published stable</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0">v0.4.0</a>; immutable GitHub Latest, published 2026-09-14 at 13:34:03 UTC. Signed <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34849943386">release run 34849943386</a> passed; published provenance was independently verified. Exact source and archive digest: <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
 <tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0-prealpha.1">v0.4.0-prealpha.1</a>; signatures, checksums, SBOM, three attestations and three Sigstore bundles passed in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34829484922">release run 34829484922</a></td></tr>
 <tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; exact qualified <code>v18.1.20</code>, source <a href="https://github.com/can1357/oh-my-pi/commit/1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b"><code>1bd60c6fbd0e</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential.</td></tr>
-<tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 69/69 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687">run 34830668687</a></td></tr>
+<tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 83/83 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/34830668687">run 34830668687</a></td></tr>
 <tr><td>Qualified Mac host</td><td><code>Mac14,3</code>, macOS <code>26.6.1</code> arm64; <code>doctor</code> 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks</td></tr>
-<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build <code>CP2A.260805.005</code>, Chrome <code>152.0.7977.82</code>; View read-only, Control writable, prompt accepted, return to directory. Same-page unlock 10,398 ms, Airplane 16,821 ms, Doze 8,475 ms; all seven forbidden capability sinks detectable and clean.</td></tr>
+<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build <code>CP2A.260805.005</code>, Chrome <code>153.0.8010.52</code>; View read-only, Control writable, prompt accepted, return to directory. Same-page unlock 8,983 ms, Airplane 16,657 ms, Doze 8,337 ms; all seven forbidden capability sinks detectable and clean.</td></tr>
 <tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.</td></tr>
 <tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-14T11:04:50.160Z</code>–<code>11:34:50.200Z</code>; two transitions, final phase <code>live</code></td></tr>
 <tr><td>Stale-generation rejection</td><td>Live generation 1→2 probe returned <code>409 no-store</code> without a capability at <code>2026-09-14T13:02:07.920Z</code></td></tr>
@@ -55,7 +55,7 @@ platform family, or arbitrary build from <code>main</code>.</p>
 <li><strong>TUN mode is mandatory.</strong> With userspace-networking <code>tailscaled</code> every tailnet peer arrives as a loopback peer, and the gateway fails closed rather than believing an identity header.</li>
 <li><strong>Never enable Tailscale Funnel.</strong> There is no supported public-Internet path.</li>
 <li><strong>Android radio transitions</strong> can wedge Chrome's process-wide network stack while Android stays healthy; the PWA retries and, after 45 s of visible failure, opens force-stop/reopen help.</li>
-<li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the v0.4.0 eight-hour gate with this fresh check. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
+<li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the eight-hour gate with this fresh check for v0.4.1, as for v0.4.0. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
 <li><strong>Background Web Push, specialized attention, branch/resume, and new media qualification</strong> are outside this core claim; these physical checks do not qualify those separate lanes.</li>
 <li><strong>Windows OMP</strong> remains unqualified and unadvertised; gateway source/lifecycle checks do not qualify the real OMP named-pipe path.</li>
 <li><strong>Initial local Control-upgrade failure:</strong> one isolated reproduction returned to the directory after View. Subsequent narrow probes and the full published-byte smoke passed unchanged; the cause remains undetermined, and no fix is claimed. See the release ledger.</li>

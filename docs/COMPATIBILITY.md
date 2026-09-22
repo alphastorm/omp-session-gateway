@@ -8,8 +8,8 @@ Earlier releases are unsupported because this local registry does not exist in t
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 
-**Published stable:** [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0),
-immutable GitHub Latest, promoted from qualified `v0.4.0-prealpha.1` with identical runtime bytes.
+**Published stable:** [v0.4.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1),
+immutable GitHub Latest, promoted from qualified `v0.4.1-prealpha.3` with identical runtime bytes.
 `v0.3.0` is the fork-era predecessor.
 The [release ledger](RELEASE_STATUS.md) records exact source, archive, and completion evidence.
 The separate published-byte local/Pixel smoke also passed with existing OMP 18.1.21 and Bun
@@ -21,9 +21,9 @@ Control-upgrade failure remains documented with an undetermined cause.
 | Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.1.20` publication, View/Control, stale-generation rejection, and revocation passed |
 | Exact qualified source | `v18.1.20`, `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b` | Fresh signed-candidate evidence; no fork-era transfer |
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
-| Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 69/69 migration/recovery invariants, and teardown passed |
+| Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
-| Physical client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `152.0.7977.82` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
+| Physical client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `153.0.8010.52` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
 | Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Mac/Pixel allowed-user access, Debian tagged-user denial, direct backend refusal |
 | Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
 
@@ -32,7 +32,7 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
-For v0.4.0, the founder approved a fresh 30-minute signed-candidate relay check instead of the
+For v0.4.1, the founder approved a fresh 30-minute signed-candidate relay check instead of the
 eight-hour gate; that bounded check passed on 2026-09-14. Other release gates remain intact.
 Eight-hour endurance is not rerun or claimed;
 prolonged-operation risk remains an accepted limitation rather than transferred historical proof.

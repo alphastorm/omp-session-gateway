@@ -1,5 +1,30 @@
 # Release status
 
+## Mainline v0.4.1 — promotion in progress
+
+**Updated:** 2026-09-22. **Decision: GO for stable v0.4.1** on the exact matrix recorded under
+the 0.4.1 engineering track below. The seven-lane candidate campaign passed against
+`v0.4.1-prealpha.3` with orchestrator `6160ff7`.
+
+**Qualified candidate:** [v0.4.1-prealpha.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1-prealpha.3).<br>
+**Candidate source:** `e9c70d922337096b706a69108fb93cc539449c8d`.<br>
+**Candidate archive SHA-256:** `0ae48db3db7d178bf17c7f60a861d63bb8730ad054fc7f3dc96cc3db2a39eccf`.<br>
+**Rollback predecessor:** published stable `v0.4.0`.
+
+**What this release changes for a user:** Apple Web Push no longer fails outright — the VAPID `sub`
+contact is a reachable repository URL rather than a reserved `.invalid` address — and an open
+software keyboard no longer hides the collaboration composer. A Windows-only ACL change also lands,
+on a platform that stays unqualified and unadvertised.
+
+**Limits, unchanged from v0.4.0:** eight-hour endurance is NOT rerun and is NOT CLAIMED; the
+founder-approved 1,800-second relay check stands in for it and residual prolonged-operation risk is
+accepted. There is no bounded-memory-growth claim. Windows OMP, background Web Push, specialized
+attention and branch/resume matrices, iOS, Safari, WebKit, and broader host/browser combinations
+remain unqualified.
+
+Stable publication evidence, the runtime byte comparison, and the published-byte post-release smoke
+are recorded here as promotion completes.
+
 ## Mainline v0.4.0 — published stable
 
 **Updated:** 2026-09-14. **Decision: GO for stable v0.4.0** on the exact matrix below.
