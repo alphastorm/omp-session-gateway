@@ -48,7 +48,7 @@ platform family, or arbitrary build from <code>main</code>.</p>
 <tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-22T14:36:28.650Z</code>–<code>15:06:28.658Z</code>; two transitions, final phase <code>live</code></td></tr>
 <tr><td>OMP publication and revocation</td><td>Live stock-OMP host <code>5ecf6865…</code> generation 1: View and Control each returned <code>200</code> carrying a capability with <code>no-store</code>, then the host was revoked. Stale-generation and forged-identity refusals are covered by the Debian lane's 83 invariants.</td></tr>
 <tr><td>Migration/rollback predecessor</td><td><code>v0.4.1</code>, mainline. The predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential. Gateway rollback does not switch OMP.</td></tr>
-<tr><td>Published-byte local/Pixel smoke</td><td>A separate gate that runs against the published bytes after promotion; its result is recorded in the release ledger and does not expand the exact candidate matrix above.</td></tr>
+<tr><td>Published-byte local/Pixel smoke</td><td>Passed against the published bytes with mainline OMP <code>18.1.20</code>, Bun <code>1.4.0</code>, doctor 18/18, View/Control, clean capability sinks, same-page recovery, and the installed WebAPK. Configuration, readiness token, and unrelated Serve mappings preserved. One earlier attempt failed in the Android lane with an undetermined cause; see the release ledger. This separate smoke does not expand the exact candidate matrix.</td></tr>
 </table>
 <h2>Known limits — part of the claim</h2>
 <ul>

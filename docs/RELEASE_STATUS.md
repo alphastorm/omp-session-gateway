@@ -1,6 +1,6 @@
 # Release status
 
-## Mainline v0.4.2 — qualified candidate, awaiting publication
+## Mainline v0.4.2 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.2** on the exact matrix recorded under the
 0.4.1 engineering track below, which this campaign re-exercised unchanged. The seven-lane candidate
@@ -48,7 +48,57 @@ of the same tree reproduced the published candidate archive SHA-256 `4a1c0cdd…
 comparison requires the pinned Bun on `PATH`, not merely as the invoked binary: `release:build`
 spawns the web build through a nested `bun`.
 
-**Publication and post-release smoke are separate gates** and are not claimed here.
+### Publication — verified 2026-09-22
+
+**Published stable:** [v0.4.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.2),
+immutable GitHub Latest at **15:20:26 UTC**, six assets.<br>
+**Stable source:** `fe47366da0abf9b98004ab54641737d2c24cd713`.<br>
+**Stable archive SHA-256:** `e64846074292e3863b2897a6e029b8ce051c3b6e160b39c2efbe0f8483d9b297`.<br>
+**Release run:** [`35746502353`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35746502353), passed.
+
+Verified after publication against the downloaded assets, not the workflow log: the archive digest
+matches its `SHA256SUMS` entry, `gh attestation verify` accepted it, and the GitHub Latest pointer
+resolves to `v0.4.2`.
+
+**Runtime equivalence against the qualified candidate: passed.** Unpacking the published stable
+archive beside the qualified candidate leaves **exactly three differing files, all of them the
+documented metadata exclusions** — `release-info.json`, `SBOM.spdx.json`, and
+`STABLE_RELEASE.lock.json`. The remaining **47 files are byte-identical**.
+
+**Published-byte local installation:** the workstation gateway runs published
+`0.4.2-9bad54b14928`, reporting installed, active, ready, and not diverged, with `doctor` **18/18**.
+Existing configuration and readiness-token bytes were preserved.
+
+### Post-release smoke — passed 2026-09-22
+
+`bun run smoke:release -- --tag v0.4.2 --archive-sha256 e648460… --rebuild-omp` passed against the
+published digest on the configured Darwin-arm64 workstation and the physical Pixel:
+
+- exact tag, source commit `fe47366`, archive `e648460…`, and application asset
+  `/assets/app.ce7356a7cb95.js` bound to the published release;
+- gateway reinstall not required, **configuration and readiness-token bytes preserved**, `doctor`
+  **18/18**;
+- Tailscale Serve unchanged with unrelated mappings preserved;
+- mainline OMP **18.1.20**, binary `b3718d4e…`;
+- physical Pixel: View read-only, Control writable, capability sinks clean, same-page recovery, and
+  the installed WebAPK launch.
+
+**The first attempt failed and its cause is undetermined.** It failed inside the Android View and
+Control lane with exit 1, after the gateway install and OMP rebuild had already completed. The
+failure detail was lost to operator output truncation and is unrecoverable; the two subsequent full
+runs passed. Two candidate mechanisms were tested and **disproven**, not assumed:
+
+- *Locked or sleeping device.* The smoke's Android lane never wakes or unlocks the phone, unlike the
+  qualification harness, which does both explicitly. Re-running the whole smoke with the display
+  deliberately put to sleep (`mWakefulness=Dreaming`) **passed**, so the missing unlock is not a
+  defect this gate depends on.
+- *Race against discovery.* `assertEligibleTarget` fetches the session list once with no bounded
+  wait, and the gateway only learns of a new host on its next poll. But the smoke already waits up
+  to 90 attempts for the fixture to publish before invoking the lane, so the window is closed.
+
+No fix is claimed, and the cause is recorded as undetermined rather than attributed to a mechanism
+that testing ruled out. The gate itself passed twice, including once adversarially.
+
 
 ## Mainline v0.4.1 — published stable
 
