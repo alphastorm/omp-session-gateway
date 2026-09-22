@@ -284,3 +284,29 @@ The v0.4.0 published-stable-byte local/Android smoke above **passed on 2026-09-1
 from candidate qualification. Exact source/digest, preserved installation state, existing local
 OMP 18.1.21, physical results, and the unexplained initial Control-upgrade failure are recorded
 in the [release ledger](RELEASE_STATUS.md).
+
+## 8. Continuous integration lanes
+
+Every pull request runs the lanes below, from `ci.yml` and `platform-qualification.yml`. Only the
+lanes marked **gating** are required status checks on `main`; the others publish a result without
+blocking a merge.
+
+| Lane | Runs | Merge |
+| --- | --- | --- |
+| `implementation-checks` | `bun run check`: repository check, typecheck, build, `bun test`, and both leak scans | gating |
+| `browser-notifications` | `bun run test:browser`: the whole Playwright suite on two mobile viewports, not only the notification cases its historical name suggests | gating |
+| `windows-service-lifecycle` | Windows contracts and ACLs, install, readiness-token isolation and rotation, uninstall | gating |
+| `linux-arm64-source-checkout` | Native aarch64 typecheck, build, `bun test`, and the pinned mainline OMP registry fixtures | advisory |
+| `coverage` | `bun run test:coverage` and the Codecov upload | advisory |
+
+`coverage` is advisory by design: its upload sets `fail_ci_if_error: false`, so a merge never
+depends on a third-party service being reachable.
+
+The browser lane gates because it holds the only executable proof of contracts that span the
+gateway/vendored-client boundary. `apps/web/e2e/software-keyboard.e2e.ts` is the worked example:
+the gateway chrome sizes itself from `--viewport-height`, a custom property published by the
+vendored collaboration client, and no other check fails if that property stops arriving.
+
+`capacity-qualification.yml` and `droplet-qualification.yml` deliberately have no `pull_request`
+trigger; they are dispatch-only and never gate a merge. Release publication runs from a pushed tag
+in `signed-release.yml` and is covered by the release checklist above, not by these lanes.

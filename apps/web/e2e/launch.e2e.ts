@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
-import { startDashboardFixture } from "./fixture-server.ts";
+import {
+  installSilentWebSocket,
+  relaySocketCount,
+  startDashboardFixture,
+} from "./fixture-server.ts";
 
 const SESSION_TITLE = "Implement seamless registry recovery across long-running upgraded OMP sessions";
 
@@ -39,46 +43,6 @@ function workingSession(index: number): SessionMetadata {
     title: id,
     startedAt: `2026-07-21T${String(9 + index).padStart(2, "0")}:00:00.000Z`,
   });
-}
-
-async function installSilentWebSocket(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const socketCounter = globalThis as typeof globalThis & { __ompRelaySocketCount?: number };
-    socketCounter.__ompRelaySocketCount = 0;
-    Object.defineProperty(globalThis, "WebSocket", {
-      configurable: true,
-      value: class {
-        static readonly CONNECTING = 0;
-        static readonly OPEN = 1;
-        static readonly CLOSING = 2;
-        static readonly CLOSED = 3;
-        readonly url: string;
-        readyState = 0;
-        binaryType = "blob";
-        onopen: ((event: Event) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-
-        constructor(url: string) {
-          this.url = url;
-          socketCounter.__ompRelaySocketCount = (socketCounter.__ompRelaySocketCount ?? 0) + 1;
-        }
-
-        close(): void {
-          this.readyState = 3;
-        }
-
-        send(): void {}
-      },
-    });
-  });
-}
-
-function relaySocketCount(page: Page): Promise<number> {
-  return page.evaluate(
-    () => (globalThis as typeof globalThis & { __ompRelaySocketCount?: number }).__ompRelaySocketCount ?? 0,
-  );
 }
 
 async function attachSyntheticPhoto(

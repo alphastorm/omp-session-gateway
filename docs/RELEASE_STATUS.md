@@ -149,6 +149,40 @@ No host, physical-client, relay, migration, or rollback lane has run against the
 successful external report is one anecdote from an unadvertised iOS/Ubuntu combination, not iOS
 support; background Web Push stays outside the stable core claim.
 
+### v0.4.1-prealpha.2 — published engineering candidate for external software-keyboard verification
+
+**Source:** `5fa3e361bd087ff2b53f03b5f0906c9e1bc9b016`.<br>
+**Archive SHA-256:** `ed63761375f1ae49427da3426cc82e4ee2b2ab1842395b8c0866e0b00fb24d95`.<br>
+**Release run:** [`35682557336`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35682557336), passed; published 2026-09-22 at 03:17:33 UTC.<br>
+**Classification:** signed pre-alpha prerelease, immutable, not Latest, unqualified on every host
+and client. Stable `v0.4.0` remained GitHub Latest and the only qualified artifact after
+publication.
+
+**Purpose:** let the reporter of [#189](https://github.com/alphastorm/omp-session-gateway/issues/189)
+verify the software-keyboard fix from published, signed bytes rather than a source checkout. The
+change is two CSS declarations: `body.collab-shell-active` and `.gateway-shell` size from
+`var(--viewport-height, 100dvh)` instead of `100dvh`, so the gateway chrome follows the same
+visual-viewport measurement the mounted collaboration client already publishes. A browser test
+drives a shrinking visual viewport and asserts the composer's bottom edge stays inside it; it fails
+without the change.
+
+This candidate also carries the shared browser-test transport helper and the continuous-integration
+lane documentation from [#194](https://github.com/alphastorm/omp-session-gateway/pull/194), neither
+of which changes shipped bytes.
+
+The release published six assets. The downloaded archive reproduced the published asset digest and
+its `SHA256SUMS` entry exactly. The immutable-release attestation covers all six assets, and one
+SLSA provenance statement covers the archive, SBOM, and `SHA256SUMS`; both are bound to
+`refs/tags/v0.4.1-prealpha.2` at the source commit above, and `gh attestation verify` accepted the
+archive. The archive's `release-info.json` reports `0.4.1`, that source commit, and pre-alpha
+qualification, and its built stylesheet carries the two `var(--viewport-height, 100dvh)` chrome
+declarations that constitute the fix.
+
+No host, physical-client, relay, migration, or rollback lane has run against these bytes. The
+reporter's earlier confirmation was made on an unsigned source-checkout install of the fix branch;
+it is one anecdote from an unadvertised iOS client, not iOS support and not a qualification result.
+iOS, Safari, and WebKit remain outside every row of `docs/COMPATIBILITY.md`.
+
 ## Fork-era release and qualification archive
 
 **Every result, support decision, prerequisite, command, and “current” label below belongs to its
