@@ -25,7 +25,7 @@ import {
 } from "./stable-qualification.ts";
 
 const TAG = `v${PRODUCT_VERSION}-prealpha.21`;
-const PREVIOUS_TAG = "v0.3.0";
+const PREVIOUS_TAG = "v0.4.0";
 const COMMIT = "a".repeat(40);
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -52,7 +52,9 @@ describe("stable qualification arguments", () => {
     expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], {}).previousTag).toBe(
       PREVIOUS_TAG,
     );
-    for (const previous of ["v0.1.0", "v0.2.0", "v0.2.1-prealpha.1", "v0.3.0-prealpha.1", "v0.2.1", ""]) {
+    // `v0.3.0` matters here: it was the predecessor for the 0.4.0 campaign, so accepting it now
+    // would silently qualify the upgrade and rollback pair against a superseded stable.
+    for (const previous of ["v0.1.0", "v0.2.0", "v0.3.0", "v0.2.1-prealpha.1", "v0.4.0-prealpha.1", "v0.2.1", ""]) {
       expect(() => parseStableQualificationArgs(["--tag", TAG, "--previous-tag", previous], {})).toThrow(
         "--previous-tag",
       );

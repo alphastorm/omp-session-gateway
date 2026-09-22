@@ -7,9 +7,11 @@ import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
-// Rollback predecessor: the published stable release the candidate must migrate from and roll
-// back to. The mainline candidate must prove migration from and recovery to bare v0.3.0 stable.
-const PREVIOUS_TAG = "v0.3.0";
+// The rollback predecessor a candidate must upgrade from and fall back to: always the currently
+// published stable, which the Debian and macOS lanes both install before the candidate. Promoting
+// 0.4.1 makes that v0.4.0; leaving it at an older stable would qualify the upgrade/rollback pair
+// against a release nobody is running.
+const PREVIOUS_TAG = "v0.4.0";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
 const SIGNED_WORKFLOW = "signed-release.yml";
