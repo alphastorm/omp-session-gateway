@@ -344,13 +344,30 @@ preflight_tools() {
 # Refuses to create a droplet whose root account we could not then log into. DigitalOcean stores the
 # legacy MD5 fingerprint of the public key, which is what `ssh-keygen -E md5` prints.
 preflight_ssh_key() {
-  local key_json do_fingerprint key_name pub local_fingerprint candidates
-  key_json="$(doctl compute ssh-key get "$SSH_KEY_ID" --output json 2>/dev/null || true)"
-  # A missing key makes doctl print an {"errors":[...]} object rather than an empty list, so check the
-  # shape instead of trusting the exit status.
-  if ! printf '%s' "$key_json" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-    die "SSH key id $SSH_KEY_ID is not in this DigitalOcean account. List keys with 'doctl compute ssh-key list' and set OMP_QUAL_SSH_KEY_ID. No droplet was created."
-  fi
+  local key_json key_err do_fingerprint key_name pub local_fingerprint candidates attempt
+  # The key is registered by the immediately preceding step, and DigitalOcean has been observed
+  # returning "not found" for a `get` by id seconds after a successful create. Retry briefly rather
+  # than refusing a key that does exist. Never discard stderr: a rate limit, an auth failure and a
+  # genuinely absent key all reach the shape check identically, and reporting all three as "not in
+  # this account" sends the operator to look for the wrong problem.
+  attempt=1
+  while :; do
+    key_err="$(mktemp)"
+    key_json="$(doctl compute ssh-key get "$SSH_KEY_ID" --output json 2>"$key_err" || true)"
+    if printf '%s' "$key_json" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+      rm -f "$key_err"
+      break
+    fi
+    if [ "$attempt" -ge 5 ]; then
+      local detail
+      detail="$(tr -d '\r' <"$key_err" | tr '\n' ' ' | cut -c1-300)"
+      rm -f "$key_err"
+      die "SSH key id $SSH_KEY_ID did not resolve after $attempt attempts. doctl said: ${detail:-<no stderr>}. List keys with 'doctl compute ssh-key list' and set OMP_QUAL_SSH_KEY_ID. No droplet was created."
+    fi
+    rm -f "$key_err"
+    sleep "$attempt"
+    attempt=$((attempt + 1))
+  done
   do_fingerprint="$(printf '%s' "$key_json" | jq -r '.[0].fingerprint')"
   key_name="$(printf '%s' "$key_json" | jq -r '.[0].name')"
   measure "DigitalOcean SSH key" "id $SSH_KEY_ID, name $key_name"
