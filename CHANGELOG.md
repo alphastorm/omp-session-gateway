@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Serve a Windows private-path ACL request from a second helper when the cached one dies before
+  replying, instead of failing the caller. A Windows CI run showed why the old behaviour was wrong:
+  a `powershell.exe` helper never answered its first request, failing the whole check, and the very
+  next request — served by a freshly started helper — succeeded in under three seconds. The reply
+  wait is halved to 10 seconds so two attempts cost what one attempt used to, and a reply whose id
+  does not match its request stays fatal and is never retried.
+
 ## [v0.4.1] — 2026-09-22
 
 ### Changed

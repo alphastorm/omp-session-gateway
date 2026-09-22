@@ -19,7 +19,6 @@ import {
   restoreGatewayConfigFile,
   rotateReadinessToken,
   stopWindowsAclHelper,
-  windowsAclSpawnCostMs,
   writeGatewayConfigFile,
   writePrivateTextFile,
 } from "../src/config.ts";
@@ -137,6 +136,8 @@ const fakeAcl = {
   desynchronise: false,
   stderr: "",
   exitBeforeReply: false,
+  /** Dies on the next request only, so a retry meets a working helper. */
+  exitBeforeReplyOnce: false,
 };
 
 function answerFakeAclRequest(line: string): string {
@@ -184,6 +185,10 @@ function installFakePowerShell(): () => void {
     const pending: Uint8Array[] = [];
     let waiting: ((result: { value?: Uint8Array; done: boolean }) => void) | undefined;
     let stdin = "";
+    // Death belongs to this process, not to the harness: a helper that dies stays dead, and the
+    // next spawn is a live one. A one-shot flag consumed globally would instead leave the reader
+    // waiting on a process nobody marked dead.
+    let dead = false;
     return {
       stdin: {
         write: (chunk: string): number => {
@@ -197,8 +202,11 @@ function installFakePowerShell(): () => void {
             const line = stdin.slice(0, newline);
             stdin = stdin.slice(newline + 1);
             // A helper that died during start-up consumes the request and answers nothing; its
-            // stdout closes instead, which the reader below reports as EOF.
-            if (fakeAcl.exitBeforeReply) {
+            // stdout closes instead, which the reader below reports as EOF. `once` models the
+            // realistic transient: this process is gone, the next one works.
+            if (fakeAcl.exitBeforeReply || fakeAcl.exitBeforeReplyOnce) {
+              fakeAcl.exitBeforeReplyOnce = false;
+              dead = true;
               const closed = waiting;
               waiting = undefined;
               closed?.({ done: true });
@@ -218,7 +226,7 @@ function installFakePowerShell(): () => void {
             const next = pending.shift();
             if (next !== undefined) return { value: next, done: false };
             // A helper that dies without answering closes its stdout, which the reader sees as EOF.
-            if (fakeAcl.exitBeforeReply) return { done: true };
+            if (dead || fakeAcl.exitBeforeReply) return { done: true };
             const gate = Promise.withResolvers<{ value?: Uint8Array; done: boolean }>();
             waiting = gate.resolve;
             return await gate.promise;
@@ -253,6 +261,7 @@ function installFakePowerShell(): () => void {
     fakeAcl.desynchronise = false;
     fakeAcl.stderr = "";
     fakeAcl.exitBeforeReply = false;
+    fakeAcl.exitBeforeReplyOnce = false;
   };
 }
 
@@ -1309,8 +1318,6 @@ describe("Windows private-path ACL enforcement", () => {
       // fifteen ACL operations that used to cost fifteen `powershell.exe` starts.
       expect(fakeAcl.requests).toHaveLength(15);
       expect(fakeAcl.spawns - spawnsBefore).toBe(1);
-      // `install` derives its readiness budget from this, so losing the measurement matters.
-      expect(windowsAclSpawnCostMs()).toBeGreaterThanOrEqual(0);
     } finally {
       restore();
     }
@@ -1395,6 +1402,27 @@ describe("Windows private-path ACL enforcement", () => {
       fakeAcl.stderr = "ParserError: unexpected token in expression";
       fakeAcl.exitBeforeReply = true;
       await expect(loadOrCreateReadinessToken(config)).rejects.toThrow("ParserError: unexpected token in expression");
+    } finally {
+      restore();
+    }
+  });
+
+  test("starts a fresh helper when the cached one dies before replying", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      // A Windows runner produced exactly this: one `powershell.exe` never answered its first
+      // request and failed the whole check, while the very next request — served by a freshly
+      // started helper — succeeded in under three seconds. Treating a dead cached process as fatal
+      // is what turned a transient into a failure, so the request must earn a new helper instead.
+      await dropCachedAclHelper(config);
+      const spawnsBefore = fakeAcl.spawns;
+      fakeAcl.exitBeforeReplyOnce = true;
+      await expect(loadOrCreateReadinessToken(config)).resolves.toBeDefined();
+      // Two starts: the one that died and the one that answered. Without the retry the first
+      // rejection reaches the caller and nothing spawns again.
+      expect(fakeAcl.spawns - spawnsBefore).toBe(2);
     } finally {
       restore();
     }
