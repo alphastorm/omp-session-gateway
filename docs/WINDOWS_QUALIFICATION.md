@@ -157,6 +157,30 @@ Windows binary successfully after installing the official `@oh-my-pi/pi-natives@
 5. Label the instance `omp-winqual-*`; leave no gateway, OMP, listener, or active tailnet connection
    while held, and destroy the VM immediately after the signed-candidate rerun.
 
+## The self-hosted Windows workstations are not the qualification path
+
+Two Windows 11 Pro workstations sit on the operator's tailnet and already host repository CI
+(`nyc-pc`, an AMD Ryzen 9 7950X; `sf-pc`, an Intel Core i9-14900K). They run the gateway's
+`gateway-ci-linux-x64` runners, so the question of using them for Windows qualification is a fair
+one. They are not suitable, for four independent reasons.
+
+- **The lane they already provide is Linux.** Those hosts run *Linux x64* runners inside Docker.
+  Reusing them for Windows qualification means running on the Windows host itself, which is a
+  different and far more invasive arrangement than the container lane they were qualified for.
+- **SSH reaches Session 0, and the gateway needs an interactive one.** Access is key-only OpenSSH
+  running as a Windows service, which is non-interactive. The Scheduled Task is
+  `LogonType: InteractiveToken` by design, so a Session 0 caller cannot make it run, and the
+  reboot-then-login sequence that the qualification actually turns on cannot be driven that way.
+- **Reboots are not available.** Both hosts carry production inference appliances that must keep
+  running, and neither has automatic logon, so a reboot halts the workload until a human logs in
+  interactively. That is the opposite of a disposable qualification host.
+- **They are the wrong shape for the measurement that matters.** The slow-ACL defect this document
+  records was found on a 2-vCPU, 4 GiB host. These are 32-thread desktops with large memory
+  headroom, so a pass on them would say nothing about the constrained case that actually failed.
+
+The disposable provider VM recipe above remains the qualification path. It is reproducible, costs
+little, reproduces the constrained shape, and leaves no residue on a machine anyone depends on.
+
 ## Remaining release qualification
 
 Automatic logon is the obvious way to create the interactive session a Scheduled Task needs, and
