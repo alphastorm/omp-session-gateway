@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Page } from "@playwright/test";
 import type { SessionEvent, SessionMetadata } from "@omp-session-gateway/protocol";
 
 const MIME_TYPES: Readonly<Record<string, string>> = {
@@ -275,4 +276,56 @@ export async function startDashboardFixture(
       broadcast({ type: "session_upsert", revision, session });
     },
   };
+}
+
+/** Counter the stub transport below increments, read back by {@link relaySocketCount}. */
+interface RelaySocketCounter {
+  __ompRelaySocketCount?: number;
+}
+
+/**
+ * Replace `WebSocket` with a transport that never connects, so a fixture run stays offline and
+ * deterministic instead of reaching for a real relay. The constructor count is what distinguishes
+ * "reused the live socket" from "opened a new one", so it is always recorded; a test that does not
+ * care simply never reads it.
+ */
+export async function installSilentWebSocket(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const counter = globalThis as typeof globalThis & RelaySocketCounter;
+    counter.__ompRelaySocketCount = 0;
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      value: class {
+        static readonly CONNECTING = 0;
+        static readonly OPEN = 1;
+        static readonly CLOSING = 2;
+        static readonly CLOSED = 3;
+        readonly url: string;
+        readyState = 0;
+        binaryType = "blob";
+        onopen: ((event: Event) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          counter.__ompRelaySocketCount = (counter.__ompRelaySocketCount ?? 0) + 1;
+        }
+
+        close(): void {
+          this.readyState = 3;
+        }
+
+        send(): void {}
+      },
+    });
+  });
+}
+
+/** Number of stub sockets constructed since the page loaded. */
+export function relaySocketCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (globalThis as typeof globalThis & RelaySocketCounter).__ompRelaySocketCount ?? 0,
+  );
 }

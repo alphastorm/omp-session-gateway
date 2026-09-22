@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
-import { startDashboardFixture } from "./fixture-server.ts";
+import { installSilentWebSocket, startDashboardFixture } from "./fixture-server.ts";
 
 // A phone software keyboard shrinks the visual viewport without changing the layout viewport, so
 // `dvh` units keep reporting the unobstructed height. This inset is a plausible portrait keyboard.
@@ -27,37 +27,6 @@ function session(): SessionMetadata {
       since: "2026-09-20T08:00:01.000Z",
     },
   };
-}
-
-async function installSilentWebSocket(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    Object.defineProperty(globalThis, "WebSocket", {
-      configurable: true,
-      value: class {
-        static readonly CONNECTING = 0;
-        static readonly OPEN = 1;
-        static readonly CLOSING = 2;
-        static readonly CLOSED = 3;
-        readonly url: string;
-        readyState = 0;
-        binaryType = "blob";
-        onopen: ((event: Event) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-
-        constructor(url: string) {
-          this.url = url;
-        }
-
-        close(): void {
-          this.readyState = 3;
-        }
-
-        send(): void {}
-      },
-    });
-  });
 }
 
 // Headless Chromium never raises a software keyboard, so the platform signal a phone browser does
