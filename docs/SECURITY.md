@@ -80,8 +80,29 @@ forwarder can name an allowlisted login and receive the session directory and li
 capabilities. Tailscale Serve is safe here only because it overwrites caller-supplied identity
 headers; nothing else in this design does. A future non-Serve path therefore requires its own
 authenticator plus unconditional stripping of `Tailscale-User-*`, not merely a transport swap. See
-[#74](https://github.com/alphastorm/omp-session-gateway/issues/74) for a worked example of a
-proposal that fails on exactly this point.
+[#74](https://github.com/alphastorm/omp-session-gateway/issues/74) and
+[#158](https://github.com/alphastorm/omp-session-gateway/issues/158) for worked examples of
+proposals that fail on exactly this point.
+
+**The listener now refuses requests that carry evidence of a second HTTP hop,** so the most likely
+version of that mistake fails closed instead of silently granting control. An HTTP proxy leaves
+marks that Serve never produces, and a remote caller cannot instruct the proxy in front of it to
+stop inserting them. Measured against Serve's own proxy (`ipn/ipnlocal/serve.go`,
+`addProxyForwardedHeaders` and `addTailscaleIdentityHeaders`), a Serve-originated request carries
+`X-Forwarded-For` set to exactly one address — the tailnet source — and `X-Forwarded-Host` set to
+the host Serve answered on, and Serve deletes every inbound `Tailscale-*` header before setting its
+own. `authorizeHttpRequest` therefore refuses, before reading the identity header, when
+`X-Forwarded-For` names more than one hop or a non-Tailscale address, when `X-Forwarded-Host`
+disagrees with the configured public origin, when `Forwarded`, `X-Real-IP`, `CF-Connecting-IP`,
+`CF-Ray`, or `X-Forwarded-Server` is present, or when the request is marked as Funnel.
+
+**This is defence in depth and explicitly not authentication.** It catches Cloudflare Tunnel,
+ngrok, and ordinary reverse proxies, which all insert at least one of those headers. It does not
+catch a raw TCP forwarder — `socat`, `ssh -L`, a bare tunnel — which inserts nothing and remains
+indistinguishable from Serve, and it does not make the operator rule above optional. Only an
+authenticator the gateway can verify itself closes that gap. The mode dispatch in
+`authorizeHttpRequest` is exhaustive for the same reason: a future auth mode denies until it is
+given an explicit arm, rather than inheriting Tailscale header trust by omission.
 
 **Tailscale's own userspace-networking mode is such a forwarder, and this is the trap most likely to
 catch a real operator.** `tailscaled --tun=userspace-networking` has no TUN device, so its netstack

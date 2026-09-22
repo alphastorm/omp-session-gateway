@@ -94,6 +94,14 @@ const MUTATIONS: readonly Mutation[] = [
     target: "apps/gateway/test/doctor.test.ts",
     mustFail: "withholds trust without a tunnel device and compatibility without a reachable OMP",
   },
+  {
+    name: "identity believed through a tunnel or reverse proxy in front of the listener (#158, #74)",
+    file: "apps/gateway/src/auth.ts",
+    find: "  if (secondHopEvidence(request, config.http.publicOrigin) !== undefined) {",
+    replace: "  if (false && secondHopEvidence(request, config.http.publicOrigin) !== undefined) {",
+    target: "apps/gateway/test/http.test.ts",
+    mustFail: "refuses an allowlisted identity carrying evidence of a second HTTP hop",
+  },
   // Deliberately absent: withholding `listenerLoopbackOnly` on unsound trust. That check is
   // unobservable without a live daemon on the fixture's port, because the value is
   // `checks.daemon && hostname is loopback` and is false either way in an isolated root. Adding the

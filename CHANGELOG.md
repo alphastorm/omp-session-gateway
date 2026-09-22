@@ -6,6 +6,24 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+
+- Refuse a request that carries evidence of a second HTTP hop before reading its identity header.
+  Pointing a tunnel or reverse proxy at the gateway's loopback port was a complete authentication
+  bypass: the forwarder runs locally, so it satisfies the loopback check, the host really is on a
+  tailnet, so the tunnel-device probe passes, and `Tailscale-User-Login` becomes whatever the remote
+  caller typed — the session directory plus live View and Control. Measured against Tailscale
+  Serve's own proxy, a Serve-originated request carries `X-Forwarded-For` set to exactly one tailnet
+  address and `X-Forwarded-Host` set to the host Serve answered on, so a forwarded chain, a
+  non-Tailscale source, a mismatched host, a `Forwarded`/`X-Real-IP`/`CF-Connecting-IP`/`CF-Ray`/
+  `X-Forwarded-Server` marker, or a Funnel marking is now refused. A remote caller cannot instruct
+  the proxy in front of it to stop inserting those. This is defence in depth, not authentication: a
+  raw TCP forwarder inserts nothing and stays indistinguishable from Serve, so the operator rule
+  against exposing the loopback port still stands.
+- Dispatch exhaustively on the authentication mode. Reading the Tailscale identity header was the
+  implicit default for "not dev-localhost", so a mode added later would have inherited header trust
+  by omission; a new mode now denies until it is given an explicit arm.
+
 ## [v0.4.2] — 2026-09-22
 
 ### Fixed
