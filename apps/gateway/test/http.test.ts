@@ -243,6 +243,10 @@ describe("HTTP boundary", () => {
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
+        // Pinned true so the only thing that can refuse these is the second-hop evidence. Left to
+        // the real probe, this test passes on any machine without a tailnet — including every CI
+        // runner — whether or not the guard exists.
+        tailnetPresent: () => true,
       });
       const proxied = [
         // cloudflared and ngrok both report the public client here; Serve reports the tailnet peer.
@@ -277,6 +281,9 @@ describe("HTTP boundary", () => {
         config: measured(),
         registry: populatedRegistry(),
         staticAssets: assets,
+        // Without this the suite depends on whether the machine running it has Tailscale in TUN
+        // mode, which is exactly the trap `config()` documents.
+        tailnetPresent: () => true,
       });
       // Measured against `addProxyForwardedHeaders` in Tailscale's `ipn/ipnlocal/serve.go`: the
       // single tailnet source address, the host Serve answered on, and `https`. Refusing any of
