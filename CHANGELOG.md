@@ -6,6 +6,18 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.1] — 2026-09-22
+
+### Changed
+
+- Qualify `v0.4.1-prealpha.3` for `0.4.1`, with published `v0.4.0` as the rollback predecessor. The
+  stable lock binds that exact candidate source and archive digest. The release carries three
+  behaviour changes over `v0.4.0`: the VAPID `sub` contact is the repository URL instead of a
+  reserved `.invalid` address, the gateway chrome sizes from the live visual viewport instead of
+  `100dvh`, and Windows private-path ACL checks are served by one long-lived helper. Eight-hour
+  endurance is not rerun and not claimed; the founder-approved 1,800-second relay check stands in
+  for it, and the qualified matrix and its limits are recorded in the release ledger.
+
 ## [v0.4.1-prealpha.3] — 2026-09-22
 
 ### Changed
