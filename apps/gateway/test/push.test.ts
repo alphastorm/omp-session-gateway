@@ -130,6 +130,39 @@ async function createRoot(): Promise<string> {
 }
 
 describe("WebAuthn push identities", () => {
+  for (const previousMode of ["tailscale-serve", "webauthn"] as const) {
+    test("reclaims eight predecessor slots after switching from " + previousMode, async () => {
+      const root = await createRoot();
+      const credentialIdentity = "webauthn:" + "A".repeat(22);
+      const serveIdentity = "owner@example.com";
+      const modes = {
+        "tailscale-serve": { ...config(root), auth: { mode: "tailscale-serve" as const, allowedLogins: [serveIdentity] } },
+        webauthn: { ...config(root), auth: { mode: "webauthn" as const, allowedLogins: [] } },
+      };
+      const currentMode = previousMode === "tailscale-serve" ? "webauthn" : "tailscale-serve";
+      const previousIdentity = previousMode === "webauthn" ? credentialIdentity : serveIdentity;
+      const currentIdentity = currentMode === "webauthn" ? credentialIdentity : serveIdentity;
+      const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+      const identityAllowed = (identity: string): boolean => identity === credentialIdentity;
+      const previous = await PushService.open({ config: modes[previousMode], registry, identityAllowed, transport: new RecordingTransport() });
+      try {
+        for (let index = 0; index < 8; index++) {
+          await previous.subscribe(previousIdentity, { version: PUSH_API_VERSION, subscription: { ...subscription, endpoint: "https://push.example.test/send/predecessor-" + index } });
+        }
+      } finally { await previous.stop(); }
+      const statePath = join(root, "state", "push-state.json");
+      const before = JSON.parse(await readFile(statePath, "utf8")) as { vapid: unknown };
+      const current = await PushService.open({ config: modes[currentMode], registry, identityAllowed, transport: new RecordingTransport() });
+      try {
+        // The first opt-in under the new authority must not be blocked by all eight old rows.
+        await current.subscribe(currentIdentity, { version: PUSH_API_VERSION, subscription });
+        const after = JSON.parse(await readFile(statePath, "utf8")) as { vapid: unknown; subscriptions: { identityKey: string }[] };
+        expect(after.subscriptions.map(item => item.identityKey)).toEqual([currentIdentity]);
+        expect(JSON.stringify(after.vapid) === JSON.stringify(before.vapid)).toBe(true);
+      } finally { await current.stop(); }
+    });
+  }
+
   test("keeps opted-in delivery across restart but refuses revoked and noncredential identities", async () => {
     const root = await createRoot();
     const gatewayConfig: GatewayConfig = { ...config(root), auth: { mode: "webauthn", allowedLogins: [] } };
@@ -144,18 +177,26 @@ describe("WebAuthn push identities", () => {
       transport: new RecordingTransport(),
     });
     await service.subscribe(`webauthn:${id}`, request);
-    await service.subscribe(`webauthn:${otherId}`, { ...request, subscription: { ...subscription, endpoint: `${endpoint}-other` } });
+    await service.subscribe(`webauthn:${otherId}`, { ...request, detailLevel: "preview", subscription: { ...subscription, endpoint: `${endpoint}-other`, expirationTime: 8_640_000_000_000_000 } });
+    await service.subscribe(`webauthn:${otherId}`, { ...request, subscription: { ...subscription, endpoint: `${endpoint}-expired`, expirationTime: 1 } });
     await expect(service.subscribe("owner@example.com", request)).rejects.toThrow();
     await expect(service.subscribe("webauthn:short", request)).rejects.toThrow();
     await service.stop();
     await expect(service.subscribe(`webauthn:${id}`, request)).rejects.toThrow();
     await expect(service.unsubscribe(`webauthn:${id}`, { version: PUSH_API_VERSION, endpoint })).rejects.toThrow();
 
+    const statePath = join(gatewayConfig.paths.stateDir, "push-state.json");
+    const before = JSON.parse(await readFile(statePath, "utf8")) as { vapid: unknown };
     identities.delete(`webauthn:${id}`);
     const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
     const transport = new RecordingTransport();
     const restarted = await PushService.open({ config: gatewayConfig, registry, transport, identityAllowed: identity => identities.has(identity) });
     try {
+      const pruned = JSON.parse(await readFile(statePath, "utf8")) as { vapid: unknown; subscriptions: { identityKey: string; endpoint: string; detailLevel: string }[] };
+      expect(pruned.subscriptions.map(item => ({ identity: item.identityKey, endpoint: item.endpoint, detailLevel: item.detailLevel }))).toEqual([
+        { identity: `webauthn:${otherId}`, endpoint: `${endpoint}-other`, detailLevel: "preview" },
+      ]);
+      expect(JSON.stringify(pruned.vapid) === JSON.stringify(before.vapid)).toBe(true);
       registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
       registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
       await restarted.flush();

@@ -152,6 +152,11 @@ It must also suppress cookies, enrollment codes, WebAuthn responses, and credent
 Only `auth.mode = "webauthn"` enables these routes. Every endpoint uses POST, exact Origin,
 `Sec-Fetch-Site: same-origin`, bounded `application/json`, and no-store responses.
 Authentication is never inferred from a loopback peer or a proxy identity header.
+The public PWA shell includes the document routes, hashed `/assets/` files, `/manifest.webmanifest`,
+`/service-worker.js`, and exactly `/icon.svg`, `/icon-192.png`, `/icon-512.png`, and
+`/icon-maskable-512.png`. These GET-only first-party assets contain no session metadata or secrets.
+The bounded loopback health/readiness endpoint remains public; it is not a session or identity
+check. All other protected resources require authentication.
 
 | Endpoint | Request | Successful response |
 |---|---|---|

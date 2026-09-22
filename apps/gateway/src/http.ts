@@ -55,6 +55,15 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()",
 };
 
+const PUBLIC_PWA_ASSETS = new Set([
+  "/manifest.webmanifest",
+  "/service-worker.js",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
+]);
+
 interface RateBucket {
   count: number;
   resetAt: number;
@@ -403,11 +412,11 @@ export function createHttpHandler(options: {
         return withSecurityHeaders(response, true);
       } catch { return problem(400, "authentication_rejected", "Authentication could not be completed"); }
     }
-    // The public shell contains no metadata. Its initial protected snapshot drives sign-in.
+    // The public shell and its exact PWA artifacts contain no metadata. Its protected snapshot drives sign-in.
     if (config.auth.mode === "webauthn" && request.method === "GET" && peer !== undefined && isLoopbackAddress(peer.address)) {
       const shell = url.pathname === "/" || clientRoute || requestBootstrap || updateBootstrap;
       const immutable = /^\/assets\/[a-z0-9-]+\.[a-f0-9]{12}\.[a-z0-9]+$/u.test(url.pathname);
-      if (shell || immutable) {
+      if (shell || immutable || PUBLIC_PWA_ASSETS.has(url.pathname)) {
         const response = staticAssets.response(shell ? "/" : url.pathname);
         if (response !== undefined) return withSecurityHeaders(response, shell);
       }

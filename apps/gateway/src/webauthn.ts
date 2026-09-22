@@ -83,7 +83,13 @@ function credentialLabel(value: unknown): string {
 
 function parseState(value: unknown, origin: string): CredentialState {
   const record = exactRecord(value, ["version", "origin", "userId", "credentials"]);
-  if (record.version !== 1 || record.origin !== origin || !Array.isArray(record.credentials) || record.credentials.length > MAX_CREDENTIALS) {
+  if (record.version !== 1 || typeof record.origin !== "string" || !Array.isArray(record.credentials) || record.credentials.length > MAX_CREDENTIALS) {
+    throw new Error("invalid credential state");
+  }
+  const storedOrigin = new URL(record.origin);
+  // Revoking every credential permits explicit local re-enrollment at a new origin.
+  // A nonempty allowlist never migrates, and an empty one cannot start a normal daemon.
+  if (storedOrigin.protocol !== "https:" || storedOrigin.origin !== record.origin || (record.origin !== origin && record.credentials.length !== 0)) {
     throw new Error("invalid credential state");
   }
   const userId = base64url(record.userId, 43, 43);
@@ -128,8 +134,10 @@ export async function listWebAuthnCredentials(config: GatewayConfig): Promise<re
 }
 
 export async function revokeWebAuthnCredential(config: GatewayConfig, id: string): Promise<void> {
+  base64url(id, 22, 22);
   const state = await loadState(config);
-  if (state === undefined || !state.credentials.some(item => item.id === id)) throw new Error("WebAuthn credential not found");
+  // Deletion is idempotent so offline maintenance can retry a subsequent push-state failure.
+  if (state === undefined || !state.credentials.some(item => item.id === id)) return;
   await saveState(config, { ...state, credentials: state.credentials.filter(item => item.id !== id) });
 }
 
@@ -139,7 +147,7 @@ function cookieDigest(request: Request, name: string): string | undefined {
   let value: string | undefined;
   for (const field of cookies.split(";")) {
     const separator = field.indexOf("=");
-    if (field.slice(0, separator).trim() !== name) continue;
+    if (separator < 0 || field.slice(0, separator).trim() !== name) continue;
     if (value !== undefined) return undefined;
     value = field.slice(separator + 1).trim();
   }

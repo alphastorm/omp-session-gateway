@@ -261,10 +261,11 @@ export class PushService {
     this.#credentialIdentityAllowed = options.identityAllowed;
     this.#path = options.path;
     this.#vapid = options.state.vapid;
+    const now = Date.now();
     this.#subscriptions = options.state.subscriptions.filter(subscription =>
-      subscription.expirationTime === null || subscription.expirationTime > Date.now(),
+      (subscription.expirationTime === null || subscription.expirationTime > now) &&
+      this.#identityAllowed(subscription.identityKey),
     );
-    this.#unsubscribeRegistry = this.#registry.subscribeWithSnapshot(event => this.#acceptRegistryEvent(event));
   }
 
   static async open(options: {
@@ -277,7 +278,7 @@ export class PushService {
   }): Promise<PushService> {
     const path = options.statePath ?? join(options.config.paths.stateDir, "push-state.json");
     const state = await loadOrCreatePushState(options.config, path);
-    return new PushService({
+    const service = new PushService({
       config: options.config,
       registry: options.registry,
       logger: options.logger ?? new SafeLogger(),
@@ -286,6 +287,11 @@ export class PushService {
       path,
       state,
     });
+    if (service.#subscriptions.length !== state.subscriptions.length) {
+      await service.#mutateSubscriptions(current => current);
+    }
+    service.#unsubscribeRegistry = service.#registry.subscribeWithSnapshot(event => service.#acceptRegistryEvent(event));
+    return service;
   }
 
   configResponse(): PushConfigResponse {

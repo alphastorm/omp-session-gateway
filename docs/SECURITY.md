@@ -330,8 +330,9 @@ application storage, screenshots/recordings, service-worker caches, or published
 OMP capabilities remain forbidden in **all** cookies and durable storage.
 
 Authentication/logout endpoints require the exact Origin and defensively checked Fetch Metadata,
-bounded JSON, and no-store responses. Only immutable login-shell assets, the bounded health
-endpoint, and authentication endpoints can be served before authentication. Session expiry or
+bounded JSON, and no-store responses. Only the public PWA shell (documents, hashed assets, manifest,
+worker, and exact manifest icons), bounded health endpoint, and authentication endpoints can be
+served before authentication. These static assets contain no secrets. Session expiry or
 logout stops protected SSE output; launch completion rechecks authentication after querying OMP.
 Browser restore authenticates before fresh metadata and generation-bound relaunch. Authentication
 failure clears displayed metadata; logout also clears pending resume intent and disposes the client.
@@ -341,6 +342,11 @@ POSIX permissions/Windows ACL checks as existing gateway state. Private passkey 
 the authenticator. Local maintenance owns the configured loopback listener before reading mutable
 state, so a crashed process leaves no permanent lock. Credential removal requires the daemon
 stopped and removes that credential's push subscriptions; restart discards all browser sessions.
+Private writes complete permissions before the commit rename, with no fallible post-commit work
+that could report a committed enrollment as rejected. Offline revocation can retry push cleanup
+without restoring a removed credential. Startup drops ineligible predecessor push identities.
+Origin replacement requires revoking all credentials under the old origin before local enrollment
+can rebind a valid empty allowlist. Nonempty mismatches and unsafe state remain rejected.
 Opted-in notifications otherwise survive cookie expiry, but notification clicks must authenticate.
 Synced passkeys are not unique physical-device identities.
 

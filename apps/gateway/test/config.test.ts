@@ -958,6 +958,103 @@ describe("private text files", () => {
     await expect(readPrivateTextFile(link, 64)).rejects.toThrow(`unsafe private file: ${link}`);
   });
 
+  for (const fault of ["write", "sync", "close", ...(process.platform === "win32" ? [] : ["permissions"]), "rename", "post-commit"]) {
+    test(`private replacement preserves commit integrity across ${fault} faults`, async () => {
+      const root = await privateRoot();
+      const path = join(root, "credential-state.json");
+      await writeFile(path, "previous state\n", { mode: 0o600 });
+      // A subprocess confines module mocks and umask changes to this filesystem-fault scenario.
+      // Every operation except the failing boundary still uses a real temporary directory and file.
+      const script = `
+        import { mock } from "bun:test";
+        import * as fs from "node:fs/promises";
+        import { readFileSync, readdirSync, statSync } from "node:fs";
+        import { join } from "node:path";
+        const original = { ...fs };
+        const root = ${JSON.stringify(root)};
+        const path = ${JSON.stringify(path)};
+        const fault = ${JSON.stringify(fault)};
+        const failure = new Error("injected filesystem fault");
+        let committed = false;
+        mock.module("node:fs/promises", () => ({ ...original,
+          open: async (...args) => {
+            const handle = await original.open(...args);
+            const write = handle.writeFile.bind(handle);
+            const sync = handle.sync.bind(handle);
+            const close = handle.close.bind(handle);
+            handle.writeFile = async (...args) => {
+              if (fault === "write") {
+                await write("partial staged bytes", "utf8");
+                throw failure;
+              }
+              return write(...args);
+            };
+            handle.sync = async () => {
+              if (fault === "sync") throw failure;
+              return sync();
+            };
+            handle.close = async () => {
+              await close();
+              if (fault === "close") throw failure;
+            };
+            return handle;
+          },
+          chmod: async (...args) => {
+            if (fault === "permissions" || committed) throw failure;
+            return original.chmod(...args);
+          },
+          rename: async (...args) => {
+            if (fault === "rename") throw failure;
+            await original.rename(...args);
+            committed = true;
+          },
+          rm: async (...args) => {
+            if (committed) throw failure;
+            return original.rm(...args);
+          },
+        }));
+        const { writePrivateTextFile, stopWindowsAclHelper } = await import(${JSON.stringify(new URL("../src/config.ts", import.meta.url).href)});
+        let atCommit = null;
+        let rejected = false;
+        const mask = process.umask();
+        try {
+          if (fault === "post-commit" && process.platform !== "win32") process.umask(0o200);
+          await writePrivateTextFile(path, "replacement state\\n", () => {
+            const staged = join(root, readdirSync(root).find(name => name.endsWith(".tmp")));
+            atCommit = {
+              previous: readFileSync(path, "utf8"),
+              staged: readFileSync(staged, "utf8"),
+              private: process.platform === "win32" || (statSync(staged).mode & 0o777) === 0o600,
+            };
+          });
+        } catch (error) {
+          if (error !== failure) throw error;
+          rejected = true;
+        } finally {
+          process.umask(mask);
+          stopWindowsAclHelper();
+        }
+        console.log(JSON.stringify({ rejected, atCommit,
+          content: await original.readFile(path, "utf8"), entries: await original.readdir(root) }));
+      `;
+      const subprocess = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        subprocess.exited,
+        new Response(subprocess.stdout).text(),
+        new Response(subprocess.stderr).text(),
+      ]);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(JSON.parse(stdout)).toEqual({
+        rejected: fault !== "post-commit",
+        atCommit: fault === "rename" || fault === "post-commit"
+          ? { previous: "previous state\n", staged: "replacement state\n", private: true }
+          : null,
+        content: fault === "post-commit" ? "replacement state\n" : "previous state\n",
+        entries: ["credential-state.json"],
+      });
+    }, 20_000);
+  }
+
   test("a refused commit preserves the previous state and removes staged private bytes", async () => {
     const root = await privateRoot();
     const path = join(root, "credential-state.json");
@@ -973,7 +1070,7 @@ describe("private text files", () => {
     await writeFile(path, "world-readable original\n", { mode: 0o644 });
     if (process.platform !== "win32") await chmod(path, 0o644);
     await writePrivateTextFile(path, "replacement\n");
-    expect(await readFile(path, "utf8")).toBe("replacement\n");
+    expect(await readPrivateTextFile(path, 64)).toBe("replacement\n");
     if (process.platform !== "win32") expect((await lstat(path)).mode & 0o777).toBe(0o600);
     // The write lands through a uniquely named temporary; a leftover sibling would be a second copy
     // of the same private content with nobody responsible for removing it.
@@ -1354,6 +1451,43 @@ describe("production config authoring", () => {
 });
 
 describe("Windows private-path ACL enforcement", () => {
+  test("an ACL failure preserves the old private file without reaching its commit guard", async () => {
+    const root = await privateRoot();
+    const path = join(root, "credential-state.json");
+    await writeFile(path, "previous state\n", { mode: 0o600 });
+    const restore = installFakePowerShell();
+    let reachedCommit = false;
+    try {
+      fakeAcl.exitBeforeReply = true;
+      await expect(writePrivateTextFile(path, "replacement state\n", () => {
+        reachedCommit = true;
+      })).rejects.toThrow("private Windows ACL helper");
+      expect(await readFile(path, "utf8")).toBe("previous state\n");
+      expect(await readdir(root)).toEqual(["credential-state.json"]);
+      expect(reachedCommit).toBeFalse();
+    } finally {
+      restore();
+    }
+  });
+
+  test("a staged Windows ACL is complete before the final commit guard", async () => {
+    const root = await privateRoot();
+    const path = join(root, "credential-state.json");
+    await writeFile(path, "previous state\n", { mode: 0o600 });
+    const restore = installFakePowerShell();
+    try {
+      await writePrivateTextFile(path, "replacement state\n", () => {
+        // If an ACL round trip remains after the guard, a dead helper must not turn an already
+        // committed replacement into a reported failure. The real rename must be all that remains.
+        fakeAcl.exitBeforeReply = true;
+      });
+      expect(await readFile(path, "utf8")).toBe("replacement state\n");
+      expect(await readdir(root)).toEqual(["credential-state.json"]);
+    } finally {
+      restore();
+    }
+  });
+
   test("secures every private path of a run from a single PowerShell process", async () => {
     const root = await privateRoot();
     const config = configForRoot(root);

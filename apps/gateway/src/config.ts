@@ -670,18 +670,21 @@ export async function writePrivateTextFile(
   const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {
-    await handle.writeFile(content, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (process.platform === "win32") await applyWindowsAcl(temporaryPath, false);
+    else await chmod(temporaryPath, 0o600);
+    // The guard runs after all staging work; rename must be the last fallible operation so a
+    // committed replacement can never be reported as a failure to its in-memory caller.
     beforeCommit?.();
     await rename(temporaryPath, path);
-    if (process.platform === "win32") await applyWindowsAcl(path, false);
-    else await chmod(path, 0o600);
-  } finally {
+  } catch (error) {
     await rm(temporaryPath, { force: true });
+    throw error;
   }
 }
 

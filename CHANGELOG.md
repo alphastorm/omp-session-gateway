@@ -18,6 +18,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Security
 
+- Complete private-state permissions before enrollment commit, make offline revocation retryable
+  after push cleanup failure, and prune ineligible predecessor notification identities. Require
+  explicit revoke-all before origin re-enrollment and ignore malformed unrelated cookie fields.
+  Serve the complete non-secret PWA shell before login for manifest loading and doctor checks.
 - Strip `Tailscale-User-*` on every non-Serve path; bound and verify passkey ceremonies, invalidate
   volatile sessions on restart, and recheck authentication before SSE output and asynchronous
   launch completion. Extend the existing leak scanner and diagnostics exclusions to gateway

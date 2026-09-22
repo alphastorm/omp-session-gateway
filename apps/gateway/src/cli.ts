@@ -676,7 +676,7 @@ Usage:
   omp-gateway install --auth webauthn --origin https://gateway.example.com --no-start
   omp-gateway auth enroll
   omp-gateway auth list
-  omp-gateway auth revoke --id <credential-id>
+  omp-gateway auth revoke --id=<credential-id>
   omp-gateway uninstall [--no-stop]
   omp-gateway rollback [--to 0.1.0-0123456789ab]
   omp-gateway status

@@ -731,7 +731,8 @@ Locally enrolled credentials form a single-owner allowlist. Registration and aut
 WebAuthn user presence and verification. Use a maintained server verifier rather than local
 cryptographic parsing; request discoverable credentials and no identifying attestation. Persist
 only versioned public credential records and necessary counters/labels in the existing private
-state directory, with atomic replacement and existing POSIX/Windows protections. Synced passkeys
+state directory, with atomic replacement and existing POSIX/Windows protections completed before
+the commit rename. Later filesystem work cannot report a committed enrollment as rejected. Synced passkeys
 are allowed; their credential identity is not a physical-device identity.
 
 Enrollment is an explicit local foreground operation while the managed daemon is stopped. The
@@ -764,7 +765,10 @@ pending work and disposes the local client. The service worker remains an immuta
 not a session manager. Opted-in push subscriptions retain their existing durable lifetime,
 bound to enrolled credential identities rather than cookies; session expiry does not disable
 notifications. Logout removes the current browser subscription; credential revocation removes
-that credential's subscriptions. Notification navigation authenticates before reading or launching.
+that credential's subscriptions. Offline revocation is idempotent so push cleanup can be retried
+without restoring access. Startup prunes ineligible predecessor subscriptions. Notification
+navigation authenticates before reading or launching. The non-secret public PWA shell includes
+the manifest, service worker, and exact manifest icons, not just hashed assets.
 
 **Limits:** Gateway revocation blocks future gateway requests, not a previously issued OMP bearer
 capability or independently connected relay client. Stop collaboration on the OMP host for hard
@@ -775,7 +779,8 @@ No claim is made that passkeys make an untrusted TLS terminator safe.
 **Consequences:** This adds a new secret class but avoids a browser bearer-token/SSE protocol,
 accounts, privileged administration API, session database, and credential hot-reload machinery.
 Credential maintenance briefly interrupts gateway access. A changed origin requires explicit
-re-enrollment; missing or invalid state fails closed, and an older binary never silently substitutes
+re-enrollment after every credential is revoked under the old origin. Only a valid empty allowlist
+can be rebound; nonempty mismatches and unsafe state fail closed, and an older binary never substitutes
 Serve authentication. Narrow ADR-008 to the still-proposed per-Control user-presence gate: login
 is not that gate. Tailscale Serve remains default and the only qualified remote path. This decision
 does not qualify WebAuthn on physical clients, Cloudflare Tunnel/Access, Portal Tunnel, or new

@@ -177,15 +177,21 @@ same new runtime. For removal, list non-secret local IDs and labels:
 
 ```sh
 omp-gateway auth list
-omp-gateway auth revoke --id <record-id-from-auth-list>
+omp-gateway auth revoke --id='<record-id-from-auth-list>'
 ```
 
 Revocation requires the daemon stopped and the configured listener unoccupied; it removes the
-public record and associated push subscriptions. Restart and sign in on retained credentials.
+public record and associated push subscriptions. Use inline `--id=` even if the ID starts with
+hyphens. If push cleanup fails after credential removal, repair storage and retry the same command;
+revocation is idempotent and the credential stays revoked. Restart on retained credentials.
 Removing the last credential intentionally prevents normal startup until local re-enrollment.
-Missing, corrupt, unsafe, or origin-mismatched state never enables enrollment or falls back to
-Serve. Origin changes require explicit re-enrollment; preserve predecessor config/credential state
-when planning one. An old binary cannot use a WebAuthn config by silently trusting headers.
+Missing credentials never start a normal daemon; corrupt or unsafe state always fails closed.
+For an origin change, keep the old origin configured and revoke every credential while stopped.
+Confirm `auth list` returns `[]`, then run `install --auth webauthn --origin https://NEW-HOST --no-start`
+and complete `auth enroll` at that new exact origin before activation. Only a valid empty allowlist
+can be rebound by local enrollment; nonempty mismatches are rejected. If the origin changed too
+soon, restore the old configured origin before revoking. No credential is silently migrated.
+An old binary cannot use a WebAuthn config by silently trusting headers.
 
 Gateway revocation prevents new gateway access, not a previously issued OMP capability. Stop
 collaboration on the OMP host for hard revocation. Opted-in push survives cookie expiry; logout

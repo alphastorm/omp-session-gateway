@@ -10,6 +10,7 @@ import { SafeLogger } from "../src/logger.ts";
 import { PushService } from "../src/push.ts";
 import { SessionRegistry } from "../src/registry.ts";
 import { StaticAssetStore } from "../src/static.ts";
+import { WebAuthnService } from "../src/webauthn.ts";
 
 const viewCapability = ["HTTP", "VIEW", "CANARY", "00000000000000000000"].join("__");
 const controlCapability = ["HTTP", "CONTROL", "CANARY", "00000000000000000000"].join("__");
@@ -124,6 +125,12 @@ beforeAll(async () => {
   await mkdir(join(assetRoot, "assets"));
   await writeFile(join(assetRoot, "client", "index.html"), "<!doctype html><title>OMP client</title>");
   await writeFile(join(assetRoot, "assets", "app.0123456789ab.js"), "export {};");
+  await writeFile(join(assetRoot, "manifest.webmanifest"), JSON.stringify({ name: "OMP Sessions", start_url: "/", display: "standalone" }));
+  await writeFile(join(assetRoot, "service-worker.js"), "self.addEventListener('fetch', () => {});");
+  await writeFile(join(assetRoot, "private.json"), JSON.stringify({ private: true }));
+  for (const icon of ["icon.svg", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]) {
+    await writeFile(join(assetRoot, icon), "synthetic icon");
+  }
   assets = await StaticAssetStore.load(assetRoot);
 });
 
@@ -132,6 +139,67 @@ afterAll(async () => {
 });
 
 describe("HTTP boundary", () => {
+  test("publishes only exact loopback WebAuthn PWA GET artifacts without opening protected data", async () => {
+    const handler = createTestHttpHandler({
+      config: config("webauthn"), registry: populatedRegistry(), staticAssets: assets,
+      logger: new SafeLogger({ write: () => {} }),
+    });
+    for (const [path, contentType] of [
+      ["/manifest.webmanifest", "application/manifest+json"],
+      ["/service-worker.js", "text/javascript"],
+      ["/icon.svg", "image/svg+xml"],
+      ["/icon-192.png", "image/png"],
+      ["/icon-512.png", "image/png"],
+      ["/icon-maskable-512.png", "image/png"],
+    ] as const) {
+      const response = await handler(request(path, {}, ""), peer);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toContain(contentType);
+      expect(response.headers.get("Cache-Control")).toBe("no-cache");
+      expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'self'");
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(await response.text()).toBe(await assets.response(path)!.text());
+      for (const method of ["HEAD", "POST"]) {
+        expect((await handler(request(path, { method }, ""), peer)).status).toBe(401);
+      }
+      expect((await handler(request(path, {}, ""))).status).toBe(401);
+      expect((await handler(request(path, {}, ""), { address: "203.0.113.7" })).status).toBe(401);
+      expect((await handler(request(`${path}?cache=1`, {}, ""), peer)).status).toBe(400);
+      expect((await handler(request(`${path}/`, {}, ""), peer)).status).toBe(401);
+    }
+    for (const path of ["/private.json", "/client/index.html", "/api/v1/sessions", "/api/v1/events", "/api/v1/push/config"]) {
+      const response = await handler(request(path), peer);
+      expect(response.status).toBe(401);
+      expect(response.headers.get("Cache-Control")).toContain("no-store");
+    }
+    expect((await handler(launchRequest(), peer)).status).toBe(401);
+  });
+
+  test("preserves the WebAuthn POST body when stripping Tailscale identity headers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gateway-http-webauthn-"));
+    const base = config("webauthn");
+    const gatewayConfig = { ...base, paths: {
+      configDir: root, stateDir: root, runtimeDir: root,
+      tokenPath: join(root, "readiness-token"), configPath: join(root, "config.json"),
+    } };
+    const code = "synthetic-http-enrollment-0000000000000001";
+    const webAuthn = await WebAuthnService.open({ config: gatewayConfig, enrollmentCode: code });
+    try {
+      const handler = createTestHttpHandler({ config: gatewayConfig, registry: populatedRegistry(), staticAssets: assets, webAuthn });
+      const response = await handler(request("/api/v1/auth/enroll/options", {
+        method: "POST",
+        headers: { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json", "Tailscale-User-Name": "forged" },
+        body: JSON.stringify({ code, label: "Synthetic device" }),
+      }), peer);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { options: { rp: { id: string } } };
+      expect(body.options.rp.id).toBe(new URL(origin).hostname);
+    } finally {
+      await webAuthn.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("proves loopback readiness with a readiness-token HMAC challenge", async () => {
     const readinessToken = "T".repeat(43);
     const challenge = "C".repeat(43);

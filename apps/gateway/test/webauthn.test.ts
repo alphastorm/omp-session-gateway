@@ -11,7 +11,7 @@ import type { GatewayConfig } from "../src/config.ts";
 import { createHttpHandler, type LaunchBroker } from "../src/http.ts";
 import { SafeLogger } from "../src/logger.ts";
 import { SessionRegistry } from "../src/registry.ts";
-import { PushService } from "../src/push.ts";
+import { PushService, removeWebAuthnPushSubscriptions } from "../src/push.ts";
 import { StaticAssetStore } from "../src/static.ts";
 import { WebAuthnService, listWebAuthnCredentials, revokeWebAuthnCredential } from "../src/webauthn.ts";
 
@@ -79,7 +79,7 @@ async function fixture(clockBoundary?: "staged" | "committed") {
   const staticRoot = join(root, "static"); await mkdir(join(staticRoot, "assets"), { recursive: true });
   await writeFile(join(staticRoot, "index.html"), "<!doctype html><title>Sign in</title>");
   await writeFile(join(staticRoot, "assets", "app.0123456789ab.js"), "export {};");
-  await writeFile(join(staticRoot, "service-worker.js"), "// protected");
+  await writeFile(join(staticRoot, "service-worker.js"), "// application shell");
   const assets = await StaticAssetStore.load(staticRoot);
   const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
   const logged: string[] = [];
@@ -110,6 +110,73 @@ async function fixture(clockBoundary?: "staged" | "committed") {
 afterEach(async () => {
   await Promise.all(services.splice(0).map(service => service.close()));
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+});
+
+
+
+test("a valueless unrelated cookie cannot shadow an authenticated session", async () => {
+  const f = await fixture(); const device = await f.enroll(); const login = await f.login(device);
+  const response = await f.handler(new Request(origin + "/api/v1/sessions", {
+    headers: { Cookie: "__Host-omp-sessionX; " + login.cookie },
+  }), peer);
+  expect(response.status).toBe(200);
+
+});
+
+test("offline revocation can retry push cleanup after the credential commit", async () => {
+  const f = await fixture(); await f.enroll();
+  const id = (await listWebAuthnCredentials(f.config))[0]!.id;
+  const push = await PushService.open({ config: f.config, registry: f.registry, identityAllowed: key => f.service.identityAllowed(key), logger: new SafeLogger({ write() {} }) });
+  await push.subscribe("webauthn:" + id, { version: PUSH_API_VERSION, subscription: {
+    endpoint: "https://push.example.test/revoked", expirationTime: null,
+    keys: { p256dh: b64(randomBytes(65)), auth: b64(randomBytes(16)) },
+  } });
+  await push.stop(); await f.service.close();
+  const path = join(f.config.paths.stateDir, "push-state.json");
+  const previous = await readFile(path, "utf8");
+  await writeFile(path, "{");
+  await revokeWebAuthnCredential(f.config, id);
+  await expect(removeWebAuthnPushSubscriptions(f.config, id)).rejects.toThrow();
+  expect(await listWebAuthnCredentials(f.config)).toEqual([]);
+  await writeFile(path, previous);
+  await revokeWebAuthnCredential(f.config, id);
+  await removeWebAuthnPushSubscriptions(f.config, id);
+  const cleaned = JSON.parse(await readFile(path, "utf8"));
+  expect(cleaned.subscriptions).toEqual([]);
+  expect(cleaned.vapid.publicKey === JSON.parse(previous).vapid.publicKey).toBe(true);
+  await expect(WebAuthnService.open({ config: f.config })).rejects.toThrow();
+});
+
+test("origin replacement requires explicit revoke-all before fresh local enrollment", async () => {
+  const f = await fixture(); await f.enroll(); await f.service.close();
+  const nextOrigin = "https://replacement.example.test";
+  const config = { ...f.config, http: { ...f.config.http, publicOrigin: nextOrigin } };
+  await expect(WebAuthnService.open({ config, enrollmentCode })).rejects.toThrow();
+  const previousId = (await listWebAuthnCredentials(f.config))[0]!.id;
+  await revokeWebAuthnCredential(f.config, previousId);
+  await expect(WebAuthnService.open({ config })).rejects.toThrow();
+  const service = await WebAuthnService.open({ config, enrollmentCode }); services.push(service);
+  const handler = createHttpHandler({ config, registry: f.registry, staticAssets: f.assets, webAuthn: service, launchResolver: f.resolver });
+  const request = (path: string, body: unknown, cookie = "") => new Request(nextOrigin + "/api/v1/auth/" + path, {
+    method: "POST", headers: { Origin: nextOrigin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify(body),
+  });
+  const optionsResponse = await handler(request("enroll/options", { code: enrollmentCode, label: "Replacement origin" }), peer);
+  expect(optionsResponse.status).toBe(200);
+  const options = (await optionsResponse.json()).options;
+  const device = authenticator(); device.userId = options.user.id;
+  const verify = await handler(request("enroll/verify", { response: registration(device, options.challenge, { origin: nextOrigin, rp: "replacement.example.test" }) }, cookieHeader(optionsResponse)), peer);
+  expect(verify.status).toBe(200);
+  const loginOptions = await handler(request("login/options", {}), peer);
+  const challenge = (await loginOptions.json()).options.challenge;
+  const login = await handler(request("login/verify", { response: assertion(device, challenge, { origin: nextOrigin, rp: "replacement.example.test" }) }, cookieHeader(loginOptions)), peer);
+  expect(login.status).toBe(200);
+  const snapshot = await handler(new Request(nextOrigin + "/api/v1/sessions", { headers: { Cookie: cookieHeader(login, "__Host-omp-session") } }), peer);
+  expect(snapshot.status).toBe(200);
+  expect(service.identityAllowed("webauthn:" + previousId)).toBe(false);
+  await service.close();
+  const stored = JSON.parse(await readFile(join(config.paths.stateDir, "webauthn-credentials.json"), "utf8"));
+  expect(stored.origin).toBe(nextOrigin);
+  await expect(WebAuthnService.open({ config: f.config, enrollmentCode })).rejects.toThrow();
 });
 
 test("real signatures admit only an enrolled credential and absolute opaque cookies expire", async () => {
@@ -245,7 +312,6 @@ test("local revoke removes only selected credential and leaves no permanent enro
   expect(reopened.identityAllowed(`webauthn:${remaining[0]!.id}`)).toBe(true); await reopened.close();
   await revokeWebAuthnCredential(f.config, remaining[0]!.id);
   await expect(WebAuthnService.open({ config: f.config })).rejects.toThrow();
-  await expect(revokeWebAuthnCredential(f.config, records[0]!.id)).rejects.toThrow();
 });
 
 test("WebAuthn ingress ignores forged identity and enforces origin JSON and cookie boundaries", async () => {
@@ -261,7 +327,7 @@ test("WebAuthn ingress ignores forged identity and enforces origin JSON and cook
   const unauth = await f.handler(new Request(`${origin}/api/v1/sessions`), peer); expect(unauth.headers.get("Cache-Control")).toContain("no-store");
   expect((await f.handler(new Request(`${origin}/`), peer)).status).toBe(200);
   expect((await f.handler(new Request(`${origin}/assets/app.0123456789ab.js`), peer)).status).toBe(200);
-  expect((await f.handler(new Request(`${origin}/service-worker.js`), peer)).status).toBe(401);
+  expect((await f.handler(new Request(`${origin}/service-worker.js`), peer)).status).toBe(200);
 });
 
 

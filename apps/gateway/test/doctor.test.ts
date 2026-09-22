@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runDoctorChecks } from "../src/doctor.ts";
+import { loadGatewayConfig } from "../src/config.ts";
+import { createHttpHandler } from "../src/http.ts";
+import { SafeLogger } from "../src/logger.ts";
+import { SessionRegistry } from "../src/registry.ts";
+import { StaticAssetStore } from "../src/static.ts";
 
 /**
  * The report is the operator contract: an unsafe topology or an unsupported OMP must stay visible
@@ -109,6 +114,37 @@ describe("doctor reports mainline compatibility and discovery health", () => {
       expect(Object.hasOwn(report.checks, name)).toBe(false);
     }
     expect(Object.values(report.checks).every(value => typeof value === "boolean")).toBe(true);
+  }, 30_000);
+
+  test("reports WebAuthn PWA readiness through the real HTTP authorization boundary", async () => {
+    const root = await isolatedRoot();
+    const configPath = join(root, "config/omp-session-gateway/config.json");
+    const document = JSON.parse(await readFile(configPath, "utf8")) as { auth: unknown };
+    document.auth = { mode: "webauthn", allowedLogins: [] };
+    await writeFile(configPath, JSON.stringify(document));
+    const config = await loadGatewayConfig();
+    const assetRoot = join(root, "assets");
+    await mkdir(assetRoot);
+    await writeFile(join(assetRoot, "index.html"), "<!doctype html><title>OMP Sessions</title>");
+    await writeFile(join(assetRoot, "manifest.webmanifest"), JSON.stringify({ name: "OMP Sessions" }));
+    await writeFile(join(assetRoot, "service-worker.js"), "self.addEventListener('fetch', () => {});");
+    const handler = createHttpHandler({
+      config, staticAssets: await StaticAssetStore.load(assetRoot),
+      registry: new SessionRegistry(config.registry),
+      launchResolver: { resolve: async () => ({ status: "missing" }) },
+      logger: new SafeLogger({ write: () => {} }),
+    });
+    // Replace only transport to the configured HTTPS origin: doctor receives the real handler's
+    // status and headers, not a canned success for the routes it happens to request.
+    const transport = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (...args: Parameters<typeof fetch>) => {
+      const request = new Request(...args);
+      if (new URL(request.url).origin !== config.http.publicOrigin) throw new Error("offline test transport");
+      return handler(request, { address: "127.0.0.1" });
+    }, { preconnect: fetch.preconnect }));
+    try {
+      const report = await runDoctorChecks({ tunDevicePresent: () => false, ompVersion: async () => "18.1.20" });
+      expect(report.checks).toMatchObject({ pwa: true, authenticationRequired: true, securityHeaders: true });
+    } finally { transport.mockRestore(); }
   }, 30_000);
 
   test("reports a symlinked discovery directory as unreadable without following or removing it", async () => {
