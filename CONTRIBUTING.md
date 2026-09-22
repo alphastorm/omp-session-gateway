@@ -22,7 +22,10 @@ A source checkout is for development and is not signed-artifact qualification.
 4. Add or update relevant behavioral, failure-mode, and secret-non-persistence tests; text-only
    changes do not need new tests that merely assert wording.
 5. Use the pinned Bun 1.4.0 toolchain: `bun install --frozen-lockfile`, then `bun run check`.
-   For browser behavior, also run `bun run test:browser` and exercise the changed surface.
+   For browser behavior, also run `bun run test:browser` and exercise the changed surface. That
+   lane needs Playwright's own Chromium build, which `bun install` does not fetch: run
+   `bunx playwright install chromium` on a fresh checkout, and again after a Playwright version
+   bump, or every case fails at browser launch with `Executable doesn't exist`.
 6. Open a pull request using the template and explain architecture/security impact. Report the
    exact verification performed; repository checks do not qualify a host, relay, or physical phone.
 
