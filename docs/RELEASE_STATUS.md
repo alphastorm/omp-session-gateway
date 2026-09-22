@@ -33,7 +33,7 @@ iOS claim.
 | debian | run [`35740074929`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35740074929) success on head `a2c43d6` |
 | macos | retained Mac14,3, macOS 26.6.1 arm64, `doctor` **18/18**, rollback invariants **23/23** |
 | ompPublication | instance `5ecf6865…` generation 1; View and Control both `200` with capability present and `no-store`; published then revoked |
-| android | physical Pixel 10 Pro `57211FDCH004PH`, Android 17 `CP2A.260805.005`, Chrome 153.0.8010.52; unlock 9,230 ms, airplane recovery 8,394 ms, doze recovery 8,449 ms |
+| android | physical Pixel 10 Pro (serial recorded in the private receipt, not published), Android 17 `CP2A.260805.005`, Chrome 153.0.8010.52; unlock 9,230 ms, airplane recovery 8,394 ms, doze recovery 8,449 ms |
 | relay | **1,800 s** exactly, 2 transitions, final phase `live` |
 | cleanup | 0 gateway processes, 0 listeners, 0 live OMP hosts |
 
