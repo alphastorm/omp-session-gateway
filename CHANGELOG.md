@@ -6,6 +6,20 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.1-prealpha.2] — 2026-09-22
+
+### Fixed
+
+- Size the gateway chrome around the collaboration client from the live visual viewport instead of
+  `100dvh`, so an open software keyboard no longer hides the composer. A phone keyboard shrinks the
+  visual viewport without changing the layout viewport, so the `dvh`-sized shell kept its full
+  height and pushed the composer row underneath the keyboard; the mounted client already publishes
+  the measured height as `--viewport-height`, and the chrome wrapping it now sizes from the same
+  measurement. Browsers without the Visual Viewport API keep the previous `100dvh` behavior. Covered
+  by a browser test that drives a shrinking visual viewport and asserts the composer stays inside
+  it. Reported against an installed iOS PWA, which remains outside every compatibility claim; the
+  layout defect itself is not iOS-specific.
+
 ## [v0.4.1-prealpha.1] — 2026-09-18
 
 ### Fixed
