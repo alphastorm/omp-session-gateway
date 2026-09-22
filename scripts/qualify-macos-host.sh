@@ -63,7 +63,7 @@
 #   OMP_MAC_HOST           required, ssh destination (`user@host`)
 #   OMP_MAC_TAG            required, signed release tag to qualify
 #   OMP_MAC_ARCHIVE_SHA256 required, exact lowercase archive digest verified by the orchestrator
-#   OMP_MAC_PREVIOUS_TAG   optional, exact predecessor for rollback; defaults to v0.3.0
+#   OMP_MAC_PREVIOUS_TAG   required, exact published predecessor for rollback
 #   OMP_MAC_LOGIN          required, tailnet login to allowlist
 #   OMP_MAC_SUDO_PW        optional, sudo password piped to `sudo -S`; omit if sudo is passwordless
 #   OMP_MAC_SSH_KEY        optional, identity file
@@ -99,7 +99,8 @@ die() {
 
 readonly HOST="${OMP_MAC_HOST:-}"
 readonly TAG="${OMP_MAC_TAG:-}"
-readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-v0.3.0}"
+# No default: a fallback silently rolls back to whichever stable was current when this was written.
+readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly EXPECTED_ARCHIVE_SHA256="${OMP_MAC_ARCHIVE_SHA256:-}"
 readonly SESSION_LABEL="${OMP_MAC_SESSION_LABEL:-omp-stable-pixel-qualification}"
@@ -115,6 +116,7 @@ readonly OMP_NATIVE_BINARY_SHA256="$OMP_PIN_NATIVE_BINARY_SHA256"
 
 [ -n "$HOST" ] || die "OMP_MAC_HOST is not set. Nothing was measured."
 [ -n "$TAG" ] || die "OMP_MAC_TAG is not set; name the signed release tag to qualify. Nothing was measured."
+[ -n "$PREVIOUS_TAG" ] || die "OMP_MAC_PREVIOUS_TAG is not set; name the published predecessor to roll back to. Nothing was measured."
 [ -n "$LOGIN" ] || die "OMP_MAC_LOGIN is not set; name the tailnet login to allowlist. Nothing was measured."
 case "$EXPECTED_ARCHIVE_SHA256" in
   *[!0-9a-f]* | "" ) die "OMP_MAC_ARCHIVE_SHA256 must be the exact lowercase 64-hex candidate archive digest" ;;

@@ -43,14 +43,16 @@
 # printed, or copied.
 #
 # Usage:
-#   OMP_ROLLBACK_OLD_TAG=v0.3.0 OMP_ROLLBACK_NEW_TAG=v0.4.0-prealpha.1 \
+#   OMP_ROLLBACK_OLD_TAG=v0.4.0 OMP_ROLLBACK_NEW_TAG=v0.4.1-prealpha.3 \
 #     scripts/qualify-rollback.sh run   # full qualification; prints an invariant table
 #   scripts/qualify-rollback.sh clean   # remove leftover scratch roots from earlier runs
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
-OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-v0.3.0}"
-NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-v0.4.0-prealpha.1}"
+# No defaults: a fallback predecessor silently qualifies rollback against a superseded stable.
+# Both are required by the `run` verb; see `main`.
+OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-}"
+NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-}"
 LABEL="omp-session-gateway"
 QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"
@@ -542,10 +544,13 @@ step_invariants() {
     "$([ "${STEP_TOKEN[1]}" != absent ] && { [ "${STEP_TOKEN[0]}" = absent ] || [ "${STEP_TOKEN[0]}" = "${STEP_TOKEN[1]}" ]; } && echo valid || echo invalid)" valid
   row_expect "token unchanged upgrade->rollback" "unchanged" \
     "$([ "${STEP_TOKEN[1]}" = "${STEP_TOKEN[2]}" ] && echo unchanged || echo changed)" unchanged
-  row_expect "legacy publisher retired at cutover" "absent" "$([ "${STEP_PUBLISHER[1]}" = absent ] && echo absent || echo present)" absent
-  row_expect "predecessor remints its own publisher token" "reminted" \
-    "$([ "${STEP_PUBLISHER[0]}" != absent ] && [ "${STEP_PUBLISHER[2]}" != absent ] && [ "${STEP_PUBLISHER[0]}" != "${STEP_PUBLISHER[2]}" ] && echo reminted || echo invalid)" reminted
-  row_expect "restored publisher token private" "600" "$(mode_of "${ISO_CONFIG_JSON%/*}/publisher-token")" 600
+  # The publisher credential was retired by the fork-era-to-mainline cutover, so from a mainline
+  # predecessor none of the three steps mints one. Asserting it was "reminted" demanded a file that
+  # can no longer exist; the invariant that survives is that the retired path stays absent
+  # throughout. Readiness-token preservation is asserted by the rows above and below.
+  row_expect "legacy publisher absent at install" "absent" "${STEP_PUBLISHER[0]}" absent
+  row_expect "legacy publisher absent at upgrade" "absent" "${STEP_PUBLISHER[1]}" absent
+  row_expect "legacy publisher absent at rollback" "absent" "${STEP_PUBLISHER[2]}" absent
   row_expect "readiness token mode after upgrade" "600" "${STEP_TOKEN_MODE[1]}" "600"
   row_same "token mode identical upgrade->rollback" "${STEP_TOKEN_MODE[1]}" "${STEP_TOKEN_MODE[2]}"
   row_same "LaunchAgent follows active (install)" "${STEP_POINTER[0]}" "${STEP_PLIST[0]}"
@@ -673,7 +678,13 @@ clean() {
 
 main() {
   case "${1:-}" in
-    run) run ;;
+    run)
+      # Only the qualifying path needs the pair; `clean` removes scratch roots and must stay
+      # usable after a failed run, when no tags are exported.
+      [ -n "$OLD_TAG" ] || { printf 'set OMP_ROLLBACK_OLD_TAG to the published predecessor tag\n' >&2; return 64; }
+      [ -n "$NEW_TAG" ] || { printf 'set OMP_ROLLBACK_NEW_TAG to the candidate tag\n' >&2; return 64; }
+      run
+      ;;
     clean) clean ;;
     *)
       printf 'usage: %s run|clean\n' "$0" >&2

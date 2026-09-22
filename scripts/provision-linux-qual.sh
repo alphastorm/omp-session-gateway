@@ -1499,8 +1499,11 @@ REMOTE
 lane_migration() {
   local previous_tag successor_tag version archive sbom local_dir dns_name
   successor_tag="${OMP_QUAL_RELEASE_TAG:-}"
-  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-v0.3.0}"
+  # No default. A fallback here silently qualifies migration and rollback against whichever stable
+  # happened to be current when this line was last edited.
+  previous_tag="${OMP_QUAL_PREVIOUS_TAG:-}"
   [ -n "$successor_tag" ] || die "set OMP_QUAL_RELEASE_TAG to the successor candidate tag"
+  [ -n "$previous_tag" ] || die "set OMP_QUAL_PREVIOUS_TAG to the published predecessor tag"
 
   step "Lane 4: explicit upgrade and rollback"
   if [ "$previous_tag" = "$successor_tag" ]; then
@@ -1592,24 +1595,29 @@ install_root() {
   "$bun" "$1/apps/gateway/src/cli.js" install --origin "https://${DNS_NAME}" --allow "$ALLOWED_LOGIN" >/dev/null
 }
 
-# A readiness credential is not interchangeable with the fork-era publisher credential.
-# Matching CLI uninstall is owner-scoped and preserves config and staged runtimes; never copy
-# a publisher token. The old installer alone mints the credential needed by its daemon.
+# The publisher credential was retired by the fork-era-to-mainline cutover. This block used to hash
+# it before and after that cutover to prove the candidate retired the predecessor's token and
+# reminted its own. From a mainline predecessor there is nothing to hash — `v0.4.0` onward never
+# mints one — so hashing it aborted the lane on a missing file.
+#
+# What still holds, and is now asserted at every step rather than only after the cutover: the
+# retired path never reappears. Readiness-credential preservation and mode are asserted separately
+# by `assert_preserved`, so no coverage is lost here.
+legacy_token="$HOME/.config/omp-session-gateway/publisher-token"
 "$bun" "$next_root/apps/gateway/src/cli.js" uninstall >/dev/null
 install_root "$prev_root"; a="$(snapshot)"
 config="$HOME/.config/omp-session-gateway/config.json"
 backup="$state_dir/pre-mainline-config.json"
 (umask 077; cp "$config" "$backup"; chmod 600 "$backup")
-old_publisher="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
+[ ! -e "$legacy_token" ] || { echo "predecessor minted a retired publisher token" >&2; exit 1; }
 "$bun" "$prev_root/apps/gateway/src/cli.js" uninstall >/dev/null
 install_root "$next_root"; b="$(snapshot)"
-[ ! -e "$HOME/.config/omp-session-gateway/publisher-token" ] || { echo "legacy publisher token survived cutover" >&2; exit 1; }
+[ ! -e "$legacy_token" ] || { echo "legacy publisher token survived cutover" >&2; exit 1; }
 "$bun" "$next_root/apps/gateway/src/cli.js" uninstall >/dev/null
 cp "$backup" "$config"; chmod 600 "$config"
 install_root "$prev_root"; c="$(snapshot)"
-new_publisher="$(sha256sum "$HOME/.config/omp-session-gateway/publisher-token" | awk '{print $1}')"
-[ "$old_publisher" != "$new_publisher" ] || { echo "predecessor publisher credential was reused" >&2; exit 1; }
-show "stopped predecessor/candidate/recovery" "completed; publisher retired and reminted (bytes withheld)"
+[ ! -e "$legacy_token" ] || { echo "recovery minted a retired publisher token" >&2; exit 1; }
+show "stopped predecessor/candidate/recovery" "completed; no retired publisher credential at any step"
 show "private predecessor config backup" "$backup (mode $(stat -c '%a' "$backup"))"
 
 field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
