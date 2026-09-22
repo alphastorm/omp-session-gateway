@@ -1756,20 +1756,29 @@ assert_preserved "stopped target walk"
 install_root "$next_root"
 assert_current "candidate activation" "$next_version" "$next_root"
 
-# An old installer must refuse while the active mainline service has no publisher credential.
-# Capture all authoritative state before the attempt; a nonzero exit alone is not safe refusal.
-before_state="$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)"
+# `docs/UPGRADE_ROLLBACK.md` records that mainline-to-mainline reinstalls retain the normal
+# active-service path, so the predecessor installer takes over a running candidate rather than
+# refusing it. The refusal this used to assert belonged to the fork-era predecessor, which could not
+# authenticate the mainline readiness proof; every mainline predecessor can. Proving the takeover
+# succeeds and lands on the predecessor is the stronger claim, because it is the downgrade an
+# operator actually performs.
+before_pid="$(main_pid)"
 rc=0
 install_root "$prev_root" >"$work/active-install.log" 2>&1 || rc=$?
-check "active predecessor installer refuses" "$([ "$rc" -ne 0 ] && echo refused || echo accepted)" refused
-check "active install refusal leaves state" "$(digest_of "$pointer")/$(digest_of "$unit")/$(digest_of "$history")/$(main_pid)" "$before_state"
-assert_preserved "active install refusal"
+check "active predecessor installer accepted" "$([ "$rc" -eq 0 ] && echo accepted || echo refused)" accepted
+assert_current "active predecessor takeover" "$prev_version" "$prev_root"
+check "active takeover restarted the daemon" "$([ "$before_pid" != "$(main_pid)" ] && echo restarted || echo unchanged)" restarted
+assert_preserved "active predecessor takeover"
+install_root "$next_root"
+assert_current "candidate reactivation" "$next_version" "$next_root"
 
-# The predecessor is the actual history target, but cannot authenticate the mainline readiness
-# proof. Both explicit and history-selected attempts must fail and compensate back to current.json.
+# A mainline predecessor is a real rollback target, so both the explicit and the history-selected
+# rollback must activate it, preserve configuration and the readiness credential, and restart the
+# daemon. The fork-era predecessor could not be activated at all, which is why this block used to
+# assert refusal and compensation back to the candidate. Each iteration reinstalls the candidate so
+# the next selection starts from the same state.
 for selection in explicit history; do
   check "$selection target in actual history" "$(recorded_predecessor)" "$prev_version"
-  before_history="$(digest_of "$history")"
   before_pid="$(main_pid)"
   rc=0
   if [ "$selection" = explicit ]; then
@@ -1777,11 +1786,12 @@ for selection in explicit history; do
   else
     "$bun" "$next_root/apps/gateway/src/cli.js" rollback >"$work/rollback.log" 2>&1 || rc=$?
   fi
-  check "$selection incompatible activation refuses" "$([ "$rc" -ne 0 ] && echo refused || echo accepted)" refused
-  assert_current "$selection compensation" "$next_version" "$next_root"
-  check "$selection attempted activation restarted" "$([ "$before_pid" != "$(main_pid)" ] && echo restarted || echo unchanged)" restarted
-  check "$selection failed target not recorded" "$(digest_of "$history")" "$before_history"
-  assert_preserved "$selection compensation"
+  check "$selection rollback activates the predecessor" "$([ "$rc" -eq 0 ] && echo activated || echo refused)" activated
+  assert_current "$selection rollback" "$prev_version" "$prev_root"
+  check "$selection rollback restarted the daemon" "$([ "$before_pid" != "$(main_pid)" ] && echo restarted || echo unchanged)" restarted
+  assert_preserved "$selection rollback"
+  install_root "$next_root"
+  assert_current "$selection rollback reset" "$next_version" "$next_root"
 done
 
 # Reproduce the reachable crash state: newer definition, older pointer. It is not a claim to
