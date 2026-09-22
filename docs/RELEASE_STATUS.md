@@ -1,6 +1,6 @@
 # Release status
 
-## Mainline v0.4.1 — promotion in progress
+## Mainline v0.4.1 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.1** on the exact matrix recorded under
 the 0.4.1 engineering track below. The seven-lane candidate campaign passed against
@@ -22,8 +22,48 @@ accepted. There is no bounded-memory-growth claim. Windows OMP, background Web P
 attention and branch/resume matrices, iOS, Safari, WebKit, and broader host/browser combinations
 remain unqualified.
 
-Stable publication evidence, the runtime byte comparison, and the published-byte post-release smoke
-are recorded here as promotion completes.
+### Publication — verified 2026-09-22
+
+**Published stable:** [v0.4.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.1),
+immutable GitHub Latest at **11:33:44 UTC**, six assets.<br>
+**Stable source:** `41a7570008b2e407e023bec129adf117fa63ca05`.<br>
+**Stable archive SHA-256:** `3f9154782112731715f35d077863981b4f9a5f590c45e8a8cfb3db78dcdd64c0`.<br>
+**Release run:** [`35722047871`](https://github.com/alphastorm/omp-session-gateway/actions/runs/35722047871), passed.
+
+Verified after publication against the downloaded assets, not the workflow log: the archive digest
+matches its `SHA256SUMS` entry, `gh attestation verify` accepted it, and `release-info.json` reports
+`0.4.1`, the source commit above, and qualified-stable status.
+
+**Runtime byte comparison: passed.** A local build of the promotion tree reproduced the qualified
+candidate across **all 46 non-metadata files, with zero differences**; `release-info.json`,
+`SBOM.spdx.json`, `STABLE_RELEASE.lock.json` and the stable schema are excluded, matching the
+publication gate. A build of the frozen candidate commit also reproduced the published candidate
+archive SHA-256 exactly. The comparison requires the pinned Bun on `PATH`, not merely as the invoked
+binary: `release:build` spawns the web build through a nested `bun`, and a newer bundler changes
+minified identifiers without any source drift.
+
+**Published-byte local installation:** the workstation gateway was upgraded to the published
+`0.4.1-dad1e6490817`; `doctor` passed **18/18** and status reported installed, active, ready and
+not diverged.
+
+### Post-release smoke — NOT PASSING, outstanding
+
+`bun run smoke:release` does **not** currently pass on this workstation. It fails reproducibly at
+the Android View/Control stage with `Control prompt acceptance did not become ready`. Isolated with
+a disposable fixture, the failure is precise: the directory lists the fixture, View mounts, Control
+mounts, and the prompt is **sent successfully** — the assertion that fails is the 30-second wait for
+that prompt text to echo back into the transcript body.
+
+The workstation runs mainline OMP **18.2.8**. The qualified baseline, and the OMP the passing
+campaign Android lane exercised, is **18.1.20**. That difference is the leading hypothesis and is
+**not yet established**: it has not been determined whether mainline OMP changed transcript
+rendering or whether the smoke's assertion encodes a selector assumption that no longer holds. No
+capability was exposed during diagnosis; the stage's output is suppressed by design because it
+handles capabilities, and the reproduction was redacted.
+
+This does not retract the qualification, which stands on the seven-lane campaign evidence recorded
+below against OMP 18.1.20. It does mean the release checklist's published-byte smoke is outstanding
+for `v0.4.1`, and no post-release smoke claim is made for it.
 
 ## Mainline v0.4.0 — published stable
 
