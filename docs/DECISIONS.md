@@ -668,3 +668,40 @@ the [release ledger](RELEASE_STATUS.md). Windows, background Web Push, specializ
 branch/resume remain unqualified. The approved fresh 30-minute relay check passed; eight-hour
 endurance is **not rerun or claimed**, with prolonged-operation risk accepted. No old test count,
 signed receipt, native result, or relay endurance result is transferred.
+
+---
+
+## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability
+
+**Status:** Accepted
+
+**Date:** 2026-09-22
+
+**Context:** Reported in [#198](https://github.com/alphastorm/omp-session-gateway/issues/198).
+Backgrounding an installed PWA fires `pagehide`, which disposes the collaboration client and drops
+its capability — correct, and the reason nothing durable holds a secret. The page itself survives
+into the bfcache, so restoring it produced an inert shell that had to be handed back to the session
+directory. To the user, momentarily switching apps was indistinguishable from the session dying, and
+the reporter read it as a websocket that never reconnects. Retaining the capability across the
+background would fix the symptom by destroying the property that makes the teardown safe.
+
+**Decision:** Keep the teardown exactly as it is, and make the restore re-run the ordinary launch.
+On a bfcache restore of a shell disposed by `pagehide`, rebuild the directory, poll fresh metadata,
+and relaunch the same session when it is still listed at the same generation and still offers the
+mode that was open. A changed generation, withdrawn access, or absent session falls back to the
+directory with the existing stale-launch behaviour rather than opening a successor session behind
+the card the user left. The pending request identity is carried back only while it is still the
+question waiting; otherwise the resume is a plain reopen.
+
+The page keeps a launch intent — instance, generation, mode, request identity — which is metadata
+the directory already publishes, in heap memory the bfcache preserves. No capability is retained,
+stored, cached, or placed in history or a URL; the resume acquires one from OMP exactly as the first
+launch did. This refines **ADR-028**'s "only after an explicit authorized launch" to include the
+automatic relaunch of a session this page's user had already explicitly opened, under unchanged
+generation binding, and leaves the gateway's own no-storage rule untouched.
+
+**Consequences:** Returning to a backgrounded session lands back in that session rather than the
+directory. Resume costs one additional launch round trip and one fresh relay transport, and cannot
+fire while a client is still live, because it is reachable only after disposal. An offline restore
+resumes nothing and shows the directory's own failure state. Resume is qualified by the browser lane
+only; it carries no iOS claim.

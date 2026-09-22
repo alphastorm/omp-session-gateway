@@ -1148,7 +1148,7 @@ test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout"
   }
 });
 
-test("a bfcache restore of a client disposed on pagehide returns to the live directory", async ({ page }) => {
+test("a bfcache restore whose session changed generation returns to the live directory", async ({ page }) => {
   const active = session();
   const fixture = await startDashboardFixture([
     active,
@@ -1185,6 +1185,10 @@ test("a bfcache restore of a client disposed on pagehide returns to the live dir
     await expect(page.locator(".gateway-shell")).toHaveCount(1);
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
 
+    // The host restarted while the page was frozen, which legitimately ended the session the shell
+    // was showing. Resuming into its successor would hand the user a different conversation behind
+    // the card they left, so this restore must fall back to the directory.
+    fixture.upsert({ ...active, generation: 2 });
     await page.evaluate(() =>
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
     );
@@ -1194,7 +1198,7 @@ test("a bfcache restore of a client disposed on pagehide returns to the live dir
     await expect(page.locator(".queue-hero")).toHaveCount(1);
     expect(await page.evaluate(() => window.scrollY)).toBe(directoryScroll);
 
-    fixture.upsert(answeredSession(active));
+    fixture.upsert(answeredSession(active, { generation: 2 }));
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
     await expect(page.locator(".working-row")).toHaveCount(13);
     expect(fixture.launchRequests).toHaveLength(1);
@@ -1215,6 +1219,109 @@ test("a bfcache restore of a client disposed on pagehide returns to the live dir
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect(page.locator(".all-clear-title")).toHaveText("All clear");
     await expect(page.locator(".working-row")).toHaveCount(13);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("a bfcache restore reopens the backgrounded session and stores no capability", async ({ page }) => {
+  const active = session();
+  const fixture = await startDashboardFixture([
+    active,
+    ...Array.from({ length: 3 }, (_, index) => workingSession(index)),
+  ]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await expect(page.locator(".queue-hero")).toHaveCount(1);
+
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    expect(fixture.launchRequests).toHaveLength(1);
+
+    // Backgrounding an installed PWA is a `pagehide`, which disposes the client and drops its
+    // capability. That is what made switching apps for a moment look like the session dying (#198).
+    const bootstrapSocketCount = await page.evaluate(() => {
+      const count =
+        (globalThis as typeof globalThis & { __ompRelaySocketCount?: number }).__ompRelaySocketCount ?? 0;
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+      return count;
+    });
+    expect(bootstrapSocketCount).toBeGreaterThanOrEqual(1);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(0);
+
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    await expect(page.locator(".shell-title")).toHaveText(SESSION_TITLE);
+    // Resume is a second launch, not a restored secret: the gateway is asked again for the same
+    // instance, generation, mode, and still-pending request, and the new client opens its own
+    // transport rather than reusing the dead one's.
+    expect(fixture.launchRequests[1]).toEqual({
+      instanceId: "standalone-launch-0001",
+      generation: 1,
+      mode: "control",
+      requestId: "standalone-request-0001",
+    });
+    expect(await relaySocketCount(page)).toBeGreaterThan(bootstrapSocketCount);
+
+    const residue = await page.evaluate(async () => ({
+      url: location.href,
+      historyState: JSON.stringify(history.state),
+      localStorage: JSON.stringify({ ...localStorage }),
+      sessionStorage: JSON.stringify({ ...sessionStorage }),
+      cacheUrls: (await Promise.all((await caches.keys()).map(async name => {
+        const cache = await caches.open(name);
+        return (await cache.keys()).map(request => request.url);
+      }))).flat(),
+    }));
+    expect(residue.url).toBe(`${fixture.origin}/client/`);
+    expect(residue.historyState).not.toContain("standalone-launch-0001");
+    expect(JSON.parse(residue.localStorage)).toEqual({ "omp.collab.name": "guest" });
+    expect(residue.sessionStorage).toBe("{}");
+    expect(residue.cacheUrls.every(url => !url.includes("/api/") && !url.includes("/client/"))).toBe(true);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("a bfcache restore reopens a session whose question was answered elsewhere", async ({ page }) => {
+  const active = session();
+  const fixture = await startDashboardFixture([active, workingSession(0)]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })),
+    );
+    await expect(page.locator("#root > .sh-app")).toHaveCount(0);
+    // Answered from the Mac while the phone was in the user's pocket. The request the shell was
+    // opened for is gone, and the gateway rejects a launch that still claims it, so the resume has
+    // to reopen the session plainly instead of failing on a question nobody is waiting on.
+    fixture.upsert(answeredSession(active));
+
+    await page.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    expect(fixture.launchRequests[1]).toEqual({
+      instanceId: "standalone-launch-0001",
+      generation: 1,
+      mode: "control",
+    });
   } finally {
     await fixture.stop();
   }
