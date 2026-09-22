@@ -14,6 +14,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
   next request — served by a freshly started helper — succeeded in under three seconds. The reply
   wait is halved to 10 seconds so two attempts cost what one attempt used to, and a reply whose id
   does not match its request stays fatal and is never retried.
+- Return to the session you were in after backgrounding the app, instead of to the session
+  directory. Backgrounding an installed PWA fires `pagehide`, which disposes the collaboration
+  client and drops its capability, so restoring the page produced an inert shell that had to be
+  handed back to the directory — momentarily switching apps was indistinguishable from the session
+  dying. The restore now relaunches the same session when it is still listed at the same generation
+  with the same access, carrying the pending question back only while it is still the one waiting. A
+  restarted host bumped its generation and legitimately ended that session, so that case still falls
+  back to the directory rather than opening its successor. No capability is retained across the
+  background: the resume fetches one from OMP exactly as the first launch did. Recorded as ADR-029.
 
 ## [v0.4.1] — 2026-09-22
 

@@ -169,16 +169,33 @@ interface ActiveCollabShell {
   recoveredTimeout?: number;
 }
 
+interface DisposedShellResume {
+  readonly instanceId: string;
+  readonly generation: number;
+  readonly mode: LaunchMode;
+  readonly requestId?: string;
+}
+
 let dashboardSnapshot: DashboardSnapshot | undefined;
 let activeCollabShell: ActiveCollabShell | undefined;
 let disposeActiveCollab: (() => void) | undefined;
 /**
  * `pagehide` disposes the collab client and drops its capability with it, but the shell DOM, the
  * `/client/` URL, and the document itself all survive into the bfcache. A restore of that entry is
- * an inert shell, so it has to be handed back to the directory instead of reconnected behind dead
- * DOM — and never by restarting a client whose capability is gone.
+ * an inert shell, so it can never be reconnected behind dead DOM, and never by restarting a client
+ * whose capability is gone: the restore rebuilds the directory first and then relaunches from it.
  */
 let collabShellDisposedOnPageHide = false;
+/**
+ * Which session the disposed shell was showing, so a restore can reopen it rather than stranding the
+ * user in the directory. On a phone, backgrounding the PWA fires `pagehide`, so the common case for
+ * this state is a user who merely switched apps (issue #198).
+ *
+ * This is a launch intent, never a capability. It holds only what the directory already publishes,
+ * and the resume re-runs the ordinary launch fetch, so the capability is acquired fresh from OMP at
+ * resume time exactly as at first launch. The bfcache preserves this heap; storage is not involved.
+ */
+let disposedShellResume: DisposedShellResume | undefined;
 let currentNotificationDetail: PushDetailLevel = "session";
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
@@ -1482,11 +1499,21 @@ function renderConnectionState(shell: ActiveCollabShell): void {
   }
 }
 function returnToDirectory(historyValue?: unknown): void {
+  void restoreDirectory(historyValue);
+}
+
+/**
+ * Restores the cached directory DOM synchronously — a caller that has already disposed a client
+ * cannot be left waiting behind an inert shell — and resolves once the refreshed snapshot has
+ * landed, so a resume can decide against current metadata rather than the pre-background copy.
+ */
+function restoreDirectory(historyValue?: unknown): Promise<boolean> {
   collabShellDisposedOnPageHide = false;
+  disposedShellResume = undefined;
   const snapshot = dashboardSnapshot;
   if (snapshot === undefined) {
     location.replace("/");
-    return;
+    return Promise.resolve(false);
   }
   const historyState = parseDirectoryHistoryState(historyValue) ?? snapshot.historyState;
   disposeActiveCollab?.();
@@ -1498,8 +1525,31 @@ function returnToDirectory(historyValue?: unknown): void {
   dashboardSnapshot = undefined;
   history.replaceState({ ompDirectory: historyState }, "", "/");
   window.scrollTo(0, historyState.scrollY);
-  void refreshAndConnect();
+  const refreshed = refreshAndConnect();
   applyActivatedWorkerUpdate();
+  return refreshed;
+}
+
+/**
+ * Reopens the session a backgrounded shell was showing, or leaves the user in the directory when the
+ * card that shell was launched from no longer exists.
+ *
+ * Every condition the first launch checked is rechecked here against freshly polled metadata: the
+ * same instance at the same generation, still offering the mode that was open. A host that restarted
+ * bumped its generation and legitimately ended that session, so it falls back to the directory with
+ * the ordinary stale-launch behaviour instead of silently opening its successor. The pending request
+ * is carried back only while it is still the one waiting — the gateway rejects a stale `requestId`
+ * outright, so an answered question must resume as a plain reopen rather than a failed launch.
+ */
+async function resumeDisposedCollabShell(): Promise<void> {
+  const resume = disposedShellResume;
+  const restored = await restoreDirectory();
+  if (resume === undefined || !restored) return;
+  const session = sessions.get(resume.instanceId);
+  if (session === undefined || session.generation !== resume.generation) return;
+  if (!(resume.mode === "control" ? session.canControl : session.canView)) return;
+  const requestId = session.ask?.requestId === resume.requestId ? resume.requestId : undefined;
+  await launch(session, resume.mode, undefined, requestId);
 }
 
 async function holdCurrentAskAndAdvance(shell: ActiveCollabShell, current: SessionMetadata): Promise<void> {
@@ -1771,6 +1821,7 @@ function enterCollabClient(
   activeCollabShell = shellState;
   // A live shell supersedes any disposed predecessor, so the bfcache restore path must not fire.
   collabShellDisposedOnPageHide = false;
+  disposedShellResume = undefined;
 
   const updateConnection = (state: CollabEmbedState): void => {
     shellState.latestEmbedState = state;
@@ -1794,6 +1845,12 @@ function enterCollabClient(
   };
   const handlePageHide = (): void => {
     collabShellDisposedOnPageHide = true;
+    disposedShellResume = {
+      instanceId: session.instanceId,
+      generation: session.generation,
+      mode,
+      ...(requestId === undefined ? {} : { requestId }),
+    };
     dispose();
   };
   const handlePopState = (event: PopStateEvent): void => {
@@ -2121,7 +2178,7 @@ for (const input of notificationDetailInputs) {
 window.addEventListener("pageshow", event => {
   if (!event.persisted) return;
   if (collabShellDisposedOnPageHide) {
-    returnToDirectory();
+    void resumeDisposedCollabShell();
     return;
   }
   void refreshAndConnect();

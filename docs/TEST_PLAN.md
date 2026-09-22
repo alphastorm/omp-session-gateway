@@ -307,6 +307,13 @@ gateway/vendored-client boundary. `apps/web/e2e/software-keyboard.e2e.ts` is the
 the gateway chrome sizes itself from `--viewport-height`, a custom property published by the
 vendored collaboration client, and no other check fails if that property stops arriving.
 
+It is also the only place the background/restore contract of ADR-029 is executable. The three
+`bfcache restore` cases in `apps/web/e2e/launch.e2e.ts` drive a real `pagehide`/`pageshow` pair and
+separate resuming the same session, falling back to the directory when the host bumped its
+generation, and reopening a session whose question was answered while the page was frozen. They
+assert the resume is a second launch — a fresh relay transport and no capability in storage,
+caches, history, or the URL — which no unit test can observe.
+
 `capacity-qualification.yml` and `droplet-qualification.yml` deliberately have no `pull_request`
 trigger; they are dispatch-only and never gate a merge. Release publication runs from a pushed tag
 in `signed-release.yml` and is covered by the release checklist above, not by these lanes.
