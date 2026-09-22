@@ -22,9 +22,11 @@ jobs:
       # fixtures assume POSIX signal shutdown and crash Bun 1.4.0 on Windows (run 34818847249).
       # Keep upstream contract coverage on Linux ARM64; do not mask failures with skips/retries.
       - name: Validate Windows contracts and ACLs
-        # Match the ACL suite's existing 20s allowance: cold PowerShell setup/inspection can
-        # exceed Bun's default 5s. Keep assertions and the 25-minute job cap, without retries.
-        run: bun test --timeout 20000 apps/gateway/test/config.test.ts apps/gateway/test/omp-registry.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
+        # Must stay above the ACL helper's own bound (two attempts of 10s), or a product timeout
+        # dies as an unattributable harness timeout instead of the error naming the helper. Run
+        # 35724118336 lost a diagnosis exactly that way. Keep assertions and the 25-minute job cap,
+        # without retries.
+        run: bun test --timeout 30000 apps/gateway/test/config.test.ts apps/gateway/test/omp-registry.test.ts apps/gateway/test/service.test.ts apps/gateway/test/diagnostics.test.ts
       - name: Install and start current-user task
         run: bun apps/gateway/src/cli.ts install --origin https://gateway.example.ts.net --allow allowed@example.com
       - name: Verify active service

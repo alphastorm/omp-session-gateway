@@ -136,11 +136,9 @@ interface WindowsAclHelper {
   readonly decoder: TextDecoder;
   buffer: string;
   nextRequestId: number;
-  spawnCostMs: number | undefined;
 }
 
 let windowsAclHelper: WindowsAclHelper | undefined;
-let windowsAclHelperSpawnCostMs: number | undefined;
 let windowsAclRequestTail: Promise<unknown> = Promise.resolve();
 
 /**
@@ -158,7 +156,12 @@ function asciiJson(value: unknown): string {
 // A helper that accepts a request and never answers would otherwise block this check forever. During
 // `install` the readiness budget bounds that, but a directly-run `serve` has no such bound, so the
 // wait is capped here and reported as a timeout rather than as a hang with no diagnostic.
-const WINDOWS_ACL_REPLY_TIMEOUT_MS = 20_000;
+//
+// Halved from the original single-attempt bound because a request now gets a second helper: two
+// attempts cost what one used to, so no caller's budget moves. A healthy cold start on the slowest
+// host measured for this design is well inside one attempt.
+const WINDOWS_ACL_REPLY_TIMEOUT_MS = 10_000;
+const WINDOWS_ACL_ATTEMPTS = 2;
 
 function startWindowsAclHelper(): WindowsAclHelper {
   const subprocess = Bun.spawn(
@@ -197,7 +200,6 @@ function startWindowsAclHelper(): WindowsAclHelper {
     decoder: new TextDecoder(),
     buffer: "",
     nextRequestId: 1,
-    spawnCostMs: undefined,
   };
 }
 
@@ -241,15 +243,17 @@ async function readWindowsAclReply(helper: WindowsAclHelper): Promise<string> {
   }
 }
 
-async function performWindowsAclRequest(
+/**
+ * One exchange against the cached helper, starting it when there is none. Never retries: the caller
+ * decides that, because a desynchronised reply must stay fatal.
+ */
+async function exchangeWindowsAcl(
   operation: "apply" | "inspect",
   path: string,
   directory: boolean,
-): Promise<unknown> {
-  const started = performance.now();
-  let requestId = 0;
-  let reply: unknown;
+): Promise<{ readonly reply: unknown; readonly requestId: number }> {
   let active: WindowsAclHelper | undefined;
+  let requestId = 0;
   try {
     const helper = (windowsAclHelper ??= startWindowsAclHelper());
     active = helper;
@@ -258,14 +262,9 @@ async function performWindowsAclRequest(
     helper.hold();
     try {
       await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
-      reply = JSON.parse(await readWindowsAclReply(helper));
+      return { reply: JSON.parse(await readWindowsAclReply(helper)), requestId };
     } finally {
       helper.release();
-    }
-    if (helper.spawnCostMs === undefined) {
-      // Only the first round trip pays for `powershell.exe` starting; the rest are pipe writes.
-      helper.spawnCostMs = performance.now() - started;
-      windowsAclHelperSpawnCostMs = Math.max(windowsAclHelperSpawnCostMs ?? 0, helper.spawnCostMs);
     }
   } catch (error) {
     // Kill first so the helper's stderr pipe reaches EOF, then read it. Reading before the kill
@@ -276,6 +275,32 @@ async function performWindowsAclRequest(
     const reason = error instanceof Error ? error.message : String(error);
     const suffix = captured.length > 0 && !reason.includes(captured) ? `: ${captured}` : "";
     throw new Error(`the private Windows ACL helper failed for ${path}: ${reason}${suffix}`, { cause: error });
+  }
+}
+
+async function performWindowsAclRequest(
+  operation: "apply" | "inspect",
+  path: string,
+  directory: boolean,
+): Promise<unknown> {
+  // The helper is a cache, and a cached process can be gone or wedged by the time the next request
+  // needs it. A Windows runner showed the cost of treating that as fatal: one `powershell.exe`
+  // never answered its first request, the whole check failed, and the very next request — served by
+  // a freshly started helper — succeeded in under three seconds. A failed exchange therefore earns
+  // one fresh helper rather than failing the caller. `exchangeWindowsAcl` has already discarded the
+  // dead one, so the retry starts a new process.
+  //
+  // The retry fits inside the previous single-attempt bound rather than doubling it: the reply wait
+  // is half what it was, so two attempts cost what one used to.
+  let reply: unknown;
+  let requestId = 0;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      ({ reply, requestId } = await exchangeWindowsAcl(operation, path, directory));
+      break;
+    } catch (error) {
+      if (attempt >= WINDOWS_ACL_ATTEMPTS) throw error;
+    }
   }
   const envelope = typeof reply === "object" && reply !== null ? reply : undefined;
   if (envelope === undefined || Reflect.get(envelope, "i") !== requestId) {
@@ -305,15 +330,6 @@ function windowsAclRequest(operation: "apply" | "inspect", path: string, directo
     .then(() => performWindowsAclRequest(operation, path, directory));
   windowsAclRequestTail = attempt.catch(() => undefined);
   return attempt;
-}
-
-/**
- * Cost of the single `powershell.exe` start this process paid for ACL enforcement, or `undefined`
- * when no ACL work happened (every non-Windows platform). `install` derives its readiness budget
- * from it, because the daemon it starts must pay the same start before it can bind.
- */
-export function windowsAclSpawnCostMs(): number | undefined {
-  return windowsAclHelperSpawnCostMs;
 }
 
 async function applyWindowsAcl(path: string, directory: boolean): Promise<void> {
