@@ -472,8 +472,28 @@ export async function withAndroidChrome<T>(
 
   let webSocketDebuggerUrl: string;
   try {
-    const endpointResponse = await fetch("http://127.0.0.1:" + port + "/json/version");
+    // `wakeAndroidChrome` waits until the browser process leaves `CACHED_EMPTY`, which proves the
+    // process exists — not that DevTools is accepting. `adb forward` then binds the local port
+    // regardless of whether the device-side socket answers yet, so a cold browser reset the very
+    // first request and failed the lane with ECONNRESET twice. Wait on the endpoint itself, which
+    // is the signal that actually matters.
+    let endpointResponse: Response | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      try {
+        endpointResponse = await fetch("http://127.0.0.1:" + port + "/json/version");
+        break;
+      } catch (error) {
+        lastError = error;
+        await Bun.sleep(attempt * 250);
+      }
+    }
+    if (endpointResponse === undefined) {
+      throw new Error("DevTools endpoint never accepted a connection", { cause: lastError });
+    }
     if (!endpointResponse.ok) throw new Error("DevTools endpoint metadata request failed");
+    // Deliberately outside the retry: a well-formed reply from the wrong browser is a hard failure,
+    // never a transient. Desktop Chrome on this workstation answers remote-debugging ports too.
     webSocketDebuggerUrl = assertDevtoolsEndpointMatchesPackage(
       target.packageName,
       packageVersion,
