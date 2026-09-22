@@ -938,8 +938,15 @@ code {
 
 /* ——— Gateway chrome around the pinned collaboration client ———— */
 
+/* A software keyboard shrinks the visual viewport but leaves the layout viewport alone, so `dvh`
+ * keeps reporting the unobstructed height and a viewport-pinned shell keeps its composer row under
+ * the keyboard. The mounted client already publishes the live visual-viewport height as
+ * `--viewport-height` (see `packages/collab-client/upstream/src/app.tsx`); the gateway chrome that
+ * wraps it has to size from the same measurement rather than from `dvh`, or the two disagree
+ * exactly while someone is typing. `100dvh` stays the fallback for a browser without the Visual
+ * Viewport API. */
 body.collab-shell-active {
-  height: 100dvh;
+  height: var(--viewport-height, 100dvh);
   min-height: 0;
   overflow: hidden;
 }
@@ -950,7 +957,7 @@ body.collab-shell-active {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100%;
-  height: 100dvh;
+  height: var(--viewport-height, 100dvh);
   min-width: 0;
   overflow: hidden;
   background: var(--ground);
