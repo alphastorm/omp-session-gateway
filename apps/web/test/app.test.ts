@@ -279,6 +279,7 @@ interface BrowserHarness {
     readonly notificationSettings: FakeElement;
     readonly networkRecoveryHelp: FakeElement;
     readonly settingsButton: FakeElement;
+    readonly signOutButton: FakeElement;
     readonly notificationDetailOptions: FakeElement;
     readonly emptyState: FakeElement;
     readonly notificationDetailInputs: readonly FakeElement[];
@@ -305,6 +306,7 @@ interface BrowserHarness {
   readonly permissionRequests: { count: number };
   readonly subscriptionRequests: unknown[];
   readonly unsubscribeRequests: unknown[];
+  readonly logoutRequests: unknown[];
   readonly subscriptionCalls: { subscribe: number; unsubscribe: number };
   readonly workerMessages: unknown[];
   readonly replacedPaths: readonly string[];
@@ -376,6 +378,7 @@ async function bootApp(options: {
   const networkRecoveryHelpClose = new FakeElement("button");
   const notificationSettingsClose = new FakeElement("button");
   const settingsButton = new FakeElement("button");
+  const signOutButton = new FakeElement("button");
   const notificationDetailOptions = new FakeElement("fieldset");
   notificationDetailOptions.hidden = true;
   const localActionToast = new FakeElement("aside");
@@ -394,6 +397,14 @@ async function bootApp(options: {
   const directoryCount = new FakeElement("p");
   directoryCount.hidden = true;
   const bySelector: Record<string, FakeElement> = {
+    "#sign-in": Object.assign(new FakeElement("section"), { hidden: true }),
+    "#passkey-sign-in": new FakeElement("button"),
+    "#passkey-enroll": new FakeElement("form"),
+    "#passkey-enroll-submit": new FakeElement("button"),
+    "#enrollment-code": new FakeElement("input"),
+    "#credential-label": new FakeElement("input"),
+    "#auth-message": new FakeElement("p"),
+    "#sign-out": signOutButton,
     "#session-list": sessionList,
     "#empty-state": emptyState,
     "#status-banner": statusBanner,
@@ -452,6 +463,7 @@ async function bootApp(options: {
   const permissionRequests = { count: 0 };
   const subscriptionRequests: unknown[] = [];
   const unsubscribeRequests: unknown[] = [];
+  const logoutRequests: unknown[] = [];
   const subscriptionCalls = { subscribe: 0, unsubscribe: 0 };
   const notificationApi = {
     permission: options.permission,
@@ -547,6 +559,10 @@ async function bootApp(options: {
         detailLevel: body.detailLevel ?? "session",
       });
     }
+    if (path === "/api/v1/auth/logout") {
+      logoutRequests.push(JSON.parse(String(init.body)));
+      return new Response(null, { status: 204 });
+    }
     if (path !== "/api/v1/sessions") throw new Error(`unexpected fetch: ${path}`);
     if (failedListRequests > 0) {
       failedListRequests -= 1;
@@ -598,6 +614,7 @@ async function bootApp(options: {
       notificationSettings,
       networkRecoveryHelp,
       settingsButton,
+      signOutButton,
       notificationDetailOptions,
       emptyState,
       notificationDetailInputs,
@@ -611,6 +628,7 @@ async function bootApp(options: {
     permissionRequests,
     subscriptionRequests,
     unsubscribeRequests,
+    logoutRequests,
     subscriptionCalls,
     workerMessages,
     replacedPaths: history.replaced,
@@ -682,6 +700,35 @@ afterAll(() => {
 });
 
 describe("dashboard attention and notifications", () => {
+  test("explicit sign-out removes this browser push opt-in and clears authenticated metadata", async () => {
+    const harness = await bootApp({
+      permission: "granted", existingSubscription: true,
+      suffix: "webauthn-logout-push", initialSessions: [session("auth-logout-session-0001")],
+    });
+    harness.elements.signOutButton.dispatchEvent(new Event("click"));
+    await settleUntil(() => harness.subscriptionCalls.unsubscribe === 1);
+    expect(harness.logoutRequests).toEqual([{ endpoint: "https://push.example.test/send/browser-device" }]);
+    expect(harness.elements.sessionList.childElementCount).toBe(0);
+    expect(harness.elements.statusBanner.dataset.kind).toBe("unauthorized");
+    expect(harness.unsubscribeRequests).toEqual([]);
+  });
+  test("expired authentication removes metadata without revoking opted-in background alerts", async () => {
+    const harness = await bootApp({
+      permission: "granted", existingSubscription: true,
+      suffix: "webauthn-expired-push", initialSessions: [session("auth-expiry-session-0001")],
+    });
+    expect(harness.elements.notificationButton.dataset.state).toBe("enabled");
+    harness.setList(2, [], 401);
+    harness.window.dispatchEvent(new Event("online"));
+    await settleUntil(() => harness.elements.statusBanner.dataset.kind === "unauthorized");
+    expect(harness.elements.sessionList.childElementCount).toBe(0);
+    expect(harness.subscriptionCalls.unsubscribe).toBe(0);
+    expect(harness.unsubscribeRequests).toEqual([]);
+    expect(harness.fetchPaths.filter(path => path.startsWith("/api/v1/auth/"))).toEqual([]);
+    const requests = harness.fetchPaths.length;
+    harness.runTimers();
+    expect(harness.fetchPaths.length).toBe(requests);
+  });
   test("renders the boolean-only triage queue without prompting or notifying on the initial list", async () => {
     const harness = await bootApp({
       permission: "default",

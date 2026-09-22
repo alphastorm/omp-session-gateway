@@ -25,8 +25,9 @@
               <rect x="62" y="26" width="10" height="52" rx="2" fill="#E8ECEF" />
               <circle cx="48" cy="58" r="8" fill="#31C48D" />
             </svg>
-            <span>Private tailnet directory</span>
+            <span>Private session directory</span>
           </p>
+          <button id="sign-out" class="shell-control" type="button" hidden>Sign out</button>
           <button id="settings" class="settings-button" type="button" aria-haspopup="dialog" aria-label="Settings">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M3 6.2h6.5M15.7 6.2H17M3 13.8h1.3M11.5 13.8H17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -41,6 +42,23 @@
         </div>
       </header>
       <div id="status-banner" class="status" data-kind="loading" role="status">Loading sessions…</div>
+      <section id="sign-in" class="sign-in" aria-labelledby="sign-in-title" hidden>
+        <h2 id="sign-in-title">Sign in to OMP Sessions</h2>
+        <p>Use an enrolled passkey. Sign-in lasts one hour, even while you are active.</p>
+        <button id="passkey-sign-in" class="action" type="button">Sign in with a passkey</button>
+        <p id="auth-message" role="status" aria-live="polite"></p>
+        <details>
+          <summary>Enroll with a local code</summary>
+          <p>Stop the gateway and run the local enrollment command to get a temporary code.</p>
+          <form id="passkey-enroll" autocomplete="off">
+            <label for="enrollment-code">Enrollment code</label>
+            <input id="enrollment-code" type="password" required maxlength="256" autocomplete="off" />
+            <label for="credential-label">Passkey label</label>
+            <input id="credential-label" type="text" required maxlength="80" autocomplete="off" placeholder="This phone" />
+            <button id="passkey-enroll-submit" class="action" type="submit">Enroll passkey</button>
+          </form>
+        </details>
+      </section>
       <section id="empty-state" class="empty-state" hidden>
         <svg class="empty-mark" width="64" height="64" viewBox="0 0 96 96" aria-hidden="true">
           <rect x="12" y="16" width="72" height="10" rx="2" fill="#E8ECEF" />

@@ -19,7 +19,7 @@ import {
 } from "./config.ts";
 import { createDiagnosticsBundle } from "./diagnostics.ts";
 import { gatewayReady, loopbackHttpResponds, runDoctorChecks } from "./doctor.ts";
-import { startHttpServer } from "./http.ts";
+import { createHttpHandler } from "./http.ts";
 import {
   activateRuntime,
   activationState,
@@ -30,7 +30,7 @@ import {
 } from "./installation.ts";
 import { OmpHostReader, OmpLaunchResolver, startHostPoller } from "./omp-registry.ts";
 import { SafeLogger } from "./logger.ts";
-import { PushService } from "./push.ts";
+import { PushService, removeWebAuthnPushSubscriptions } from "./push.ts";
 import { SessionRegistry } from "./registry.ts";
 import {
   assertServiceInstallPreflight,
@@ -42,6 +42,7 @@ import {
   userServiceStatus,
 } from "./service.ts";
 import { StaticAssetStore } from "./static.ts";
+import { WebAuthnService, listWebAuthnCredentials, revokeWebAuthnCredential } from "./webauthn.ts";
 
 interface ParsedArguments {
   readonly command: string;
@@ -94,11 +95,11 @@ export function readinessBudgetMs(platform: typeof process.platform = process.pl
 }
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
-  const command = argv[0] ?? "help";
+  const command = argv[0] === "auth" ? `auth ${argv[1] ?? ""}` : argv[0] ?? "help";
   const values = new Map<string, string[]>();
-  for (let index = 1; index < argv.length; index += 1) {
+  for (let index = argv[0] === "auth" ? 2 : 1; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === undefined || !argument.startsWith("--")) throw new Error(`unexpected argument: ${argument ?? ""}`);
+    if (argument === undefined || !argument.startsWith("--")) throw new Error("unexpected positional argument");
     const [name, inlineValue] = argument.split("=", 2);
     if (name === undefined) throw new Error("invalid option");
     const next = argv[index + 1];
@@ -119,7 +120,10 @@ function optionValues(arguments_: ParsedArguments, name: string): readonly strin
 
 const COMMAND_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   serve: new Set(["--dev-localhost", "--port", "--origin", "--readiness-instance"]),
-  install: new Set(["--origin", "--allow", "--port", "--no-start"]),
+  install: new Set(["--origin", "--allow", "--port", "--no-start", "--auth"]),
+  "auth enroll": new Set(),
+  "auth list": new Set(),
+  "auth revoke": new Set(["--id"]),
   uninstall: new Set(["--no-stop"]),
   rollback: new Set(["--to"]),
   status: new Set(),
@@ -160,7 +164,17 @@ function numericOption(arguments_: ParsedArguments, name: string): number | unde
   return Number(value);
 }
 
-async function runServe(arguments_: ParsedArguments): Promise<void> {
+async function assertGatewayStopped(config: GatewayConfig): Promise<void> {
+  await assertUserServiceOwnership(config);
+  if ((await userServiceStatus(config)).active) {
+    throw new Error("stop the managed gateway service before changing WebAuthn credentials");
+  }
+}
+
+async function runServe(arguments_: ParsedArguments, enrollment = false): Promise<void> {
+  if (enrollment && (!process.stdin.isTTY || !process.stderr.isTTY)) {
+    throw new Error("auth enroll requires an interactive terminal; enrollment codes cannot be redirected");
+  }
   const mode: AuthMode | undefined = hasFlag(arguments_, "--dev-localhost") ? "dev-localhost" : undefined;
   const port = numericOption(arguments_, "--port");
   const publicOrigin = oneOption(arguments_, "--origin");
@@ -173,72 +187,120 @@ async function runServe(arguments_: ParsedArguments): Promise<void> {
     ...(port === undefined ? {} : { port }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
   });
-  const token = await loadOrCreateReadinessToken(config);
-  const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
-  const staticAssets = await StaticAssetStore.load(webRoot);
-  const logger = new SafeLogger();
-  const registry = new SessionRegistry({
-    ttlSeconds: config.registry.ttlSeconds,
-    maxSessions: config.registry.maxSessions,
-    onListenerError: () => logger.event("warn", "registry.listener_failed"),
+  if (enrollment) {
+    if (config.auth.mode !== "webauthn") throw new Error("auth enroll requires webauthn mode");
+    await assertGatewayStopped(config);
+  }
+  // The ordinary listener is the process-lifetime exclusion: bind before reading or writing
+  // credentials/push state, and let the OS release ownership even after an abrupt process death.
+  const http = Bun.serve({
+    hostname: config.http.hostname,
+    port: config.http.port,
+    idleTimeout: 30,
+    fetch: () => new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }),
   });
-  const reader = new OmpHostReader({
-    directory: config.omp.discoveryDir,
-    maxEntries: config.registry.maxSessions,
-    timeoutMs: config.omp.queryTimeoutMs,
-    onFault: (event, detail) => logger.event("warn", event, detail),
-  });
-  const launchResolver = new OmpLaunchResolver({ registry, reader });
-  const pushService = await PushService.open({ config, registry, logger });
-  const poller = startHostPoller({
-    reader,
-    registry,
-    intervalMs: config.registry.heartbeatSeconds * 1_000,
-    onEvent: (event, detail) => logger.event("info", event, detail),
-  });
-  let stopping = false;
-  let resolveStop: () => void = () => undefined;
-  const stopped = new Promise<void>(resolve => {
-    resolveStop = resolve;
-  });
-  const stop = (): void => {
-    if (stopping) return;
-    stopping = true;
-    resolveStop();
-  };
-  let http: Bun.Server<undefined> | undefined;
+  let pushService: PushService | undefined;
+  let webAuthn: WebAuthnService | undefined;
+  let poller: ReturnType<typeof startHostPoller> | undefined;
   let sweeper: ReturnType<typeof setInterval> | undefined;
+  let enrollmentTimeout: ReturnType<typeof setTimeout> | undefined;
+  let enrollmentFlush: ReturnType<typeof setTimeout> | undefined;
+  let enrolled = false;
+  const { promise: stopped, resolve: stop } = Promise.withResolvers<void>();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
-    http = startHttpServer({
+    if (enrollment) await assertGatewayStopped(config);
+    const enrollmentCode = enrollment ? randomBytes(32).toString("base64url") : undefined;
+    if (enrollment) enrollmentTimeout = setTimeout(stop, 5 * 60_000);
+    webAuthn = config.auth.mode === "webauthn"
+      ? await WebAuthnService.open({
+          config,
+          ...(enrollmentCode === undefined ? {} : {
+            enrollmentCode,
+            onEnrolled: () => {
+              enrolled = true;
+              // The verify response must reach the browser before closing foreground enrollment.
+              enrollmentFlush = setTimeout(stop, 250);
+            },
+          }),
+        })
+      : undefined;
+    const token = await loadOrCreateReadinessToken(config);
+    const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
+    const staticAssets = await StaticAssetStore.load(webRoot);
+    const logger = new SafeLogger();
+    const registry = new SessionRegistry({
+      ttlSeconds: config.registry.ttlSeconds,
+      maxSessions: config.registry.maxSessions,
+      onListenerError: () => logger.event("warn", "registry.listener_failed"),
+    });
+    const reader = new OmpHostReader({
+      directory: config.omp.discoveryDir,
+      maxEntries: config.registry.maxSessions,
+      timeoutMs: config.omp.queryTimeoutMs,
+      onFault: (event, detail) => logger.event("warn", event, detail),
+    });
+    const launchResolver = new OmpLaunchResolver({ registry, reader });
+    pushService = await PushService.open({
+      config,
+      registry,
+      logger,
+      ...(webAuthn === undefined ? {} : { identityAllowed: (identity: string) => webAuthn?.identityAllowed(identity) === true }),
+    });
+    const activePoller = startHostPoller({
+      reader,
+      registry,
+      intervalMs: config.registry.heartbeatSeconds * 1_000,
+      onEvent: (event, detail) => logger.event("info", event, detail),
+    });
+    poller = activePoller;
+    const handler = createHttpHandler({
       config,
       registry,
       launchResolver,
       staticAssets,
       logger,
       pushService,
+      ...(webAuthn === undefined ? {} : { webAuthn }),
       readinessToken: token,
       ...(readinessInstance === undefined ? {} : { readinessInstance }),
-      endpointHealthy: () => poller.discoveryHealthy,
+      endpointHealthy: () => activePoller.discoveryHealthy,
     });
-    // The poller refreshes liveness for hosts that answer; the sweeper retires the ones that stay
-    // unreadable past the TTL, so a host whose socket hangs cannot linger in the directory forever.
+    http.reload({ fetch(request, server) {
+      const address = server.requestIP(request)?.address;
+      return handler(request, address === undefined ? undefined : { address });
+    } });
+    logger.event("info", "http.listening", { port: http.port ?? config.http.port });
     sweeper = setInterval(() => {
       const removed = registry.sweepExpired();
       if (removed > 0) logger.event("info", "registry.expired", { removed });
     }, Math.max(1_000, Math.floor((config.registry.ttlSeconds * 1_000) / 3)));
+    if (enrollmentCode !== undefined) {
+      console.error(`Open: ${config.http.publicOrigin}/`);
+      console.error("Choose enrollment in the browser. This single-use code expires in five minutes:");
+      process.stderr.write(`${enrollmentCode}\n`);
+    }
     await stopped;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
     clearInterval(sweeper);
-    poller.stop();
+    clearTimeout(enrollmentTimeout);
+    clearTimeout(enrollmentFlush);
+    poller?.stop();
+    http.reload({ fetch: () => new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } }) });
     try {
-      http?.stop(true);
+      // Keep the listener bound until all asynchronous state writers have drained.
+      await webAuthn?.close();
+      await pushService?.stop();
     } finally {
-      await pushService.stop();
+      await http.stop(true);
     }
+  }
+  if (enrollment) {
+    if (!enrolled) throw new Error("enrollment ended without registering a credential; run auth enroll again");
+    console.log("Credential enrolled. Start the managed gateway daemon, then sign in in your browser.");
   }
 }
 
@@ -288,6 +350,10 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
   const allowedLogins = optionValues(arguments_, "--allow");
   if (origin === undefined) throw new Error("install requires --origin https://host.tailnet.ts.net");
   const port = numericOption(arguments_, "--port");
+  const authMode = oneOption(arguments_, "--auth");
+  if (authMode !== undefined && authMode !== "tailscale-serve" && authMode !== "webauthn") {
+    throw new Error("--auth must be tailscale-serve or webauthn");
+  }
   const activate = !hasFlag(arguments_, "--no-start");
   await assertServiceInstallPreflight(activate);
   const configSnapshot = await captureGatewayConfigFile();
@@ -333,6 +399,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     config = await writeGatewayConfigFile({
       publicOrigin: origin,
       allowedLogins,
+      ...(authMode === undefined ? {} : { mode: authMode }),
       ...(port === undefined ? {} : { port }),
     });
     const webRoot = resolve(fileURLToPath(new URL("../../web/dist/", import.meta.url)));
@@ -363,10 +430,15 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     console.log(
       `Installed ${definition.identifier} from ${runtime.directory}; loopback health ${activate ? "ready" : "not started"}.`,
     );
-    console.log(
-      `Configure Tailscale Serve: tailscale serve --bg --https=${publicOriginHttpsPort(config.http.publicOrigin)} ${loopbackHttpOrigin(config.http.hostname, config.http.port)}`,
-    );
-    console.log("Do not enable Tailscale Funnel.");
+    if (config.auth.mode === "webauthn") {
+      console.log("WebAuthn requires HTTPS at the configured origin; alternate tunnel deployments are not qualified.");
+      if (!activate) console.log("With the daemon stopped, run omp-gateway auth enroll, then start the daemon and sign in.");
+    } else {
+      console.log(
+        `Configure Tailscale Serve: tailscale serve --bg --https=${publicOriginHttpsPort(config.http.publicOrigin)} ${loopbackHttpOrigin(config.http.hostname, config.http.port)}`,
+      );
+      console.log("Do not enable Tailscale Funnel.");
+    }
   } catch (error) {
     const rollbackErrors: unknown[] = [];
     let restoredConfig: Awaited<ReturnType<typeof loadGatewayConfig>> | undefined;
@@ -554,6 +626,12 @@ async function runRotateToken(): Promise<void> {
 
 async function runServeGuidance(): Promise<void> {
   const config = await loadGatewayConfig();
+  if (config.auth.mode === "webauthn") {
+    console.log(`WebAuthn origin: ${config.http.publicOrigin}`);
+    console.log("Terminate HTTPS at that exact origin and proxy to the configured loopback listener. No Tailscale identity is used.");
+    console.log("Alternate tunnel deployments are not qualified by this gateway.");
+    return;
+  }
   console.log(
     `tailscale serve --bg --https=${publicOriginHttpsPort(config.http.publicOrigin)} ${loopbackHttpOrigin(config.http.hostname, config.http.port)}`,
   );
@@ -561,11 +639,44 @@ async function runServeGuidance(): Promise<void> {
   console.log("Tailscale Funnel is unsupported and must remain disabled.");
 }
 
+async function runAuth(arguments_: ParsedArguments): Promise<void> {
+  if (arguments_.command === "auth enroll") return runServe(arguments_, true);
+  const id = arguments_.command === "auth revoke" ? oneOption(arguments_, "--id") : undefined;
+  if (arguments_.command === "auth revoke" && (id === undefined || !/^[A-Za-z0-9_-]{22}$/u.test(id))) {
+    throw new Error("auth revoke requires --id from auth list");
+  }
+  const config = await loadGatewayConfig();
+  if (config.auth.mode !== "webauthn") throw new Error("auth commands require webauthn mode");
+  if (arguments_.command === "auth list") {
+    console.log(JSON.stringify(await listWebAuthnCredentials(config)));
+    return;
+  }
+  await assertGatewayStopped(config);
+  // The configured listener excludes foreground enrollment and concurrent daemon starts/writers.
+  const ownership = Bun.listen({
+    hostname: config.http.hostname,
+    port: config.http.port,
+    socket: { open(socket) { socket.end(); }, data(socket) { socket.end(); } },
+  });
+  try {
+    await assertGatewayStopped(config);
+    await revokeWebAuthnCredential(config, id!);
+    await removeWebAuthnPushSubscriptions(config, id!);
+  } finally {
+    ownership.stop(true);
+  }
+  console.log("Credential revoked and its push subscriptions removed. Restart the gateway, then sign in again.");
+}
+
 function printHelp(): void {
   console.log(`OMP Session Gateway ${GATEWAY_VERSION}
 
 Usage:
   omp-gateway install --origin https://host.tailnet.ts.net --allow user@example.com [--no-start]
+  omp-gateway install --auth webauthn --origin https://gateway.example.com --no-start
+  omp-gateway auth enroll
+  omp-gateway auth list
+  omp-gateway auth revoke --id <credential-id>
   omp-gateway uninstall [--no-stop]
   omp-gateway rollback [--to 0.1.0-0123456789ab]
   omp-gateway status
@@ -582,6 +693,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const parsed = parseArguments(daemonInvocation && argv.length === 0 ? ["serve"] : argv);
   validateCommandOptions(parsed);
   if (parsed.command === "serve") await runServe(parsed);
+  else if (["auth enroll", "auth list", "auth revoke"].includes(parsed.command)) await runAuth(parsed);
   else if (parsed.command === "install") await runInstall(parsed);
   else if (parsed.command === "uninstall") await runUninstall(parsed);
   else if (parsed.command === "rollback") await runRollback(parsed);

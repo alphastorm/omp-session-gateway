@@ -50,6 +50,7 @@ function manifest(): string {
       ],
       excluded: [
         "capabilities, OMP query tokens, and gateway readiness tokens",
+        "gateway authentication cookies, enrollment codes, and WebAuthn ceremonies or credential records",
         "authorization and identity headers",
         "account identities and tailnet DNS names",
         "session metadata, transcripts, prompts, and tool output",

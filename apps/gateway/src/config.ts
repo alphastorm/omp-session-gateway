@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { resolveOmpDiscoveryDirectory } from "./omp-registry.ts";
 
-export type AuthMode = "tailscale-serve" | "dev-localhost";
+export type AuthMode = "tailscale-serve" | "dev-localhost" | "webauthn";
 
 export interface GatewayConfig {
   readonly http: {
@@ -413,7 +413,7 @@ export function defaultGatewayPaths(): GatewayConfig["paths"] {
   };
 }
 
-async function assertPrivateDirectory(path: string, create: boolean): Promise<void> {
+export async function assertPrivateDirectory(path: string, create: boolean): Promise<void> {
   if (create) await mkdir(path, { recursive: true, mode: 0o700 });
   const info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`unsafe private directory: ${path}`);
@@ -513,9 +513,9 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
     throw new Error("http.publicOrigin must be an exact HTTP(S) origin");
   }
   const mode = auth.mode ?? defaults.auth.mode;
-  if (mode !== "tailscale-serve" && mode !== "dev-localhost") throw new Error("invalid auth.mode");
-  if (mode === "tailscale-serve" && publicOrigin.protocol !== "https:") {
-    throw new Error("tailscale-serve mode requires an exact HTTPS public origin");
+  if (mode !== "tailscale-serve" && mode !== "dev-localhost" && mode !== "webauthn") throw new Error("invalid auth.mode");
+  if (mode !== "dev-localhost" && publicOrigin.protocol !== "https:") {
+    throw new Error(`${mode} mode requires an exact HTTPS public origin`);
   }
   if (mode === "dev-localhost" && publicOrigin.origin !== loopbackHttpOrigin(hostname, port)) {
     throw new Error("dev-localhost mode requires the configured loopback HTTP origin");
@@ -531,6 +531,9 @@ function parseConfigObject(raw: unknown, defaults: GatewayConfig): GatewayConfig
   const declaredTrust = auth.trustIdentityWithoutTailnetDevice ?? false;
   if (typeof declaredTrust !== "boolean") {
     throw new Error("auth.trustIdentityWithoutTailnetDevice must be a boolean");
+  }
+  if (mode === "webauthn" && (allowedLogins.length !== 0 || declaredTrust)) {
+    throw new Error("webauthn mode does not accept allowedLogins or trustIdentityWithoutTailnetDevice");
   }
   const heartbeatSeconds = validateBoundedInteger(
     registry.heartbeatSeconds ?? defaults.registry.heartbeatSeconds,
@@ -606,16 +609,23 @@ export async function loadGatewayConfig(overrides: ConfigOverrides = {}): Promis
     (mode === "dev-localhost" && (overrides.mode !== undefined || overrides.port !== undefined)
       ? loopbackHttpOrigin(config.http.hostname, port)
       : config.http.publicOrigin);
+  if (config.auth.mode === "webauthn" &&
+    (mode !== config.auth.mode || port !== config.http.port || publicOriginValue !== config.http.publicOrigin)) {
+    throw new Error("WebAuthn requires the configured listener and origin; change the stopped gateway configuration instead");
+  }
   const publicOrigin = new URL(publicOriginValue);
   if (publicOrigin.origin !== publicOriginValue) throw new Error("http.publicOrigin must be an exact URL origin");
-  if (mode === "tailscale-serve" && publicOrigin.protocol !== "https:") {
-    throw new Error("tailscale-serve mode requires an exact HTTPS public origin");
+  if (mode !== "dev-localhost" && publicOrigin.protocol !== "https:") {
+    throw new Error(`${mode} mode requires an exact HTTPS public origin`);
   }
   if (mode === "dev-localhost" && publicOrigin.origin !== loopbackHttpOrigin(config.http.hostname, port)) {
     throw new Error("dev-localhost mode requires the configured loopback HTTP origin");
   }
   if (mode === "tailscale-serve" && config.auth.allowedLogins.length === 0) {
     throw new Error("tailscale-serve mode requires at least one allowed login");
+  }
+  if (mode === "webauthn" && (config.auth.allowedLogins.length !== 0 || config.auth.trustIdentityWithoutTailnetDevice)) {
+    throw new Error("webauthn mode does not accept allowedLogins or trustIdentityWithoutTailnetDevice");
   }
   return {
     ...config,
@@ -652,7 +662,11 @@ export async function readPrivateTextFile(path: string, maximumBytes: number): P
   }
 }
 
-export async function writePrivateTextFile(path: string, content: string): Promise<void> {
+export async function writePrivateTextFile(
+  path: string,
+  content: string,
+  beforeCommit?: () => void,
+): Promise<void> {
   const temporaryPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {
@@ -662,6 +676,7 @@ export async function writePrivateTextFile(path: string, content: string): Promi
     await handle.close();
   }
   try {
+    beforeCommit?.();
     await rename(temporaryPath, path);
     if (process.platform === "win32") await applyWindowsAcl(path, false);
     else await chmod(path, 0o600);
@@ -717,9 +732,9 @@ export async function writeGatewayConfigFile(options: {
   const priorDocument = snapshot.content === undefined
     ? undefined
     : JSON.parse(snapshot.content) as { readonly omp?: Partial<GatewayConfig["omp"]> };
-  const mode = options.mode ?? "tailscale-serve";
+  const mode = options.mode ?? (priorConfig?.auth.mode === "webauthn" ? "webauthn" : "tailscale-serve");
   const origin = new URL(options.publicOrigin);
-  if (origin.origin !== options.publicOrigin || (mode === "tailscale-serve" && origin.protocol !== "https:")) {
+  if (origin.origin !== options.publicOrigin || (mode !== "dev-localhost" && origin.protocol !== "https:")) {
     throw new Error("production public origin must be an exact HTTPS origin");
   }
   const allowedLogins = [...new Set(options.allowedLogins.map(normalizeLogin))];
@@ -739,7 +754,7 @@ export async function writeGatewayConfigFile(options: {
     auth: {
       mode,
       allowedLogins,
-      ...(priorConfig?.auth.trustIdentityWithoutTailnetDevice === true
+      ...(mode !== "webauthn" && priorConfig?.auth.trustIdentityWithoutTailnetDevice === true
         ? { trustIdentityWithoutTailnetDevice: true }
         : {}),
     },

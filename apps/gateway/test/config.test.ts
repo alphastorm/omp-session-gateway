@@ -52,6 +52,27 @@ function configForRoot(root: string): GatewayConfig {
   };
 }
 
+describe("WebAuthn configuration", () => {
+  const document = {
+    http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.com" },
+    auth: { mode: "webauthn", allowedLogins: [] },
+  };
+
+  test("admits HTTPS authentication without a Tailscale login", async () => {
+    const config = await loadDocument(document);
+    expect(config.auth).toEqual({ mode: "webauthn", allowedLogins: [] });
+    expect(config.http.publicOrigin).toBe("https://gateway.example.com");
+  });
+
+  test("rejects insecure origins and mixed identity authorities", async () => {
+    await expect(loadDocument({ ...document, http: { ...document.http, publicOrigin: "http://gateway.example.com" } })).rejects.toThrow();
+    await expect(loadDocument({ ...document, auth: { ...document.auth, allowedLogins: ["owner@example.com"] } })).rejects.toThrow();
+    await expect(loadDocument({ ...document, auth: { ...document.auth, trustIdentityWithoutTailnetDevice: true } })).rejects.toThrow();
+    await expect(loadDocument(document, { publicOrigin: "http://gateway.example.com" })).rejects.toThrow();
+    await expect(loadDocument({ ...document, auth: { mode: "tailscale-serve", allowedLogins: ["owner@example.com"] } }, { mode: "webauthn" })).rejects.toThrow();
+  });
+});
+
 function windowsPowerShellEnvironment(overrides: Record<string, string>): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -937,6 +958,15 @@ describe("private text files", () => {
     await expect(readPrivateTextFile(link, 64)).rejects.toThrow(`unsafe private file: ${link}`);
   });
 
+  test("a refused commit preserves the previous state and removes staged private bytes", async () => {
+    const root = await privateRoot();
+    const path = join(root, "credential-state.json");
+    await writePrivateTextFile(path, "previous state\n");
+    await expect(writePrivateTextFile(path, "revoked state\n", () => { throw new Error("authorization expired"); })).rejects.toThrow();
+    expect(await readFile(path, "utf8")).toBe("previous state\n");
+    expect(await readdir(root)).toEqual(["credential-state.json"]);
+  }, 20_000);
+
   test("replaces content, tightens the mode, and leaves no temporary file behind", async () => {
     const root = await privateRoot();
     const path = join(root, "push-state.json");
@@ -1153,6 +1183,27 @@ describe("production config authoring", () => {
     // A fresh config keeps environment-derived OMP defaults implicit.
     expect(JSON.parse(await readFile(paths.configPath, "utf8")).omp).toBeUndefined();
     expect(await loadGatewayConfig({ configPath: paths.configPath })).toEqual(written);
+  }, 20_000);
+
+  test("cuts a Serve installation over to WebAuthn without retaining either identity authority", async () => {
+    const paths = await isolatedHome();
+    const prior = await writeGatewayConfigFile({
+      publicOrigin: "https://gateway.example.ts.net",
+      allowedLogins: ["owner@example.com"],
+      port: 5432,
+    });
+    const document = JSON.parse(await readFile(paths.configPath, "utf8"));
+    document.auth.trustIdentityWithoutTailnetDevice = true;
+    await writePrivateTextFile(paths.configPath, `${JSON.stringify(document)}\n`);
+    const switched = await writeGatewayConfigFile({
+      mode: "webauthn", publicOrigin: prior.http.publicOrigin, allowedLogins: [],
+    });
+    expect(switched.auth).toEqual({ mode: "webauthn", allowedLogins: [] });
+    expect(switched.http).toEqual(prior.http);
+    const reinstalled = await writeGatewayConfigFile({ publicOrigin: prior.http.publicOrigin, allowedLogins: [] });
+    expect(reinstalled.auth).toEqual(switched.auth);
+    expect((await loadGatewayConfig()).auth).toEqual(switched.auth);
+    await expect(loadGatewayConfig({ port: 5433 })).rejects.toThrow();
   }, 20_000);
 
   test("preserves supported prior settings unless an install option overrides them", async () => {

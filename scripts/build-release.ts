@@ -26,6 +26,8 @@ type BunLockPackage = readonly [
 ];
 
 interface BunLockWorkspace {
+  readonly name?: string;
+  readonly devDependencies?: Readonly<Record<string, string>>;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly optionalDependencies?: Readonly<Record<string, string>>;
 }
@@ -59,7 +61,6 @@ export interface VendoredClientLockfile {
 }
 
 interface RuntimeLicenseMetadata {
-  readonly version: string;
   readonly source: string;
   readonly licenseDeclared: string;
   readonly licenseConcluded: string;
@@ -68,56 +69,224 @@ interface RuntimeLicenseMetadata {
 }
 
 export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> = {
-  "@oh-my-pi/pi-wire": {
-    version: "18.1.14",
+  "@hexagon/base64@1.1.28": {
+    source: "https://registry.npmjs.org/@hexagon/base64/-/base64-1.1.28.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2021-2022 Hexagon <github.com/Hexagon>",
+    licensePath: "licenses/runtime/@hexagon__base64/LICENSE",
+  },
+  "@levischuck/tiny-cbor@0.2.11": {
+    source: "https://registry.npmjs.org/@levischuck/tiny-cbor/-/tiny-cbor-0.2.11.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2025 Levi",
+    licensePath: "licenses/runtime/@levischuck__tiny-cbor/LICENSE",
+  },
+  "@peculiar/asn1-android@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-android/-/asn1-android-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-android/LICENSE",
+  },
+  "@peculiar/asn1-asym-key@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-asym-key/-/asn1-asym-key-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2023 Peculiar Ventures, LLC",
+    licensePath: "licenses/runtime/@peculiar__asn1-asym-key/LICENSE",
+  },
+  "@peculiar/asn1-cms@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-cms/-/asn1-cms-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-cms/LICENSE",
+  },
+  "@peculiar/asn1-csr@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-csr/-/asn1-csr-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-csr/LICENSE",
+  },
+  "@peculiar/asn1-ecc@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-ecc/-/asn1-ecc-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-ecc/LICENSE",
+  },
+  "@peculiar/asn1-pfx@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-pfx/-/asn1-pfx-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-pfx/LICENSE",
+  },
+  "@peculiar/asn1-pkcs8@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-pkcs8/-/asn1-pkcs8-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-pkcs8/LICENSE",
+  },
+  "@peculiar/asn1-pkcs9@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-pkcs9/-/asn1-pkcs9-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-pkcs9/LICENSE",
+  },
+  "@peculiar/asn1-rsa@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-rsa/-/asn1-rsa-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-rsa/LICENSE",
+  },
+  "@peculiar/asn1-schema@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-schema/-/asn1-schema-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-schema/LICENSE",
+  },
+  "@peculiar/asn1-x509-attr@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-x509-attr/-/asn1-x509-attr-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-x509-attr/LICENSE",
+  },
+  "@peculiar/asn1-x509-post-quantum@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-x509-post-quantum/-/asn1-x509-post-quantum-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2023 Peculiar Ventures, LLC",
+    licensePath: "licenses/runtime/@peculiar__asn1-x509-post-quantum/LICENSE",
+  },
+  "@peculiar/asn1-x509@2.9.5": {
+    source: "https://registry.npmjs.org/@peculiar/asn1-x509/-/asn1-x509-2.9.5.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020",
+    licensePath: "licenses/runtime/@peculiar__asn1-x509/LICENSE",
+  },
+  "@peculiar/utils@2.0.3": {
+    source: "https://registry.npmjs.org/@peculiar/utils/-/utils-2.0.3.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2017-2026 Peculiar Ventures, LLC",
+    licensePath: "licenses/runtime/@peculiar__utils/LICENSE",
+  },
+  "@peculiar/x509@2.1.0": {
+    source: "https://registry.npmjs.org/@peculiar/x509/-/x509-2.1.0.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) Peculiar Ventures. All rights reserved.",
+    licensePath: "licenses/runtime/@peculiar__x509/LICENSE",
+  },
+  "@simplewebauthn/server@14.0.2": {
+    source: "https://registry.npmjs.org/@simplewebauthn/server/-/server-14.0.2.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2020 Matthew Miller",
+    licensePath: "licenses/runtime/@simplewebauthn__server/LICENSE.md",
+  },
+  "asn1js@3.0.10": {
+    source: "https://registry.npmjs.org/asn1js/-/asn1js-3.0.10.tgz",
+    licenseDeclared: "BSD-3-Clause",
+    licenseConcluded: "BSD-3-Clause",
+    copyrightText: "Copyright (c) 2014, GMO GlobalSign\nCopyright (c) 2015-2022, Peculiar Ventures",
+    licensePath: "licenses/runtime/asn1js/LICENSE",
+  },
+  "pvtsutils@1.3.6": {
+    source: "https://registry.npmjs.org/pvtsutils/-/pvtsutils-1.3.6.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2017-2024 Peculiar Ventures, LLC",
+    licensePath: "licenses/runtime/pvtsutils/LICENSE",
+  },
+  "pvutils@1.2.0": {
+    source: "https://registry.npmjs.org/pvutils/-/pvutils-1.2.0.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) 2016-2019, Peculiar Ventures",
+    licensePath: "licenses/runtime/pvutils/LICENSE",
+  },
+  "reflect-metadata@0.2.2": {
+    source: "https://registry.npmjs.org/reflect-metadata/-/reflect-metadata-0.2.2.tgz",
+    licenseDeclared: "Apache-2.0",
+    licenseConcluded: "Apache-2.0",
+    copyrightText: "Copyright (c) Microsoft Corporation. All rights reserved.",
+    licensePath: "licenses/runtime/reflect-metadata/LICENSE",
+  },
+  "tslib@1.14.1": {
+    source: "https://registry.npmjs.org/tslib/-/tslib-1.14.1.tgz",
+    licenseDeclared: "0BSD",
+    licenseConcluded: "0BSD",
+    copyrightText: "Copyright (c) Microsoft Corporation.",
+    licensePath: "licenses/runtime/tslib@1.14.1/LICENSE.txt",
+  },
+  "tslib@2.8.1": {
+    source: "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
+    licenseDeclared: "0BSD",
+    licenseConcluded: "0BSD",
+    copyrightText: "Copyright (c) Microsoft Corporation.",
+    licensePath: "licenses/runtime/tslib@2.8.1/LICENSE.txt",
+  },
+  "tsyringe@4.10.0": {
+    source: "https://registry.npmjs.org/tsyringe/-/tsyringe-4.10.0.tgz",
+    licenseDeclared: "MIT",
+    licenseConcluded: "MIT",
+    copyrightText: "Copyright (c) Microsoft Corporation. All rights reserved.",
+    licensePath: "licenses/runtime/tsyringe/LICENSE",
+  },
+  "@oh-my-pi/pi-wire@18.1.14": {
     source: "https://github.com/can1357/oh-my-pi/tree/v18.1.14/packages/wire",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2025-2026 Can Bölük\nCopyright (c) 2026 Stencil Labs, Inc.",
     licensePath: "licenses/runtime/@oh-my-pi__pi-wire/LICENSE",
   },
-  "agent-base": {
-    version: "7.1.4",
+  "agent-base@7.1.4": {
     source: "https://github.com/TooTallNate/proxy-agents/tree/agent-base%407.1.4/packages/agent-base",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013 Nathan Rajlich",
     licensePath: "licenses/runtime/agent-base/LICENSE",
   },
-  "asn1.js": {
-    version: "5.4.1",
+  "asn1.js@5.4.1": {
     source: "https://github.com/indutny/asn1.js/tree/v5.4.1",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2017 Fedor Indutny",
     licensePath: "licenses/runtime/asn1.js/LICENSE",
   },
-  "bn.js": {
-    version: "4.12.5",
+  "bn.js@4.12.5": {
     source: "https://github.com/indutny/bn.js/tree/v4.12.5",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright Fedor Indutny, 2015",
     licensePath: "licenses/runtime/bn.js/LICENSE",
   },
-  "buffer-equal-constant-time": {
-    version: "1.0.1",
+  "buffer-equal-constant-time@1.0.1": {
     source: "https://github.com/goinstant/buffer-equal-constant-time/tree/v1.0.1",
     licenseDeclared: "BSD-3-Clause",
     licenseConcluded: "BSD-3-Clause",
     copyrightText: "Copyright (c) 2013, GoInstant Inc., a salesforce.com company",
     licensePath: "licenses/runtime/buffer-equal-constant-time/LICENSE",
   },
-  commander: {
-    version: "15.0.0",
+  "commander@15.0.0": {
     source: "https://github.com/tj/commander.js/tree/v15.0.0",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>",
     licensePath: "licenses/runtime/commander/LICENSE",
   },
-  debug: {
-    version: "4.4.3",
+  "debug@4.4.3": {
     source: "https://github.com/debug-js/debug/tree/4.4.3",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
@@ -125,112 +294,98 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
       "Copyright (c) 2014-2017 TJ Holowaychuk\nCopyright (c) 2018-2021 Josh Junon",
     licensePath: "licenses/runtime/debug/LICENSE",
   },
-  "ecdsa-sig-formatter": {
-    version: "1.0.11",
+  "ecdsa-sig-formatter@1.0.11": {
     source: "https://github.com/Brightspace/node-ecdsa-sig-formatter/tree/v1.0.11",
     licenseDeclared: "Apache-2.0",
     licenseConcluded: "Apache-2.0",
     copyrightText: "Copyright 2015 D2L Corporation",
     licensePath: "licenses/runtime/ecdsa-sig-formatter/LICENSE",
   },
-  http_ece: {
-    version: "1.2.0",
+  "http_ece@1.2.0": {
     source: "https://github.com/martinthomson/encrypted-content-encoding/tree/v1.2.0",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2015 Martin Thomson",
     licensePath: "licenses/runtime/http_ece/LICENSE",
   },
-  "https-proxy-agent": {
-    version: "7.0.6",
+  "https-proxy-agent@7.0.6": {
     source: "https://github.com/TooTallNate/proxy-agents/tree/https-proxy-agent%407.0.6/packages/https-proxy-agent",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013 Nathan Rajlich",
     licensePath: "licenses/runtime/https-proxy-agent/LICENSE",
   },
-  inherits: {
-    version: "2.0.4",
+  "inherits@2.0.4": {
     source: "https://github.com/isaacs/inherits/tree/v2.0.4",
     licenseDeclared: "ISC",
     licenseConcluded: "ISC",
     copyrightText: "Copyright (c) Isaac Z. Schlueter",
     licensePath: "licenses/runtime/inherits/LICENSE",
   },
-  jwa: {
-    version: "2.0.1",
+  "jwa@2.0.1": {
     source: "https://github.com/brianloveswords/node-jwa/tree/2.0.1",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013 Brian J. Brennan",
     licensePath: "licenses/runtime/jwa/LICENSE",
   },
-  jws: {
-    version: "4.0.1",
+  "jws@4.0.1": {
     source: "https://github.com/brianloveswords/node-jws/tree/v4.0.1",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013 Brian J. Brennan",
     licensePath: "licenses/runtime/jws/LICENSE",
   },
-  katex: {
-    version: "0.18.5",
+  "katex@0.18.5": {
     source: "https://github.com/KaTeX/KaTeX/tree/v0.18.5",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2013-2020 Khan Academy and other contributors",
     licensePath: "licenses/runtime/katex/LICENSE",
   },
-  "minimalistic-assert": {
-    version: "1.0.1",
+  "minimalistic-assert@1.0.1": {
     source: "https://github.com/calvinmetcalf/minimalistic-assert/tree/v1.0.1",
     licenseDeclared: "ISC",
     licenseConcluded: "ISC",
     copyrightText: "Copyright 2015 Calvin Metcalf",
     licensePath: "licenses/runtime/minimalistic-assert/LICENSE",
   },
-  minimist: {
-    version: "1.2.8",
+  "minimist@1.2.8": {
     source: "https://github.com/minimistjs/minimist/tree/v1.2.8",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "NOASSERTION",
     licensePath: "licenses/runtime/minimist/LICENSE",
   },
-  ms: {
-    version: "2.1.3",
+  "ms@2.1.3": {
     source: "https://github.com/vercel/ms/tree/2.1.3",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2020 Vercel, Inc.",
     licensePath: "licenses/runtime/ms/LICENSE",
   },
-  "safe-buffer": {
-    version: "5.2.1",
+  "safe-buffer@5.2.1": {
     source: "https://github.com/feross/safe-buffer/tree/v5.2.1",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) Feross Aboukhadijeh",
     licensePath: "licenses/runtime/safe-buffer/LICENSE",
   },
-  "safer-buffer": {
-    version: "2.1.2",
+  "safer-buffer@2.1.2": {
     source: "https://github.com/ChALkeR/safer-buffer/tree/v2.1.2",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) 2018 Nikita Skovoroda",
     licensePath: "licenses/runtime/safer-buffer/LICENSE",
   },
-  "web-push": {
-    version: "3.6.7",
+  "web-push@3.6.7": {
     source: "https://github.com/web-push-libs/web-push/tree/v3.6.7",
     licenseDeclared: "MPL-2.0",
     licenseConcluded: "MPL-2.0",
     copyrightText: "Copyright 2015 Marco Castelluccio",
     licensePath: "licenses/runtime/web-push/LICENSE",
   },
-  "lucide-react": {
-    version: "1.31.0",
+  "lucide-react@1.31.0": {
     source: "https://github.com/lucide-icons/lucide/tree/1.31.0/packages/lucide-react",
     licenseDeclared: "ISC",
     licenseConcluded: "ISC AND MIT",
@@ -238,8 +393,7 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
       "Copyright (c) 2026 Lucide Icons and Contributors\nCopyright (c) 2013-present Cole Bemis",
     licensePath: "licenses/runtime/lucide-react/LICENSE",
   },
-  marked: {
-    version: "18.0.9",
+  "marked@18.0.9": {
     source: "https://github.com/markedjs/marked/tree/8e858a4f8e7f53ffeae7392a4c9f455e693aa737",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT AND BSD-3-Clause",
@@ -247,24 +401,21 @@ export const RUNTIME_LICENSES: Readonly<Record<string, RuntimeLicenseMetadata>> 
       "Copyright (c) 2018+, MarkedJS\nCopyright (c) 2011-2018, Christopher Jeffrey\nCopyright (c) 2004, John Gruber",
     licensePath: "licenses/runtime/marked/LICENSE",
   },
-  react: {
-    version: "19.2.7",
+  "react@19.2.7": {
     source: "https://github.com/facebook/react/tree/6117d7cca4906492c51fe6a03381e35adfd86e7d/packages/react",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) Meta Platforms, Inc. and affiliates.",
     licensePath: "licenses/runtime/react/LICENSE",
   },
-  "react-dom": {
-    version: "19.2.7",
+  "react-dom@19.2.7": {
     source: "https://github.com/facebook/react/tree/6117d7cca4906492c51fe6a03381e35adfd86e7d/packages/react-dom",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
     copyrightText: "Copyright (c) Meta Platforms, Inc. and affiliates.",
     licensePath: "licenses/runtime/react-dom/LICENSE",
   },
-  scheduler: {
-    version: "0.27.0",
+  "scheduler@0.27.0": {
     source: "https://github.com/facebook/react/tree/861811347b8fa936b4a114fc022db9b8253b3d86/packages/scheduler",
     licenseDeclared: "MIT",
     licenseConcluded: "MIT",
@@ -279,52 +430,67 @@ function objectKeys(value: unknown, field: string): string[] {
   return typeof dependencies === "object" && dependencies !== null ? Object.keys(dependencies) : [];
 }
 
+function resolveRuntimeDependency(lock: BunLockfile, parent: string, name: string): string {
+  // Bun lock keys encode the node_modules ancestry, with scoped names occupying two segments.
+  for (;;) {
+    const key = parent === "" ? name : `${parent}/${name}`;
+    if (lock.packages[key] !== undefined) return key;
+    if (parent === "") throw new Error(`bun.lock is missing runtime dependency ${name}`);
+    parent = parent.replace(/(?:^|\/)(?:@[^/]+\/)?[^/]+$/, "");
+  }
+}
+
 export function runtimeDependenciesFromLock(lock: BunLockfile): RuntimeDependency[] {
-  const pending = BUNDLED_WORKSPACES.flatMap(path => {
+  const pending: string[] = [];
+  const enqueue = (metadata: unknown, parent: string): void => {
+    for (const name of [...objectKeys(metadata, "dependencies"), ...objectKeys(metadata, "optionalDependencies")]) {
+      pending.push(resolveRuntimeDependency(lock, parent, name));
+    }
+  };
+  for (const path of BUNDLED_WORKSPACES) {
     const workspace = lock.workspaces[path];
     if (workspace === undefined) throw new Error(`bun.lock is missing bundled workspace ${path}`);
-    return [...objectKeys(workspace, "dependencies"), ...objectKeys(workspace, "optionalDependencies")];
-  });
+    enqueue(workspace, workspace.name ?? "");
+  }
   const visited = new Set<string>();
   const dependencies = new Map<string, RuntimeDependency>();
 
   while (pending.length > 0) {
-    const name = pending.pop();
-    if (name === undefined || visited.has(name)) continue;
-    visited.add(name);
-    const entry = lock.packages[name];
-    if (entry === undefined) throw new Error(`bun.lock is missing runtime dependency ${name}`);
+    const key = pending.pop();
+    if (key === undefined || visited.has(key)) continue;
+    visited.add(key);
+    const entry = lock.packages[key];
+    if (entry === undefined) throw new Error(`bun.lock is missing runtime dependency ${key}`);
     const workspacePath = entry[0].match(/@workspace:(.+)$/)?.[1];
     if (workspacePath !== undefined) {
       const workspace = lock.workspaces[workspacePath];
       if (workspace === undefined) throw new Error(`bun.lock is missing workspace ${workspacePath}`);
-      pending.push(...objectKeys(workspace, "dependencies"), ...objectKeys(workspace, "optionalDependencies"));
+      enqueue(workspace, key);
       continue;
     }
 
-    const version = entry[0].slice(entry[0].lastIndexOf("@") + 1);
-    dependencies.set(name, {
+    const versionSeparator = entry[0].lastIndexOf("@");
+    const name = entry[0].slice(0, versionSeparator);
+    const version = entry[0].slice(versionSeparator + 1);
+    dependencies.set(entry[0], {
       name,
       version,
       ...(entry[3] === undefined ? {} : { integrity: entry[3] }),
     });
-    pending.push(...objectKeys(entry[2], "dependencies"), ...objectKeys(entry[2], "optionalDependencies"));
+    enqueue(entry[2], key);
   }
 
   return [...dependencies.values()].sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    left.name < right.name ? -1 : left.name > right.name ? 1 :
+      left.version < right.version ? -1 : left.version > right.version ? 1 : 0,
   );
 }
 
 function runtimeLicense(dependency: RuntimeDependency): RuntimeLicenseMetadata {
-  const metadata = RUNTIME_LICENSES[dependency.name];
+  const id = `${dependency.name}@${dependency.version}`;
+  const metadata = RUNTIME_LICENSES[id];
   if (metadata === undefined) {
-    throw new Error(`no reviewed license metadata exists for bundled dependency ${dependency.name}@${dependency.version}`);
-  }
-  if (metadata.version !== dependency.version) {
-    throw new Error(
-      `license metadata for ${dependency.name} covers ${metadata.version}, not locked version ${dependency.version}`,
-    );
+    throw new Error(`no reviewed license metadata exists for bundled dependency ${id}`);
   }
   return metadata;
 }

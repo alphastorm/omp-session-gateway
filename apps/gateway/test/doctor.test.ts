@@ -93,6 +93,24 @@ describe("doctor reports mainline compatibility and discovery health", () => {
     expect(report.checks.compatibility).toBe(false);
   }, 30_000);
 
+  test("reports WebAuthn enrollment without claiming Tailscale identity or tunnel qualification", async () => {
+    const root = await isolatedRoot();
+    const configPath = join(root, "config/omp-session-gateway/config.json");
+    const document = JSON.parse(await readFile(configPath, "utf8")) as { auth: unknown };
+    document.auth = { mode: "webauthn", allowedLogins: [] };
+    await writeFile(configPath, `${JSON.stringify(document)}\n`);
+    await chmod(configPath, 0o600);
+
+    const report = await runDoctorChecks({ tunDevicePresent: () => false, ompVersion: async () => "18.1.20" });
+    expect(report.checks.config).toBe(true);
+    expect(report.checks.credentials).toBe(false);
+    expect(report.checks.authenticationRequired).toBe(false);
+    for (const name of ["tailscaleConnected", "serveMapping", "funnelDisabled", "identityAllowed", "loopbackTrustSound", "sessionHealth"]) {
+      expect(Object.hasOwn(report.checks, name)).toBe(false);
+    }
+    expect(Object.values(report.checks).every(value => typeof value === "boolean")).toBe(true);
+  }, 30_000);
+
   test("reports a symlinked discovery directory as unreadable without following or removing it", async () => {
     if (process.platform === "win32") return;
     const root = await isolatedRoot();

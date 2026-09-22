@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -59,6 +59,8 @@ describe("redacted diagnostics", () => {
       capability: "DIAGNOSTIC_CONTROL_CANARY_0000000000000000",
       fullPath: "/Users/alice/secret-project",
       identity: "alice@example.com",
+      cookie: `__Host-omp-session=${randomBytes(32).toString("base64url")}`,
+      enrollmentCode: randomBytes(16).toString("hex"),
     };
     const first = diagnosticsBundleBytes(source);
     const second = diagnosticsBundleBytes(source);
@@ -70,6 +72,8 @@ describe("redacted diagnostics", () => {
     expect(archiveText).not.toContain(source.capability);
     expect(archiveText).not.toContain(source.fullPath);
     expect(archiveText).not.toContain(source.identity);
+    expect(archiveText).not.toContain(source.cookie);
+    expect(archiveText).not.toContain(source.enrollmentCode);
 
     const root = await mkdtemp(join(tmpdir(), "omp-diagnostics-"));
     roots.push(root);

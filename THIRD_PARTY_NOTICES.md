@@ -190,6 +190,184 @@ source locations, and required attributions are included at the stated archive p
 - License text: `licenses/runtime/web-push/LICENSE`
 
 
+### @hexagon/base64@1.1.28
+
+- Source: <https://registry.npmjs.org/@hexagon/base64/-/base64-1.1.28.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2021-2022 Hexagon <github.com/Hexagon>
+- License text: `licenses/runtime/@hexagon__base64/LICENSE`
+
+### @levischuck/tiny-cbor@0.2.11
+
+- Source: <https://registry.npmjs.org/@levischuck/tiny-cbor/-/tiny-cbor-0.2.11.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2025 Levi
+- License text: `licenses/runtime/@levischuck__tiny-cbor/LICENSE`
+
+### @peculiar/asn1-android@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-android/-/asn1-android-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-android/LICENSE`
+
+### @peculiar/asn1-asym-key@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-asym-key/-/asn1-asym-key-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2023 Peculiar Ventures, LLC
+- License text: `licenses/runtime/@peculiar__asn1-asym-key/LICENSE`
+
+### @peculiar/asn1-cms@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-cms/-/asn1-cms-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-cms/LICENSE`
+
+### @peculiar/asn1-csr@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-csr/-/asn1-csr-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-csr/LICENSE`
+
+### @peculiar/asn1-ecc@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-ecc/-/asn1-ecc-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-ecc/LICENSE`
+
+### @peculiar/asn1-pfx@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-pfx/-/asn1-pfx-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-pfx/LICENSE`
+
+### @peculiar/asn1-pkcs8@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-pkcs8/-/asn1-pkcs8-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-pkcs8/LICENSE`
+
+### @peculiar/asn1-pkcs9@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-pkcs9/-/asn1-pkcs9-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-pkcs9/LICENSE`
+
+### @peculiar/asn1-rsa@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-rsa/-/asn1-rsa-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-rsa/LICENSE`
+
+### @peculiar/asn1-schema@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-schema/-/asn1-schema-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-schema/LICENSE`
+
+### @peculiar/asn1-x509-attr@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-x509-attr/-/asn1-x509-attr-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-x509-attr/LICENSE`
+
+### @peculiar/asn1-x509-post-quantum@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-x509-post-quantum/-/asn1-x509-post-quantum-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2023 Peculiar Ventures, LLC
+- License text: `licenses/runtime/@peculiar__asn1-x509-post-quantum/LICENSE`
+
+### @peculiar/asn1-x509@2.9.5
+
+- Source: <https://registry.npmjs.org/@peculiar/asn1-x509/-/asn1-x509-2.9.5.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020
+- License text: `licenses/runtime/@peculiar__asn1-x509/LICENSE`
+
+### @peculiar/utils@2.0.3
+
+- Source: <https://registry.npmjs.org/@peculiar/utils/-/utils-2.0.3.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2017-2026 Peculiar Ventures, LLC
+- License text: `licenses/runtime/@peculiar__utils/LICENSE`
+
+### @peculiar/x509@2.1.0
+
+- Source: <https://registry.npmjs.org/@peculiar/x509/-/x509-2.1.0.tgz>
+- License: MIT
+- Copyright: Copyright (c) Peculiar Ventures. All rights reserved.
+- License text: `licenses/runtime/@peculiar__x509/LICENSE`
+
+### @simplewebauthn/server@14.0.2
+
+- Source: <https://registry.npmjs.org/@simplewebauthn/server/-/server-14.0.2.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2020 Matthew Miller
+- License text: `licenses/runtime/@simplewebauthn__server/LICENSE.md`
+
+### asn1js@3.0.10
+
+- Source: <https://registry.npmjs.org/asn1js/-/asn1js-3.0.10.tgz>
+- License: BSD-3-Clause
+- Copyright: Copyright (c) 2014, GMO GlobalSign; Copyright (c) 2015-2022, Peculiar Ventures
+- License text: `licenses/runtime/asn1js/LICENSE`
+
+### pvtsutils@1.3.6
+
+- Source: <https://registry.npmjs.org/pvtsutils/-/pvtsutils-1.3.6.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2017-2024 Peculiar Ventures, LLC
+- License text: `licenses/runtime/pvtsutils/LICENSE`
+
+### pvutils@1.2.0
+
+- Source: <https://registry.npmjs.org/pvutils/-/pvutils-1.2.0.tgz>
+- License: MIT
+- Copyright: Copyright (c) 2016-2019, Peculiar Ventures
+- License text: `licenses/runtime/pvutils/LICENSE`
+
+### reflect-metadata@0.2.2
+
+- Source: <https://registry.npmjs.org/reflect-metadata/-/reflect-metadata-0.2.2.tgz>
+- License: Apache-2.0
+- Copyright: Copyright (c) Microsoft Corporation. All rights reserved.
+- License text: `licenses/runtime/reflect-metadata/LICENSE`
+- Additional notice: `licenses/runtime/reflect-metadata/CopyrightNotice.txt`
+
+### tslib@1.14.1
+
+- Source: <https://registry.npmjs.org/tslib/-/tslib-1.14.1.tgz>
+- License: 0BSD
+- Copyright: Copyright (c) Microsoft Corporation.
+- License text: `licenses/runtime/tslib@1.14.1/LICENSE.txt`
+- Additional notice: `licenses/runtime/tslib@1.14.1/CopyrightNotice.txt`
+
+### tslib@2.8.1
+
+- Source: <https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz>
+- License: 0BSD
+- Copyright: Copyright (c) Microsoft Corporation.
+- License text: `licenses/runtime/tslib@2.8.1/LICENSE.txt`
+- Additional notice: `licenses/runtime/tslib@2.8.1/CopyrightNotice.txt`
+
+### tsyringe@4.10.0
+
+- Source: <https://registry.npmjs.org/tsyringe/-/tsyringe-4.10.0.tgz>
+- License: MIT
+- Copyright: Copyright (c) Microsoft Corporation. All rights reserved.
+- License text: `licenses/runtime/tsyringe/LICENSE`
+
 ## Vendored and locally modified runtime component
 
 ### @oh-my-pi/collab-web@16.3.6

@@ -12,7 +12,7 @@ import {
 } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
 import { SafeLogger } from "../src/logger.ts";
-import { PushService, type PushTransport } from "../src/push.ts";
+import { PushService, removeWebAuthnPushSubscriptions, type PushTransport } from "../src/push.ts";
 import { SessionRegistry } from "../src/registry.ts";
 
 const endpoint = "https://push.example.test/send/device-subscription";
@@ -128,6 +128,61 @@ async function createRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "omp-gateway-push-"));
   return root;
 }
+
+describe("WebAuthn push identities", () => {
+  test("keeps opted-in delivery across restart but refuses revoked and noncredential identities", async () => {
+    const root = await createRoot();
+    const gatewayConfig: GatewayConfig = { ...config(root), auth: { mode: "webauthn", allowedLogins: [] } };
+    const id = "A".repeat(22);
+    const otherId = "B".repeat(22);
+    const identities = new Set([`webauthn:${id}`, `webauthn:${otherId}`]);
+    const request = parsePushSubscriptionRequest({ version: PUSH_API_VERSION, subscription });
+    const service = await PushService.open({
+      config: gatewayConfig,
+      registry: new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 }),
+      identityAllowed: identity => identities.has(identity),
+      transport: new RecordingTransport(),
+    });
+    await service.subscribe(`webauthn:${id}`, request);
+    await service.subscribe(`webauthn:${otherId}`, { ...request, subscription: { ...subscription, endpoint: `${endpoint}-other` } });
+    await expect(service.subscribe("owner@example.com", request)).rejects.toThrow();
+    await expect(service.subscribe("webauthn:short", request)).rejects.toThrow();
+    await service.stop();
+    await expect(service.subscribe(`webauthn:${id}`, request)).rejects.toThrow();
+    await expect(service.unsubscribe(`webauthn:${id}`, { version: PUSH_API_VERSION, endpoint })).rejects.toThrow();
+
+    identities.delete(`webauthn:${id}`);
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const restarted = await PushService.open({ config: gatewayConfig, registry, transport, identityAllowed: identity => identities.has(identity) });
+    try {
+      registry.reconcile({ observed: [observedSession(false)], retained: new Set() });
+      registry.reconcile({ observed: [observedSession(true)], retained: new Set() });
+      await restarted.flush();
+      expect(transport.calls.map(call => call.subscription.endpoint)).toEqual([`${endpoint}-other`]);
+    } finally {
+      await restarted.stop();
+    }
+    await removeWebAuthnPushSubscriptions(gatewayConfig, id);
+    const persisted = JSON.parse(await readFile(join(gatewayConfig.paths.stateDir, "push-state.json"), "utf8")) as {
+      subscriptions: { identityKey: string }[];
+    };
+    expect(persisted.subscriptions.map(item => item.identityKey)).toEqual([`webauthn:${otherId}`]);
+  });
+
+  test("fails closed without the credential registry predicate", async () => {
+    const root = await createRoot();
+    const service = await PushService.open({
+      config: { ...config(root), auth: { mode: "webauthn", allowedLogins: [] } },
+      registry: new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 }),
+    });
+    try {
+      await expect(service.subscribe(`webauthn:${"A".repeat(22)}`, parsePushSubscriptionRequest({ version: PUSH_API_VERSION, subscription }))).rejects.toThrow();
+    } finally {
+      await service.stop();
+    }
+  });
+});
 
 describe("Web Push service", () => {
   test("persists private VAPID and subscription state without session content", async () => {

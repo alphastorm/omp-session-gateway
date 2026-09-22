@@ -2,6 +2,11 @@
 
 ## Current claim
 
+**Unreleased authentication work:** `auth.mode = "webauthn"` is separate from the published
+matrix below. Repository/virtual-authenticator proof does not qualify a physical passkey client,
+Cloudflare Tunnel/Access, Portal Tunnel, or another platform. Tailscale Serve remains the only
+qualified remote path; the published stable artifact and its support boundary are unchanged.
+
 Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.
 Earlier releases are unsupported because this local registry does not exist in them.
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in

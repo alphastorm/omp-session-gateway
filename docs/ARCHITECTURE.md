@@ -46,7 +46,8 @@ Responsibilities:
 - read OMP discovery and query per-host endpoints;
 - maintain an in-memory metadata registry with process/session generations and freshness TTLs;
 - expose a loopback-only HTTP server and static PWA;
-- authorize requests using Tailscale Serve identity plus an application allowlist;
+- authorize requests using Tailscale Serve identity plus an application allowlist by default, or
+  independently verified passkeys and a volatile gateway login in the unreleased `webauthn` mode;
 - return a single capability only after an explicit View or Control action;
 - stream metadata-only updates with SSE;
 - start at desktop login and recover cleanly from restart;
@@ -205,7 +206,9 @@ OMP remains unaware of this browser-routing metadata.
 1. The user taps **View** or **Control**.
 2. The shipped same-document client marks the launch pending in page memory before loading its assets and requesting a capability. The URL changes to `/client/` only at mount; the ADR-018 reservation gap above remains unresolved.
 3. The PWA performs a same-origin `POST /api/v1/sessions/:instanceId/launch` with the observed generation and desired mode.
-4. The gateway verifies Tailscale identity, application allowlist, Origin, fetch metadata, content type, rate limits, generation, freshness, and mode availability.
+4. The gateway verifies the selected mode's identity/allowlist, Origin, fetch metadata, content
+   type, rate limits, generation, freshness, and mode availability. WebAuthn sessions are rechecked
+   after the asynchronous OMP query, before any capability response.
 5. The launch broker queries OMP for the exact generation and role, revalidates current state, and
    returns exactly one capability in the no-store response without retaining it.
 6. The PWA passes the capability directly to the pinned collab client's in-memory bootstrap, optionally through a same-origin `MessageChannel`.
@@ -257,9 +260,15 @@ flowchart TB
 
 A malicious process running as the same desktop OS user is outside the intended threat boundary; it can generally read the user's files or interfere with OMP directly. OS permissions and per-host query tokens still reduce accidents and cross-user access but are not a sandbox against same-user malware.
 
-A compromised or unlocked phone with valid tailnet identity is also capable of requesting sessions
-until the device is revoked. WebAuthn user verification is proposed in ADR-008, not implemented in
-v0.4.0; it is not an additional Control gate operators can rely on today.
+A compromised or unlocked phone with valid tailnet identity is capable of requesting sessions
+until the device is revoked. The unreleased WebAuthn mode instead requires an enrolled passkey and
+issues a one-hour opaque HttpOnly gateway-session cookie backed by volatile daemon state. Local
+credential maintenance uses the ordinary foreground gateway with a short-lived enrollment grant,
+not a separate administration service. Cookies are a new secret class; OMP capabilities remain
+memory-only. See ADR-030 for persistence, revocation, notification, and bfcache contracts.
+Neither login mode implements ADR-008's proposed fresh user-presence check per Control launch.
+Gateway logout cannot revoke an already issued OMP capability. The diagram above remains the
+qualified Serve topology; independent authentication does not qualify another remote path.
 
 ## 4. Why not process scanning or terminal automation?
 

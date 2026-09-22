@@ -129,7 +129,10 @@ hosts. OMP does not reconnect to or authenticate with the gateway.
 
 ## 4. Browser HTTP API
 
-Production requests are accepted only through the loopback Tailscale Serve proxy path and require an allowed identity. No CORS is enabled.
+Tailscale Serve remains the only qualified remote path. The default `tailscale-serve` mode
+requires an allowlisted Serve identity. The unreleased `webauthn` mode independently verifies
+enrolled passkeys and requires a valid gateway-session cookie for protected APIs. Both require
+loopback peers; non-Serve paths strip all `Tailscale-User-*` headers. No CORS is enabled.
 
 Every `/api/` response includes at least:
 
@@ -142,6 +145,41 @@ Cross-Origin-Resource-Policy: same-origin
 ```
 
 The server's access log must suppress query strings, request/response bodies, authorization headers, identity headers, and launch endpoint response sizes.
+It must also suppress cookies, enrollment codes, WebAuthn responses, and credential records.
+
+### WebAuthn authentication endpoints (unreleased)
+
+Only `auth.mode = "webauthn"` enables these routes. Every endpoint uses POST, exact Origin,
+`Sec-Fetch-Site: same-origin`, bounded `application/json`, and no-store responses.
+Authentication is never inferred from a loopback peer or a proxy identity header.
+
+| Endpoint | Request | Successful response |
+|---|---|---|
+| `/api/v1/auth/login/options` | `{}` | `{ "options": <WebAuthn request options JSON> }` |
+| `/api/v1/auth/login/verify` | `{ "response": <assertion JSON> }` | `{ "authenticated": true, "expiresAt": <epoch milliseconds> }` |
+| `/api/v1/auth/enroll/options` | `{ "code": <local enrollment code>, "label": <local label> }` | `{ "options": <WebAuthn creation options JSON> }` |
+| `/api/v1/auth/enroll/verify` | `{ "response": <registration JSON> }` | `{ "enrolled": true }` |
+| `/api/v1/auth/logout` | `{}` or `{ "endpoint": <current browser push endpoint> }` | Invalidates the current login and clears its cookie; removes the supplied subscription only for that identity |
+
+The local foreground enrollment command supplies the five-minute, single-use enrollment authority;
+ordinary daemon startup supplies none. Options bind a two-minute challenge to the HttpOnly
+`__Host-omp-auth` browser cookie and exact ceremony. Successful login consumes that binding and
+issues `__Host-omp-session`. Both cookies use `Secure; HttpOnly; SameSite=Strict; Path=/` and
+no Domain. The authenticated cookie has no persistent-cookie expiry; its server-side lifetime is
+one hour absolute. Browser restoration may persist the cookie, but a daemon restart invalidates it.
+No endpoint returns a cookie value in JSON or an OMP capability during authentication.
+
+Protected APIs return 401 when a WebAuthn login is absent or expired; the browser prompts for a
+passkey and then retries its existing metadata/launch flow. Serve's existing 403 denial is
+unchanged. SSE cannot emit protected events after session invalidation, and launch responses
+revalidate the session after the asynchronous OMP query. The immutable login shell and existing
+bounded health response remain available before authentication, but metadata does not.
+Cookies and enrollment codes are new authentication secrets, never OMP capabilities; all
+capability non-persistence restrictions below remain unchanged. See ADR-030 for revocation limits.
+Successful metadata snapshots carry `X-OMP-Auth-Mode`, allowing the browser to expose sign-out
+after an authenticated reload without a separate session-status request. Authentication admission
+is bounded to 16 credentials, 256 sessions, 128 pending ceremonies, and 20 options requests per
+minute. These are ceilings, not guarantees of availability under sustained hostile traffic.
 
 ### `GET /api/v1/sessions`
 

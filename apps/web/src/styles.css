@@ -101,6 +101,29 @@ p {
   margin-top: 0;
 }
 
+.sign-in {
+  padding: 1.5rem 0;
+  color: var(--body);
+}
+
+.sign-in h2 { color: var(--ink); }
+.sign-in p { line-height: 1.6; }
+.sign-in details { margin-top: 1.5rem; }
+.sign-in summary { cursor: pointer; padding: 0.75rem 0; color: var(--ink); }
+.sign-in form { display: grid; gap: 0.75rem; }
+.sign-in input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  color: var(--ink);
+  font: inherit;
+}
+
+#auth-message { margin-top: 1rem; }
+
 /* ——— Masthead ————————————————————————————————————————————————— */
 
 .masthead {

@@ -48,8 +48,11 @@ together when the baseline or design changes. Keep `bun run check` green.
 - Production HTTP listeners bind only to `127.0.0.1` and optionally `::1`.
 - Tailscale Serve over tailnet HTTPS is the supported remote path. Do not configure or document
   Tailscale Funnel as a normal path.
-- Trust Tailscale identity headers only on the loopback backend behind Serve. Production rejects
-  missing identity and compares normalized `Tailscale-User-Login` against an exact allowlist.
+- Trust Tailscale identity headers only in `tailscale-serve` mode on the loopback backend behind
+  Serve. That mode rejects missing identity and compares normalized `Tailscale-User-Login` against
+  an exact allowlist. The unreleased `webauthn` mode independently verifies enrolled passkeys;
+  every non-Serve path strips `Tailscale-User-*` before handling the request. Never fall back between
+  authentication modes. Tailscale Serve remains the only qualified remote path.
 - Development auth may allow loopback clients without Tailscale, but must reject non-loopback
   sources.
 - Require stock mainline OMP `>= 18.1.20`; the controller and local registry shipped in
@@ -60,6 +63,26 @@ together when the baseline or design changes. Keep `bun run check` green.
   managed loopback readiness to its CLI and is never an OMP credential.
 - The registry is metadata-only and memory-only. A daemon restart begins empty; polling repopulates it.
 - Keep metadata records structurally separate from transient launch responses.
+
+### Browser authentication (ADR-030)
+
+- WebAuthn credential enrollment requires a short-lived local foreground grant, never just a
+  loopback peer. Use the normal gateway listener and state protections, not another admin service.
+- Persist only public credential records/counters. Require exact HTTPS origin/RP binding and
+  user presence/verification; bound and consume browser-bound challenges exactly once.
+- Gateway login cookies are a distinct bearer-secret class: host-only Secure/HttpOnly/SameSite=Strict,
+  one-hour absolute server lifetime, volatile token-digest table, no refresh or sliding renewal.
+  Browsers may persist session cookies for restoration; no application storage, URLs, logs,
+  diagnostics, service-worker caches, or artifacts may contain them. OMP capabilities remain
+  forbidden in every cookie and durable sink.
+- Revalidate login before SSE emission and after asynchronous OMP launch resolution. Restart
+  invalidates all browser sessions. Credential maintenance requires exclusive listener ownership
+  before reading mutable state and releases that ownership automatically on process death.
+- Logout disposes local collaboration and clears resume intent; it cannot revoke OMP capabilities
+  already issued. Host-side collaboration stop is the hard revocation mechanism.
+- Push subscription opt-in survives cookie expiry, but credential revocation removes associated
+  subscriptions; notification navigation authenticates before metadata/launch.
+- No WebAuthn physical-client, alternate-tunnel, or per-Control-presence qualification is implied.
 
 ### Capabilities
 

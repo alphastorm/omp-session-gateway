@@ -61,6 +61,12 @@ Required default:
 - Tailscale Funnel and public reverse tunnels are not configured;
 - plain LAN HTTP is unsupported.
 
+The unreleased `webauthn` mode establishes browser identity independently; see §8.1 and ADR-030.
+It does not qualify a new remote path. The header-trust rules below apply to `tailscale-serve`,
+which remains the default and the only qualified remote configuration. Never forward a new
+transport into that mode. A TLS-terminating proxy remains trusted with plaintext cookies, launch
+responses, and the JavaScript it serves; passkeys do not remove that trust boundary.
+
 Keep the backend on localhost because another remotely reachable path would let callers inject
 `Tailscale-User-*` headers themselves. Direct loopback requests cannot be distinguished
 cryptographically from Serve-originated requests, so every untrusted process or OS account able
@@ -304,6 +310,46 @@ In `auth.mode = "tailscale-serve"`:
 
 Tailnet grants and application allowlisting are both required defense layers. Future device-specific policy may use posture or Tailscale app capabilities, but must have tests and must not fall back to “any tailnet member.”
 
+### 8.1 Gateway-owned browser authentication
+
+In `auth.mode = "webauthn"`, locally enrolled public credentials form the allowlist. No
+`Tailscale-User-*` value is consulted; every such header is removed at ingress in every non-Serve
+mode, including development. Exact HTTPS origin and RP-hostname binding, user presence and user
+verification, one-use browser-bound challenges, and bounded admission protect the WebAuthn
+ceremonies. Registration additionally requires a random five-minute grant from the local
+foreground enrollment command. Loopback transport alone never authorizes registration.
+
+The gateway issues a new bearer-secret class, `__Host-omp-session`, not an OMP capability. It uses
+`Secure; HttpOnly; SameSite=Strict; Path=/`, no Domain, and no persistent-cookie expiry. Browser
+session restoration may still persist this cookie. It permits new directory/launch requests for
+at most one hour, with no sliding extension or refresh token. The daemon retains only bounded
+volatile token digests and credential/deadline bindings; restart invalidates every session.
+The short-lived `__Host-omp-auth` cookie binds a pending ceremony, never directory access.
+Neither cookie, enrollment code, nor ceremony payload may enter ordinary logs, diagnostics, URLs,
+application storage, screenshots/recordings, service-worker caches, or published artifacts.
+OMP capabilities remain forbidden in **all** cookies and durable storage.
+
+Authentication/logout endpoints require the exact Origin and defensively checked Fetch Metadata,
+bounded JSON, and no-store responses. Only immutable login-shell assets, the bounded health
+endpoint, and authentication endpoints can be served before authentication. Session expiry or
+logout stops protected SSE output; launch completion rechecks authentication after querying OMP.
+Browser restore authenticates before fresh metadata and generation-bound relaunch. Authentication
+failure clears displayed metadata; logout also clears pending resume intent and disposes the client.
+
+Enrolled public records are versioned, atomically replaced, and protected by the same current-user
+POSIX permissions/Windows ACL checks as existing gateway state. Private passkey material stays in
+the authenticator. Local maintenance owns the configured loopback listener before reading mutable
+state, so a crashed process leaves no permanent lock. Credential removal requires the daemon
+stopped and removes that credential's push subscriptions; restart discards all browser sessions.
+Opted-in notifications otherwise survive cookie expiry, but notification clicks must authenticate.
+Synced passkeys are not unique physical-device identities.
+
+Revoking a gateway login does not revoke an OMP capability already issued, recall delivered
+notifications, or forcibly disconnect an independent collaboration client. Stop collaboration on
+the OMP host for hard revocation. HttpOnly prevents script access to the cookie value, not actions
+by malicious same-origin JavaScript. No physical-authenticator or alternative-tunnel qualification
+is inferred from repository tests.
+
 ## 9. Local discovery and queries
 
 Stock mainline OMP `>= 18.1.20` owns the discovery/query endpoint, introduced by [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).
@@ -346,10 +392,11 @@ Minimum guidance:
 - keep tailnet grants narrow;
 - persist no session capability in the PWA.
 
-Proposed stronger Control protection — ADR-008, not implemented in v0.4.0:
+Proposed stronger Control protection — ADR-008, separate from ADR-030 browser login:
 
-There is no current passkey enrollment or per-launch WebAuthn gate. The following remains a future
-contract, not a substitute for device revocation, lock, or tailnet policy:
+The unreleased WebAuthn mode enrolls passkeys and establishes a reusable browser login; it does
+not require a fresh assertion for each Control launch. The following per-launch gate remains a
+future contract, not a substitute for device revocation, lock, or tailnet policy:
 
 - enroll a WebAuthn credential with user verification;
 - require a fresh assertion for each Control launch or a very short verified window;

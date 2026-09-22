@@ -44,6 +44,14 @@ function requiredElement<ElementType extends Element>(selector: string): Element
   return element;
 }
 
+const signInPanel = requiredElement<HTMLElement>("#sign-in");
+const signInButton = requiredElement<HTMLButtonElement>("#passkey-sign-in");
+const enrollmentForm = requiredElement<HTMLFormElement>("#passkey-enroll");
+const enrollmentButton = requiredElement<HTMLButtonElement>("#passkey-enroll-submit");
+const enrollmentCode = requiredElement<HTMLInputElement>("#enrollment-code");
+const credentialLabel = requiredElement<HTMLInputElement>("#credential-label");
+const authMessage = requiredElement<HTMLElement>("#auth-message");
+const signOutButton = requiredElement<HTMLButtonElement>("#sign-out");
 const sessionList = requiredElement<HTMLElement>("#session-list");
 const emptyState = requiredElement<HTMLElement>("#empty-state");
 const statusBanner = requiredElement<HTMLElement>("#status-banner");
@@ -103,6 +111,12 @@ const dismissedSessions = readDismissedSessions();
 let events: EventSource | undefined;
 let directoryLoaded = false;
 let authorizationDenied = false;
+let webAuthnMode = false;
+let authCeremony: AbortController | undefined;
+let applicationWorkerRegistration: Promise<ServiceWorkerRegistration | undefined> | undefined;
+const authChannel = typeof window.BroadcastChannel === "function"
+  ? new BroadcastChannel("omp.sessions.auth")
+  : undefined;
 let notificationState: NotificationControlState = "checking";
 let directoryEpoch = 0;
 let directoryRevision = -1;
@@ -151,6 +165,7 @@ interface DashboardSnapshot {
 }
 
 interface ActiveCollabShell {
+  readonly mode: LaunchMode;
   readonly instanceId: string;
   readonly generation: number;
   readonly openedRequestId?: string;
@@ -197,6 +212,171 @@ let collabShellDisposedOnPageHide = false;
  */
 let disposedShellResume: DisposedShellResume | undefined;
 let currentNotificationDetail: PushDetailLevel = "session";
+
+function supportsPasskeyJSON(): boolean {
+  return typeof PublicKeyCredential !== "undefined" &&
+    typeof PublicKeyCredential.parseRequestOptionsFromJSON === "function" &&
+    typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function" &&
+    typeof PublicKeyCredential.prototype.toJSON === "function";
+}
+
+/** Drop authenticated UI and capabilities, retaining only an explicit metadata-only resume intent. */
+function requireSignIn(signedOut = false): void {
+  webAuthnMode = true;
+  authCeremony?.abort();
+  authCeremony = undefined;
+  const shell = activeCollabShell;
+  const resume = signedOut ? undefined : shell === undefined ? disposedShellResume : {
+    instanceId: shell.instanceId,
+    generation: shell.generation,
+    mode: shell.mode,
+    ...(shell.openedRequestId === undefined ? {} : { requestId: shell.openedRequestId }),
+  };
+  directoryEpoch += 1;
+  snapshotController?.abort();
+  snapshotController = undefined;
+  events?.close();
+  events = undefined;
+  clearEventLiveness();
+  clearReconnectTimeout();
+  clearTransportFailureTracking();
+  if (dashboardSnapshot !== undefined) restoreDirectoryDOM();
+  disposeActiveCollab?.();
+  disposeActiveCollab = undefined;
+  activeCollabShell = undefined;
+  disposedShellResume = resume;
+  collabShellDisposedOnPageHide = false;
+  authorizationDenied = true;
+  directoryLoaded = false;
+  directoryRevision = -1;
+  launchInProgress = false;
+  sessions.clear();
+  notificationSettings.close();
+  networkRecoveryHelp.close();
+  cancelPendingDismissToast();
+  if (signedOut) {
+    pendingAttentionLaunch = undefined;
+    attentionRouteStatusLocked = false;
+    heldAsks.clear();
+    dismissedSessions.clear();
+    writeLocalRecords(HELD_ASKS_STORAGE_KEY, heldAsks.values());
+    writeLocalRecords(DISMISSED_SESSIONS_STORAGE_KEY, dismissedSessions.values());
+    history.replaceState(null, "", "/");
+  }
+  signInPanel.hidden = false;
+  signOutButton.hidden = true;
+  settingsButton.hidden = true;
+  enrollmentCode.value = "";
+  credentialLabel.value = "";
+  signInButton.disabled = !supportsPasskeyJSON();
+  enrollmentButton.disabled = signInButton.disabled;
+  authMessage.textContent = signInButton.disabled
+    ? "This browser needs native passkey JSON support. Update your browser to sign in."
+    : signedOut ? "Signed out on this browser." : "Sign in to load current sessions.";
+  render();
+  setStatus("unauthorized", "Sign-in required.");
+}
+
+async function authRequest(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
+  const response = await fetch('/api/v1/auth/' + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw new Error("Authentication request rejected");
+  return response;
+}
+
+function initializeAuthenticatedNotifications(): void {
+  applicationWorkerRegistration ??= initializeApplicationWorker();
+  void initializeNotifications(applicationWorkerRegistration);
+}
+
+async function authenticate(enroll: boolean): Promise<void> {
+  if (authCeremony !== undefined || !supportsPasskeyJSON()) return;
+  const controller = new AbortController();
+  authCeremony = controller;
+  signInButton.disabled = true;
+  enrollmentButton.disabled = true;
+  authMessage.textContent = enroll ? "Follow your browser to create a passkey…" : "Follow your browser to sign in…";
+  try {
+    const kind = enroll ? "enroll" : "login";
+    const optionsResponse = await authRequest(kind + "/options", enroll
+      ? { code: enrollmentCode.value, label: credentialLabel.value.trim() }
+      : {}, controller.signal);
+    enrollmentCode.value = "";
+    const { options } = await optionsResponse.json();
+    const credential = enroll
+      ? await navigator.credentials.create({
+        publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(options), signal: controller.signal,
+      })
+      : await navigator.credentials.get({
+        publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(options), signal: controller.signal,
+      });
+    if (!(credential instanceof PublicKeyCredential)) throw new Error("Passkey ceremony cancelled");
+    const verified = await authRequest(kind + "/verify", { response: credential.toJSON() }, controller.signal);
+    if (controller.signal.aborted) return;
+    if (enroll) {
+      const result = await verified.json();
+      if (result.enrolled !== true) throw new Error("Invalid enrollment response");
+      credentialLabel.value = "";
+      authMessage.textContent = "Passkey enrolled. Start the gateway daemon, then sign in with your passkey.";
+      return;
+    }
+    const result = await verified.json();
+    if (result.authenticated !== true || !Number.isFinite(result.expiresAt)) throw new Error("Invalid sign-in response");
+    authMessage.textContent = "";
+    authorizationDenied = false;
+    signInPanel.hidden = true;
+    const refreshed = await refreshAndConnect();
+    if (refreshed) {
+      initializeAuthenticatedNotifications();
+      await reopenDisposedSession();
+    }
+  } catch {
+    if (!controller.signal.aborted) {
+      authMessage.textContent = enroll
+        ? "Enrollment was not completed. Check the active local code and try again."
+        : "Sign-in was not completed. Try your enrolled passkey again.";
+    }
+  } finally {
+    enrollmentCode.value = "";
+    if (authCeremony === controller) authCeremony = undefined;
+    signInButton.disabled = !supportsPasskeyJSON();
+    enrollmentButton.disabled = signInButton.disabled;
+  }
+}
+
+async function signOut(): Promise<void> {
+  requireSignIn(true);
+  authMessage.textContent = "Signing out…";
+  const controller = new AbortController();
+  authCeremony = controller;
+  signInButton.disabled = true;
+  enrollmentButton.disabled = true;
+  authChannel?.postMessage("signed-out");
+  let subscription: PushSubscription | null = null;
+  try {
+    const registration = notificationRegistration ?? await navigator.serviceWorker?.getRegistration();
+    subscription = await registration?.pushManager.getSubscription() ?? null;
+  } catch { /* Server sign-out must not depend on push support. */ }
+  try {
+    await authRequest("logout", subscription === null ? {} : { endpoint: subscription.endpoint }, controller.signal);
+    authMessage.textContent = "Signed out on this browser.";
+  } catch {
+    authMessage.textContent = "Server sign-out could not be confirmed. Reconnect and try Sign out again.";
+    signOutButton.hidden = false;
+  } finally {
+    await subscription?.unsubscribe().catch(() => false);
+    if (authCeremony === controller) authCeremony = undefined;
+    signInButton.disabled = !supportsPasskeyJSON();
+    enrollmentButton.disabled = signInButton.disabled;
+    setNotificationControl("idle");
+  }
+}
 
 const notificationLabels: Readonly<Record<NotificationControlState, string>> = {
   checking: "Checking background alerts…",
@@ -289,6 +469,7 @@ async function savePushSubscription(
     cache: "no-store",
     credentials: "same-origin",
   });
+  if (response.status === 401) requireSignIn();
   if (!response.ok) throw new Error("push subscription was rejected");
   return parsePushSubscriptionResponse(await response.json()).detailLevel;
 }
@@ -351,6 +532,10 @@ async function initializeNotifications(
       workerRegistration,
       fetch("/api/v1/push/config", { cache: "no-store", credentials: "same-origin" }),
     ]);
+    if (configResponse.status === 401) {
+      requireSignIn();
+      return;
+    }
     if (registered === undefined) {
       setNotificationControl("unavailable");
       return;
@@ -1507,13 +1692,13 @@ function returnToDirectory(historyValue?: unknown): void {
  * cannot be left waiting behind an inert shell — and resolves once the refreshed snapshot has
  * landed, so a resume can decide against current metadata rather than the pre-background copy.
  */
-function restoreDirectory(historyValue?: unknown): Promise<boolean> {
+function restoreDirectoryDOM(historyValue?: unknown): boolean {
   collabShellDisposedOnPageHide = false;
   disposedShellResume = undefined;
   const snapshot = dashboardSnapshot;
   if (snapshot === undefined) {
     location.replace("/");
-    return Promise.resolve(false);
+    return false;
   }
   const historyState = parseDirectoryHistoryState(historyValue) ?? snapshot.historyState;
   disposeActiveCollab?.();
@@ -1525,6 +1710,11 @@ function restoreDirectory(historyValue?: unknown): Promise<boolean> {
   dashboardSnapshot = undefined;
   history.replaceState({ ompDirectory: historyState }, "", "/");
   window.scrollTo(0, historyState.scrollY);
+  return true;
+}
+
+function restoreDirectory(historyValue?: unknown): Promise<boolean> {
+  if (!restoreDirectoryDOM(historyValue)) return Promise.resolve(false);
   const refreshed = refreshAndConnect();
   applyActivatedWorkerUpdate();
   return refreshed;
@@ -1544,7 +1734,18 @@ function restoreDirectory(historyValue?: unknown): Promise<boolean> {
 async function resumeDisposedCollabShell(): Promise<void> {
   const resume = disposedShellResume;
   const restored = await restoreDirectory();
-  if (resume === undefined || !restored) return;
+  if (!restored) {
+    if (!signInPanel.hidden) disposedShellResume = resume;
+    return;
+  }
+  disposedShellResume = resume;
+  await reopenDisposedSession();
+}
+
+async function reopenDisposedSession(): Promise<void> {
+  const resume = disposedShellResume;
+  disposedShellResume = undefined;
+  if (resume === undefined) return;
   const session = sessions.get(resume.instanceId);
   if (session === undefined || session.generation !== resume.generation) return;
   if (!(resume.mode === "control" ? session.canControl : session.canView)) return;
@@ -1755,6 +1956,14 @@ function enterCollabClient(
   const shellActions = document.createElement("span");
   shellActions.className = "shell-actions";
   shellActions.append(control, connection);
+  if (webAuthnMode) {
+    const signOutControl = document.createElement("button");
+    signOutControl.type = "button";
+    signOutControl.className = "shell-control";
+    signOutControl.textContent = "Sign out";
+    signOutControl.addEventListener("click", () => void signOut());
+    shellActions.append(signOutControl);
+  }
   bar.append(back, title, shellActions);
 
   const container = document.createElement("div");
@@ -1808,6 +2017,7 @@ function enterCollabClient(
   document.title = `${sessionTitle(session)} · OMP Sessions`;
 
   const shellState: ActiveCollabShell = {
+    mode,
     instanceId: session.instanceId,
     generation: session.generation,
     ...(requestId === undefined ? {} : { openedRequestId: requestId }),
@@ -1888,6 +2098,7 @@ async function launch(
   button?: HTMLButtonElement,
   requestId?: string,
 ): Promise<boolean> {
+  const launchEpoch = directoryEpoch;
   const sourceShell = activeCollabShell;
   const idleLabel = button?.textContent ?? (mode === "view" ? "View" : "Control");
   if (button !== undefined) {
@@ -1912,6 +2123,7 @@ async function launch(
   const fail = (kind: "offline" | "unauthorized" | "expired", message: string): boolean => {
     launchInProgress = false;
     resetButton();
+    if (launchEpoch !== directoryEpoch) return false;
     if (sourceShell !== undefined && activeCollabShell === sourceShell) {
       showTriageBar(sourceShell, "reconnecting", message, "Try again", () => {
         showTriageBar(
@@ -1942,6 +2154,11 @@ async function launch(
     return false;
   }
 
+  if (launchEpoch !== directoryEpoch || authorizationDenied) {
+    launchInProgress = false;
+    resetButton();
+    return false;
+  }
   let response: Response;
   try {
     response = await fetch(`/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`, {
@@ -1960,8 +2177,18 @@ async function launch(
     return false;
   }
 
+  if (launchEpoch !== directoryEpoch) {
+    launchInProgress = false;
+    resetButton();
+    return false;
+  }
   if (!response.ok) {
-    if (response.status === 403) {
+    if (response.status === 401) {
+      resetButton();
+      stylesheet?.remove();
+      disposedShellResume = { instanceId: session.instanceId, generation: session.generation, mode, ...(requestId === undefined ? {} : { requestId }) };
+      requireSignIn();
+    } else if (response.status === 403) {
       authorizationDenied = true;
       fail("unauthorized", "This tailnet identity is not authorized.");
     } else if (response.status === 404 || response.status === 409) {
@@ -1981,6 +2208,7 @@ async function launch(
     if (payload.mode !== mode || payload.generation !== session.generation) {
       throw new Error("invalid launch response");
     }
+    if (launchEpoch !== directoryEpoch || authorizationDenied) return false;
     capability = payload.capability;
     enterCollabClient(capability, startCollabWithCapability, session, mode, requestId);
     capability = undefined;
@@ -2034,6 +2262,10 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     });
     responseReceived = true;
     if (epoch !== directoryEpoch) return false;
+    if (response.status === 401) {
+      requireSignIn();
+      return false;
+    }
     if (response.status === 403) {
       authorizationDenied = true;
       directoryLoaded = false;
@@ -2045,6 +2277,10 @@ async function loadSnapshot(epoch: number): Promise<boolean> {
     if (!response.ok) throw new Error("snapshot failed");
     const payload = parseSessionListResponse(await response.json());
     if (epoch !== directoryEpoch || payload.revision < directoryRevision) return false;
+    webAuthnMode = response.headers.get("X-OMP-Auth-Mode") === "webauthn";
+    signInPanel.hidden = true;
+    signOutButton.hidden = !webAuthnMode;
+    settingsButton.hidden = false;
     directoryRevision = payload.revision;
     authorizationDenied = false;
     directoryLoaded = true;
@@ -2155,6 +2391,15 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
   if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();
   return false;
 }
+signInButton.addEventListener("click", () => void authenticate(false));
+enrollmentForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void authenticate(true);
+});
+signOutButton.addEventListener("click", () => void signOut());
+if (authChannel !== undefined) authChannel.onmessage = event => {
+  if (event.data === "signed-out") requireSignIn(true);
+};
 settingsButton.addEventListener("click", () => notificationSettings.showModal());
 notificationButton.addEventListener("click", () => void toggleBackgroundNotifications());
 notificationSettingsClose.addEventListener("click", () => notificationSettings.close());
@@ -2221,6 +2466,4 @@ document.addEventListener("visibilitychange", () => {
   void refreshAndConnect();
 });
 
-const applicationWorkerRegistration = initializeApplicationWorker();
-void initializeNotifications(applicationWorkerRegistration);
-await refreshAndConnect();
+if (await refreshAndConnect()) initializeAuthenticatedNotifications();

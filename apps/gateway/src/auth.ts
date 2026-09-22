@@ -1,11 +1,12 @@
 import { loopbackHttpOrigin, type GatewayConfig } from "./config.ts";
+import type { WebAuthnService, WebAuthnSession } from "./webauthn.ts";
 
 export interface RequestPeer {
   readonly address: string;
 }
 
 export type AuthorizationResult =
-  | { readonly allowed: true; readonly identityKey: string }
+  | { readonly allowed: true; readonly identityKey: string; readonly webAuthnSession?: WebAuthnSession }
   | { readonly allowed: false; readonly reason: "unauthorized" | "identity_untrustworthy" };
 
 export function isLoopbackAddress(address: string): boolean {
@@ -95,6 +96,7 @@ export function authorizeHttpRequest(
   peer: RequestPeer | undefined,
   config: GatewayConfig,
   serveOwnsIdentityHeaders: boolean,
+  webAuthn?: WebAuthnService,
 ): AuthorizationResult {
   if (peer === undefined || !isLoopbackAddress(peer.address)) return { allowed: false, reason: "unauthorized" };
   // Dispatch on the mode explicitly and fall through to a refusal. Reading the Tailscale identity
@@ -106,6 +108,12 @@ export function authorizeHttpRequest(
       return authorizeDevLocalhost(request, config);
     case "tailscale-serve":
       return authorizeTailscaleServe(request, config, serveOwnsIdentityHeaders);
+    case "webauthn": {
+      const session = webAuthn?.session(request);
+      return session === undefined
+        ? { allowed: false, reason: "unauthorized" }
+        : { allowed: true, identityKey: session.identityKey, webAuthnSession: session };
+    }
     default:
       return { allowed: false, reason: "identity_untrustworthy" };
   }

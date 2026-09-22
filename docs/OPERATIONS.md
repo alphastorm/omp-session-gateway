@@ -128,10 +128,75 @@ stopped; the prior potentially exposed token is never restored. Repair the failu
 normal install command to restore service registration. Mutation commands reject unknown options,
 missing values, and misspelled safety flags before changing state.
 
+### 2.1 Unreleased WebAuthn enrollment and maintenance
+
+This requires a newly built CLI containing ADR-030, not the published v0.4.2 CLI. It is an
+explicit source-development path, not a qualified deployment or alternative-tunnel recipe. Keep
+the existing private Tailscale Serve HTTPS path and use a dedicated gateway hostname: cookies
+are host-scoped, not port-scoped, so an untrusted colocated application is unsafe.
+
+Stop any foreground gateway first. The existing matching CLI's `uninstall` stops a managed
+gateway and removes autostart without deleting private config, credentials, readiness material,
+or Serve mappings. Then prepare the mode with the new CLI:
+
+```sh
+omp-gateway uninstall
+omp-gateway install --auth webauthn --origin https://host.tailnet.ts.net --no-start
+omp-gateway serve-guidance
+```
+
+Apply/retain the private Serve mapping printed by `serve-guidance` before enrollment. Do not
+enable Funnel or point another forwarder at the header-trusting mode. Enrollment requires the
+exact configured HTTPS origin, although the gateway listener remains loopback-only.
+
+```sh
+omp-gateway auth enroll
+```
+
+Use an interactive, non-recorded terminal; codes cannot be redirected. The ordinary foreground
+gateway displays the non-secret origin and a random five-minute registration code. Open that
+origin, select enrollment, enter a local label and the code, and complete user verification. Never
+put the code in a URL, argument, file, screenshot, issue, or recording. Successful registration
+ends the foreground process after its response. An expired grant requires a new local run.
+
+Activate the same new runtime and sign in with the enrolled passkey:
+
+```sh
+omp-gateway install --auth webauthn --origin https://host.tailnet.ts.net
+omp-gateway doctor
+```
+
+`doctor` checks configuration, credential-state safety, readiness, and unauthenticated API denial;
+it cannot perform user verification or qualify an authenticator/tunnel. Exercise browser login,
+directory/SSE, disposable View/Control, logout, and denial. Login expires after one hour without
+automatic extension. Browser closure may restore its cookie; restart invalidates it. This is not
+a fresh user-presence prompt per Control launch.
+
+For another passkey or lost-key recovery, stop/uninstall, repeat `auth enroll`, then activate the
+same new runtime. For removal, list non-secret local IDs and labels:
+
+```sh
+omp-gateway auth list
+omp-gateway auth revoke --id <record-id-from-auth-list>
+```
+
+Revocation requires the daemon stopped and the configured listener unoccupied; it removes the
+public record and associated push subscriptions. Restart and sign in on retained credentials.
+Removing the last credential intentionally prevents normal startup until local re-enrollment.
+Missing, corrupt, unsafe, or origin-mismatched state never enables enrollment or falls back to
+Serve. Origin changes require explicit re-enrollment; preserve predecessor config/credential state
+when planning one. An old binary cannot use a WebAuthn config by silently trusting headers.
+
+Gateway revocation prevents new gateway access, not a previously issued OMP capability. Stop
+collaboration on the OMP host for hard revocation. Opted-in push survives cookie expiry; logout
+removes the current browser subscription and credential revocation removes all associated
+subscriptions. Notification navigation authenticates before metadata/launch.
+
 ## 3. Paths
 
 The gateway’s private config directory contains `config.json` and `readiness-token`; its private
-state directory holds the managed runtime and optional push state. Use the installed CLI’s
+state directory holds the managed runtime, optional push state, and WebAuthn public credential
+records. Browser sessions remain daemon-memory-only. Use the installed CLI’s
 configuration/diagnostics rather than assuming an OMP path from a gateway runtime directory.
 Capabilities are never stored in any of these paths.
 
@@ -256,9 +321,10 @@ If the phone is lost or compromised:
 6. rotate the readiness token only when local desktop exposure is suspected—it does not revoke an
    OMP query token or a remote collaboration room.
 
-WebAuthn Control protection is not implemented in v0.4.2;
+Per-Control WebAuthn protection is not implemented in v0.4.2 or by ADR-030 browser login;
 [ADR-008](DECISIONS.md#adr-008--optional-webauthn-gate-not-native-biometrics) remains a proposal.
-Do not rely on a separate biometric or credential-enrollment gate for revocation.
+For the unreleased independent login mode, follow §2.1 credential revocation and restart. Neither
+mode invalidates OMP capabilities already issued; stop collaboration on the host for hard revocation.
 
 ## 11. `doctor` and diagnostics bundle
 

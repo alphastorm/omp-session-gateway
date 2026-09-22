@@ -64,3 +64,21 @@ test("detects discovery credentials and collaboration fragments without a URL pr
 test("does not flag documented placeholders or ordinary URLs", () => {
   expect(findCapabilityLeaks("https://host.tailnet.ts.net <roomId>.<key> Authorization: Bearer <token>")).toEqual([]);
 });
+
+test("detects gateway authentication cookies in headers and browser exports", () => {
+  const session = randomBytes(32).toString("base64url");
+  const attempt = randomBytes(32).toString("base64url");
+  const leaks = [
+    `Set-Cookie: __Host-omp-session=${session}; Secure; HttpOnly; SameSite=Strict; Path=/`,
+    `Cookie: __Host-omp-auth=${attempt}; theme=dark`,
+    JSON.stringify({ "__Host-omp-session": session }),
+    JSON.stringify({ cookies: [{ name: "__Host-omp-session", value: session, httpOnly: true }] }),
+    JSON.stringify({ cookies: [{ value: attempt, secure: true, name: "__Host-omp-auth" }] }),
+  ];
+  for (const artifact of leaks) {
+    expect(findCapabilityLeaks(artifact).map(finding => finding.label)).toContain("gateway authentication cookie");
+  }
+  expect(findCapabilityLeaks("__Host-omp-session=<opaque-cookie>; __Host-omp-auth=<attempt>")).toEqual([]);
+  expect(findCapabilityLeaks("Set-Cookie: __Host-omp-session=; Max-Age=0; Path=/")).toEqual([]);
+  expect(findCapabilityLeaks(JSON.stringify({ name: "theme", value: session }))).toEqual([]);
+});

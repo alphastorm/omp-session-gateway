@@ -29,6 +29,14 @@ const patterns: readonly (readonly [string, RegExp])[] = [
   ],
   ["long Bearer token", /Authorization\s*:\s*Bearer\s+[A-Za-z0-9._~-]{40,}/giu],
   [
+    "gateway authentication cookie",
+    /__Host-omp-(?:session|auth)["']?\s*[:=]\s*["']?[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/gu,
+  ],
+  [
+    "gateway authentication cookie",
+    /\{(?=[^{}]*"name"\s*:\s*"__Host-omp-(?:session|auth)")(?=[^{}]*"value"\s*:\s*"[A-Za-z0-9_-]{43}")[^{}]*\}/gu,
+  ],
+  [
     "gateway readiness token",
     /(?:["']token["']\s*:\s*["']|readiness-token\s*[=:]\s*)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/giu,
   ],

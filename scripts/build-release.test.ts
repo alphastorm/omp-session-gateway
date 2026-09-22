@@ -13,38 +13,12 @@ import {
   releaseSourceFromEpoch,
   resolveReleaseSource,
   runtimeDependenciesFromLock,
+  validateThirdPartyNotices,
   type BunLockfile,
   type VendoredClientLockfile,
 } from "./build-release.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const expectedRuntimeDependencies = [
-  "@oh-my-pi/pi-wire@18.1.14",
-  "agent-base@7.1.4",
-  "asn1.js@5.4.1",
-  "bn.js@4.12.5",
-  "buffer-equal-constant-time@1.0.1",
-  "commander@15.0.0",
-  "debug@4.4.3",
-  "ecdsa-sig-formatter@1.0.11",
-  "http_ece@1.2.0",
-  "https-proxy-agent@7.0.6",
-  "inherits@2.0.4",
-  "jwa@2.0.1",
-  "jws@4.0.1",
-  "katex@0.18.5",
-  "lucide-react@1.31.0",
-  "marked@18.0.9",
-  "minimalistic-assert@1.0.1",
-  "minimist@1.2.8",
-  "ms@2.1.3",
-  "react@19.2.7",
-  "react-dom@19.2.7",
-  "safe-buffer@5.2.1",
-  "safer-buffer@2.1.2",
-  "scheduler@0.27.0",
-  "web-push@3.6.7",
-];
 const deterministicSource = releaseSourceFromEpoch("a".repeat(40), "1700000000");
 
 async function releaseInputs(): Promise<{ lock: BunLockfile; lockSha256: string; client: VendoredClientLockfile }> {
@@ -109,15 +83,50 @@ function tarEntries(archive: Buffer): Map<string, Buffer> {
   return entries;
 }
 
-test("derives only the bundled runtime dependency closure from bun.lock", async () => {
-  const { lock } = await releaseInputs();
-  expect(runtimeDependenciesFromLock(lock).map(dependency => `${dependency.name}@${dependency.version}`)).toEqual(
-    expectedRuntimeDependencies,
-  );
+test("resolves nested runtime dependencies through scoped ancestors without including dev dependencies", () => {
+  const lock: BunLockfile = {
+    workspaces: {
+      "": { devDependencies: { "dev-only": "1.0.0" } },
+      "apps/gateway": {
+        name: "@fixture/gateway",
+        dependencies: { host: "1.0.0", shared: "2.0.0", alias: "npm:actual@3.0.0", protocol: "workspace:*", local: "1.0.0" },
+        devDependencies: { "dev-only": "1.0.0" },
+      },
+      "apps/web": {},
+      "packages/collab-client": { optionalDependencies: { optional: "1.0.0" } },
+      "packages/protocol": { dependencies: { shared: "2.0.0" }, devDependencies: { "dev-only": "1.0.0" } },
+    },
+    packages: {
+      "@fixture/gateway/local": ["local@1.0.0"],
+      host: ["host@1.0.0", "", { dependencies: { "@scope/bridge": "1.0.0", shared: "1.0.0" }, devDependencies: { "dev-only": "1.0.0" } }],
+      "host/@scope/bridge": ["@scope/bridge@1.0.0", "", { dependencies: { leaf: "1.0.0", shared: "1.0.0" } }],
+      "host/@scope/bridge/leaf": ["leaf@1.0.0", "", { dependencies: { shared: "1.0.0" } }],
+      "host/shared": ["shared@1.0.0", "", { dependencies: { legacy: "1.0.0" } }, "sha512-nested"],
+      "host/@scope/shared": ["@scope/shared@9.0.0"],
+      shared: ["shared@2.0.0", "", {}, "sha512-root"],
+      alias: ["actual@3.0.0", "", {}, "sha512-alias"],
+      protocol: ["protocol@workspace:packages/protocol"],
+      optional: ["optional@1.0.0"],
+      legacy: ["legacy@1.0.0"],
+      "dev-only": ["dev-only@1.0.0"],
+    },
+  };
+  expect(runtimeDependenciesFromLock(lock)).toEqual([
+    { name: "@scope/bridge", version: "1.0.0" },
+    { name: "actual", version: "3.0.0", integrity: "sha512-alias" },
+    { name: "host", version: "1.0.0" },
+    { name: "leaf", version: "1.0.0" },
+    { name: "legacy", version: "1.0.0" },
+    { name: "local", version: "1.0.0" },
+    { name: "optional", version: "1.0.0" },
+    { name: "shared", version: "1.0.0", integrity: "sha512-nested" },
+    { name: "shared", version: "2.0.0", integrity: "sha512-root" },
+  ]);
 });
 
 test("SPDX namespace, lock digest, and creation time bind reproducibly to release source", async () => {
   const { lock, lockSha256, client } = await releaseInputs();
+  validateThirdPartyNotices(await readFile(join(root, "THIRD_PARTY_NOTICES.md"), "utf8"), runtimeDependenciesFromLock(lock));
   expect(deterministicSource.created).toBe("2023-11-14T22:13:20Z");
   expect(
     await resolveReleaseSource({ GITHUB_SHA: "b".repeat(40), SOURCE_DATE_EPOCH: "1700000000" }),
@@ -135,7 +144,7 @@ test("SPDX namespace, lock digest, and creation time bind reproducibly to releas
   expect(document.packages.map(pkg => `${pkg.name}@${pkg.versionInfo}`)).toEqual([
     `omp-session-gateway@${PRODUCT_VERSION}`,
     "@oh-my-pi/collab-web@16.3.6",
-    ...expectedRuntimeDependencies,
+    ...runtimeDependenciesFromLock(lock).map(dependency => `${dependency.name}@${dependency.version}`),
   ]);
   expect(document.packages[0]?.sourceInfo).toContain(lockSha256);
   expect(document.packages.find(pkg => pkg.name === "@oh-my-pi/collab-web")?.sourceInfo).toContain(client.commit);

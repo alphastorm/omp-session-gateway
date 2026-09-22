@@ -1,5 +1,12 @@
 # Release status
 
+## Unreleased browser authentication — no qualification expansion
+
+Gateway-owned WebAuthn authentication (ADR-030) is not part of the published v0.4.2 matrix below.
+Implementation and virtual-authenticator checks are not signed-artifact, physical-client, tunnel,
+or soak qualification. Tailscale Serve remains the only qualified remote path. Issues #74 and
+#158 remain open for their separate transport and identity-topology acceptance work.
+
 ## Mainline v0.4.2 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.2** on the exact matrix recorded under the

@@ -110,13 +110,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) for curren
 
 ## ADR-008 — Optional WebAuthn gate, not native biometrics
 
-**Status:** Proposed after v1
+**Status:** Proposed after v1; scope narrowed by ADR-030 to per-Control user presence
 
 **Context:** A lost/unlocked phone with an active tailnet identity could control sessions.
 
 **Decision:** Offer WebAuthn user verification for Control launches before considering a native app.
 
 **Consequences:** Strong user-presence check with the same PWA; requires one-time credential enrollment.
+
+ADR-030 separately establishes browser identity through locally enrolled passkeys. Its reusable
+gateway login is not a fresh assertion for each Control launch and does not implement this gate.
 
 
 ---
@@ -705,3 +708,75 @@ directory. Resume costs one additional launch round trip and one fresh relay tra
 fire while a client is still live, because it is reachable only after disposal. An offline restore
 resumes nothing and shows the directory's own failure state. Resume is qualified by the browser lane
 only; it carries no iOS claim.
+
+## ADR-030 — Authenticate browsers with locally enrolled passkeys and volatile gateway sessions
+
+**Status:** Accepted
+
+**Date:** 2026-09-22
+
+**Context:** Tailscale Serve authenticates the caller; the gateway's existing allowlist authorizes
+its asserted identity. A different loopback forwarder cannot inherit that trust. Issues #74 and
+#158 require an authenticator the gateway verifies itself before either remote path can be
+considered for qualification. ADR-008 proposes fresh user presence for Control, not independent
+browser identity. ADR-028/029 prohibit persisting OMP capabilities; neither defines a reusable
+gateway login credential.
+
+**Decision:** Add explicit `auth.mode = "webauthn"`, independent of Serve identity headers. Strip
+all `Tailscale-User-*` headers before handling any non-Serve request; unknown modes continue to
+deny. Keep loopback listeners, exact HTTPS origin/RP binding, no CORS, strict browser policy,
+generation-bound just-in-time capabilities, and the existing pinned collaboration client.
+
+Locally enrolled credentials form a single-owner allowlist. Registration and authentication require
+WebAuthn user presence and verification. Use a maintained server verifier rather than local
+cryptographic parsing; request discoverable credentials and no identifying attestation. Persist
+only versioned public credential records and necessary counters/labels in the existing private
+state directory, with atomic replacement and existing POSIX/Windows protections. Synced passkeys
+are allowed; their credential identity is not a physical-device identity.
+
+Enrollment is an explicit local foreground operation while the managed daemon is stopped. The
+ordinary gateway runs with one random, short-lived enrollment grant, displayed only in the
+invoking terminal and entered into the browser. It is never a URL, argument, configuration value,
+readiness token, or OMP token. Possession authorizes only registration, not directory access.
+The grant expires after five minutes; ceremonies are browser-bound, one-use, and expire after two
+minutes. Normal operation exposes no enrollment authority. Local credential removal and a daemon
+restart revoke future gateway access; restart invalidates all browser sessions. Loopback listener
+ownership excludes concurrent state mutation and releases on process death, without stale lock
+files or a permanent management protocol.
+
+A successful assertion issues an opaque `__Host-omp-session` cookie with `Secure`, `HttpOnly`,
+`SameSite=Strict`, `Path=/`, no Domain, and no persistent-cookie expiry. The daemon keeps a
+bounded memory-only table of token digests, credential bindings, and one-hour absolute deadlines.
+There is no sliding renewal, refresh token, JWT, or persistent session store. Login rotates the
+browser's unprivileged ceremony binding. Logout, expiry, and process restart invalidate access;
+SSE and asynchronous launch completion must revalidate it before emitting protected data.
+
+This cookie is a **new bearer-secret class**: it authorizes obtaining OMP capabilities while valid.
+Browsers may persist even session cookies for restoration. That exception is limited to the
+browser's HttpOnly cookie jar; no token enters application storage, logs, diagnostics, URLs,
+service-worker caches, or artifacts. It never changes the prohibition on OMP capabilities in
+cookies or other durable sinks. Browser closure is not a revocation guarantee.
+
+The browser uses existing cookie-authenticated fetch and EventSource. A 401 prompts explicit
+passkey authentication, then retries the existing metadata/resume flow. ADR-029's volatile launch
+intent and generation/access checks remain authoritative. Logout clears intent, metadata, and
+pending work and disposes the local client. The service worker remains an immutable-shell cache,
+not a session manager. Opted-in push subscriptions retain their existing durable lifetime,
+bound to enrolled credential identities rather than cookies; session expiry does not disable
+notifications. Logout removes the current browser subscription; credential revocation removes
+that credential's subscriptions. Notification navigation authenticates before reading or launching.
+
+**Limits:** Gateway revocation blocks future gateway requests, not a previously issued OMP bearer
+capability or independently connected relay client. Stop collaboration on the OMP host for hard
+revocation. HttpOnly cannot defend against malicious same-origin JavaScript; a proxy terminating
+TLS and delivering the application remains trusted with plaintext HTTP and application integrity.
+No claim is made that passkeys make an untrusted TLS terminator safe.
+
+**Consequences:** This adds a new secret class but avoids a browser bearer-token/SSE protocol,
+accounts, privileged administration API, session database, and credential hot-reload machinery.
+Credential maintenance briefly interrupts gateway access. A changed origin requires explicit
+re-enrollment; missing or invalid state fails closed, and an older binary never silently substitutes
+Serve authentication. Narrow ADR-008 to the still-proposed per-Control user-presence gate: login
+is not that gate. Tailscale Serve remains default and the only qualified remote path. This decision
+does not qualify WebAuthn on physical clients, Cloudflare Tunnel/Access, Portal Tunnel, or new
+platforms, and does not close either transport issue.

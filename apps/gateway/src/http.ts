@@ -18,6 +18,7 @@ import type { GatewayConfig } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
 import { SessionRegistry } from "./registry.ts";
 import type { PushService } from "./push.ts";
+import type { WebAuthnService, WebAuthnSession } from "./webauthn.ts";
 
 import { StaticAssetStore } from "./static.ts";
 import type { LaunchResolution } from "./omp-registry.ts";
@@ -168,15 +169,19 @@ function eventStream(
   registry: SessionRegistry,
   keepaliveMs = SSE_KEEPALIVE_MS,
   stillAuthorized: () => boolean = () => true,
+  authSession?: WebAuthnSession,
 ): Response {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
+  let unsubscribeAuth: (() => void) | undefined;
   let closed = false;
   const release = (): void => {
     closed = true;
     unsubscribe?.();
     unsubscribe = undefined;
+    unsubscribeAuth?.();
+    unsubscribeAuth = undefined;
     clearInterval(keepalive);
     keepalive = undefined;
   };
@@ -193,6 +198,7 @@ function eventStream(
         };
         const send = (event: SessionEvent): void => {
           if (closed) return;
+          if (!stillAuthorized()) return close();
           if ((controller.desiredSize ?? 1) < -32) {
             close();
             return;
@@ -203,6 +209,8 @@ function eventStream(
             release();
           }
         };
+        unsubscribeAuth = authSession?.onInvalidated(close);
+        if (closed) return;
         const dispose = registry.subscribeWithSnapshot(send);
         // A stream abandoned during admission has no subscription handle to revoke yet, so revoke the
         // one admission just returned instead of leaving the listener attached to the registry.
@@ -250,6 +258,7 @@ export function createHttpHandler(options: {
   readonly launchResolver: LaunchBroker;
   readonly staticAssets: StaticAssetStore;
   readonly pushService?: PushService;
+  readonly webAuthn?: WebAuthnService;
   readonly logger?: SafeLogger;
   readonly readinessToken?: string;
   readonly readinessInstance?: string;
@@ -270,7 +279,7 @@ export function createHttpHandler(options: {
 }): (request: Request, peer?: RequestPeer) => Promise<Response> {
   const { config, registry, staticAssets, launchResolver } = options;
   const logger = options.logger ?? new SafeLogger();
-  const identityCapacity = config.auth.mode === "dev-localhost" ? 1 : config.auth.allowedLogins.length;
+  const identityCapacity = config.auth.mode === "webauthn" ? 16 : config.auth.mode === "dev-localhost" ? 1 : config.auth.allowedLogins.length;
   // Each admitted identity can own exactly two keys (`launch` and `push`), so configured identities
   // can never deny one another merely by filling the bounded map.
   const limiter = new LaunchRateLimiter(20, 60_000, Math.max(2, identityCapacity * 2));
@@ -292,6 +301,16 @@ export function createHttpHandler(options: {
   // governs logging only; authorization always uses the measured value.
   let identityTrustLogged = true;
   return async (request, peer): Promise<Response> => {
+    if (config.auth.mode !== "tailscale-serve") {
+      let headers: Headers | undefined;
+      for (const name of request.headers.keys()) {
+        if (name.toLowerCase().startsWith("tailscale-user-")) {
+          headers ??= new Headers(request.headers);
+          headers.delete(name);
+        }
+      }
+      if (headers !== undefined) request = new Request(request, { headers });
+    }
     let url: URL;
     try {
       url = new URL(request.url);
@@ -342,20 +361,73 @@ export function createHttpHandler(options: {
         );
       }
     }
-    const authorization = authorizeHttpRequest(request, peer, config, serveOwnsIdentityHeaders);
+    const authorization = authorizeHttpRequest(request, peer, config, serveOwnsIdentityHeaders, options.webAuthn);
+    const unauthenticated = (): Response => {
+      const response = problem(401, "unauthorized", "Sign in required");
+      response.headers.set("X-OMP-Auth-Mode", "webauthn");
+      return response;
+    };
+    const authRoute = /^\/api\/v1\/auth\/(login|enroll)\/(options|verify)$/u.exec(url.pathname);
+    if (config.auth.mode === "webauthn" && (authRoute !== null || url.pathname === "/api/v1/auth/logout")) {
+      if (peer === undefined || !isLoopbackAddress(peer.address) || !requestHasValidMutationContext(request, config.http.publicOrigin) || request.headers.get("Sec-Fetch-Site") !== "same-origin") return problem(403, "forbidden", "Forbidden");
+      if (request.method !== "POST") return problem(405, "method_not_allowed", "Expected POST");
+      if (request.headers.get("Content-Type")?.toLowerCase() !== "application/json") return problem(415, "unsupported_media_type", "Expected application/json");
+      const webAuthn = options.webAuthn;
+      if (webAuthn === undefined) return unauthenticated();
+      let body: unknown;
+      try { body = parseJsonFrame(await readBoundedBody(request, 65_536)); } catch { return problem(400, "bad_request", "Invalid request"); }
+      if (url.pathname === "/api/v1/auth/logout") {
+        if (!authorization.allowed || authorization.webAuthnSession?.isActive() !== true) return unauthenticated();
+        if (typeof body !== "object" || body === null || Array.isArray(body) || Object.keys(body).some(key => key !== "endpoint")) return problem(400, "bad_request", "Invalid request");
+        const endpoint = (body as { endpoint?: unknown }).endpoint;
+        let unsubscribeRequest;
+        try {
+          if (endpoint !== undefined) unsubscribeRequest = parsePushUnsubscribeRequest({ version: PUSH_API_VERSION, endpoint });
+        } catch { return problem(400, "bad_request", "Invalid request"); }
+        // Start removal with the admitted identity before invalidation, but never delay revocation
+        // (or allow persistence failure to keep this browser authenticated).
+        const removal = unsubscribeRequest === undefined ? undefined : options.pushService?.unsubscribe(authorization.identityKey, unsubscribeRequest);
+        const response = webAuthn.logout(request);
+        try {
+          await removal;
+        } catch {
+          const failed = problem(503, "subscription_rejected", "Signed out; push subscription could not be removed");
+          for (const value of response.headers.getSetCookie()) failed.headers.append("Set-Cookie", value);
+          return failed;
+        }
+        return withSecurityHeaders(response, true);
+      }
+      try {
+        const kind = authRoute![1] as "login" | "enroll";
+        const response = authRoute![2] === "options" ? await webAuthn.options(request, kind, body) : await webAuthn.verify(request, kind, body);
+        return withSecurityHeaders(response, true);
+      } catch { return problem(400, "authentication_rejected", "Authentication could not be completed"); }
+    }
+    // The public shell contains no metadata. Its initial protected snapshot drives sign-in.
+    if (config.auth.mode === "webauthn" && request.method === "GET" && peer !== undefined && isLoopbackAddress(peer.address)) {
+      const shell = url.pathname === "/" || clientRoute || requestBootstrap || updateBootstrap;
+      const immutable = /^\/assets\/[a-z0-9-]+\.[a-f0-9]{12}\.[a-z0-9]+$/u.test(url.pathname);
+      if (shell || immutable) {
+        const response = staticAssets.response(shell ? "/" : url.pathname);
+        if (response !== undefined) return withSecurityHeaders(response, shell);
+      }
+    }
     if (!authorization.allowed) {
       logger.event("warn", "http.authorization_denied", {
         identity_untrustworthy: authorization.reason === "identity_untrustworthy",
       });
-      return problem(403, "forbidden", "Forbidden");
+      return config.auth.mode === "webauthn" ? unauthenticated() : problem(403, "forbidden", "Forbidden");
     }
     if (url.pathname === "/api/v1/sessions" && request.method === "GET") {
-      return withSecurityHeaders(Response.json(registry.snapshot()), true);
+      const response = withSecurityHeaders(Response.json(registry.snapshot()), true);
+      if (config.auth.mode === "webauthn") response.headers.set("X-OMP-Auth-Mode", "webauthn");
+      return response;
     }
     if (url.pathname === "/api/v1/events" && request.method === "GET") {
       // Re-read per keepalive: an admitted stream must not outlive the topology that justified it.
       return eventStream(registry, options.sseKeepaliveMs, () =>
-        config.auth.mode !== "tailscale-serve" || identityTrustDeclared || tailnetPresent(),
+        authorization.webAuthnSession?.isActive() ?? (config.auth.mode !== "tailscale-serve" || identityTrustDeclared || tailnetPresent()),
+        authorization.webAuthnSession,
       );
     }
     if (url.pathname === "/api/v1/push/config" && request.method === "GET" && options.pushService !== undefined) {
@@ -381,6 +453,7 @@ export function createHttpHandler(options: {
       } catch {
         return problem(400, "bad_request", "Invalid request");
       }
+      if (authorization.webAuthnSession !== undefined && !authorization.webAuthnSession.isActive()) return unauthenticated();
       if (request.method === "POST") {
         let subscriptionRequest;
         try {
@@ -390,6 +463,7 @@ export function createHttpHandler(options: {
         }
         try {
           const detailLevel = await options.pushService.subscribe(authorization.identityKey, subscriptionRequest);
+          if (authorization.webAuthnSession !== undefined && !authorization.webAuthnSession.isActive()) return unauthenticated();
           return withSecurityHeaders(
             Response.json({ version: PUSH_API_VERSION, detailLevel }),
             true,
@@ -405,6 +479,7 @@ export function createHttpHandler(options: {
           return problem(400, "bad_request", "Invalid request");
         }
         await options.pushService.unsubscribe(authorization.identityKey, unsubscribeRequest);
+        if (authorization.webAuthnSession !== undefined && !authorization.webAuthnSession.isActive()) return unauthenticated();
       }
       return withSecurityHeaders(new Response(null, { status: 204 }), true);
     }
@@ -436,6 +511,7 @@ export function createHttpHandler(options: {
       } catch {
         return problem(400, "bad_request", "Invalid request");
       }
+      if (authorization.webAuthnSession !== undefined && !authorization.webAuthnSession.isActive()) return unauthenticated();
       if (!limiter.allow(`${authorization.identityKey}\0launch`, now())) {
         return problem(429, "rate_limited", "Too many requests");
       }
@@ -445,6 +521,7 @@ export function createHttpHandler(options: {
         mode: launchRequest.mode,
         ...(launchRequest.requestId === undefined ? {} : { requestId: launchRequest.requestId }),
       });
+      if (authorization.webAuthnSession !== undefined && !authorization.webAuthnSession.isActive()) return unauthenticated();
       if (resolution.status === "generation_mismatch") {
         return problem(409, "generation_mismatch", "Session changed; refresh and try again");
       }
@@ -480,6 +557,7 @@ export function startHttpServer(options: {
   readonly launchResolver: LaunchBroker;
   readonly staticAssets: StaticAssetStore;
   readonly pushService?: PushService;
+  readonly webAuthn?: WebAuthnService;
   readonly logger?: SafeLogger;
   readonly readinessToken: string;
   readonly readinessInstance?: string;

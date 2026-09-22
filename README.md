@@ -351,7 +351,9 @@ Release-blocking invariants include:
 - identity headers are believed only while Tailscale's tunnel device is present, because a
   userspace-networking `tailscaled` forwards inbound tailnet traffic to that loopback listener and
   the caller then arrives indistinguishable from a local one;
-- production requests require a verified and allowlisted Tailscale identity;
+- the qualified default requires a verified and allowlisted Tailscale identity; the unreleased
+  `webauthn` mode establishes browser identity independently through locally enrolled passkeys
+  and an HttpOnly gateway-session cookie (see [ADR-030](docs/DECISIONS.md#adr-030--authenticate-browsers-with-locally-enrolled-passkeys-and-volatile-gateway-sessions));
 - discovery and per-host queries use OMP’s private files, endpoints, and per-host tokens;
 - stale and replaced generations become unlaunchable promptly; and
 - the default deployment never enables Tailscale Funnel.

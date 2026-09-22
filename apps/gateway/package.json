@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@omp-session-gateway/protocol": "workspace:*",
+    "@simplewebauthn/server": "14.0.2",
     "web-push": "3.6.7"
   },
   "scripts": {

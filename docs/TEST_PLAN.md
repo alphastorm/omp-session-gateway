@@ -31,6 +31,28 @@ not qualify an actual OMP binary, native host, relay, or physical client.
 
 ### HTTP/auth
 
+WebAuthn-specific acceptance (unreleased, not physical-client or tunnel qualification):
+
+- normal operation denies enrollment; local five-minute grant authorizes only registration;
+- real WebAuthn signatures, exact RP/origin, user presence/verification, and discovered credential identity;
+- wrong origin/RP, unknown credential, malformed input, expired or concurrent replayed challenges denied;
+- zero-counter synced credentials accepted without weakening signature or challenge checks;
+- HttpOnly host-only Secure/SameSite cookie contract, absolute expiry, no refresh, restart invalidation;
+- fake Tailscale headers never authorize WebAuthn; every non-Serve path removes them;
+- revoked/expired login cannot emit SSE events or return a capability after an in-flight OMP query;
+- actual virtual-authenticator enrollment/login, logout, native cookie handling, and cross-tab disposal;
+- valid versus expired bfcache restore authenticates before same-generation relaunch; changed generation
+  falls back to the directory; explicit logout clears pending resume intent;
+- notification navigation requires authentication; expiry preserves explicit notification opt-in,
+  while logout/current-browser and credential-revocation/all-associated subscription removal work;
+- stopped-daemon enrollment/revocation, private atomic public credential state, and process-death
+  recovery without stale lock files; unsafe state and origin changes fail closed;
+- gateway-cookie and enrollment-code absence from diagnostics/application storage/URLs/artifacts,
+  with independently discriminating OMP-capability sink checks;
+- existing Serve/dev behavior and full nested runtime dependency/license/SBOM closure remain intact.
+
+Existing HTTP/auth contracts:
+
 - missing Tailscale identity denied in production mode;
 - disallowed login denied;
 - allowed login accepted;

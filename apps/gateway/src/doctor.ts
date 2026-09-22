@@ -13,6 +13,7 @@ import {
 import { OmpHostReader } from "./omp-registry.ts";
 import type { DoctorReport } from "./diagnostics.ts";
 import { userServiceStatus } from "./service.ts";
+import { listWebAuthnCredentials } from "./webauthn.ts";
 
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const MAX_READINESS_BODY_BYTES = 512;
@@ -379,6 +380,30 @@ export async function runDoctorChecks(
   checks.serviceInstalled = service.installed;
   checks.serviceActive = service.active;
   checks.relay = await relayReachable();
+  if (config.auth.mode === "webauthn") {
+    // These checks prove Serve identity admission, not transport-neutral WebAuthn. Do not report
+    // them as passing, and do not silently qualify a tunnel by probing only its public URL.
+    for (const name of ["tailscaleConnected", "serveMapping", "funnelDisabled", "identityAllowed", "loopbackTrustSound", "sessionHealth"]) {
+      delete checks[name];
+    }
+    try {
+      checks.credentials = (await listWebAuthnCredentials(config)).length > 0;
+    } catch {
+      checks.credentials = false;
+      checks.permissions = false;
+    }
+    const [unauthenticated, root, manifest, worker] = await Promise.all([
+      publicResponse(config, "/api/v1/sessions"),
+      publicAsset(config, "/"),
+      publicAsset(config, "/manifest.webmanifest"),
+      publicAsset(config, "/service-worker.js"),
+    ]);
+    checks.authenticationRequired = unauthenticated?.status === 401 &&
+      unauthenticated.headers.get("Cache-Control")?.split(",").some(value => value.trim() === "no-store") === true;
+    checks.pwa = root?.ok === true && manifest?.ok === true && worker?.ok === true;
+    checks.securityHeaders = root?.headers.get("Content-Security-Policy")?.includes("default-src 'self'") === true;
+    return { service: "omp-session-gateway", checks };
+  }
   const funnel = await commandJson(["tailscale", "funnel", "status", "--json"]);
   checks.funnelDisabled = funnel !== undefined && funnelConfigurationDisabled(funnel);
 

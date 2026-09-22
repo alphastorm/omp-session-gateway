@@ -6,8 +6,22 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Gateway-owned WebAuthn/passkey browser authentication with locally authorized enrollment,
+  public credential storage, one-hour HttpOnly gateway sessions, local credential revocation,
+  and authentication-aware directory, collaboration-resume, and notification flows. This is
+  independent identity establishment, not a fresh user-presence gate for every Control launch.
+  Tailscale Serve remains default and the only qualified remote path; no alternative tunnel or
+  physical-authenticator qualification is claimed. See ADR-030 for the new cookie secret class
+  and the limit that gateway logout cannot revoke capabilities already issued by OMP.
+
 ### Security
 
+- Strip `Tailscale-User-*` on every non-Serve path; bound and verify passkey ceremonies, invalidate
+  volatile sessions on restart, and recheck authentication before SSE output and asynchronous
+  launch completion. Extend the existing leak scanner and diagnostics exclusions to gateway
+  authentication cookies.
 - Refuse a request that carries evidence of a second HTTP hop before reading its identity header.
   Pointing a tunnel or reverse proxy at the gateway's loopback port was a complete authentication
   bypass: the forwarder runs locally, so it satisfies the loopback check, the host really is on a

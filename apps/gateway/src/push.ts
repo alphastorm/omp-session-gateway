@@ -179,6 +179,20 @@ async function loadOrCreatePushState(config: GatewayConfig, path: string): Promi
   return state;
 }
 
+/** Offline only: the caller must hold the gateway listener while the managed daemon is stopped. */
+export async function removeWebAuthnPushSubscriptions(config: GatewayConfig, credentialId: string): Promise<void> {
+  if (config.auth.mode !== "webauthn" || !/^[A-Za-z0-9_-]{22}$/u.test(credentialId)) {
+    throw new Error("invalid WebAuthn credential identity");
+  }
+  const path = join(config.paths.stateDir, "push-state.json");
+  const raw = await readPrivateTextFile(path, MAX_FRAME_BYTES);
+  if (raw === undefined) return;
+  const state = parsePushState(parseJsonFrame(new TextEncoder().encode(raw)));
+  const subscriptions = state.subscriptions.filter(subscription => subscription.identityKey !== `webauthn:${credentialId}`);
+  if (subscriptions.length === state.subscriptions.length) return;
+  await writePrivateTextFile(path, `${JSON.stringify({ ...state, subscriptions }, null, 2)}\n`);
+}
+
 function statusCode(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null || !("statusCode" in error)) return undefined;
   const value = error.statusCode;
@@ -221,6 +235,7 @@ export class PushService {
   readonly #registry: SessionRegistry;
   readonly #logger: SafeLogger;
   readonly #transport: PushTransport;
+  readonly #credentialIdentityAllowed: ((identityKey: string) => boolean) | undefined;
   readonly #path: string;
   readonly #vapid: VapidKeyPair;
   readonly #attention = new Map<string, AttentionState>();
@@ -235,6 +250,7 @@ export class PushService {
     registry: SessionRegistry;
     logger: SafeLogger;
     transport: PushTransport;
+    identityAllowed?: (identityKey: string) => boolean;
     path: string;
     state: PushState;
   }) {
@@ -242,6 +258,7 @@ export class PushService {
     this.#registry = options.registry;
     this.#logger = options.logger;
     this.#transport = options.transport;
+    this.#credentialIdentityAllowed = options.identityAllowed;
     this.#path = options.path;
     this.#vapid = options.state.vapid;
     this.#subscriptions = options.state.subscriptions.filter(subscription =>
@@ -256,6 +273,7 @@ export class PushService {
     readonly logger?: SafeLogger;
     readonly transport?: PushTransport;
     readonly statePath?: string;
+    readonly identityAllowed?: (identityKey: string) => boolean;
   }): Promise<PushService> {
     const path = options.statePath ?? join(options.config.paths.stateDir, "push-state.json");
     const state = await loadOrCreatePushState(options.config, path);
@@ -264,6 +282,7 @@ export class PushService {
       registry: options.registry,
       logger: options.logger ?? new SafeLogger(),
       transport: options.transport ?? defaultTransport,
+      ...(options.identityAllowed === undefined ? {} : { identityAllowed: options.identityAllowed }),
       path,
       state,
     });
@@ -274,6 +293,7 @@ export class PushService {
   }
 
   async subscribe(identityKey: string, request: PushSubscriptionRequest): Promise<PushDetailLevel> {
+    if (this.#stopped) throw new Error("push service is stopped");
     if (!this.#identityAllowed(identityKey)) throw new Error("push identity is not allowed");
     let stored: StoredPushSubscription | undefined;
     await this.#mutateSubscriptions(current => {
@@ -297,6 +317,7 @@ export class PushService {
   }
 
   async unsubscribe(identityKey: string, request: PushUnsubscribeRequest): Promise<boolean> {
+    if (this.#stopped) throw new Error("push service is stopped");
     let removed = false;
     await this.#mutateSubscriptions(current =>
       current.filter(subscription => {
@@ -324,6 +345,9 @@ export class PushService {
   }
 
   #identityAllowed(identityKey: string): boolean {
+    if (this.#config.auth.mode === "webauthn") {
+      return /^webauthn:[A-Za-z0-9_-]{22}$/u.test(identityKey) && this.#credentialIdentityAllowed?.(identityKey) === true;
+    }
     return this.#config.auth.mode === "dev-localhost"
       ? identityKey === "dev-localhost"
       : this.#config.auth.allowedLogins.includes(identityKey);
