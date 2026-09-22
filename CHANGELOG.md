@@ -6,6 +6,18 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.4.1-prealpha.3] — 2026-09-22
+
+### Changed
+
+- Serve every Windows private-path ACL check from one long-lived `powershell.exe` helper over a
+  newline-delimited JSON protocol, instead of starting a separate process per path. A cold start
+  performed eleven of those starts before the loopback listener could bind, which on a 2-vCPU host
+  measured about 1,854 ms each. The validation itself is unchanged — protected ACL, current-user
+  owner, exactly the current-user and `S-1-5-18` entries — and a reply whose id does not match its
+  request now kills the helper rather than risk attributing a failure to the wrong path. The
+  Windows CI lane fell from roughly four to seven minutes to about two.
+
 ## [v0.4.1-prealpha.2] — 2026-09-22
 
 ### Fixed

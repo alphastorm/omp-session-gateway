@@ -183,6 +183,33 @@ reporter's earlier confirmation was made on an unsigned source-checkout install 
 it is one anecdote from an unadvertised iOS client, not iOS support and not a qualification result.
 iOS, Safari, and WebKit remain outside every row of `docs/COMPATIBILITY.md`.
 
+### v0.4.1-prealpha.3 — stable qualification candidate
+
+**Classification:** signed pre-alpha prerelease, immutable, not Latest. It is the qualification
+vehicle for a prospective stable `v0.4.1`; until that campaign passes, it is unqualified on every
+host and client and stable `v0.4.0` remains GitHub Latest and the only qualified artifact.
+
+**Contents beyond stable `v0.4.0`.** Three behaviour changes, no more: the VAPID `sub` contact is
+the repository URL instead of a reserved `.invalid` address; the gateway chrome sizes from the live
+visual viewport instead of `100dvh`; and Windows private-path ACL checks are served by one
+long-lived helper rather than one process per path. The first two are qualified-platform changes,
+the third executes only on Windows, which remains unqualified and unadvertised.
+
+**Rollback predecessor:** published stable `v0.4.0`. The orchestrator previously pinned `v0.3.0`,
+which would have installed a superseded stable as the upgrade source and rollback target on both
+the Debian and macOS lanes; corrected before the campaign was dispatched.
+
+**Assurance boundary — founder-approved amendment, 2026-09-22.** The 2026-09-14 amendment replacing
+the eight-hour endurance gate with the fresh 1,800-second relay check was scoped to `v0.4.0` only.
+It is approved again for `v0.4.1` on the exact delta above: one constant and two CSS declarations
+carry no prolonged-operation behaviour, and the single long-lived subprocess this candidate adds
+runs only on Windows, which the endurance lane does not exercise. **Eight-hour endurance is NOT
+RERUN and is NOT CLAIMED for v0.4.1.** Residual prolonged-operation risk is accepted and there is
+no bounded-memory-growth claim. Every other release gate remains intact.
+
+Source commit, archive SHA-256, release run, and the seven-lane qualification receipt are recorded
+here as the campaign completes.
+
 ## Fork-era release and qualification archive
 
 **Every result, support decision, prerequisite, command, and “current” label below belongs to its
