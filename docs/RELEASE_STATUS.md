@@ -46,24 +46,33 @@ minified identifiers without any source drift.
 `0.4.1-dad1e6490817`; `doctor` passed **18/18** and status reported installed, active, ready and
 not diverged.
 
-### Post-release smoke — NOT PASSING, outstanding
+### Post-release smoke — passed 2026-09-22
 
-`bun run smoke:release` does **not** currently pass on this workstation. It fails reproducibly at
-the Android View/Control stage with `Control prompt acceptance did not become ready`. Isolated with
-a disposable fixture, the failure is precise: the directory lists the fixture, View mounts, Control
-mounts, and the prompt is **sent successfully** — the assertion that fails is the 30-second wait for
-that prompt text to echo back into the transcript body.
+`bun run smoke:release --tag v0.4.1 --rebuild-omp` passed against the published digest on the
+configured Darwin-arm64 workstation and the physical Pixel:
 
-The workstation runs mainline OMP **18.2.8**. The qualified baseline, and the OMP the passing
-campaign Android lane exercised, is **18.1.20**. That difference is the leading hypothesis and is
-**not yet established**: it has not been determined whether mainline OMP changed transcript
-rendering or whether the smoke's assertion encodes a selector assumption that no longer holds. No
-capability was exposed during diagnosis; the stage's output is suppressed by design because it
-handles capabilities, and the reproduction was redacted.
+- exact tag, source commit `41a7570`, archive `3f915478…`, and application asset
+  `/assets/app.e57732a82351.js` bound to the published release;
+- gateway reinstall not required, **configuration and readiness-token bytes preserved**, `doctor`
+  **18/18**;
+- Tailscale Serve unchanged with unrelated mappings preserved;
+- mainline OMP **18.1.20**, binary `b3718d4e…`;
+- physical Pixel: View read-only, Control writable, capability sinks clean, same-page recovery, and
+  the installed WebAPK launch.
 
-This does not retract the qualification, which stands on the seven-lane campaign evidence recorded
-below against OMP 18.1.20. It does mean the release checklist's published-byte smoke is outstanding
-for `v0.4.1`, and no post-release smoke claim is made for it.
+**The first attempts failed, and the cause was the smoke, not the release.** It resolved `omp` from
+`PATH` and accepted it on version alone. On this workstation `omp` is a Code Mode launcher that
+reports a compatible `18.2.8` while resolving to a different product carrying trusted extensions and
+a routed config. The smoke therefore ran the entire physical-client acceptance against that agent,
+which never echoed the submitted prompt into the transcript, and failed at `Control prompt
+acceptance did not become ready` — a symptom that named nothing.
+
+A version banner cannot establish product identity; the symlink-resolved path can. The smoke now
+requires the mainline npm package `UPSTREAM.lock.json` names and refuses anything else with a
+message that says so, so a release can no longer be qualified against a derivative build that merely
+looks version-compatible. Product identity is checked separately from version compatibility, so
+neither can mask the other. No capability was exposed during diagnosis; that stage suppresses its
+output by design and the reproduction was redacted.
 
 ## Mainline v0.4.0 — published stable
 
