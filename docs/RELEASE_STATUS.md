@@ -1,10 +1,18 @@
 # Release status
 
-## Mainline v0.5.0 — qualified; stable publication pending
+## Mainline v0.5.0 — published stable
 
-**Updated:** 2026-09-23. The exact candidate below is approved for stable promotion. Published
-v0.4.2 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-23. [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0)
+was published at **07:14:56 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[35830629330](https://github.com/alphastorm/omp-session-gateway/actions/runs/35830629330) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `1750ab454be1517d615167343562304766abb99c`.<br>
+**Stable archive SHA-256:** `f5e80b405cdd9e075fcb068e1ced070242d37423b103e549169da00facb47834`.
+
+Published-byte workstation/Pixel checks are complete through the bounded follow-up paths recorded
+below. The first full smoke invocation failed at Android View/Control; that failure remains recorded.
 
 **Candidate:** [v0.5.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0-prealpha.1).<br>
 **Source:** `3208654b7ec37330d4314c3d69930eb0b3173606`.<br>
@@ -50,12 +58,37 @@ No gateway runtime or release machinery changed. Re-signing the commit changed n
 **Runtime equivalence:** a clean build of the corrected source matched all **46 non-metadata
 candidate files**, paths and modes, after re-verifying the candidate digest. Only the existing
 workflow exclusions apply: release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json, and
-schemas/stable-release.schema.json. The final promotion tree must pass this comparison again.
+schemas/stable-release.schema.json. The final merged promotion tree also passed this comparison; the signed release workflow
+rechecked the published candidate against the stable archive.
 
 **Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
 Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
 iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
 remain unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+The verified published archive above is installed as `0.5.0-a88b8ba9ed61`. The service is active,
+ready, uses tailscale-serve authentication, and its active/service versions agree.
+
+The original `smoke:release` invocation completed downloaded checksum/signature/attestation checks,
+exact tag/source verification, gateway installation with configuration and readiness-token
+preservation, unrelated Serve-mapping preservation, doctor checks, and reuse of existing stock
+OMP 18.1.20. It then **failed at Android View/Control**. The wrapper withheld the child error;
+the cause remains undetermined. No product-code fix or clean first-attempt upgrade is claimed.
+
+A bounded Android-only probe then exercised the same installed archive and expected
+`app.b3055eccd928.js` asset: View read-only, Control writable, prompt accepted, return to the
+directory, Chrome 153.0.8010.52. It passed. The remaining existing capability-sink sweep,
+same-page lock/Airplane/Doze recovery, and installed-WebAPK checks then passed separately.
+Each probe used and removed an owned disposable fixture; fixture revocation, tmux cleanup,
+ownership-checked directory removal and private staging cleanup completed. Installation and
+30-minute qualification were not repeated. Temporary diagnostic code was not added to the product.
+
+This is composed published-byte verification, **not** a relabeled passing result for the original
+failed smoke command. Stock OMP was not reinstalled and the Code Mode launcher was not replaced.
+The gateway and PWA remain installed. The workstation smoke does not expand the exact candidate
+host/client matrix, qualify background Push, or resolve the historical intermittent Control issue.
 
 ## Mainline v0.4.2 — published stable
 

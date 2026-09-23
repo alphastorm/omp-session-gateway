@@ -15,8 +15,10 @@
 and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
 publication credential is needed. Install the separate gateway service once.
 
-**After publication, install stable [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0).**
-Its signed-candidate evidence is approved; publication and the separate published-byte local/Android smoke are pending. Exact scopes are
+**Install published stable [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0).**
+Its signed-candidate evidence is approved; signed publication passed; published-byte local/Android checks passed through the bounded follow-up paths in the ledger.
+The initial full smoke failed at View/Control with an undetermined cause; no clean first-attempt
+upgrade or product-code fix is claimed. Exact scopes are
 recorded in the [release ledger](RELEASE_STATUS.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
 retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s
