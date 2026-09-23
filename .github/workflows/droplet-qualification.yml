@@ -433,18 +433,37 @@ jobs:
               ;;
           esac
 
-          # The DigitalOcean key record costs nothing but should not accumulate. Deleted by name so
-          # this works whether or not the creating step got as far as exporting the id, and skipped
-          # quietly if the job was cancelled before doctl was installed.
+          # The DigitalOcean key record costs nothing but should not accumulate. Key reads are
+          # eventually consistent: a job that fails seconds after creating its key can find the key
+          # absent from both `get` and `list` (run 35850590104 left one behind that way). Delete the
+          # exported id directly, retrying for about 55 seconds, then sweep by name for any id the
+          # creating step never exported. Skipped quietly if the job was cancelled before doctl was
+          # installed.
           if command -v doctl >/dev/null 2>&1; then
+            exported_key="${OMP_QUAL_SSH_KEY_ID:-}"
+            exported_deleted=""
+            if [ -n "$exported_key" ]; then
+              for attempt in 1 2 3 4 5 6 7 8 9 10 11; do
+                if doctl compute ssh-key delete "$exported_key" --force 2>/dev/null; then
+                  printf 'deleted ephemeral DigitalOcean SSH key %s\n' "$exported_key"
+                  exported_deleted=yes
+                  break
+                fi
+                if [ "$attempt" -lt 11 ]; then sleep "$attempt"; fi
+              done
+              if [ -z "$exported_deleted" ]; then
+                # Not fatal: a leftover public key is inert and free, unlike a leftover droplet.
+                printf '::warning title=Ephemeral SSH key %s was not deleted::Remove it under DigitalOcean > Settings > Security.\n' "$exported_key"
+              fi
+            fi
             doctl compute ssh-key list --output json |
               jq -r --arg prefix "omp-qual-ci-${GITHUB_RUN_ID}" \
                 '.[] | select(.name | startswith($prefix)) | .id' |
               while read -r stale_key; do
+                if [ "$stale_key" = "$exported_key" ] && [ -n "$exported_deleted" ]; then continue; fi
                 if doctl compute ssh-key delete "$stale_key" --force; then
                   printf 'deleted ephemeral DigitalOcean SSH key %s\n' "$stale_key"
                 else
-                  # Not fatal: a leftover public key is inert and free, unlike a leftover droplet.
                   printf '::warning title=Ephemeral SSH key %s was not deleted::Remove it under DigitalOcean > Settings > Security.\n' "$stale_key"
                 fi
               done
