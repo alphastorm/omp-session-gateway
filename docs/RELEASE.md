@@ -8,7 +8,7 @@ by their signed-artifact qualification. Current source requires stock mainline O
 plain `omp`. The gateway reads discovery and queries hosts, with no OMP patch set or separate
 activation route. It fetches capabilities only per launch and never stores them.
 
-**Stable v0.4.0 is published as immutable GitHub Latest.** For normal installation, use
+For the current published stable and normal installation, use
 [Installation and operations](OPERATIONS.md#2-cli-and-daemon-installation), not the maintainer
 qualification commands below. The exact qualified candidate, promoted stable artifact,
 host/client matrix, and post-release evidence are recorded in the
