@@ -24,7 +24,7 @@ copied links, or per-session setup.
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[Stable v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0)**
+**[v0.5.1 release target](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
@@ -52,7 +52,7 @@ copied links, or per-session setup.
 > shipped in [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)
 > ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908)). Enable `collab.autoStart` once,
 > install the gateway, and configure Tailscale Serve. Then start sessions with plain `omp`.
-> **[Get started with stable v0.5.0](#build-and-run)** ·
+> **[Get started with v0.5.1 once published](#build-and-run)** ·
 > [Exact support and limits](docs/COMPATIBILITY.md) · [Release evidence](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
@@ -65,7 +65,7 @@ This is a community project and is not affiliated with or endorsed by the Oh My 
 
 ## Build and run
 
-Start with the [stable v0.5.0 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0),
+After publication, start with the [v0.5.1 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1),
 **Bun 1.4.0**, and stock **OMP 18.1.20 or later**. Read the
 [exact supported combinations and limits](docs/COMPATIBILITY.md) before installing.
 The gateway and phone need Tailscale on the same tailnet; the gateway host must use the TUN-mode
@@ -228,7 +228,7 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-Published stable **v0.5.0** was promoted from qualified candidate `v0.5.0-prealpha.1` with
+**v0.5.1 is qualified for stable promotion; publication is pending.** Candidate `v0.5.1-prealpha.1` has
 identical runtime bytes. Qualification is limited to the exact combinations below; the minimum OMP version does not
 qualify every host, browser, or future OMP release.
 
@@ -242,7 +242,7 @@ qualify every host, browser, or future OMP release.
 | Qualified Mac host | `Mac14,3`, macOS `26.6.1` arm64; `doctor` 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, allowlisted identity and forged-header/exposure checks |
 | Qualified core client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `153.0.8010.52`; View read-only, Control writable, prompt accepted, return to directory, same-page lock/Airplane/Doze recovery, seven forbidden capability sinks detectable and clean |
 | Fresh relay check | 1,800 seconds, two transitions, final phase `live`; founder-approved 30-minute gate, not eight-hour endurance |
-| Migration/rollback predecessor | `v0.4.2`, mainline; the predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential |
+| Migration/rollback predecessor | `v0.5.0`, mainline; the predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP
@@ -269,7 +269,7 @@ Known limits are part of the claim — read them before installing:
   launch or an open View/Control page back to the directory; open the session again. Chromium
   reports each page's creation URL, so the worker cannot see that a page is in use. The first
   post-release View/Control smoke failures recorded in the release ledger match this navigation.
-  The unreleased fix on `main` never navigates from the worker; see
+  The v0.5.1 fix never navigates from the worker; see
   [the current update behavior](docs/ARCHITECTURE.md).
 - **The fresh relay gate is 30 minutes, not eight hours.** Eight-hour endurance was not rerun
   and is not claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth

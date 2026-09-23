@@ -22,13 +22,12 @@ Earlier releases are unsupported because this local registry does not exist in t
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 
-**Published stable:** [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0),
-GitHub Latest, promoted from v0.5.0-prealpha.1 with identical runtime bytes. Published-byte
-local/Pixel checks passed through the bounded follow-up paths in the release ledger; the initial
-full smoke failed at View/Control, matching the PWA update navigation described in the ADR-018
-amendment (unreleased fix on `main`). The rollback predecessor is v0.4.2; it rejects
-busy-emitting OMP hosts. The [release ledger](RELEASE_STATUS.md) records the six passed candidate
-lanes, the separately corrected cleanup boundary, and exact source/archive bindings.
+**Qualified for stable promotion:** [v0.5.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1-prealpha.1), for v0.5.1.
+Publication and the separate published-byte local/Pixel smoke are pending. Published v0.5.0
+remains GitHub Latest until promotion and is this candidate's rollback predecessor; its update
+activation can navigate an open page back to the directory, which the ADR-018 amendment in v0.5.1
+removes. The [release ledger](RELEASE_STATUS.md) records the seven passed candidate lanes, the
+earlier stopped attempt, and exact source/archive bindings.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
@@ -46,7 +45,7 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
-For v0.5.0, the founder renewed a fresh 30-minute signed-candidate relay check in place of
+For v0.5.1, the founder renewed a fresh 30-minute signed-candidate relay check in place of
 the eight-hour gate; that bounded check passed on 2026-09-23. Other release gates remain intact.
 Eight-hour endurance is not rerun or claimed;
 prolonged-operation risk remains an accepted limitation rather than transferred historical proof.
