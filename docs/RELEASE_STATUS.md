@@ -1,5 +1,13 @@
 # Release status
 
+## v0.5.1 preparation — not yet qualified or published
+
+The candidate carries #226: shell-update activation no longer navigates clients, the page's
+bounded reload waits for pending launches, routed notifications, and mounted collaboration, and the
+post-release smoke settles the installed shell and reports closed-vocabulary lane stages. Published
+v0.5.0 remains the predecessor and current stable; no v0.5.1 qualification or publication is
+claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.5.0 — published stable
 
 **Updated:** 2026-09-23. [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0)

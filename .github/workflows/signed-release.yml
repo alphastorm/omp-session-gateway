@@ -224,9 +224,9 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Restore session discovery when an OMP snapshot includes the additive busy field (#219).
-          - Add opt-in activity-stop notifications with attention precedence and generation-checked View taps (#197).
-          - Correct list/SSE schemas for ask metadata, OMP identity bounds, and private-field rejection.
+          - Keep open View/Control pages and launches in progress intact when a gateway update activates a new PWA shell; the service worker no longer navigates clients.
+          - A launch that fails after another launch has mounted a collaboration leaves that session, its route, and its styles intact; an expired notification route applies a deferred update.
+          - The post-release Android smoke waits for the installed shell to settle and reports the failing lane stage without exposing lane output.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Advertised combinations
@@ -256,7 +256,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.4.2 predecessor rejects snapshots containing busy and can hide sessions again even when its service reports ready. Recovery requires a corrected gateway or a separately verified compatible OMP pairing. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.5.0 predecessor's service worker can navigate an open View/Control page or a launch in progress back to the directory once, when its shell activates on the first visit after rollback; reopen the session. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -271,9 +271,9 @@ jobs:
 
           ### Changes to test
 
-          - Optional busy snapshot compatibility restores sessions affected by #219.
-          - Activity-stop notifications preserve attention priority and always open generation-checked View access.
-          - Canonical list/SSE schemas include ask metadata and share OMP identity and numeric bounds.
+          - An activated shell update never navigates a pending launch, a routed notification, or an open View/Control page.
+          - A launch failing after another mounted collaboration leaves that collaboration intact; an expired routed notification applies a deferred update.
+          - The post-release smoke settles the installed shell before View/Control and reports the failing lane stage.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -290,7 +290,7 @@ jobs:
 
           ### Rollback
 
-          The selected predecessor is v0.4.2. It rejects snapshots containing busy, so gateway rollback alone may restore #219 with a newer OMP host. Use a corrected gateway or a separately verified compatible OMP pairing; service readiness alone does not prove discovery. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.5.0. Its service worker still navigates in-use pages when its shell activates, so a gateway rollback can close an open View/Control page once; reopen it. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

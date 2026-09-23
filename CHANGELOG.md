@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.5.1] — 2026-09-23
+
 ### Fixed
 
 - Stop an activated PWA update from closing a View/Control page or a launch in progress. Chromium
