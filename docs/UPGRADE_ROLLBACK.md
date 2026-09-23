@@ -1,12 +1,13 @@
 # Upgrade and rollback lane
 
-## v0.5.0 predecessor compatibility
+## v0.5.1 predecessor compatibility
 
-The selected predecessor is published v0.4.2. Gateway rollback does not change the separately
-running OMP process. If that host emits the additive `busy` field, v0.4.2 rejects its snapshot
-and can hide the session again (#219), even when the gateway service reports ready. Recovery
-must use the corrected gateway or a separately verified compatible OMP pairing; gateway
-rollback alone does not restore compatibility, and must not silently downgrade or restart OMP.
+The selected predecessor is published v0.5.0. Gateway rollback does not change the separately
+running OMP process. v0.5.0 accepts the additive `busy` field, but its service worker navigates
+every client it sees at `/` when it activates over another shell (ADR-018 amendment), so the first
+visit after a rollback can return a pending launch or an open View/Control page to the directory;
+open the session again. v0.4.2, one step further back, also rejects `busy` snapshots and can hide
+live sessions (#219) even when the gateway service reports ready.
 
 ## Mainline cutover and rollback boundary
 

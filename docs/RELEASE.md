@@ -372,10 +372,10 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=v0.4.0
+TAG=v0.5.1
 WORKFLOW=signed-release.yml
-ARCHIVE=omp-session-gateway-0.4.0-bun.tar
-SBOM=omp-session-gateway-0.4.0.spdx.json
+ARCHIVE=omp-session-gateway-0.5.1-bun.tar
+SBOM=omp-session-gateway-0.5.1.spdx.json
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification

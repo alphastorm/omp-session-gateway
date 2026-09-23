@@ -1,10 +1,17 @@
 # Release status
 
-## Mainline v0.5.1 — qualified; stable publication pending
+## Mainline v0.5.1 — published stable
 
-**Updated:** 2026-09-23. The exact candidate below is approved for stable promotion. Published
-v0.5.0 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-23. [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1)
+was published at **12:00:29 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[35857735009](https://github.com/alphastorm/omp-session-gateway/actions/runs/35857735009) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `678e32a0a087b57cf33ec846bc772dea87d6831b`.<br>
+**Stable archive SHA-256:** `66a3d63cd8f75ab01631cb1d371dcdc199c1bc769ec1f9243f17f4db7e2c75d3`.
+
+The published-byte workstation/Pixel smoke passed on its **first attempt**; see below.
 
 **Candidate:** [v0.5.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1-prealpha.1).<br>
 **Source:** `ba64d4ad8fe7f30f16db40d57475af06e93fda6b`.<br>
@@ -45,12 +52,32 @@ waits about a minute for the key and deletes the exported key id in teardown.
 **Runtime equivalence:** a clean stable-channel build of the promotion tree matched all **46
 non-metadata candidate files**, paths and modes, after re-verifying the candidate digest. Only the
 existing workflow exclusions apply: release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json,
-and schemas/stable-release.schema.json.
+and schemas/stable-release.schema.json. The merged promotion tree was identical, and the published
+stable archive also matched all 46 candidate files.
 
 **Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
 Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
 iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
 remain unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+One `smoke:release` invocation, bound to the stable tag, source and archive digest above, passed
+on its first attempt in 4 minutes 15 seconds. It verified the published provenance and upgraded
+the installed gateway from `0.5.0-a88b8ba9ed61` to `0.5.1-8f5031174380`, preserving the
+configuration and readiness token; Tailscale Serve was unchanged and unrelated mappings were
+preserved. `doctor` passed 18/18. It reused stock OMP 18.1.20 without reinstalling it.
+
+On the Pixel, with asset `app.18b30e778c13.js`, View was read-only and Control writable; the
+capability-sink, same-page recovery, and installed-WebAPK checks passed. The owned disposable
+fixture was removed; the smoke fails if its tmux session survives cleanup.
+
+Afterwards, `status` reported active, ready, tailscale-serve and not diverged, with active and
+service versions `0.5.1-8f5031174380`. The Code Mode launcher on the default PATH was unchanged.
+
+The v0.5.0 smoke below failed its first View/Control attempt after the upgrade; this first attempt
+passed. That is consistent with #226, but one pass does not prove the race is gone. The smoke does
+not expand the exact candidate host/client matrix or qualify background Push.
 
 ## Mainline v0.5.0 — published stable
 

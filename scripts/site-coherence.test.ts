@@ -51,6 +51,31 @@ test("getting-started and site download actions select the qualified stable rele
   expect(downloads).toEqual([expected]);
 });
 
+// Promotion flipped the download links while the install and verification commands kept naming
+// 0.4.x archives through two later stable releases, and rollback guidance kept an older pair.
+test("install, verification, and predecessor guidance follow the stable lock", async () => {
+  const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
+    version: string;
+    releaseTag: string;
+    previousTag: string;
+  };
+  const section = async (file: string, heading: string): Promise<string> => {
+    const text = (await readFile(join(rootPath, file), "utf8")).split(`\n${heading}\n`)[1]?.split("\n## ")[0];
+    if (text === undefined) throw new Error(`${file} lost its "${heading}" section`);
+    return text;
+  };
+  const artifacts = (text: string) => [...new Set(text.match(/omp-session-gateway-\d+\.\d+\.\d+/gu))];
+  const current = [`omp-session-gateway-${stable.version}`];
+  expect(artifacts(await section("README.md", "## Build and run"))).toEqual(current);
+  expect(artifacts(await section("docs/OPERATIONS.md", "## 2. CLI and daemon installation"))).toEqual(current);
+  const verification = await section("docs/RELEASE.md", "## Verify a published build");
+  expect(artifacts(verification)).toEqual(current);
+  expect(verification.match(/^TAG=(\S+)$/mu)?.[1]).toBe(stable.releaseTag);
+  const rollback = await readFile(join(rootPath, "docs/UPGRADE_ROLLBACK.md"), "utf8");
+  expect(rollback).toContain(`\n## ${stable.releaseTag} predecessor compatibility\n`);
+  expect(rollback).toContain(`The selected predecessor is published ${stable.previousTag}.`);
+});
+
 // The machine-readable summary stayed on v0.4.0 through three later stable releases. Promotion
 // commits the lock before the signed workflow publishes, so the summary states either phase.
 test("the machine-readable site summary names only the qualified stable release", async () => {
