@@ -317,6 +317,16 @@ Push messages use a per-instance notification tag, carry only bounded presentati
 
 ---
 
+### Activity-stop extension — 2026-09-23
+
+**Decision:** Consume the optional `busy` sample added by upstream PR #12844. The registry owns
+true-to-false detection on a continuing identity/generation, excluding either waiting sample and
+all observation gaps. Its internal event and record-local revision marker prevent stale queued
+stops without a new broker or durable activity history. Add strict `activity_stop` to Push v2,
+reuse existing privacy levels/topic/tag, and give attention precedence. Stop taps always revalidate
+and open View, including on a view-only host; no new Control authority or completion claim.
+The complete trigger, coalescing, rollout, and routing rules are in ATTENTION_SPEC.md.
+
 ## ADR-020 — Measure network paths adaptively and acknowledge remote actions
 
 **Status:** Accepted

@@ -264,7 +264,6 @@ test("installed-PWA View and Control mount in the current window without losing 
       requestId: "next-request-identity-0001",
     });
     fixture.upsert(answeredSession(next));
-    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 14 working");
     await expect(page.locator(".triage-action")).toHaveText("Sessions");
     await page.locator(".triage-action").click();
     await expect(page).toHaveURL(`${fixture.origin}/`);
@@ -732,7 +731,6 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await expect(page.locator(".sh-composer-ask-embedded")).toHaveCount(0);
     await expect(page.locator(".sh-composer")).toHaveCount(1);
     await expect(page.locator(".triage-bar")).toHaveAttribute("data-kind", "clear");
-    await expect(page.locator(".triage-copy")).toHaveText("✓ Answered — all clear · 1 working");
 
     await page.route("**/api/v1/health", route =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),

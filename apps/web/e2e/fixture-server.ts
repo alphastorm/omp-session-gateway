@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
-import type { SessionEvent, SessionMetadata } from "@omp-session-gateway/protocol";
+import { parseNotificationRoute, type SessionEvent, type SessionMetadata } from "@omp-session-gateway/protocol";
 
 const MIME_TYPES: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
@@ -147,6 +147,8 @@ export async function startDashboardFixture(
           session === undefined ||
           parsed.generation !== session.generation ||
           (parsed.mode !== "view" && parsed.mode !== "control") ||
+          (parsed.mode === "view" && !session.canView) ||
+          (parsed.mode === "control" && !session.canControl) ||
           (parsed.requestId !== undefined &&
             (parsed.mode !== "control" ||
               !session.inputRequired ||
@@ -196,9 +198,8 @@ export async function startDashboardFixture(
         response.writeHead(404).end("Not found");
         return;
       }
-      const requestBootstrap = /^\/collab\/[a-z0-9-]{8,64}$/u.test(pathname) &&
-        url.searchParams.has("request");
-      const relative = pathname === "/" || pathname === "/client/" || pathname === "/update/" || requestBootstrap
+      const notificationBootstrap = parseNotificationRoute(url) !== undefined;
+      const relative = pathname === "/" || pathname === "/client/" || pathname === "/update/" || notificationBootstrap
         ? "index.html"
         : pathname.endsWith("/")
           ? `${pathname.slice(1)}index.html`

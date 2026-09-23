@@ -7,6 +7,11 @@ Published v0.4.2 rejects the additive `busy` field emitted by OMP 18.2.9 and can
 Mixed current/legacy host discovery and View/Control are covered by real local IPC regression tests.
 This does not advance the pinned baseline, native/client versions, or exact qualification matrix.
 
+Unreleased stop alerts use the presence of valid activity metadata, not an OMP version guess.
+Older hosts keep ordinary directory/ask behavior with unknown activity. Push state and v2
+attention/clear remain compatible; older workers ignore the new stop variant until activation.
+This does not qualify physical background delivery or imply successful task completion.
+
 ## Current claim
 
 Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.

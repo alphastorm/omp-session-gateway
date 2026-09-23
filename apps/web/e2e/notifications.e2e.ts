@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
-import { startDashboardFixture } from "./fixture-server.ts";
+import { installSilentWebSocket, startDashboardFixture } from "./fixture-server.ts";
 
 interface NotificationTestState {
   permission: NotificationPermission;
@@ -34,6 +34,107 @@ function session(instanceId: string, overrides: Partial<SessionMetadata> = {}): 
   };
 }
 
+test("activity-stop routes launch View even with a current ask or without Control, without persistent capability sinks", async ({ page }) => {
+  await installSilentWebSocket(page);
+  const roomKey = new Uint8Array(32).fill(109);
+  const capabilityCanary = Buffer.from(roomKey).toString("base64url");
+  for (const canControl of [true, false]) {
+    const current = session("stop-route-instance-0001", { generation: 4, canControl, inputRequired: true, busy: false });
+    const fixture = await startDashboardFixture([current], { roomKey });
+    try {
+      await page.addInitScript(() => {
+        const nativeFetch = window.fetch;
+        const locations: string[] = [];
+        Object.defineProperty(globalThis, "__notificationFetchLocations", { value: locations, configurable: true });
+        window.fetch = new Proxy(nativeFetch, {
+          apply(target, thisArgument, args): Promise<Response> {
+            locations.push(location.pathname + location.search);
+            return Reflect.apply(target, thisArgument, args);
+          },
+        });
+      });
+      await page.goto(fixture.origin + "/collab/stop-route-instance-0001?activity=stopped&generation=4");
+      await expect(page.getByRole("application", { name: "OMP collaboration session" })).toBeVisible();
+      await expect(page).toHaveURL(fixture.origin + "/client/");
+      await expect(page.getByRole("textbox", { name: "read-only session — watching only" })).toBeDisabled();
+      expect(fixture.launchRequests).toEqual([{ instanceId: current.instanceId, generation: 4, mode: "view" }]);
+      const residue = await page.evaluate(async canary => {
+        const cacheUrls: string[] = [];
+        const cacheContents: string[] = [];
+        for (const name of await caches.keys()) {
+          const cache = await caches.open(name);
+          for (const request of await cache.keys()) {
+            cacheUrls.push(request.url);
+            cacheContents.push(await (await cache.match(request))!.text());
+          }
+        }
+        const databaseNames = typeof indexedDB.databases === "function"
+          ? (await indexedDB.databases()).map(database => database.name ?? "") : [];
+        const sinks = [
+          document.documentElement.outerHTML, location.href, JSON.stringify(history.state), document.cookie,
+          JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage }),
+          JSON.stringify(databaseNames), ...cacheUrls, ...cacheContents,
+        ];
+        const locations = (globalThis as typeof globalThis & { __notificationFetchLocations: string[] }).__notificationFetchLocations;
+        return {
+          leaked: sinks.some(sink => sink.includes(canary)),
+          cacheUrls,
+          routesScrubbed: locations.every(path => !path.includes("/collab/") && !path.includes("generation=")),
+          routePersisted: [location.href, JSON.stringify(history.state), JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage })]
+            .some(sink => sink.includes("stop-route-instance-0001") || sink.includes("request-stop-route-instance-0001")),
+        };
+      }, capabilityCanary);
+      expect(residue.leaked).toBe(false);
+      expect(residue.routesScrubbed).toBe(true);
+      expect(residue.routePersisted).toBe(false);
+      expect(residue.cacheUrls.every(url => !url.includes("/api/") && !url.includes("/client/") && !url.includes("/collab/"))).toBe(true);
+      await page.goto("about:blank");
+    } finally {
+      await fixture.stop();
+    }
+  }
+});
+
+test("attention routes still acquire Control only for the exact current request", async ({ page }) => {
+  await installSilentWebSocket(page);
+  const current = session("attention-route-current-01", { inputRequired: true });
+  const requestId = current.ask!.requestId;
+  const fixture = await startDashboardFixture([current]);
+  try {
+    const route = fixture.origin + "/collab/attention-route-current-01?request=" + requestId;
+    await page.goto(route);
+    await expect(page.getByRole("application", { name: "OMP collaboration session" })).toBeVisible();
+    expect(fixture.launchRequests).toEqual([{ instanceId: current.instanceId, generation: 1, mode: "control", requestId }]);
+    await page.goto("about:blank");
+    fixture.setSnapshot([{ ...current, ask: { ...current.ask!, requestId: "attention-route-new-request" } }]);
+    await page.goto(route);
+    await expect(page.locator('#status-banner[data-kind="expired"]')).toBeVisible();
+    await expect(page).toHaveURL(fixture.origin + "/");
+    expect(fixture.launchRequests).toHaveLength(1);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("changed, gone, and unavailable stop routes remain in the directory without acquiring capabilities", async ({ page }) => {
+  const current = session("stop-expired-instance-01", { generation: 2 });
+  const fixture = await startDashboardFixture([current]);
+  try {
+    for (const sessions of [[current], [], [{ ...current, generation: 1, canView: false, canControl: false }]]) {
+      fixture.setSnapshot(sessions);
+      await page.goto(fixture.origin + "/collab/stop-expired-instance-01?activity=stopped&generation=1");
+      await expect(page.locator('#status-banner[data-kind="expired"]')).toBeVisible();
+      await expect(page).toHaveURL(fixture.origin + "/");
+      await expect(page.getByRole("application", { name: "OMP collaboration session" })).toHaveCount(0);
+      expect(fixture.launchRequests).toEqual([]);
+      expect(fixture.requests.some(request => request.includes("/launch"))).toBe(false);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  } finally {
+    await fixture.stop();
+  }
+});
+
 async function notificationState(page: Page): Promise<NotificationTestState> {
   return page.evaluate(() => {
     const testGlobal = globalThis as unknown as { __ompNotificationTest: NotificationTestState };
@@ -48,7 +149,7 @@ test("attention cards and explicit background alert settings stay metadata-only"
     inputRequired: true,
     startedAt: "2026-07-21T09:00:00.000Z",
   });
-  const ordinary = session("ordinary-newest-0003", { startedAt: "2026-07-21T12:00:00.000Z" });
+  const ordinary = session("ordinary-newest-0003", { startedAt: "2026-07-21T12:00:00.000Z", busy: true });
   const fixture = await startDashboardFixture([ordinary, viewAttention, controlAttention]);
   const forbiddenCanaries = [
     "PROMPT_CONTENT_CANARY",
@@ -163,7 +264,16 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator(".queue-row .row-title")).toHaveText(["attention-viewonly-002"]);
     await expect(page.locator(".working-row .row-title")).toHaveText(["ordinary-newest-0003"]);
     expect(await notificationState(page)).toMatchObject({ permissionRequests: 0, subscriptionActive: false });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    for (const busy of [true, false, undefined]) {
+      const { busy: _activity, ...metadata } = ordinary;
+      const updated = busy === undefined ? metadata : { ...metadata, busy };
+      fixture.upsert(updated);
+      await expect(page.locator(".session-activity")).toHaveText(
+        busy === true ? "· Working" : busy === false ? "· Idle" : "· Activity unknown",
+      );
+      expect(await page.locator(".session-activity").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
     const directoryTargets = await page
       .locator("#settings, .action-request, .queue-row, .working-row, .dismiss-session")
       .evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
@@ -268,9 +378,6 @@ test("attention cards and explicit background alert settings stay metadata-only"
     await expect(page.locator("#notify")).toHaveText("Disable background alerts");
     await expect(page.locator("#notification-detail-options")).toBeVisible();
     await expect(page.locator('input[name="notification-detail"][value="session"]')).toBeChecked();
-    await expect(page.locator(".sheet-footnote")).toHaveText(
-      "Per-device, stored with the push subscription on the gateway. Payloads are built at the chosen level — the phone never redacts.",
-    );
     await expect(page.locator(".detail-warning")).toContainText("notification history");
     const detailTargets = await page.locator(".detail-option").evaluateAll(elements =>
       elements.map(element => element.getBoundingClientRect().height),

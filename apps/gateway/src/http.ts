@@ -9,6 +9,7 @@ import {
   type SessionEvent,
   parseJsonFrame,
   parseLaunchRequest,
+  parseNotificationRoute,
   parsePushSubscriptionRequest,
   parsePushUnsubscribeRequest,
 } from "@omp-session-gateway/protocol";
@@ -100,26 +101,6 @@ function problem(status: number, code: string, message: string): Response {
     Response.json({ code, message }, { status, headers: { "Content-Type": "application/problem+json" } }),
     true,
   );
-}
-
-function isValidRequestBootstrap(url: URL): boolean {
-  const match = /^\/collab\/([^/]{1,384})$/u.exec(url.pathname);
-  if (match === null) return false;
-  const encodedInstanceId = match[1];
-  const entries = [...url.searchParams.entries()];
-  if (
-    encodedInstanceId === undefined ||
-    entries.length !== 1 ||
-    entries[0]?.[0] !== "request" ||
-    !/^[A-Za-z0-9_-]{16,128}$/u.test(entries[0][1])
-  ) {
-    return false;
-  }
-  try {
-    return INSTANCE_ID_PATTERN.test(decodeURIComponent(encodedInstanceId));
-  } catch {
-    return false;
-  }
 }
 
 async function readBoundedBody(request: Request, maximumBytes: number): Promise<Uint8Array> {
@@ -299,7 +280,7 @@ export function createHttpHandler(options: {
       return problem(400, "bad_request", "Invalid request");
     }
     const clientRoute = request.method === "GET" && url.pathname === "/client/";
-    const requestBootstrap = request.method === "GET" && isValidRequestBootstrap(url);
+    const requestBootstrap = request.method === "GET" && parseNotificationRoute(url) !== undefined;
     const updateBootstrap = request.method === "GET" && url.pathname === "/update/";
     if (url.search !== "" && !requestBootstrap) {
       return problem(400, "bad_request", "Query parameters are not accepted");

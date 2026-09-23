@@ -993,6 +993,37 @@ describe("HTTP boundary", () => {
     expect((await handler(request("/collab/http-instance-000001?request=short"), peer)).status).toBe(400);
   });
 
+  test("serves stop notification navigation as the no-store PWA shell and refuses ambiguous routes", async () => {
+    const shellRoot = new URL("../../web/src/", import.meta.url);
+    const shellAssets = await StaticAssetStore.load(shellRoot.pathname);
+    const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: shellAssets });
+    const shell = await Bun.file(new URL("index.html", shellRoot)).text();
+    for (const query of ["activity=stopped&generation=1", "generation=9007199254740991&activity=stopped"]) {
+      const response = await handler(request("/collab/http-instance-000001?" + query), peer);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toContain("no-store");
+      expect(response.headers.get("Content-Type")).toContain("text/html");
+      expect(await response.text()).toBe(shell);
+    }
+    for (const path of [
+      "/collab/short?activity=stopped&generation=1",
+      "/collab/invalid_id?activity=stopped&generation=1",
+      "/collab/%FF?activity=stopped&generation=1",
+      ...[
+        "activity=stopped", "activity=stopped&generation=0", "activity=stopped&generation=01",
+        "activity=stopped&generation=1.0", "activity=stopped&generation=1e2",
+        "activity=stopped&generation=9007199254740992", "activity=stopped&generation=-1",
+        "activity=stopped&generation=1&generation=1", "activity=stopped&activity=stopped&generation=1",
+        "activity=stopped&generation=1&extra=1", "activity=stopped&generation=1&request=http-request-identity-0001",
+        "request=http-request-identity-0001&request=http-request-identity-0001",
+      ].map(query => "/collab/http-instance-000001?" + query),
+    ]) {
+      const response = await handler(request(path), peer);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "bad_request" });
+    }
+  });
+
   test("never writes capability-bearing data to structured logs", async () => {
     const lines: string[] = [];
     const logger = new SafeLogger({ write: line => lines.push(line) });

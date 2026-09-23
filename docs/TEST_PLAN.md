@@ -6,6 +6,20 @@ exact signed-candidate matrix, separate published-byte smoke, and remaining qual
 are recorded in the [release ledger](RELEASE_STATUS.md). Historical fork-era receipts do not
 qualify the mainline integration.
 
+## Activity extension scenarios (unreleased)
+
+- Mixed current/legacy host snapshots: busy true/false, missing/null unknown, malformed rejection.
+- Known true-to-false only on continuing identity/generation, neither sample waiting for input.
+- No stops from first idle, repeated idle, retained/query gaps, unknown, replacements, removal,
+  expiry, or restart; activity knowledge changes never extend TTL.
+- Ordered internal delivery and reentrancy; queued stop ABA invalidation; no internal event in SSE.
+- View-only stop eligibility; no history replay on subscribe/renew; all three server privacy levels.
+- Shared topic/tag, displayed ask priority, and request-specific clear cannot close a stop.
+- Strict scrubbed routes, same-generation View-only launch, changed/gone targets, and no new secret sinks.
+- Real built browser activity labels, notification navigation, and existing supported viewport layouts.
+
+These are implementation checks, not a physical-device or background-delivery qualification claim.
+
 ## 1. Unit tests
 
 ### OMP discovery, queries, and registry

@@ -7,6 +7,11 @@ The source fix accepts the optional validated field without changing registry v1
 minimum. Mixed-version real-IPC and malformed-field tests pass locally; no new native Windows,
 physical-client, or OMP-version qualification is implied. This fix is not yet a published release.
 
+The separate unreleased #197 extension adds optional activity display and stop Push notifications,
+with ask precedence and generation-revalidated View taps. It requires explicit `busy` samples,
+not disappearance heuristics. Local automated evidence does not expand the stable matrix or
+qualify actual closed-app/background delivery on another device.
+
 ## Mainline v0.4.2 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.2** on the exact matrix recorded under the

@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Optional activity status and metadata-only stop alerts for OMP hosts publishing `busy` (#197).
+  Only an observed continuing working-to-idle transition can alert; ask transitions take precedence.
+  Stops reuse existing privacy settings and delivery limits, and taps revalidate then open View.
+  Older/unknown hosts, observation gaps, replacement, and disappearance never imply completion.
+
 ### Fixed
 
 - Accept the optional `busy` snapshot field introduced by OMP 18.2.9 without hiding live

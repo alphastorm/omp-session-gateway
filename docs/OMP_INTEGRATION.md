@@ -38,6 +38,11 @@ this named extension; it does not admit arbitrary snapshot fields or expose prom
 The exact engineering baseline, minimum host version, embedded client, and native pins above stay
 unchanged. Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
+The source activity extension projects known `busy` into browser metadata and supports stop alerts
+through the existing opt-in Push channel. Older hosts remain unknown and cannot produce stop
+alerts. The exact trigger and View-only tap semantics are in
+[ATTENTION_SPEC.md](ATTENTION_SPEC.md#activity-stop-notifications); no extra OMP setting is needed.
+
 ## 1. Operator settings
 
 The only required OMP setting is:

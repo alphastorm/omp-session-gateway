@@ -220,7 +220,8 @@ Mandatory rules:
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
 
-`inputRequired` remains the only attention field accepted from the OMP snapshot. The gateway may
+`inputRequired` and optional boolean `busy` are the accepted host attention/activity signals.
+Missing/null activity is unknown, never idle or completion. The gateway may
 derive an opaque random request ID and receipt timestamp in memory for each false-to-true
 transition, expose them in list/SSE and routing URLs, and destroy them on clear, removal, expiry, or
 generation replacement. They are metadata, not authorization. Prompt text, options, answers, and
@@ -245,7 +246,11 @@ also add a bounded preview but falls back to `session` until such data is availa
 warn that visible notification text can persist in notification history, screenshots, and
 wearables. A tap routes through `/collab/:instanceId?request=:requestId`, fetches a current
 authenticated snapshot, requires the exact current attention identity and Control availability,
-and then uses the existing generation-bound no-store launch POST.
+and then uses the existing generation-bound no-store launch POST. Activity-stop notification data
+contains only version, type, instance ID, and generation. Its strict route is scrubbed before
+networking and resolves only to View for that same generation after authentication; it carries no
+request ID and cannot be used as an ask/Control intent. Stop detail obeys the same server-side
+privacy choice, with no preview content. No activity state is persisted.
 Never put a collaboration capability in a payload, notification data, route, history,
 service-worker message, persisted push state, badge, or request identifier.
 

@@ -22,7 +22,7 @@ import {
   writePrivateTextFile,
 } from "./config.ts";
 import { SafeLogger } from "./logger.ts";
-import { SessionRegistry } from "./registry.ts";
+import { SessionRegistry, type SessionActivityStopEvent } from "./registry.ts";
 
 const PUSH_STATE_VERSION = 1 as const;
 const MAX_PUSH_SUBSCRIPTIONS = 8;
@@ -228,6 +228,7 @@ export class PushService {
   #subscriptions: readonly StoredPushSubscription[];
   #mutationTail = Promise.resolve();
   #unsubscribeRegistry: (() => void) | undefined;
+  #unsubscribeActivityStops: (() => void) | undefined;
   #stopped = false;
 
   private constructor(options: {
@@ -248,6 +249,9 @@ export class PushService {
       subscription.expirationTime === null || subscription.expirationTime > Date.now(),
     );
     this.#unsubscribeRegistry = this.#registry.subscribeWithSnapshot(event => this.#acceptRegistryEvent(event));
+    this.#unsubscribeActivityStops = this.#registry.subscribeActivityStops(event => {
+      if (!this.#stopped) this.#queueActivityStop(event);
+    });
   }
 
   static async open(options: {
@@ -320,6 +324,8 @@ export class PushService {
     this.#stopped = true;
     this.#unsubscribeRegistry?.();
     this.#unsubscribeRegistry = undefined;
+    this.#unsubscribeActivityStops?.();
+    this.#unsubscribeActivityStops = undefined;
     await this.flush();
   }
 
@@ -401,6 +407,32 @@ export class PushService {
         },
         subscriptions,
       );
+    });
+  }
+
+  #queueActivityStop(event: SessionActivityStopEvent): void {
+    const { instanceId, generation } = event.session;
+    this.#queueDelivery(instanceId, async () => {
+      // A later ask, resume, unreadable poll, or replacement invalidates this edge even if the
+      // session has already returned to the same stopped metadata while delivery was queued.
+      const pendingAskCount = this.#pendingAskCount();
+      const current = this.#registry.authorizeLaunch(instanceId, generation, "view");
+      if (current.status !== "ok") return;
+      const { session } = current;
+      if (!session.canView || session.busy !== false || session.inputRequired || session.ask !== undefined) return;
+      if (!this.#registry.isCurrentActivityStop(event)) return;
+      await this.#deliver(instanceId, subscription => {
+        const body = sessionNotificationBody(session, subscription.detailLevel === "private" ? "private" : "session");
+        return {
+          version: PUSH_API_VERSION,
+          type: "activity_stop",
+          instanceId,
+          generation,
+          pendingAskCount,
+          title: "OMP session activity stopped",
+          ...(body === undefined ? {} : { body }),
+        };
+      });
     });
   }
 

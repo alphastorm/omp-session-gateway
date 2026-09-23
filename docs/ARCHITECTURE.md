@@ -95,13 +95,13 @@ shell.
 
 Authoritative snapshots and upserts remove a held record when its exact ask changes or clears, and
 remove a dismissal when the session disappears, its generation changes, or it needs attention.
-Transport failures do not erase either record. The current metadata does not distinguish completed
-from still-working sessions, so the PWA must not invent a Completed state or label local dismissal
+Transport failures do not erase either record. Optional `busy` distinguishes sampled activity from
+idle/unknown, not successful completion. The PWA must not invent a Completed state or label local dismissal
 as Close or Exit. These bounded records contain no title, path, model, prompt, answer, transcript,
 or collaboration capability.
 
 An explicit Settings-sheet action enables background Web Push. Permission is never requested on load.
-The gateway sends strict Push v2 attention/clear envelopes with opaque request identity and a
+The gateway sends strict Push v2 attention/clear and activity-stop envelopes with bounded identity and a
 bounded pending count. Private detail uses a fixed title with no body; Session (the default) adds
 bounded session/project labels. Preview falls back to Session because stock OMP supplies no ask
 preview. Visible text may persist in notification history, screenshots, or wearables. A tap opens
@@ -109,6 +109,14 @@ preview. Visible text may persist in notification history, screenshots, or weara
 current ask and Control availability. Valid taps use the ordinary generation-bound, no-store,
 in-memory launch flow; stale taps remain on the directory. Background delivery remains best effort
 and outside the v0.4.0 qualified core matrix.
+
+The registry alone detects known busy-to-idle edges on a continuing identity/generation. Retained
+polls remove only activity knowledge without extending TTL. Its private stop event shares the
+ordered dispatch queue but is never sent as a browser SSE event. A record-local revision marker
+invalidates stale queued delivery across busy, unknown, or identity transitions. Neither a previous
+nor current waiting sample may produce a stop. Stop taps use the exact instance/generation route
+and open View after fresh metadata; they never acquire Control. Existing per-instance topics and
+displayed-attention priority are specified in [ATTENTION_SPEC.md](ATTENTION_SPEC.md).
 
 PWA upgrades activate immediately after the new content-hashed shell is cached. The shell includes
 the pinned collaboration-client module and stylesheet, and an idle directory warms the module
