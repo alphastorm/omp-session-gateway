@@ -345,11 +345,13 @@ preflight_tools() {
 # legacy MD5 fingerprint of the public key, which is what `ssh-keygen -E md5` prints.
 preflight_ssh_key() {
   local key_json key_err do_fingerprint key_name pub local_fingerprint candidates attempt
-  # The key is registered by the immediately preceding step, and DigitalOcean has been observed
-  # returning "not found" for a `get` by id seconds after a successful create. Retry briefly rather
-  # than refusing a key that does exist. Never discard stderr: a rate limit, an auth failure and a
-  # genuinely absent key all reach the shape check identically, and reporting all three as "not in
-  # this account" sends the operator to look for the wrong problem.
+  # The key is registered by the immediately preceding step, and DigitalOcean serves key reads from
+  # an eventually consistent store: a `get` by id became readable 5-11 seconds after a successful
+  # create in 2026-09-23 probes, and stayed unreadable past a 10-second window in qualification run
+  # 35850590104. Retry with linear backoff for about 55 seconds rather than refusing a key that
+  # does exist. Never discard stderr: a rate limit, an auth failure and a genuinely absent key all
+  # reach the shape check identically, and reporting all three as "not in this account" sends the
+  # operator to look for the wrong problem.
   attempt=1
   while :; do
     key_err="$(mktemp)"
@@ -358,7 +360,7 @@ preflight_ssh_key() {
       rm -f "$key_err"
       break
     fi
-    if [ "$attempt" -ge 5 ]; then
+    if [ "$attempt" -ge 11 ]; then
       local detail
       detail="$(tr -d '\r' <"$key_err" | tr '\n' ' ' | cut -c1-300)"
       rm -f "$key_err"

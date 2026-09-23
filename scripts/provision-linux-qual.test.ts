@@ -209,3 +209,75 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "SSH key preflight waits out DigitalOcean read-after-create lag, but only for a bounded window",
+  async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-key-consistency-"));
+    const bin = join(temporaryRoot, "bin");
+    const identity = join(temporaryRoot, "id_ed25519");
+    const calls = join(temporaryRoot, "doctl-calls");
+    await mkdir(bin);
+    expect(Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "test", "-f", identity]).exitCode).toBe(0);
+    const fingerprint = Bun.spawnSync(["ssh-keygen", "-l", "-E", "md5", "-f", `${identity}.pub`])
+      .stdout.toString()
+      .split(/\s+/u)[1]
+      ?.replace(/^MD5:/u, "");
+    // Stands in for DigitalOcean serving a freshly created key as "not found" for a while.
+    await writeFile(
+      join(bin, "doctl"),
+      `#!/bin/bash
+count=$(( $(cat "$DOCTL_CALLS" 2>/dev/null || echo 0) + 1 ))
+echo "$count" >"$DOCTL_CALLS"
+if [ "$count" -lt "$DOCTL_READABLE_AT" ]; then
+  echo 'Error: GET https://api.digitalocean.com/v2/account/keys/4242: 404 The resource you were accessing could not be found.' >&2
+  exit 1
+fi
+printf '[{"id":4242,"name":"omp-qual-ci-test-1","fingerprint":"%s"}]\\n' "$KEY_FINGERPRINT"
+`,
+      { mode: 0o700 },
+    );
+    const run = async (readableAt: number) => {
+      await rm(calls, { force: true });
+      const child = Bun.spawn(
+        ["/bin/bash", "-c", 'source "$1"; sleep() { :; }; preflight_ssh_key', "test", join(REPOSITORY_ROOT, "scripts/provision-linux-qual.sh")],
+        {
+          cwd: REPOSITORY_ROOT,
+          env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            OMP_QUAL_SSH_KEY_ID: "4242",
+            OMP_QUAL_SSH_IDENTITY: identity,
+            DOCTL_CALLS: calls,
+            DOCTL_READABLE_AT: String(readableAt),
+            KEY_FINGERPRINT: fingerprint ?? "",
+          },
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { exitCode, stdout, stderr, reads: Number.parseInt(await Bun.file(calls).text(), 10) };
+    };
+    try {
+      // Readable only on the eighth read, past the former five-read window.
+      const lagged = await run(8);
+      expect(lagged.exitCode).toBe(0);
+      expect(lagged.stdout).toContain("matching local private key");
+      expect(lagged.reads).toBe(8);
+
+      const absent = await run(1_000);
+      expect(absent.exitCode).toBe(1);
+      expect(absent.stderr).toContain("did not resolve after 11 attempts");
+      expect(absent.stderr).toContain("404 The resource you were accessing could not be found.");
+      expect(absent.reads).toBe(11);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);

@@ -22,6 +22,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - Wait for the installed PWA shell to match the release before the post-release smoke drives
   View/Control, and report the last announced physical-lane stage when a withheld Android lane
   fails. Malformed lane output no longer reaches a JSON parse error, which Bun quotes.
+- Wait about a minute for a freshly registered DigitalOcean SSH key to become readable before Debian
+  qualification provisions a droplet, and delete the exported key id in teardown. DigitalOcean's
+  eventually consistent key reads failed a qualification run before any droplet existed and hid
+  that run's key record from teardown.
 
 ## [v0.5.0] — 2026-09-23
 
