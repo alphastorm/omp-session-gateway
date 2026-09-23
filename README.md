@@ -209,7 +209,7 @@ After installation and tailnet configuration:
 6. **Experimental outside the stable core claim:** the Settings sheet behind the masthead control can enable
    background Web Push alerts and choose Private, Session, or Preview detail. The no-store tap
    path is implemented and capability-free, but closed-PWA/lock-screen/force-stop/network behavior
-   is not stable-qualified. The unreleased activity extension also alerts on observed working-to-idle
+   is not stable-qualified. Since v0.5.0, the activity extension also alerts on observed working-to-idle
    transitions from hosts publishing `busy`; stop taps open View after fresh generation validation.
    Unknown activity, disappearance, and reconnect are never treated as completed work.
 7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport

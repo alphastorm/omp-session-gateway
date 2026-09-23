@@ -1,12 +1,12 @@
 # Test plan
 
 This plan names behavioral contracts and acceptance scenarios, not a claim that every scenario
-has passed on every platform. Published v0.4.0 uses stock OMP’s native registry/controller; the
+has passed on every platform. Published mainline releases use stock OMP’s native registry/controller; the
 exact signed-candidate matrix, separate published-byte smoke, and remaining qualification gaps
 are recorded in the [release ledger](RELEASE_STATUS.md). Historical fork-era receipts do not
 qualify the mainline integration.
 
-## Activity extension scenarios (unreleased)
+## Activity extension scenarios
 
 - Mixed current/legacy host snapshots: busy true/false, missing/null unknown, malformed rejection.
 - Known true-to-false only on continuing identity/generation, neither sample waiting for input.
