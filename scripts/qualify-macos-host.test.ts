@@ -242,17 +242,60 @@ test.skipIf(!POSIX)("Mac OMP cleanup removes its private runtime without touchin
   }
 });
 
-test.skipIf(!POSIX)("Mac OMP cleanup refuses to claim success while discovery still names a live host", async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-live-host-cleanup-"));
+test.skipIf(!POSIX).each(["missing", "refused"])("Mac OMP cleanup ignores a reused PID when its endpoint is %s", async endpointState => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-stale-"));
   const discovery = join(temporaryRoot, ".omp", "run", "collab-hosts");
+  const endpoint = join(temporaryRoot, "host.sock");
+  try {
+    await mkdir(discovery, { recursive: true });
+    if (endpointState === "refused") {
+      const boundSocket = Bun.spawn(["python3", "-c", "import socket, sys; socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).bind(sys.argv[1])", endpoint]);
+      expect(await boundSocket.exited).toBe(0);
+    }
+    const entry = join(discovery, "stale.json");
+    const record = JSON.stringify({ pid: process.pid, endpoint });
+    await writeFile(entry, record, { mode: 0o600 });
+    const cleanup = await runOmpCleanup(temporaryRoot);
+    expect(cleanup.exitCode).toBe(0);
+    expect(JSON.parse(cleanup.stdout).liveOmpHosts).toBe(0);
+    expect(await readFile(entry, "utf8")).toBe(record);
+    expect(await pathEntryExists(endpoint)).toBe(endpointState === "refused");
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!POSIX)("Mac OMP cleanup refuses to claim success while discovery still names a live host", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-live-"));
+  const discovery = join(temporaryRoot, ".omp", "run", "collab-hosts");
+  const endpoint = join(temporaryRoot, "host.sock");
+  const host = Bun.listen({ unix: endpoint, socket: { data() {}, open(socket) { socket.end(); } } });
   try {
     await mkdir(discovery, { recursive: true });
     const entry = join(discovery, "qualification.json");
-    await writeFile(entry, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+    await writeFile(entry, JSON.stringify({ pid: process.pid, endpoint }), { mode: 0o600 });
     const cleanup = await runOmpCleanup(temporaryRoot);
     expect(cleanup.exitCode).toBe(1);
     expect(JSON.parse(cleanup.stdout).liveOmpHosts).toBe(1);
     expect(await Bun.file(entry).exists()).toBe(true);
+  } finally {
+    host.stop(true);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!POSIX)("Mac OMP cleanup retains a host when its endpoint cannot be probed", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-unprobed-"));
+  const discovery = join(temporaryRoot, ".omp", "run", "collab-hosts");
+  try {
+    await mkdir(discovery, { recursive: true });
+    const entry = join(discovery, "qualification.json");
+    const record = JSON.stringify({ pid: process.pid, endpoint: `/invalid/${"x".repeat(1024)}` });
+    await writeFile(entry, record, { mode: 0o600 });
+    const cleanup = await runOmpCleanup(temporaryRoot);
+    expect(cleanup.exitCode).toBe(1);
+    expect(JSON.parse(cleanup.stdout).liveOmpHosts).toBe(1);
+    expect(await readFile(entry, "utf8")).toBe(record);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

@@ -15,6 +15,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Check published OMP sockets during retained-Mac qualification cleanup instead of treating a
+  reused PID as a live host. Missing/refused endpoints are dead; other failures remain blocking.
+  Cleanup preserves OMP-owned discovery files and unrelated processes.
 - Align browser JSON Schemas with emitted ask metadata and OMP's 8–64 character identities.
   List/SSE validation shares identity and numeric bounds, requires ask metadata exactly while
   input is required, and rejects private fields. Real HTTP/SSE regressions cover the contract.
