@@ -300,13 +300,14 @@ function clearUpdateReloadTimeout(): void {
   updateReloadTimeout = undefined;
 }
 
-/** ADR-018's bounded fallback: reload only a directory with no pending launch or routed notification. */
+/** ADR-018's bounded fallback: reload only an idle directory, never a pending or mounted launch. */
 function applyActivatedWorkerUpdate(): void {
   clearUpdateReloadTimeout();
   if (
     !workerUpdatePending ||
     pendingLaunches > 0 ||
     pendingNotificationRoute ||
+    activeCollabShell !== undefined ||
     location.pathname === "/client/"
   ) {
     return;
@@ -1922,8 +1923,11 @@ async function launch(
       });
       return true;
     }
-    if (location.pathname === "/client/") history.replaceState(null, "", "/");
-    stylesheet?.remove();
+    // A concurrent launch may already have mounted a collaboration; its route and styles stay put.
+    if (activeCollabShell === undefined) {
+      if (location.pathname === "/client/") history.replaceState(null, "", "/");
+      stylesheet?.remove();
+    }
     setStatus(kind, message);
     applyActivatedWorkerUpdate();
     return false;
@@ -2132,6 +2136,7 @@ async function resolvePendingNotificationRoute(): Promise<void> {
     await launch(session, "control", undefined, pending.requestId);
   } else {
     setStatus("expired", "That notification changed or expired. Choose a current session.");
+    applyActivatedWorkerUpdate();
   }
 }
 

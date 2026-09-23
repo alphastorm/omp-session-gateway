@@ -14,8 +14,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   clients; the page reloads itself only once no launch is pending, no routed notification awaits
   its snapshot, and no collaboration client is mounted (ADR-018 amendment). This matches the
   first-attempt View/Control smoke failures after gateway upgrades.
-- Wait for the installed PWA shell to settle before the post-release smoke drives View/Control, and
-  report the last announced physical-lane stage when a withheld Android lane fails.
+- Keep a mounted collaboration intact when a concurrent launch fails afterwards. The failure no
+  longer rewrites that page's route, removes the shared collaboration stylesheet, or reloads it.
+  An expired routed notification now applies a deferred PWA update instead of leaving it pending.
+- Wait for the installed PWA shell to match the release before the post-release smoke drives
+  View/Control, and report the last announced physical-lane stage when a withheld Android lane
+  fails. Malformed lane output no longer reaches a JSON parse error, which Bun quotes.
 
 ## [v0.5.0] — 2026-09-23
 

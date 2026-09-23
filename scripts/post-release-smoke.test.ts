@@ -14,6 +14,7 @@ import {
   isStockOmpBinary,
   isWebApkAppTarget,
   formatCommandFailure,
+  parseJsonRecord,
   parsePostReleaseSmokeArgs,
   releaseAssetNames,
   unrelatedServeSnapshot,
@@ -162,6 +163,19 @@ describe("published release binding", () => {
     );
     expect(forged).toBe("Android smoke failed with exit 1");
     expect(forged).not.toContain(syntheticSecret);
+  });
+
+  test("never quotes a withheld lane's malformed stdout in its parse error", () => {
+    const syntheticSecret = "qualificationcapabilityneverlogthis";
+    for (const stdout of [syntheticSecret, `{"appAsset": ${syntheticSecret}}`, `${syntheticSecret}\n{}`]) {
+      let message = "";
+      try {
+        parseJsonRecord(stdout, "Android View and Control smoke");
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message).toBe("Error: Android View and Control smoke did not return JSON");
+    }
   });
 });
 

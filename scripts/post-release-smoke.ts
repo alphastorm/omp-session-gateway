@@ -336,8 +336,14 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function parseJsonRecord(value: string, name: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(value);
+/** Bun's parse error quotes the first unexpected token, so a withheld lane's text must not reach it. */
+export function parseJsonRecord(value: string, name: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${name} did not return JSON`);
+  }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`${name} was not a JSON object`);
   return parsed as Record<string, unknown>;
 }

@@ -117,13 +117,24 @@ attributes that run by mechanism, not by a recovered error.
   v0.5.0 upgrades. That link is an inference; those earlier outputs were also lost.
 
 **Fix, unreleased on `main`:** activation retires shells and claims clients without navigating any
-of them (ADR-018 amendment), and the page's bounded reload waits for every pending launch and routed
-notification. Three update end-to-end cases fail on the v0.5.0 source and all four pass after the
-fix; the worker unit case fails on the v0.5.0 worker. The collaboration smoke now waits until the
-controlling worker's only shell cache holds the page's own app bundle, then starts from a fresh
-document. Android lanes announce closed-vocabulary stages, and the post-release smoke reports the
-last one instead of withholding everything. The installed v0.5.0 bytes are unchanged; the fix
-reaches the Pixel only through a release, and no physical rerun of the original failure is claimed.
+of them (ADR-018 amendment). The page's bounded reload waits for every pending launch and routed
+notification, and a launch failing after another launch mounted a collaboration no longer rewrites
+that page's route, removes its shared stylesheet, or reloads it. An expired routed notification
+now applies a deferred update. Five of the six update end-to-end cases fail on the v0.5.0 source;
+all six pass after the fix, and the worker unit case fails on the v0.5.0 worker. The
+collaboration smoke now waits until the controlling worker's only shell cache holds the page's own
+app bundle, which must be the release bundle, then starts from a fresh document. Android lanes
+announce closed-vocabulary stages, and the post-release smoke reports the last one instead of
+withholding everything; malformed lane stdout no longer reaches a quoted JSON parse error. The
+installed v0.5.0 bytes are unchanged; the fix reaches the Pixel only through a release, and no
+physical rerun of the original failure is claimed.
+
+**Pixel shell install time.** A read-only DevTools read of the Pixel's shell cache found the v0.5.0
+bundle (`app.b3055eccd928.js`, `app.c349fe1b819f.css`) fetched at **07:17:19 UTC**. That is inside
+the failed smoke, launched at 07:16:34 with its failure visible by 07:19:00, and before the passing
+Android-only probe at about 07:22. The new shell was installed during the failed run, not before
+it, and a `skipWaiting` install activates immediately; the passing probe ran against a current
+worker. The worker read as active with nothing installing or waiting.
 
 ## Mainline v0.4.2 — published stable
 

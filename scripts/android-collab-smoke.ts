@@ -7,20 +7,23 @@ const APP_ASSET_PATTERN = /^\/assets\/app\.[0-9a-f]+\.js$/u;
 
 /**
  * True once the controlling worker is the settled one whose only shell cache holds this document's
- * app bundle. The first visit after a gateway upgrade installs and activates the new shell, and the
- * page then reloads itself if it is idle (ADR-018); driving View/Control before that settles races
- * the reload.
+ * app bundle, and that bundle is the expected release bundle when one is given. The first visit
+ * after a gateway upgrade installs and activates the new shell, and the page then reloads itself if
+ * it is idle (ADR-018); driving View/Control before that settles races the reload.
  */
-const CURRENT_SHELL_EXPRESSION = `(async () => {
+function currentShellExpression(expectedAppAsset: string | undefined): string {
+  return `(async () => {
+  const expected = ${JSON.stringify(expectedAppAsset ?? null)};
   const registration = await navigator.serviceWorker.getRegistration("/");
   const controller = navigator.serviceWorker.controller;
   if (registration?.active?.state !== "activated" || registration.installing !== null || registration.waiting !== null) return false;
   if (controller === null || controller.state !== "activated") return false;
   const asset = performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname).find(path => /^\\/assets\\/app\\.[0-9a-f]+\\.js$/.test(path));
-  if (asset === undefined) return false;
+  if (asset === undefined || (expected !== null && asset !== expected)) return false;
   const shells = (await caches.keys()).filter(name => name.startsWith("omp-sessions-shell-"));
   return shells.length === 1 && (await (await caches.open(shells[0])).match(asset)) !== undefined;
 })()`;
+}
 
 export interface AndroidCollabSmokeOptions {
   readonly origin: string;
@@ -127,7 +130,7 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
     };
 
     announceAndroidStage(ANDROID_COLLAB_STAGES, "installed shell");
-    await waitFor("installed application shell", CURRENT_SHELL_EXPRESSION, 120);
+    await waitFor("installed application shell", currentShellExpression(options.expectedAppAsset), 120);
     // Start from a document the settled worker controlled from load, so no update reload can follow.
     await driver.navigate(`${options.origin}/`);
 

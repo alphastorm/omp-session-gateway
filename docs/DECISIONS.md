@@ -307,6 +307,14 @@ client is mounted. Every published release since `v0.1.0-prealpha.8` carries tha
 so older update-unaware clients no longer justify worker navigation. The no-store `/update/`
 bootstrap and its synchronous scrub remain only for activations by earlier workers.
 
+Residual, accepted: a `skipWaiting` activation replaces the controller of every existing client,
+whether or not the worker claims it, so a page still running v0.5.0 or earlier code when the fixed
+worker activates applies its own predecessor fallback. That fallback still protects a single
+pending launch and a mounted collaboration; it can still reload during two concurrent launches or
+while a routed notification awaits its snapshot. Only pages loaded from the fixed release onward
+carry the complete guard. Avoiding this would require giving up `skipWaiting`, which this decision
+rejects.
+
 ---
 
 ## ADR-019 — Complete the couch-flow attention contract with bounded presentation metadata

@@ -79,7 +79,7 @@ async function holdRoute(
   page: Page,
   url: string,
   finish: (route: Route) => Promise<void>,
-): Promise<{ readonly arrived: Promise<void>; release(): void }> {
+): Promise<{ readonly arrived: Promise<void>; readonly finished: Promise<void>; release(): void }> {
   let release = (): void => undefined;
   const released = new Promise<void>(resolve => {
     release = resolve;
@@ -88,12 +88,17 @@ async function holdRoute(
   const arrived = new Promise<void>(resolve => {
     arrive = resolve;
   });
+  let finishOne = (): void => undefined;
+  const finished = new Promise<void>(resolve => {
+    finishOne = resolve;
+  });
   await page.route(url, async route => {
     arrive();
     await released;
     await finish(route).catch(() => undefined);
+    finishOne();
   });
-  return { arrived, release: () => release() };
+  return { arrived, finished, release: () => release() };
 }
 
 
@@ -167,49 +172,61 @@ test("an updated PWA preserves active collaboration until the user leaves", asyn
   }
 });
 
-test("an updated PWA never interrupts launches that are still pending", async ({ page }) => {
-  const failing = session("pwa-upgrade-0002", "Failing launch");
-  const fixture = await startDashboardFixture([session(), failing]);
-  await installLoadCounter(page);
-  await installSilentWebSocket(page);
-  const failingLaunch = await holdRoute(page, `**/api/v1/sessions/${failing.instanceId}/launch`, route =>
-    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
-  );
-  const viewLaunch = await holdRoute(page, "**/api/v1/sessions/pwa-upgrade-0001/launch", route => route.continue());
+for (const order of ["the failure settles first", "a collaboration mounts first"] as const) {
+  test(`an updated PWA never interrupts concurrent launches when ${order}`, async ({ page }) => {
+    const failing = session("pwa-upgrade-0002", "Failing launch");
+    const fixture = await startDashboardFixture([session(), failing]);
+    await installLoadCounter(page);
+    await installSilentWebSocket(page);
+    const failingLaunch = await holdRoute(page, `**/api/v1/sessions/${failing.instanceId}/launch`, route =>
+      route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+    );
+    const viewLaunch = await holdRoute(page, "**/api/v1/sessions/pwa-upgrade-0001/launch", route => route.continue());
 
-  try {
-    await page.goto(fixture.origin);
-    await expect(page.locator(".working-row")).toHaveCount(2);
-    await waitForControlledWorker(page);
-    await page.getByRole("button", { name: "View Failing launch" }).click();
-    await page.getByRole("button", { name: "View Automatic PWA upgrade" }).click();
-    await Promise.all([failingLaunch.arrived, viewLaunch.arrived]);
+    try {
+      await page.goto(fixture.origin);
+      await expect(page.locator(".working-row")).toHaveCount(2);
+      await waitForControlledWorker(page);
+      await page.getByRole("button", { name: "View Failing launch" }).click();
+      await page.getByRole("button", { name: "View Automatic PWA upgrade" }).click();
+      await Promise.all([failingLaunch.arrived, viewLaunch.arrived]);
 
-    await upgradeThroughActivation(page, fixture);
-    expect(await loadCount(page)).toBe(1);
+      await upgradeThroughActivation(page, fixture);
+      expect(await loadCount(page)).toBe(1);
 
-    // One settled launch must not release the update while the other is still pending.
-    failingLaunch.release();
-    await expect(page.locator("#status-banner")).toHaveText("The session could not be opened. Try again.");
-    await page.waitForTimeout(250);
-    expect(await loadCount(page)).toBe(1);
+      if (order === "the failure settles first") {
+        // One settled launch must not release the update while the other is still pending.
+        failingLaunch.release();
+        await expect(page.locator("#status-banner")).toHaveText("The session could not be opened. Try again.");
+        await page.waitForTimeout(250);
+        expect(await loadCount(page)).toBe(1);
+        viewLaunch.release();
+        await expect(page.locator(".conn-chip")).toBeVisible();
+      } else {
+        // A late failure must leave the collaboration another launch mounted meanwhile untouched.
+        viewLaunch.release();
+        await expect(page.locator(".conn-chip")).toBeVisible();
+        failingLaunch.release();
+        await failingLaunch.finished;
+        await page.waitForTimeout(250);
+        await expect(page.locator(".conn-chip")).toBeVisible();
+        await expect(page.locator("link[data-omp-collab-styles]")).toHaveCount(1);
+      }
+      await expect(page).toHaveURL(`${fixture.origin}/client/`);
+      expect(await loadCount(page)).toBe(1);
+      expect(fixture.launchRequests.map(request => request.instanceId)).toEqual(["pwa-upgrade-0001"]);
 
-    viewLaunch.release();
-    await expect(page.locator(".conn-chip")).toBeVisible();
-    await expect(page).toHaveURL(`${fixture.origin}/client/`);
-    expect(await loadCount(page)).toBe(1);
-    expect(fixture.launchRequests.map(request => request.instanceId)).toEqual(["pwa-upgrade-0001"]);
-
-    await page.goBack();
-    await expect(page).toHaveURL(`${fixture.origin}/`);
-    await expect.poll(() => loadCount(page)).toBe(2);
-    await expect(page.locator(".working-row")).toHaveCount(2);
-  } finally {
-    failingLaunch.release();
-    viewLaunch.release();
-    await fixture.stop();
-  }
-});
+      await page.goBack();
+      await expect(page).toHaveURL(`${fixture.origin}/`);
+      await expect.poll(() => loadCount(page)).toBe(2);
+      await expect(page.locator(".working-row")).toHaveCount(2);
+    } finally {
+      failingLaunch.release();
+      viewLaunch.release();
+      await fixture.stop();
+    }
+  });
+}
 
 test("an updated PWA keeps a routed notification until its snapshot resolves", async ({ page }) => {
   const fixture = await startDashboardFixture([session()]);
@@ -232,6 +249,31 @@ test("an updated PWA keeps a routed notification until its snapshot resolves", a
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     expect(fixture.launchRequests).toEqual([{ instanceId: "pwa-upgrade-0001", generation: 1, mode: "view" }]);
     expect(await loadCount(page)).toBe(2);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("an updated PWA applies its deferred update once a routed notification expires", async ({ page }) => {
+  const fixture = await startDashboardFixture([session()]);
+  await installLoadCounter(page);
+
+  try {
+    await page.goto(fixture.origin);
+    await waitForControlledWorker(page);
+    const snapshot = await holdRoute(page, "**/api/v1/sessions", route => route.continue());
+    // Generation 2 no longer matches the live generation-1 session, so the route resolves as expired.
+    await page.goto(`${fixture.origin}/collab/pwa-upgrade-0001?activity=stopped&generation=2`);
+    await snapshot.arrived;
+
+    await upgradeThroughActivation(page, fixture);
+    expect(await loadCount(page)).toBe(2);
+
+    snapshot.release();
+    await expect.poll(() => loadCount(page)).toBe(3);
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect(page.locator(".working-row")).toHaveCount(1);
+    expect(fixture.launchRequests).toEqual([]);
   } finally {
     await fixture.stop();
   }
