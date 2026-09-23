@@ -641,6 +641,11 @@ a per-host `link` request only after an explicit authorized launch. Never write,
 unlink OMP’s discovery files or sockets. Only `ENOENT`/`ECONNREFUSED` proves a queried host dead;
 transient errors retain metadata until TTL expiry. Never store or cache capabilities in the gateway.
 
+**Additive extension, 2026-09-23:** Accept the optional boolean `busy` introduced by upstream
+PR #12844 (`1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9`) under unchanged registry v1. Omitted/null
+means unknown, not idle. Keep other snapshot keys strict and retain the 18.1.20 baseline and
+existing client/native pins. The compatibility fix does not itself implement stop notifications.
+
 Rename the local managed-readiness credential to `readiness-token` and the rotation command to
 `rotate-readiness-token`; it is not an OMP credential. Installation removes the legacy fork-era
 `publisher-token`. Add `omp.discoveryDir` and `omp.queryTimeoutMs`; retain

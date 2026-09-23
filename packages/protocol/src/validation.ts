@@ -266,7 +266,7 @@ export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
       "inputRequired",
       "access",
     ],
-    ["sessionName", "cwd", "model"],
+    ["sessionName", "cwd", "model", "busy"],
   );
   if (typeof record.sessionId !== "string" || !SESSION_ID_PATTERN.test(record.sessionId)) {
     throw new ProtocolValidationError();
@@ -275,6 +275,9 @@ export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
     throw new ProtocolValidationError();
   }
   if (record.access !== "view" && record.access !== "control") throw new ProtocolValidationError();
+  if (record.busy !== undefined && record.busy !== null && typeof record.busy !== "boolean") {
+    throw new ProtocolValidationError();
+  }
   const sessionName = record.sessionName === null ? undefined : optionalLabel(record.sessionName);
   const cwd = record.cwd === null ? undefined : optionalLabel(record.cwd);
   const model = parseOmpHostModel(record.model);
@@ -289,6 +292,7 @@ export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
     relayConnected: record.relayConnected,
     inputRequired: record.inputRequired,
     access: record.access,
+    ...(typeof record.busy === "boolean" ? { busy: record.busy } : {}),
     ...(sessionName === undefined || sessionName === "" ? {} : { sessionName }),
     ...(cwd === undefined || cwd === "" ? {} : { cwd }),
     ...(model === undefined ? {} : { model }),

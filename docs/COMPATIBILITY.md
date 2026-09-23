@@ -1,5 +1,12 @@
 # Compatibility and support policy
 
+## Unreleased compatibility correction
+
+Published v0.4.2 rejects the additive `busy` field emitted by OMP 18.2.9 and can hide live sessions
+(#219). The unreleased parser fix accepts validated booleans and preserves absent/null as unknown.
+Mixed current/legacy host discovery and View/Control are covered by real local IPC regression tests.
+This does not advance the pinned baseline, native/client versions, or exact qualification matrix.
+
 ## Current claim
 
 Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.

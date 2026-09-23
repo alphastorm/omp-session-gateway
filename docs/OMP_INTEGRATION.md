@@ -27,6 +27,17 @@ exact matrix or establish the cause of the initial intermittent Control-upgrade 
 See the [release ledger](RELEASE_STATUS.md) for receipts, limits, and that unresolved observation;
 no fork-era qualification transfers.
 
+## Additive activity compatibility
+
+The unreleased #219 fix accepts `busy` from OMP 18.2.9 while retaining older hosts in the same
+directory. Upstream [PR #12844](https://github.com/can1357/oh-my-pi/pull/12844), merge
+`1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9`, adds this optional field without changing registry v1.
+Its source is `session.isStreaming`: true while running a turn, false while idle, and unknown
+when omitted/null. It is not proof of successful completion or process exit. The parser validates
+this named extension; it does not admit arbitrary snapshot fields or expose prompt/answer data.
+The exact engineering baseline, minimum host version, embedded client, and native pins above stay
+unchanged. Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
+
 ## 1. Operator settings
 
 The only required OMP setting is:

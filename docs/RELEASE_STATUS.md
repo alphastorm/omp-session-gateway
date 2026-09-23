@@ -1,5 +1,12 @@
 # Release status
 
+## Unreleased OMP activity compatibility fix
+
+Issue #219 identifies published v0.4.2 rejecting OMP 18.2.9's additive `busy` snapshot field.
+The source fix accepts the optional validated field without changing registry v1 or the 18.1.20
+minimum. Mixed-version real-IPC and malformed-field tests pass locally; no new native Windows,
+physical-client, or OMP-version qualification is implied. This fix is not yet a published release.
+
 ## Mainline v0.4.2 — published stable
 
 **Updated:** 2026-09-22. **Decision: GO for stable v0.4.2** on the exact matrix recorded under the

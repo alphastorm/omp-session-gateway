@@ -59,6 +59,8 @@ export interface OmpHostSnapshot {
   readonly participants: number;
   readonly relayConnected: boolean;
   readonly inputRequired: boolean;
+  /** Omitted means the host does not report activity; never infer idle from omission. */
+  readonly busy?: boolean;
   readonly access: LaunchMode;
 }
 

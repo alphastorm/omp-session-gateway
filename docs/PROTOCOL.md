@@ -67,6 +67,7 @@ Success is `{ ok: true, v: 1, snapshot }`. The metadata snapshot contains:
 | `participants` | Host participant count. |
 | `relayConnected` | Host relay-connection state, not a reason to retire discovery. |
 | `inputRequired` | Boolean attention signal; no prompt, options, answer, or request content. |
+| `busy` | Optional activity boolean from upstream PR #12844; omitted/null is unknown, not idle. Non-boolean values are malformed. |
 | `access` | Shared access, `view` or `control`; determines Control availability. |
 
 No snapshot contains a capability. The gateway derives bounded `SessionMetadata` plus its own
