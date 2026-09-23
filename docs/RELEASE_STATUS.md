@@ -1,20 +1,61 @@
 # Release status
 
-## v0.5.0 preparation — not yet qualified or published
+## Mainline v0.5.0 — qualified; stable publication pending
 
-The combined candidate carries #220, #221, and the canonical list/SSE schema corrections.
-Published v0.4.2 remains the predecessor and current stable; no v0.5.0 qualification or
-publication is claimed, and the last qualified stable lock remains unchanged until approval.
+**Updated:** 2026-09-23. The exact candidate below is approved for stable promotion. Published
+v0.4.2 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
 
-Issue #219 identifies published v0.4.2 rejecting OMP 18.2.9's additive `busy` snapshot field.
-The source fix accepts the optional validated field without changing registry v1 or the 18.1.20
-minimum. Mixed-version real-IPC and malformed-field tests pass locally; no new native Windows,
-physical-client, or OMP-version qualification is implied. This fix is not yet a published release.
+**Candidate:** [v0.5.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0-prealpha.1).<br>
+**Source:** `3208654b7ec37330d4314c3d69930eb0b3173606`.<br>
+**Archive SHA-256:** `6a3b061cb57e38acbf765ca85fc2f98e5bc47577e79ccd3d1c903f7f3083b0f5`.<br>
+**Predecessor:** published `v0.4.2`. Rollback does not change OMP; this predecessor rejects
+busy-emitting hosts and can restore #219 despite reporting service readiness.
 
-The separate unreleased #197 extension adds optional activity display and stop Push notifications,
-with ask precedence and generation-revalidated View taps. It requires explicit `busy` samples,
-not disappearance heuristics. Local automated evidence does not expand the stable matrix or
-qualify actual closed-app/background delivery on another device.
+This release includes #220/#219 (additive activity metadata no longer hides live sessions),
+#221/#197 (optional activity display and metadata-only stop alerts), and #222 (canonical list/SSE
+schemas). Activity alerts require observed working-to-idle transitions, preserve ask precedence,
+and do not imply task success. Physical background Push and the broader attention matrix remain
+unqualified. The minimum OMP contract remains 18.1.20; later-version parser regressions do not
+qualify every later OMP release.
+
+### Candidate evidence — 2026-09-23
+
+The single orchestrator used source `3208654`. Its six non-cleanup lanes passed once; its original
+private receipt remains **failed** because cleanup used PID liveness incorrectly. It has not been
+rewritten or relabeled. The failed cleanup boundary was reproduced, fixed, and exercised directly
+on the retained Mac's actual post-failure state. This approval composes those unchanged candidate
+lanes with the corrected cleanup evidence below, not a claim that the original run passed wholesale.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [35823273490](https://github.com/alphastorm/omp-session-gateway/actions/runs/35823273490) |
+| Debian | [35824487789](https://github.com/alphastorm/omp-session-gateway/actions/runs/35824487789) succeeded on candidate source; predecessor v0.4.2; droplet, tailnet node and ephemeral SSH key removed |
+| Mac | Mac14,3, macOS 26.6.1 arm64; doctor 18/18, rollback invariants 23/23; archive digest matched |
+| OMP publication | exact stock 18.1.20; generation-1 View/Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP2A.260805.005, Chrome 153.0.8010.52; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 9,138 ms, Airplane 8,309 ms, Doze 8,356 ms |
+| Secret sinks | all seven sinks detectable and clean; no capability in resource timings or DOM |
+| Relay | 1,800 seconds, 2026-09-23T06:08:25.733Z–06:38:25.743Z; two transitions, final phase live |
+| Cleanup | original gateway uninstall: zero processes/listeners; corrected OMP helper: exit 0, liveOmpHosts 0, binaryPresent false, sourcePresent false |
+
+**Cleanup correction:** [#223](https://github.com/alphastorm/omp-session-gateway/pull/223), verified
+commit `795689bb55699686aa3b72b25f370db7b947b7ff` (merged as `671bb14273a44d78f2847600c666cc3d17d5426c`).
+A stale discovery PID belonged to macOS dprivacyd; the published socket returned ECONNREFUSED.
+The corrected helper probes the published endpoint, treats only ENOENT/ECONNREFUSED as dead,
+and keeps other errors blocking. Direct execution on that same Mac state passed, with the stale
+record and unrelated process preserved. Missing/refused-endpoint regressions failed before the
+fix; 53 focused tests / 234 assertions passed afterward, including live and indeterminate endpoints.
+No gateway runtime or release machinery changed. Re-signing the commit changed no source bytes.
+
+**Runtime equivalence:** a clean build of the corrected source matched all **46 non-metadata
+candidate files**, paths and modes, after re-verifying the candidate digest. Only the existing
+workflow exclusions apply: release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json, and
+schemas/stable-release.schema.json. The final promotion tree must pass this comparison again.
+
+**Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
+Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.4.2 — published stable
 

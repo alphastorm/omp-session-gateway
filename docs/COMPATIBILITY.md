@@ -1,13 +1,13 @@
 # Compatibility and support policy
 
-## Unreleased compatibility correction
+## v0.5.0 compatibility correction
 
 Published v0.4.2 rejects the additive `busy` field emitted by OMP 18.2.9 and can hide live sessions
-(#219). The unreleased parser fix accepts validated booleans and preserves absent/null as unknown.
+(#219). The v0.5.0 parser fix accepts validated booleans and preserves absent/null as unknown.
 Mixed current/legacy host discovery and View/Control are covered by real local IPC regression tests.
 This does not advance the pinned baseline, native/client versions, or exact qualification matrix.
 
-Unreleased stop alerts use the presence of valid activity metadata, not an OMP version guess.
+v0.5.0 stop alerts use the presence of valid activity metadata, not an OMP version guess.
 Older hosts keep ordinary directory/ask behavior with unknown activity. Push state and v2
 attention/clear remain compatible; older workers cannot interpret stops until activation and
 the browser may substitute a generic background-update notification. Open or refresh the PWA
@@ -22,19 +22,17 @@ Earlier releases are unsupported because this local registry does not exist in t
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 
-**Published stable:** [v0.4.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.2),
-immutable GitHub Latest, promoted from qualified `v0.4.2-prealpha.1` with identical runtime bytes.
-`v0.4.1` is the mainline rollback predecessor and `v0.3.0` the fork-era one.
-The [release ledger](RELEASE_STATUS.md) records exact source, archive, and completion evidence.
-The separate published-byte local/Pixel smoke also passed with existing OMP 18.1.21 and Bun
-1.4.0; it does not expand the exact signed-candidate matrix below. Its initial intermittent
-Control-upgrade failure remains documented with an undetermined cause.
+**Qualified for stable promotion:** [v0.5.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0-prealpha.1), for v0.5.0.
+Publication and the separate published-byte local/Pixel smoke are pending. Published v0.4.2
+remains GitHub Latest until promotion and is this candidate's rollback predecessor; it rejects
+busy-emitting OMP hosts. The [release ledger](RELEASE_STATUS.md) records the six passed candidate
+lanes, the separately corrected cleanup boundary, and exact source/archive bindings.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
 | Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.1.20` publication, View/Control, stale-generation rejection, and revocation passed |
 | Exact qualified source | `v18.1.20`, `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b` | Fresh signed-candidate evidence; no fork-era transfer |
-| Gateway build/runtime | Bun `1.4.0` | Signed artifact and 49-file non-metadata runtime equivalence passed |
+| Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
 | Physical client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `153.0.8010.52` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
@@ -46,8 +44,8 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
-For v0.4.2, as for v0.4.1, the founder-approved fresh 30-minute signed-candidate relay check stands
-in for the eight-hour gate; that bounded check passed on 2026-09-22. Other release gates remain intact.
+For v0.5.0, the founder renewed a fresh 30-minute signed-candidate relay check in place of
+the eight-hour gate; that bounded check passed on 2026-09-23. Other release gates remain intact.
 Eight-hour endurance is not rerun or claimed;
 prolonged-operation risk remains an accepted limitation rather than transferred historical proof.
 
