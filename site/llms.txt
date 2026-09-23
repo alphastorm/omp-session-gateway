@@ -1,8 +1,8 @@
 # OMP Session Gateway
 
 > Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
-> gateway-specific OMP plugin, or publisher credential. Stable v0.5.0 is published as immutable
-> GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> gateway-specific OMP plugin, or publisher credential. v0.5.1 is qualified for stable promotion; publication is pending.
+> Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
 > sessions and opens OMP's own encrypted View/Control client from an Android-first PWA. One-time
 > setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
 > with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
@@ -10,16 +10,16 @@
 
 ## Current qualification boundary
 
-- Stable v0.5.0 (source 1750ab454be1517d615167343562304766abb99c) was promoted from signed candidate v0.5.0-prealpha.1 with identical runtime bytes. The candidate's six non-cleanup lanes passed on 2026-09-23; its original receipt remains failed at cleanup, which was corrected (#223) and exercised directly. No claim for arbitrary builds from main.
+- v0.5.1 is approved for stable promotion from signed candidate v0.5.1-prealpha.1 (source ba64d4ad8fe7f30f16db40d57475af06e93fda6b) with identical runtime bytes. All seven qualification lanes passed on 2026-09-23; a first attempt stopped in Debian provisioning before any droplet existed and its receipt remains failed. Published stable v0.5.0 (source 1750ab454be1517d615167343562304766abb99c) remains GitHub Latest until v0.5.1 publication. No claim for arbitrary builds from main.
 - Exact OMP v18.1.20 source: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway.
 - Debian 13 (trixie) x86-64, Linux 6.12.94+deb13-amd64: 83/83 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown.
 - Mac14,3 / macOS 26.6.1 arm64: doctor 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.
-- Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 153.0.8010.52: View read-only, Control writable, prompt accepted, return to directory; same-page unlock 9,138 ms, Airplane 8,309 ms, Doze 8,356 ms; all seven forbidden capability sinks detectable and clean.
-- Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds (2026-09-23T06:08:25.733Z–06:38:25.743Z), two transitions, final phase live. The founder renewed the 30-minute check in place of eight hours; eight-hour endurance was not rerun or claimed, no historical endurance transfers, and residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.
+- Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 153.0.8010.52: View read-only, Control writable, prompt accepted, return to directory; same-page unlock 9,297 ms, Airplane 8,496 ms, Doze 8,375 ms; all seven forbidden capability sinks detectable and clean.
+- Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds (2026-09-23T11:10:25.233Z–11:40:25.240Z), two transitions, final phase live. The founder renewed the 30-minute check in place of eight hours; eight-hour endurance was not rerun or claimed, no historical endurance transfers, and residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.
 - Windows OMP, background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Seeded-fixture product media is not release-qualification evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
-- v0.4.2 is the migration/rollback predecessor; it rejects busy-emitting OMP hosts. Gateway rollback does not switch OMP.
-- In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The unreleased fix on main never navigates from the worker.
-- Published-byte local/Pixel checks passed through bounded follow-up paths after the original smoke failed at View/Control; this is composed verification, not a clean first-attempt smoke.
+- v0.5.0 is the migration/rollback predecessor. Gateway rollback does not switch OMP.
+- In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The v0.5.1 fix never navigates from the worker.
+- v0.5.0's published-byte local/Pixel checks passed through bounded follow-up paths after its original smoke failed at View/Control; that is composed verification, not a clean first-attempt smoke. The v0.5.1 published-byte smoke is pending.
 
 ## Fork-era release history
 

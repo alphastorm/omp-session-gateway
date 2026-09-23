@@ -51,13 +51,18 @@ test("getting-started and site download actions select the qualified stable rele
   expect(downloads).toEqual([expected]);
 });
 
-// The machine-readable summary stayed on v0.4.0 through three later stable releases.
+// The machine-readable summary stayed on v0.4.0 through three later stable releases. Promotion
+// commits the lock before the signed workflow publishes, so the summary states either phase.
 test("the machine-readable site summary names only the qualified stable release", async () => {
   const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
     releaseTag: string;
   };
   const summary = (await readFile(join(sitePath, "llms.txt"), "utf8")).split("\n## ")[0] ?? "";
-  expect(summary).toContain(`Stable ${stable.releaseTag} is published as immutable`);
+  const phases = [
+    `Stable ${stable.releaseTag} is published as immutable`,
+    `${stable.releaseTag} is qualified for stable promotion; publication is pending`,
+  ];
+  expect(phases.filter(phase => summary.includes(phase))).toHaveLength(1);
   expect([...new Set(summary.match(/\bv\d+\.\d+\.\d+\b/gu))]).toEqual([stable.releaseTag]);
 });
 

@@ -1,12 +1,56 @@
 # Release status
 
-## v0.5.1 preparation — not yet qualified or published
+## Mainline v0.5.1 — qualified; stable publication pending
 
-The candidate carries #226: shell-update activation no longer navigates clients, the page's
+**Updated:** 2026-09-23. The exact candidate below is approved for stable promotion. Published
+v0.5.0 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.5.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1-prealpha.1).<br>
+**Source:** `ba64d4ad8fe7f30f16db40d57475af06e93fda6b`.<br>
+**Archive SHA-256:** `ac7abda743cb75ea7224cc4eba1a506360a52c55dc4ab67ebe933339be9acfcf`.<br>
+**Predecessor:** published `v0.5.0`. Rollback does not change OMP; it restores v0.5.0's update
+activation, which can navigate an open page back to the directory (#226).
+
+This release carries #226: shell-update activation no longer navigates clients, the page's
 bounded reload waits for pending launches, routed notifications, and mounted collaboration, and the
-post-release smoke settles the installed shell and reports closed-vocabulary lane stages. Published
-v0.5.0 remains the predecessor and current stable; no v0.5.1 qualification or publication is
-claimed, and the stable lock remains unchanged until approval.
+post-release smoke settles the installed shell and reports closed-vocabulary lane stages. #228
+changes qualification tooling only; it is not in the candidate archive. The minimum OMP contract
+remains 18.1.20.
+
+### Candidate evidence — 2026-09-23
+
+The passing orchestrator ran from `42a5642691256b5de5b0dd509347f84233bcd918` (candidate source
+plus #228); its private receipt records `passed` with exactly one attempt per lane.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [35849414930](https://github.com/alphastorm/omp-session-gateway/actions/runs/35849414930) |
+| Debian | [35851744582](https://github.com/alphastorm/omp-session-gateway/actions/runs/35851744582) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; 83/83 migration/recovery invariants; predecessor v0.5.0; droplet, tailnet node and ephemeral SSH key removed |
+| Mac | Mac14,3, macOS 26.6.1 arm64; doctor 18/18, token rotation, reboot-to-login persistence with unchanged token digest, rollback invariants 23/23; archive digest matched |
+| OMP publication | exact stock 18.1.20 (`1bd60c6f`); generation-1 View/Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP2A.260805.005, Chrome 153.0.8010.52, asset `app.18b30e778c13.js`; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 9,297 ms, Airplane 8,496 ms, Doze 8,375 ms |
+| Secret sinks | all seven sinks detectable and clean; no capability in resource timings or DOM |
+| Relay | 1,800 seconds, 2026-09-23T11:10:25.233Z–11:40:25.240Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; OMP binary and source absent |
+
+**First attempt:** the same candidate's first orchestrator run, from `ba64d4a`, stopped in Debian
+run [35850590104](https://github.com/alphastorm/omp-session-gateway/actions/runs/35850590104)
+before any droplet existed. DigitalOcean had not made the freshly registered ephemeral SSH key
+readable within the provisioner's five reads, and teardown's name sweep missed the same key; it
+was deleted by hand and then read back as 404. No other lane had started. That private receipt
+remains **failed** and unchanged beside the passing one. [#228](https://github.com/alphastorm/omp-session-gateway/pull/228)
+waits about a minute for the key and deletes the exported key id in teardown.
+
+**Runtime equivalence:** a clean stable-channel build of the promotion tree matched all **46
+non-metadata candidate files**, paths and modes, after re-verifying the candidate digest. Only the
+existing workflow exclusions apply: release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json,
+and schemas/stable-release.schema.json.
+
+**Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
+Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.5.0 — published stable
 
