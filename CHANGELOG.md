@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.5.0] — 2026-09-23
+
 ### Added
 
 - Optional activity status and metadata-only stop alerts for OMP hosts publishing `busy` (#197).
