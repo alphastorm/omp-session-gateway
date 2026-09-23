@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +19,15 @@ const origin = "https://gateway.example.ts.net";
 const peer = { address: "127.0.0.1" } as const;
 let assetRoot = "";
 let assets: StaticAssetStore;
+
+const schemaValidator = new Ajv2020({ strict: true, allErrors: true });
+addFormats(schemaValidator);
+const validateSessionList = schemaValidator.compile(
+  await Bun.file(new URL("../../../schemas/session-list.schema.json", import.meta.url)).json(),
+);
+const validateSessionEvent = schemaValidator.compile(
+  await Bun.file(new URL("../../../schemas/sse-event.schema.json", import.meta.url)).json(),
+);
 
 function config(mode: GatewayConfig["auth"]["mode"] = "tailscale-serve"): GatewayConfig {
   return {
@@ -489,6 +500,86 @@ describe("HTTP boundary", () => {
       peer,
     );
     expect(response.status).toBe(404);
+  });
+
+  test("published schemas accept canonical HTTP and SSE ask/activity transitions with short OMP identities", async () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.reconcile({
+      observed: [{ ...observedSession("a1b2c3d4", true), busy: true }],
+      retained: new Set(),
+    });
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 60_000 });
+    const list = await (await handler(request("/api/v1/sessions"), peer)).json();
+    expect(list.sessions[0].ask).toBeDefined();
+    expect(validateSessionList(list)).toBeTrue();
+
+    const sse = await handler(request("/api/v1/events"), peer);
+    const reader = sse.body?.getReader();
+    if (reader === undefined) throw new Error("missing SSE body");
+    const nextEvent = async (): Promise<unknown> => {
+      const frame = await readSseEvent(reader);
+      return JSON.parse(frame.slice(frame.indexOf("data: ") + "data: ".length));
+    };
+    try {
+      const snapshot = await nextEvent();
+      expect(snapshot).toMatchObject({ type: "snapshot" });
+      expect(validateSessionEvent(snapshot)).toBeTrue();
+      registry.reconcile({
+        observed: [{ ...observedSession("a1b2c3d4"), busy: false }],
+        retained: new Set(),
+      });
+      const upsert = await nextEvent();
+      expect(upsert).toMatchObject({ type: "session_upsert", session: { inputRequired: false, busy: false } });
+      expect(validateSessionEvent(upsert)).toBeTrue();
+      registry.reconcile({ observed: [], retained: new Set() });
+      const removal = await nextEvent();
+      expect(removal).toMatchObject({ type: "session_remove", instanceId: "a1b2c3d4" });
+      expect(validateSessionEvent(removal)).toBeTrue();
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  test("published metadata schemas enforce identity, attention and private-field boundaries", () => {
+    const session = populatedRegistry("a1b2c3d4").snapshot().sessions[0]!;
+    const waiting = {
+      ...session,
+      inputRequired: true,
+      ask: {
+        requestId: "r".repeat(128),
+        since: session.lastSeenAt,
+        preview: String.fromCodePoint(0x1d11e).repeat(256),
+        optionCount: 128,
+      },
+    };
+    const list = (value: unknown, revision = 0) => ({ revision, sessions: [value] });
+    expect(validateSessionList(list(session))).toBeTrue();
+    expect(validateSessionList(list(waiting))).toBeTrue();
+    for (const instanceId of ["a1b2c3d4", "a".repeat(64)]) {
+      expect(validateSessionList(list({ ...session, instanceId }))).toBeTrue();
+      expect(validateSessionEvent({ type: "session_remove", revision: 0, instanceId, generation: 1 })).toBeTrue();
+    }
+    for (const instanceId of ["a".repeat(7), "a".repeat(65), "invalid_identity"]) {
+      expect(validateSessionList(list({ ...session, instanceId }))).toBeFalse();
+      expect(validateSessionEvent({ type: "session_remove", revision: 1, instanceId, generation: 1 })).toBeFalse();
+    }
+    for (const invalid of [
+      { ...session, inputRequired: true },
+      { ...waiting, inputRequired: false },
+      { ...waiting, ask: { ...waiting.ask, capability: viewCapability } },
+      { ...waiting, ask: { ...waiting.ask, requestId: "r".repeat(129) } },
+      { ...waiting, ask: { ...waiting.ask, optionCount: 0 } },
+      { ...waiting, ask: { ...waiting.ask, optionCount: 129 } },
+      { ...session, capability: viewCapability },
+      { ...session, busy: null },
+      { ...session, generation: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      expect(validateSessionList(list(invalid))).toBeFalse();
+      expect(validateSessionEvent({ type: "session_upsert", revision: 1, session: invalid })).toBeFalse();
+    }
+    expect(validateSessionList(list(session, Number.MAX_SAFE_INTEGER + 1))).toBeFalse();
+    expect(validateSessionEvent({ type: "snapshot", ...list(session, Number.MAX_SAFE_INTEGER + 1) })).toBeFalse();
+    expect(validateSessionEvent({ type: "activity_stop", revision: 1, session })).toBeFalse();
   });
 
   test("returns ordered metadata-only no-store list and SSE transitions", async () => {

@@ -9,12 +9,8 @@
       "required": ["type", "revision", "sessions"],
       "properties": {
         "type": { "const": "snapshot" },
-        "revision": { "type": "integer", "minimum": 0 },
-        "sessions": {
-          "type": "array",
-          "maxItems": 1000,
-          "items": { "$ref": "session-list.schema.json#/properties/sessions/items" }
-        }
+        "revision": { "$ref": "session-list.schema.json#/properties/revision" },
+        "sessions": { "$ref": "session-list.schema.json#/properties/sessions" }
       }
     },
     {
@@ -23,7 +19,7 @@
       "required": ["type", "revision", "session"],
       "properties": {
         "type": { "const": "session_upsert" },
-        "revision": { "type": "integer", "minimum": 1 },
+        "revision": { "$ref": "session-list.schema.json#/properties/revision" },
         "session": { "$ref": "session-list.schema.json#/properties/sessions/items" }
       }
     },
@@ -33,9 +29,9 @@
       "required": ["type", "revision", "instanceId", "generation"],
       "properties": {
         "type": { "const": "session_remove" },
-        "revision": { "type": "integer", "minimum": 1 },
-        "instanceId": { "type": "string", "minLength": 16, "maxLength": 128 },
-        "generation": { "type": "integer", "minimum": 1 }
+        "revision": { "$ref": "session-list.schema.json#/properties/revision" },
+        "instanceId": { "$ref": "session-list.schema.json#/properties/sessions/items/properties/instanceId" },
+        "generation": { "$ref": "session-list.schema.json#/properties/sessions/items/properties/generation" }
       }
     }
   ]
