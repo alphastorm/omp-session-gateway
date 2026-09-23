@@ -22,9 +22,10 @@ Earlier releases are unsupported because this local registry does not exist in t
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 
-**Qualified for stable promotion:** [v0.5.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0-prealpha.1), for v0.5.0.
-Publication and the separate published-byte local/Pixel smoke are pending. Published v0.4.2
-remains GitHub Latest until promotion and is this candidate's rollback predecessor; it rejects
+**Published stable:** [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0),
+GitHub Latest, promoted from v0.5.0-prealpha.1 with identical runtime bytes. Published-byte
+local/Pixel checks passed through the bounded follow-up paths in the release ledger; the initial
+full smoke failed at View/Control with an undetermined cause. The rollback predecessor is v0.4.2; it rejects
 busy-emitting OMP hosts. The [release ledger](RELEASE_STATUS.md) records the six passed candidate
 lanes, the separately corrected cleanup boundary, and exact source/archive bindings.
 
