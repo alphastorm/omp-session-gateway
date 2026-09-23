@@ -1,6 +1,6 @@
 {
   "name": "omp-session-gateway",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.0",
@@ -30,6 +30,8 @@
     "@types/bun": "1.4.0",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "fast-check": "4.10.1",
     "typescript": "7.0.2"
   }

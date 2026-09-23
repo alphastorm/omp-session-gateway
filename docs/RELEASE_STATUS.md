@@ -1,6 +1,10 @@
 # Release status
 
-## Unreleased OMP activity compatibility fix
+## v0.5.0 preparation — not yet qualified or published
+
+The combined candidate carries #220, #221, and the canonical list/SSE schema corrections.
+Published v0.4.2 remains the predecessor and current stable; no v0.5.0 qualification or
+publication is claimed, and the last qualified stable lock remains unchanged until approval.
 
 Issue #219 identifies published v0.4.2 rejecting OMP 18.2.9's additive `busy` snapshot field.
 The source fix accepts the optional validated field without changing registry v1 or the 18.1.20

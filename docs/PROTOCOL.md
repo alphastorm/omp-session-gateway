@@ -4,6 +4,10 @@ This document covers the gateway’s HTTP/SSE API and its client side of mainlin
 discovery/query contract. Browser API shapes are unchanged by the mainline cutover. Runtime
 validation lives in `packages/protocol`; browser JSON Schemas remain in `schemas/`.
 
+The schemas describe canonical emitted list/SSE data, including bounded ask metadata and
+OMP's 8–64 character identities. Runtime parsers may additionally normalize legacy input.
+HTTP/SSE regressions validate real serialized responses with a Draft 2020-12 validator.
+
 ## 1. OMP discovery directory
 
 Require stock OMP `>= 18.1.20`: [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20).

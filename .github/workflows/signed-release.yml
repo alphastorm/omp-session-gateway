@@ -224,9 +224,9 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Mainline OMP $upstream_tag registry integration and Bun 1.4.0 toolchain.
-          - Metadata-only discovery and per-launch capability retrieval; no gateway publisher credential or forked OMP build.
-          - Managed configuration changes preserve explicitly authored OMP discovery and query settings.
+          - Restore session discovery when an OMP snapshot includes the additive busy field (#219).
+          - Add opt-in activity-stop notifications with attention precedence and generation-checked View taps (#197).
+          - Correct list/SSE schemas for ask metadata, OMP identity bounds, and private-field rejection.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Advertised combinations
@@ -256,7 +256,7 @@ jobs:
 
           ### Rollback
 
-          Do not use a runtime-pointer rollback across the fork-era/mainline boundary. Stop and unregister this gateway with its uninstall command, restore the predecessor-compatible private configuration if it was changed, and reinstall the signed $QUALIFIED_PREVIOUS_TAG archive with its matching origin and allowlist. Its installer creates a new publisher credential. This restores gateway lifecycle only: collaboration requires the predecessor's own OMP prerequisite and settings. Neither route switches the separately installed OMP executable.
+          Gateway rollback does not switch the separately running OMP process. The v0.4.2 predecessor rejects snapshots containing busy and can hide sessions again even when its service reports ready. Recovery requires a corrected gateway or a separately verified compatible OMP pairing. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -271,8 +271,9 @@ jobs:
 
           ### Changes to test
 
-          - Stock mainline OMP $upstream_tag discovery/query integration, without an integration patch or gateway publisher credential.
-          - Metadata-only polling and generation-bound capability retrieval only after an explicit launch.
+          - Optional busy snapshot compatibility restores sessions affected by #219.
+          - Activity-stop notifications preserve attention priority and always open generation-checked View access.
+          - Canonical list/SSE schemas include ask metadata and share OMP identity and numeric bounds.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -289,7 +290,7 @@ jobs:
 
           ### Rollback
 
-          Cross-architecture recovery is explicit: uninstall the active gateway with its matching CLI, restore predecessor-compatible private configuration if needed, then reinstall the selected signed predecessor archive. Its publisher credential is re-created, not restored. Gateway lifecycle recovery does not restore collaboration with mainline OMP or switch the separately installed OMP executable.
+          The selected predecessor is v0.4.2. It rejects snapshots containing busy, so gateway rollback alone may restore #219 with a newer OMP host. Use a corrected gateway or a separately verified compatible OMP pairing; service readiness alone does not prove discovery. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

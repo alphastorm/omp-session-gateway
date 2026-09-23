@@ -11,7 +11,8 @@
   "properties": {
     "revision": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 9007199254740991
     },
     "sessions": {
       "type": "array",
@@ -31,12 +32,14 @@
         "properties": {
           "instanceId": {
             "type": "string",
-            "minLength": 16,
-            "maxLength": 128
+            "minLength": 8,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9-]{8,64}$"
           },
           "generation": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "title": {
             "type": "string",
@@ -52,11 +55,13 @@
           },
           "startedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "maxLength": 64
           },
           "lastSeenAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "maxLength": 64
           },
           "canView": {
             "type": "boolean"
@@ -69,8 +74,38 @@
           },
           "busy": {
             "type": "boolean"
+          },
+          "ask": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["requestId", "since"],
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 16,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_-]{16,128}$"
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 64
+              },
+              "preview": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "optionCount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 128
+              }
+            }
           }
-        }
+        },
+        "if": { "properties": { "inputRequired": { "const": true } } },
+        "then": { "properties": { "ask": true }, "required": ["ask"] },
+        "else": { "properties": { "ask": false } }
       }
     }
   }

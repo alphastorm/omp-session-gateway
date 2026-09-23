@@ -15,6 +15,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Align browser JSON Schemas with emitted ask metadata and OMP's 8–64 character identities.
+  List/SSE validation shares identity and numeric bounds, requires ask metadata exactly while
+  input is required, and rejects private fields. Real HTTP/SSE regressions cover the contract.
 - Accept the optional `busy` snapshot field introduced by OMP 18.2.9 without hiding live
   sessions (#219). Boolean activity is validated; absent/null remains unknown, and unrelated
   fields and malformed values remain rejected. No host-version or browser-client upgrade is required.

@@ -1,5 +1,13 @@
 # Upgrade and rollback lane
 
+## v0.5.0 predecessor compatibility
+
+The selected predecessor is published v0.4.2. Gateway rollback does not change the separately
+running OMP process. If that host emits the additive `busy` field, v0.4.2 rejects its snapshot
+and can hide the session again (#219), even when the gateway service reports ready. Recovery
+must use the corrected gateway or a separately verified compatible OMP pairing; gateway
+rollback alone does not restore compatibility, and must not silently downgrade or restart OMP.
+
 ## Mainline cutover and rollback boundary
 
 Published stable v0.4.0 uses stock OMP `>= 18.1.20` and `collab.autoStart` only, following
