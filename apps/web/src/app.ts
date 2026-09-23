@@ -119,7 +119,7 @@ let transportFailureKind: TransportFailureKind | undefined;
 let transportGuidanceTimeout: number | undefined;
 let notificationRegistration: ServiceWorkerRegistration | undefined;
 let applicationServerKey: string | undefined;
-let launchInProgress = false;
+let pendingLaunches = 0;
 let workerUpdatePending = false;
 let updateReloadTimeout: number | undefined;
 let pendingDismissToast: PendingDismissToast | undefined;
@@ -300,9 +300,18 @@ function clearUpdateReloadTimeout(): void {
   updateReloadTimeout = undefined;
 }
 
+/** ADR-018's bounded fallback: reload only an idle directory, never a pending or mounted launch. */
 function applyActivatedWorkerUpdate(): void {
   clearUpdateReloadTimeout();
-  if (!workerUpdatePending || launchInProgress || location.pathname === "/client/") return;
+  if (
+    !workerUpdatePending ||
+    pendingLaunches > 0 ||
+    pendingNotificationRoute ||
+    activeCollabShell !== undefined ||
+    location.pathname === "/client/"
+  ) {
+    return;
+  }
   workerUpdatePending = false;
   location.reload();
 }
@@ -1784,7 +1793,6 @@ function enterCollabClient(
   snapshotController = undefined;
   clearReconnectTimeout();
   reconnectAttempt = 0;
-  launchInProgress = false;
   if (location.pathname !== "/client/") {
     history.replaceState({ ompDirectory: dashboardSnapshot.historyState }, "", "/");
     history.pushState({ ompCollab: true }, "", "/client/");
@@ -1884,7 +1892,13 @@ async function launch(
   } else if (sourceShell === undefined) {
     setStatus("loading", mode === "view" ? "Opening view…" : "Opening control…");
   }
-  launchInProgress = true;
+  pendingLaunches += 1;
+  let settled = false;
+  const settle = (): void => {
+    if (settled) return;
+    settled = true;
+    pendingLaunches -= 1;
+  };
 
   const resetButton = (): void => {
     if (button === undefined) return;
@@ -1896,7 +1910,7 @@ async function launch(
   let stylesheet: HTMLLinkElement | undefined;
   let startCollabWithCapability: StartCollabWithCapability;
   const fail = (kind: "offline" | "unauthorized" | "expired", message: string): boolean => {
-    launchInProgress = false;
+    settle();
     resetButton();
     if (sourceShell !== undefined && activeCollabShell === sourceShell) {
       showTriageBar(sourceShell, "reconnecting", message, "Try again", () => {
@@ -1909,8 +1923,11 @@ async function launch(
       });
       return true;
     }
-    if (location.pathname === "/client/") history.replaceState(null, "", "/");
-    stylesheet?.remove();
+    // A concurrent launch may already have mounted a collaboration; its route and styles stay put.
+    if (activeCollabShell === undefined) {
+      if (location.pathname === "/client/") history.replaceState(null, "", "/");
+      stylesheet?.remove();
+    }
     setStatus(kind, message);
     applyActivatedWorkerUpdate();
     return false;
@@ -1968,6 +1985,7 @@ async function launch(
       throw new Error("invalid launch response");
     }
     capability = payload.capability;
+    settle();
     enterCollabClient(capability, startCollabWithCapability, session, mode, requestId);
     capability = undefined;
     return true;
@@ -2118,6 +2136,7 @@ async function resolvePendingNotificationRoute(): Promise<void> {
     await launch(session, "control", undefined, pending.requestId);
   } else {
     setStatus("expired", "That notification changed or expired. Choose a current session.");
+    applyActivatedWorkerUpdate();
   }
 }
 

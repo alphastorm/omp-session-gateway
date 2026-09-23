@@ -15,12 +15,6 @@ This note describes current discrepancies; it does not amend the historical deci
   uses 20-second snapshots after the initial 4-second request and randomized delays in the upper
   half of 1/2/4/8/16/30-second caps. That numeric policy differs from ADR-016; this audit does not
   approve the divergence.
-- **ADR-018 pending-launch protection:** the worker implements exact-root `/update/` navigation,
-  but `apps/web/src/app.ts` reserves `/client/` in `enterCollabClient()` only after `launch()`
-  completes asynchronous asset loading and capability acquisition. Its in-page pending flag
-  defers the page's fallback reload, not worker-initiated navigation. Activation can therefore
-  mistake a pending directory launch for an idle root client. Synchronous pre-launch reservation
-  and protection of pending collaboration remain required, not waived by the mainline cutover.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) for current behavior.
 
@@ -292,13 +286,34 @@ that qualification.
 
 ## ADR-018 — Activate PWA upgrades automatically without interrupting live collaboration
 
-**Status:** Accepted
+**Status:** Accepted; amended 2026-09-23 (worker-initiated client navigation removed)
 
 **Context:** An installed Android PWA can keep an already-loaded JavaScript document and leave a newly installed service worker waiting, so a gateway upgrade previously required a manual Refresh or reopen. Reloading while `/client/` is active would destroy the collaboration capability that intentionally exists only in JavaScript memory.
 
 **Decision:** Build every shell with content-hashed assets and a content-derived cache name. The new service worker caches its complete shell, calls `skipWaiting`, removes prior shell caches during activation, and claims clients. If activation observes a prior shell cache, it navigates only an exact same-origin `/` directory client to the no-store `/update/` bootstrap; the newly loaded app synchronously scrubs that route to `/`. Reserve `/client/` synchronously when a View or Control launch begins, and never auto-navigate `/client/`, `/attention/`, query-bearing, or cross-origin clients. An update-aware page also observes controller replacement and performs a bounded fallback reload only when no capability launch or collaboration client is active. A deferred update applies after a failed launch returns to the directory or when the user naturally leaves collaboration.
 
 **Consequences:** Idle installed PWAs adopt a new build without manual action, including the transition from older clients that do not understand the update protocol. Active collaboration remains uninterrupted and adopts the update on its ordinary return to Sessions. The update route carries no metadata or capability, is synchronously removed from history, is never cached, and adds one authenticated shell navigation per upgrade. A browser that cannot install or activate service workers retains ordinary network-navigation behavior but cannot provide zero-touch in-place upgrades.
+
+**Amendment — 2026-09-23:** Chromium reports a window client's creation URL, not the route a
+page later reaches through `history.pushState` or `replaceState`: in desktop Chromium,
+`Clients.matchAll()` kept reporting `/` for a page at `/client/`. The worker could therefore not
+tell an idle directory from a pending launch or a live `/client/` collaboration, and activation
+navigated all three to `/update/`. That also matches the recurring first physical View/Control
+smoke failure after a gateway upgrade, which later runs never reproduced. Activation now only
+retires prior shell caches and claims clients; it never navigates a client, so no synchronous
+`/client/` reservation is needed. The page alone performs the bounded fallback reload, and only
+while no launch is pending, no routed notification awaits its snapshot, and no collaboration
+client is mounted. Every published release since `v0.1.0-prealpha.8` carries that page fallback,
+so older update-unaware clients no longer justify worker navigation. The no-store `/update/`
+bootstrap and its synchronous scrub remain only for activations by earlier workers.
+
+Residual, accepted: a `skipWaiting` activation replaces the controller of every existing client,
+whether or not the worker claims it, so a page still running v0.5.0 or earlier code when the fixed
+worker activates applies its own predecessor fallback. That fallback still protects a single
+pending launch and a mounted collaboration; it can still reload during two concurrent launches or
+while a routed notification awaits its snapshot. Only pages loaded from the fixed release onward
+carry the complete guard. Avoiding this would require giving up `skipWaiting`, which this decision
+rejects.
 
 ---
 

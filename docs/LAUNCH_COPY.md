@@ -56,8 +56,8 @@ Funnel disabled. Then start participating sessions with plain `omp`.
 The exact signed-candidate matrix used OMP 18.1.20 and Bun 1.4.0 on Debian 13 x86-64 and
 macOS 26.6.1 arm64, with a physical Pixel 10 Pro running Android 17 and Chrome 152.0.7977.82.
 The relay check passed for **1,800 seconds**, not eight hours. A separate published-byte
-local/Pixel smoke passed with the existing OMP 18.1.21; that does not expand the exact matrix,
-and the cause of its initial intermittent Control-upgrade failure remains undetermined.
+local/Pixel smoke passed with the existing OMP 18.1.21; that does not expand the exact matrix.
+Its initial Control-upgrade failure matches a since-diagnosed PWA update navigation.
 Windows, background Web Push, specialized attention, branch/resume, and broader host/browser
 combinations remain unqualified. See the
 [release ledger](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md)
@@ -182,8 +182,8 @@ exact Debian/macOS/Pixel combination in the
 not every device or later OMP version. The fresh relay check was 30 minutes, not eight hours;
 background Web Push and the other excluded workflows are not part of that claim. The
 [release ledger](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md)
-also retains an initial intermittent Control-upgrade failure whose cause remains unknown after a
-passing post-release smoke. Feedback on setup friction and real phone workflows is welcome.
+also retains an initial Control-upgrade failure that matches a since-diagnosed PWA update
+navigation. Feedback on setup friction and real phone workflows is welcome.
 
 Independent community project; not affiliated with or endorsed by the Oh My Pi maintainers.
 

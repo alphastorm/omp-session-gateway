@@ -145,24 +145,16 @@ worker.addEventListener("activate", event => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      const shellUpgrade = names.some(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== __CACHE_NAME__);
       await Promise.all(
         names
           .filter(name => name.startsWith(SHELL_CACHE_PREFIX) && name !== __CACHE_NAME__)
           .map(name => caches.delete(name)),
       );
+      // Never navigate clients here. Chromium reports a window client's creation URL, not the route a
+      // page later reaches through the history API, so a live `/client/` collaboration or a pending
+      // launch looks exactly like an idle `/` directory. Each page observes the controller change and
+      // reloads itself only when it is idle.
       await worker.clients.claim();
-      if (!shellUpgrade) return;
-      const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const client of windows) {
-        try {
-          const url = new URL(client.url);
-          if (url.origin !== worker.location.origin || url.pathname !== "/" || url.search !== "") continue;
-          void client.navigate("/update/").catch(() => undefined);
-        } catch {
-          // Active collaboration and non-directory clients keep their current in-memory state.
-        }
-      }
     })(),
   );
 });

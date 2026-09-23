@@ -475,31 +475,18 @@ describe("notification service worker", () => {
     expect(fetched).toEqual([]);
   });
 
-  test("preserves shell-only cache installation, cleanup, and fetch exclusions", async () => {
-    clientState.windows = [
-      {
-        url: "https://sessions.example/",
-        async focus(): Promise<unknown> { return this; },
-        async navigate(path: string): Promise<FakeWindowClient> {
-          clientState.navigated.push(path);
-          return this;
-        },
+  test("caches only the shell, activates without navigating any client, and keeps fetch exclusions", async () => {
+    // Chromium reports each window's creation URL, not the route it later reached through the
+    // history API. An idle directory, a pending launch, and a live `/client/` collaboration therefore
+    // all look like `/` to the worker, and none of them may be navigated.
+    clientState.windows = ["idle directory", "pending launch", "live collaboration"].map(() => ({
+      url: "https://sessions.example/",
+      async focus(): Promise<unknown> { return this; },
+      async navigate(path: string): Promise<FakeWindowClient> {
+        clientState.navigated.push(path);
+        return this;
       },
-      {
-        url: "https://sessions.example/client/",
-        async focus(): Promise<unknown> { return this; },
-        async navigate(): Promise<FakeWindowClient> {
-          throw new Error("active collaboration must not navigate during an upgrade");
-        },
-      },
-      {
-        url: "https://sessions.example/collab/update-instance?request=update-request-0001",
-        async focus(): Promise<unknown> { return this; },
-        async navigate(): Promise<FakeWindowClient> {
-          throw new Error("request bootstrap must not navigate during an upgrade");
-        },
-      },
-    ];
+    }));
     clientState.navigated.length = 0;
     clientState.claims = 0;
     clientState.matchOptions.length = 0;
@@ -515,7 +502,7 @@ describe("notification service worker", () => {
     await activateCompletion;
     expect(cacheDeletes).toEqual(["omp-sessions-shell-old"]);
     expect(clientState.claims).toBe(1);
-    expect(clientState.navigated).toEqual(["/update/"]);
+    expect(clientState.navigated).toEqual([]);
 
     const fetchListener = listener("fetch");
     const bypasses = [

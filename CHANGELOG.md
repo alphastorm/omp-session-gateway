@@ -6,6 +6,21 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop an activated PWA update from closing a View/Control page or a launch in progress. Chromium
+  reports a window's creation URL, so the worker saw every page opened from the directory as an
+  idle `/` and navigated it to `/update/`. Activation now only retires old shells and claims
+  clients; the page reloads itself only once no launch is pending, no routed notification awaits
+  its snapshot, and no collaboration client is mounted (ADR-018 amendment). This matches the
+  first-attempt View/Control smoke failures after gateway upgrades.
+- Keep a mounted collaboration intact when a concurrent launch fails afterwards. The failure no
+  longer rewrites that page's route, removes the shared collaboration stylesheet, or reloads it.
+  An expired routed notification now applies a deferred PWA update instead of leaving it pending.
+- Wait for the installed PWA shell to match the release before the post-release smoke drives
+  View/Control, and report the last announced physical-lane stage when a withheld Android lane
+  fails. Malformed lane output no longer reaches a JSON parse error, which Bun quotes.
+
 ## [v0.5.0] — 2026-09-23
 
 ### Added

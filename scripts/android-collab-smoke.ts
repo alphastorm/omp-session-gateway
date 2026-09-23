@@ -1,8 +1,29 @@
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 import { withAndroidChrome } from "./android-device.ts";
+import { ANDROID_COLLAB_STAGES, announceAndroidStage } from "./android-stages.ts";
 
 const PROMPT_MARKER = "OMP_POST_RELEASE_ANDROID_CONTROL_SMOKE";
 const APP_ASSET_PATTERN = /^\/assets\/app\.[0-9a-f]+\.js$/u;
+
+/**
+ * True once the controlling worker is the settled one whose only shell cache holds this document's
+ * app bundle, and that bundle is the expected release bundle when one is given. The first visit
+ * after a gateway upgrade installs and activates the new shell, and the page then reloads itself if
+ * it is idle (ADR-018); driving View/Control before that settles races the reload.
+ */
+function currentShellExpression(expectedAppAsset: string | undefined): string {
+  return `(async () => {
+  const expected = ${JSON.stringify(expectedAppAsset ?? null)};
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  const controller = navigator.serviceWorker.controller;
+  if (registration?.active?.state !== "activated" || registration.installing !== null || registration.waiting !== null) return false;
+  if (controller === null || controller.state !== "activated") return false;
+  const asset = performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname).find(path => /^\\/assets\\/app\\.[0-9a-f]+\\.js$/.test(path));
+  if (asset === undefined || (expected !== null && asset !== expected)) return false;
+  const shells = (await caches.keys()).filter(name => name.startsWith("omp-sessions-shell-"));
+  return shells.length === 1 && (await (await caches.open(shells[0])).match(asset)) !== undefined;
+})()`;
+}
 
 export interface AndroidCollabSmokeOptions {
   readonly origin: string;
@@ -92,8 +113,10 @@ async function pause(milliseconds: number): Promise<void> {
 }
 
 export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions): Promise<AndroidCollabSmokeResult> {
+  announceAndroidStage(ANDROID_COLLAB_STAGES, "target preflight");
   await assertEligibleTarget(options);
 
+  announceAndroidStage(ANDROID_COLLAB_STAGES, "Android Chrome");
   return withAndroidChrome(async driver => {
     await driver.openTab();
     await driver.navigate(`${options.origin}/`);
@@ -106,6 +129,12 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
       throw new Error(`${name} did not become ready`);
     };
 
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "installed shell");
+    await waitFor("installed application shell", currentShellExpression(options.expectedAppAsset), 120);
+    // Start from a document the settled worker controlled from load, so no update reload can follow.
+    await driver.navigate(`${options.origin}/`);
+
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "directory");
     const quotedLabel = JSON.stringify(options.label);
     await waitFor(
       "directory target",
@@ -120,6 +149,7 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
       throw new Error("installed app asset does not match the release archive");
     }
 
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "View");
     const openedView = await driver.evaluate<boolean>(`(() => {
       const button = [...document.querySelectorAll("button[aria-label]")].find(
         candidate => candidate.getAttribute("aria-label") === "View " + ${quotedLabel},
@@ -146,6 +176,7 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
     })()`);
     if (!view.readOnly || !view.controlVisible || !view.rootMounted) throw new Error("View did not remain read-only");
 
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "Control");
     const upgraded = await driver.evaluate<boolean>(`(() => {
       const control = document.querySelector(".shell-control");
       if (!(control instanceof HTMLButtonElement) || control.hidden) return false;
@@ -169,6 +200,7 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
     })()`);
     if (!control.writable || !control.sendInitiallyDisabled) throw new Error("Control composer was not writable");
 
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "prompt");
     const drafted = await driver.evaluate<boolean>(`(() => {
       const editor = document.querySelector(".sh-composer-input");
       if (!(editor instanceof HTMLTextAreaElement)) return false;
@@ -194,6 +226,7 @@ export async function runAndroidCollabSmoke(options: AndroidCollabSmokeOptions):
       if (stop instanceof HTMLButtonElement && !stop.disabled) stop.click();
     })()`);
 
+    announceAndroidStage(ANDROID_COLLAB_STAGES, "directory return");
     const returned = await driver.evaluate<boolean>(`(() => {
       const back = document.querySelector(".shell-back");
       if (!(back instanceof HTMLButtonElement)) return false;

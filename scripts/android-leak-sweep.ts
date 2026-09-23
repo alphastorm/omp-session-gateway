@@ -18,6 +18,7 @@
  */
 import { withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
+import { ANDROID_LEAK_SWEEP_STAGES, announceAndroidStage } from "./android-stages.ts";
 
 /** Sinks the sweep inspects. The control must be able to plant and detect every one. */
 const SINKS = [
@@ -232,6 +233,7 @@ if (!origin || !label || process.argv.length > 5 || (process.argv[4] !== undefin
   process.exit(2);
 }
 if (isProtectedLabel(label)) throw new Error("refusing protected or soak target label");
+announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "target preflight");
 const targetResponse = await fetch(origin + "/api/v1/sessions", { cache: "no-store", credentials: "omit" });
 if (!targetResponse.ok) throw new Error("session-list preflight failed with HTTP " + targetResponse.status);
 const targetPayload = (await targetResponse.json()) as {
@@ -243,6 +245,7 @@ if (targetMatches[0]!.canView !== true) throw new Error("disposable target lacks
 const eligibility = targetEligibility(label, targetMatches[0]!.startedAt, Date.now(), allowDisposableTarget);
 if (!eligibility.eligible) throw new Error(eligibility.reason ?? "disposable target is ineligible");
 
+announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "Android Chrome");
 const { control, sweep, serial, browser } = await withAndroidChrome(async driver => {
   const browserVersion = await driver.version();
   await driver.openTab();
@@ -250,6 +253,10 @@ const { control, sweep, serial, browser } = await withAndroidChrome(async driver
   const settle = Promise.withResolvers<void>();
   setTimeout(settle.resolve, 6000);
   await settle.promise;
+  announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "detector control");
+  const control = await runControl(driver);
+  announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "capability sweep");
+  const sweep = await runSweep(driver, label);
   return {
     serial: driver.serial,
     browser: {
@@ -259,10 +266,12 @@ const { control, sweep, serial, browser } = await withAndroidChrome(async driver
       devtoolsSocket: driver.devtoolsSocket,
       browserActivity: driver.browserActivity,
     },
-    control: await runControl(driver),
-    sweep: await runSweep(driver, label),
+    control,
+    sweep,
   };
 });
+
+announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "verdict");
 
 const missed = SINKS.filter(sink => !control.detectedUnique.includes(sink));
 const residualPlants = Object.entries(control.residual).filter(
