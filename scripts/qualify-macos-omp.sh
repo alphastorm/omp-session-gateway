@@ -143,8 +143,10 @@ run_session() {
 
 live_host_count() {
   python3 - <<'PY'
+import errno
 import json
 import os
+import socket
 from pathlib import Path
 
 directory = Path.home() / os.environ.get("PI_CONFIG_DIR", ".omp") / "run" / "collab-hosts"
@@ -155,10 +157,20 @@ for path in directory.glob("*.json"):
         pid = entry["pid"]
         if type(pid) is not int or pid < 1:
             continue
-        os.kill(pid, 0)
-        count += 1
     except (OSError, ValueError, KeyError, TypeError):
         continue
+    # PIDs can belong to unrelated processes after reuse. Only the published
+    # endpoint can prove this host gone; leave OMP-owned discovery files alone.
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(1)
+            client.connect(entry["endpoint"])
+    except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ECONNREFUSED):
+            continue
+    except (ValueError, KeyError, TypeError):
+        pass
+    count += 1
 print(count)
 PY
 }
