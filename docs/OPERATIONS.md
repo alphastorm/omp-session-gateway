@@ -15,11 +15,10 @@
 and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
 publication credential is needed. Install the separate gateway service once.
 
-**After publication, install stable [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1).**
-Its signed-candidate evidence is approved; publication and the separate published-byte local/Android smoke are pending.
-Until then, published v0.5.0 remains current; its initial full smoke failed at View/Control,
-matching the PWA update navigation described in the [ADR-018 amendment](DECISIONS.md), which
-v0.5.1 removes. Exact scopes are
+**Install published stable [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1).**
+Its signed-candidate evidence is approved, signed publication passed, and its published-byte
+local/Android smoke passed on the first attempt. It removes v0.5.0's PWA update navigation
+described in the [ADR-018 amendment](DECISIONS.md). Exact scopes are
 recorded in the [release ledger](RELEASE_STATUS.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
 retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s
@@ -44,8 +43,8 @@ From the directory containing the verified download, run as the desktop user, no
 the example origin and login with the deployment’s exact Tailscale HTTPS origin and allowlist:
 
 ```sh
-tar -xf omp-session-gateway-0.4.2-bun.tar
-cd omp-session-gateway-0.4.2-bun
+tar -xf omp-session-gateway-0.5.1-bun.tar
+cd omp-session-gateway-0.5.1-bun
 bun apps/gateway/src/cli.js install \
   --origin https://host.tailnet.ts.net \
   --allow you@example.com

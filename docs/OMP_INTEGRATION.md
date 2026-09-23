@@ -17,15 +17,10 @@ that exact host/source baseline. The embedded browser client has its own preserv
 [v18.1.14 source and wire pins](../packages/collab-client/README.md); do not conflate them with
 the host minimum.
 
-Stable [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0) is published
-as immutable GitHub Latest. It was promoted with identical runtime bytes from signed candidate
-`v0.5.0-prealpha.1`, whose six non-cleanup lanes passed on OMP 18.1.20 / Bun 1.4.0, Debian 13
-x86-64, macOS 26.6.1 arm64, and Pixel 10 Pro / Android 17 / Chrome 153.0.8010.52. The fresh relay
-check covered **1,800 seconds**, not eight hours. Windows, background Web Push, specialized
-attention, and branch/resume remain unqualified. Published-byte local/Pixel checks passed through
-bounded follow-up paths after the first smoke failed at View/Control; that failure matches the PWA
-update navigation described in the [ADR-018 amendment](DECISIONS.md), which the unreleased fix on
-`main` removes. See the [release ledger](RELEASE_STATUS.md) for receipts and limits; no fork-era
+The current published stable and its exact qualified matrix are recorded in the
+[compatibility policy](COMPATIBILITY.md); per-candidate receipts, limits, and published-byte checks
+are in the [release ledger](RELEASE_STATUS.md). Qualification uses the exact baseline above, stock
+OMP 18.1.20 with Bun 1.4.0, and does not qualify every later OMP release; no fork-era
 qualification transfers.
 
 ## Additive activity compatibility
