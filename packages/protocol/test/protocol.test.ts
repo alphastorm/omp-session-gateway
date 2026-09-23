@@ -98,6 +98,14 @@ describe("strict protocol validation", () => {
     }
   });
 
+  test("accepts additive busy metadata without guessing activity for legacy hosts", () => {
+    expect(parseOmpHostSnapshot(hostSnapshot({ busy: true })).busy).toBe(true);
+    expect(parseOmpHostSnapshot(hostSnapshot({ busy: false })).busy).toBe(false);
+    expect(parseOmpHostSnapshot(hostSnapshot()).busy).toBeUndefined();
+    expect(parseOmpHostSnapshot(hostSnapshot({ busy: null })).busy).toBeUndefined();
+    expect(() => parseOmpHostSnapshot(hostSnapshot({ busy: "true" }))).toThrow(ProtocolValidationError);
+  });
+
   test("bounds snapshot timestamps before projecting them into ISO metadata", () => {
     const lastRepresentableTimestamp = 8_640_000_000_000_000;
     expect(() =>

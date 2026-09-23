@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Accept the optional `busy` snapshot field introduced by OMP 18.2.9 without hiding live
+  sessions (#219). Boolean activity is validated; absent/null remains unknown, and unrelated
+  fields and malformed values remain rejected. No host-version or browser-client upgrade is required.
+
 ### Security
 
 - Refuse a request that carries evidence of a second HTTP hop before reading its identity header.

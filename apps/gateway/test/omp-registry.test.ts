@@ -27,6 +27,7 @@ interface HostDoubleOptions {
   readonly generation?: number;
   readonly access?: "view" | "control";
   readonly inputRequired?: boolean;
+  readonly busy?: boolean | null;
   readonly sessionName?: string | null;
   readonly cwd?: string;
   /** Replaces the whole reply, so a test can return any upstream wire error verbatim. */
@@ -80,6 +81,7 @@ async function hostDouble(directory: string, options: HostDoubleOptions = {}): P
     participants: 1,
     relayConnected: true,
     inputRequired: options.inputRequired ?? false,
+    ...(options.busy === undefined ? {} : { busy: options.busy }),
     access,
   };
   const server = Bun.listen<undefined>({
@@ -155,6 +157,26 @@ function reader(directory: string): OmpHostReader {
 }
 
 describe("OMP discovery directory", () => {
+  test("keeps current and legacy hosts visible and launchable in one directory", async () => {
+    const directory = await discoveryDirectory();
+    const working = await hostDouble(directory, { busy: true });
+    const idle = await hostDouble(directory, { instanceId: "bbbb2222cccc3333", busy: false });
+    const legacy = await hostDouble(directory, { instanceId: "cccc3333dddd4444" });
+    const unknown = await hostDouble(directory, { instanceId: "dddd4444eeee5555", busy: null });
+    const subject = reader(directory);
+    const observation = await subject.observe();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    registry.reconcile({ observed: observation.hosts.map(host => host.session), retained: observation.retained });
+    expect(registry.snapshot().sessions.map(session => session.instanceId).sort()).toEqual(
+      [working, idle, legacy, unknown].map(host => host.instanceId).sort(),
+    );
+    const resolver = new OmpLaunchResolver({ registry, reader: subject });
+    for (const mode of ["view", "control"] as const) {
+      expect((await resolver.resolve({ instanceId: working.instanceId, generation: 1, mode })).status).toBe("ok");
+    }
+    expect(working.requests.map(request => request.op)).toEqual(["snapshot", "link", "link"]);
+  });
+
   test("retired admitted hosts release capacity even when discovery remains overfull", async () => {
     const directory = await discoveryDirectory();
     const first = await hostDouble(directory);

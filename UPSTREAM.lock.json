@@ -28,6 +28,7 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
+    "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown. Registry v1, the exact 18.1.20 baseline, and client/native pins remain unchanged.",
     "Pinned to mainline OMP v18.1.20. Upstream PR #11908 merged the collaboration controller and host registry; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
     "The gateway reads OMP discovery files and queries each host for metadata snapshots. View and Control links are resolved on demand; OMP requires only collab.autoStart, with no gateway-facing credential or integration patch.",
     "Discovery endpoints are read from each owner-only file, including upstream socket-path relocation; the gateway never modifies OMP discovery state.",
