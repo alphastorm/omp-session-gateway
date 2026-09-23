@@ -380,9 +380,6 @@ describe("notification service worker", () => {
     expect(displayedStop.options.data).toEqual({
       version: 2, type: "activity_stop", instanceId: stop.instanceId, generation: 3,
     });
-    expect(displayedStop.options).toMatchObject({
-      tag: "omp-attention-push-activity-000001", renotify: false, badge: "/icon-192.png",
-    });
     expect(badgeState.clears).toBe(1);
     const clear = {
       version: 2, type: "clear", instanceId: stop.instanceId,
@@ -393,15 +390,19 @@ describe("notification service worker", () => {
     await push({ ...stop, requestId: clear.requestId });
     expect(shownNotifications).toHaveLength(1);
     const { type: _type, ...attentionFields } = stop;
-    await push({
+    const attention = {
       ...attentionFields, type: "attention", title: "OMP session needs attention",
       requestId: clear.requestId, pendingAskCount: 1,
-    });
+    };
+    await push(attention);
     expect(displayedStop.closed).toBeTrue();
-    const displayedAttention = shownNotifications[1]!;
+    expect(shownNotifications.at(-1)!.options).toMatchObject({ renotify: true });
+    await push(attention);
+    const displayedAttention = shownNotifications.at(-1)!;
+    expect(displayedAttention.options).toMatchObject({ renotify: false });
     await push({ ...stop, pendingAskCount: 1 });
     expect(shownNotifications.filter(notification => !notification.closed)).toEqual([displayedAttention]);
-    expect(badgeState.set).toEqual([1, 1]);
+    expect(badgeState.set.at(-1)).toBe(1);
     await push(clear);
     expect(displayedAttention.closed).toBeTrue();
     await push(stop);

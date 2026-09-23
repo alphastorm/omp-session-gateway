@@ -176,9 +176,10 @@ Tailscale Serve user identity headers are populated for user-owned source device
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
 No inbound public gateway route is required. Web Push encrypts the payload for the browser
-subscription, while the push service still observes the endpoint, source IP, size, and delivery
-timing. Treat subscription endpoints and keys as sensitive private state even though they cannot
-grant collaboration access.
+subscription, while the push service still observes the endpoint, source IP, size, instance-derived
+coalescing topic, and delivery timing (including activity-stop timing). Private notification detail
+does not hide this traffic metadata. Treat subscription endpoints and keys as sensitive private
+state even though they cannot grant collaboration access.
 
 ## 5. Relay exposure
 
@@ -278,7 +279,7 @@ Additional requirements:
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
 - service worker caches only queryless, content-hashed static shell files (the app shell plus the pinned collaboration-client module and stylesheet — never a capability-bearing response) and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/collab/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
-- service worker Push handling accepts exact `attention`/`clear` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
+- service worker Push handling accepts exact `attention`/`clear`/`activity_stop` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
 - transient directory transport failure retains the last authenticated metadata only in volatile page memory, marks it stale with the last-fresh timestamp, and disables no actions solely because SSE disconnected; authorization failure clears it;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, performance marks, history state, or directory snapshots;
 - external links use `rel="noopener noreferrer"`;

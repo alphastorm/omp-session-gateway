@@ -68,8 +68,8 @@ worker.addEventListener("push", event => {
         }
       }
     } else {
+      const notifications = await worker.registration.getNotifications({ tag });
       if (message.type === "activity_stop") {
-        const notifications = await worker.registration.getNotifications({ tag });
         if (notifications.some(notification => {
           const intent = parseNotificationData(notification.data);
           return intent?.kind === "attention" && intent.instanceId === message.instanceId;
@@ -82,7 +82,10 @@ worker.addEventListener("push", event => {
         tag,
         icon: "/icon-192.png",
         badge: "/icon-192.png",
-        renotify: false,
+        renotify: message.type === "attention" && notifications.some(notification => {
+          const intent = parseNotificationData(notification.data);
+          return intent?.kind === "activity_stop" && intent.instanceId === message.instanceId;
+        }),
         ...(message.body === undefined ? {} : { body: message.body }),
         data: {
           version: message.version,

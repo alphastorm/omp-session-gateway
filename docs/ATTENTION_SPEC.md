@@ -157,13 +157,19 @@ creating/renewing a subscription does not replay historical stops.
 
 Stop and attention share the instance-derived coalescing topic, notification tag, five-minute TTL,
 and ordered delivery queue. A displayed valid attention notification wins over an incoming stop;
-attention may replace a stop. A delayed request-specific clear cannot close a stop, whose
+attention replacing a stop requests a fresh alert (`renotify: true`), while duplicate attention
+delivery does not re-alert. A delayed request-specific clear cannot close a stop, whose
 notification data has no request ID. The badge still counts pending controllable asks, not stops.
 Delivery is best effort: brief turns between polls can be missed, and attention priority may
-suppress a stop while an earlier attention notification remains displayed.
+suppress a stop while an earlier attention notification remains displayed. An offline provider
+may coalesce away a queued clear in favor of a later same-topic stop, leaving that stale
+attention displayed. Taps still revalidate the exact current request before acquiring Control.
 
-Older Push v2 workers ignore the new variant until shell activation while continuing to handle
-attention/clear. No push-state schema, opt-in preference, or installed-client qualification changes.
+Older Push v2 workers cannot interpret the new variant and continue to handle attention/clear.
+Ignoring an unsupported push is not guaranteed silent: browsers enforcing `userVisibleOnly`
+may display their own generic background-update notification. Open or refresh the PWA after
+upgrading to activate the current worker before relying on stop alerts. No push-state schema,
+opt-in preference, or installed-client qualification changes.
 
 ## Notification tap
 

@@ -9,7 +9,9 @@ This does not advance the pinned baseline, native/client versions, or exact qual
 
 Unreleased stop alerts use the presence of valid activity metadata, not an OMP version guess.
 Older hosts keep ordinary directory/ask behavior with unknown activity. Push state and v2
-attention/clear remain compatible; older workers ignore the new stop variant until activation.
+attention/clear remain compatible; older workers cannot interpret stops until activation and
+the browser may substitute a generic background-update notification. Open or refresh the PWA
+after upgrading before relying on stop alerts.
 This does not qualify physical background delivery or imply successful task completion.
 
 ## Current claim
