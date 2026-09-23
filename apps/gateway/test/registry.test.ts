@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ObservedSessionInput, SessionEvent } from "@omp-session-gateway/protocol";
-import { SessionRegistry, type RegistryClock } from "../src/registry.ts";
+import { SessionRegistry, type RegistryClock, type SessionActivityStopEvent } from "../src/registry.ts";
 
 class FakeClock implements RegistryClock {
   monotonic = 1_000;
@@ -37,6 +37,144 @@ function observedSession(generation = 1, overrides: Partial<ObservedSessionInput
 }
 
 describe("SessionRegistry", () => {
+  test("emits one private stop only for a continuing known busy-to-idle edge", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock: new FakeClock() });
+    const events: SessionEvent[] = [];
+    const stops: SessionActivityStopEvent[] = [];
+    registry.subscribe(event => events.push(event));
+    const unsubscribe = registry.subscribeActivityStops(event => stops.push(event));
+    const sample = (busy: boolean): void => { registry.reconcile({ observed: [observedSession(1, { busy })], retained: new Set() }); };
+    sample(false);
+    sample(true);
+    sample(true);
+    sample(false);
+    sample(false);
+    expect(events.map(event => [event.type, event.revision])).toEqual([
+      ["session_upsert", 1], ["session_upsert", 2], ["session_upsert", 3],
+    ]);
+    expect(stops).toEqual([{ type: "activity_stop", revision: 3, session: registry.snapshot().sessions[0]! }]);
+    expect(registry.isCurrentActivityStop(stops[0]!)).toBe(true);
+    const late: SessionActivityStopEvent[] = [];
+    registry.subscribeActivityStops(event => late.push(event));
+    expect(late).toEqual([]);
+    unsubscribe();
+    sample(true);
+    sample(false);
+    expect(stops).toHaveLength(1);
+    expect(late.map(event => event.revision)).toEqual([5]);
+    expect(registry.isCurrentActivityStop(stops[0]!)).toBe(false);
+  });
+
+  test.each(["retained", "older-generation"] as const)("forgets busy once across a %s gap without extending liveness", gap => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    const stops: SessionActivityStopEvent[] = [];
+    const events: SessionEvent[] = [];
+    registry.subscribeActivityStops(event => stops.push(event));
+    registry.subscribe(event => events.push(event));
+    registry.reconcile({ observed: [observedSession(2, { busy: true })], retained: new Set() });
+    const original = registry.snapshot().sessions[0]!;
+    const loseSample = (): void => {
+      registry.reconcile(gap === "retained"
+        ? { observed: [], retained: new Set([original.instanceId]) }
+        : { observed: [observedSession(1, { busy: false })], retained: new Set() });
+    };
+    clock.advance(30_000);
+    loseSample();
+    loseSample();
+    const { busy: _busy, ...unknown } = original;
+    expect(registry.snapshot()).toEqual({ revision: 2, sessions: [unknown] });
+    expect(events.map(event => event.revision)).toEqual([1, 2]);
+    expect(stops).toEqual([]);
+    clock.advance(5_000);
+    expect(registry.sweepExpired()).toBe(1);
+    expect(registry.snapshot().sessions).toEqual([]);
+  });
+
+  test.each([
+    "unknown", "retained", "older-generation", "generation", "pid", "sessionId", "startedAt",
+    "previous-ask", "current-ask", "removal", "expiry", "unswept-expiry", "clear",
+  ] as const)("does not invent a stop across %s", boundary => {
+    const clock = new FakeClock();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    const stops: SessionActivityStopEvent[] = [];
+    registry.subscribeActivityStops(event => stops.push(event));
+    const sample = (generation: number, overrides: Partial<ObservedSessionInput>): void => {
+      registry.reconcile({ observed: [observedSession(generation, overrides)], retained: new Set() });
+    };
+    sample(2, { busy: true, inputRequired: boundary === "previous-ask" });
+    switch (boundary) {
+      case "unknown": sample(2, {}); break;
+      case "retained": registry.reconcile({ observed: [], retained: new Set([observedSession().instanceId]) }); break;
+      case "older-generation": sample(1, { busy: false }); break;
+      case "removal": registry.reconcile({ observed: [], retained: new Set() }); break;
+      case "expiry": clock.advance(35_000); registry.sweepExpired(); break;
+      case "unswept-expiry": clock.advance(35_000); break;
+      case "clear": registry.clear(); break;
+    }
+    sample(boundary === "generation" ? 3 : 2, {
+      busy: false,
+      ...(boundary === "pid" ? { pid: 9999 } : {}),
+      ...(boundary === "sessionId" ? { sessionId: "replacement-session" } : {}),
+      ...(boundary === "startedAt" ? { startedAt: "2026-07-19T00:00:01.000Z" } : {}),
+      inputRequired: boundary === "current-ask",
+    });
+    expect(stops).toEqual([]);
+    const restarted = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });
+    restarted.subscribeActivityStops(event => stops.push(event));
+    restarted.reconcile({ observed: [observedSession(2, { busy: false })], retained: new Set() });
+    expect(stops).toEqual([]);
+  });
+
+  test("does not backfill an already queued stop to a subscriber admitted during its upsert", () => {
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const stops: SessionActivityStopEvent[] = [];
+    let admitted = false;
+    registry.subscribe(event => {
+      if (event.type !== "session_upsert" || event.session.busy !== false || admitted) return;
+      admitted = true;
+      registry.subscribeActivityStops(stop => stops.push(stop));
+    });
+    const sample = (busy: boolean): void => { registry.reconcile({ observed: [observedSession(1, { busy })], retained: new Set() }); };
+    sample(true);
+    sample(false);
+    expect(stops).toEqual([]);
+    sample(true);
+    sample(false);
+    expect(stops.map(stop => stop.revision)).toEqual([4]);
+  });
+
+  test("queues the stop ahead of a reentrant ask and isolates its subscribers", () => {
+    const errors: unknown[] = [];
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, onListenerError: error => errors.push(error) });
+    registry.reconcile({ observed: [observedSession(1, { busy: true })], retained: new Set() });
+    const order: string[] = [];
+    registry.subscribe(event => {
+      if (event.type === "session_upsert" && event.session.busy === false && !event.session.inputRequired) {
+        registry.reconcile({ observed: [observedSession(1, { busy: false, inputRequired: true })], retained: new Set() });
+        (event.session as { title?: string }).title = "mutated observer copy";
+      }
+    });
+    registry.subscribe(event => {
+      order.push(event.type + ":" + event.revision);
+      if (event.type === "session_upsert") expect(event.session.title).toBe("Session 1");
+    });
+    registry.subscribeActivityStops(event => {
+      (event.session as { title?: string }).title = "mutated stop copy";
+      throw new Error("stop observer failed");
+    });
+    registry.subscribeActivityStops(event => {
+      order.push(event.type + ":" + event.revision);
+      expect(event.session.title).toBe("Session 1");
+      expect(event.session.inputRequired).toBe(false);
+      expect(registry.isCurrentActivityStop(event)).toBe(false);
+    });
+    registry.reconcile({ observed: [observedSession(1, { busy: false })], retained: new Set() });
+    expect(order).toEqual(["session_upsert:2", "activity_stop:2", "session_upsert:3"]);
+    expect(errors.map(error => (error as Error).message)).toEqual(["stop observer failed"]);
+    expect(registry.snapshot().sessions[0]).toMatchObject({ title: "Session 1", inputRequired: true });
+  });
+
   test("exposes only metadata in snapshots and launch authorization", () => {
     const clock = new FakeClock();
     const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock });

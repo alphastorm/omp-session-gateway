@@ -176,9 +176,10 @@ Tailscale Serve user identity headers are populated for user-owned source device
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
 No inbound public gateway route is required. Web Push encrypts the payload for the browser
-subscription, while the push service still observes the endpoint, source IP, size, and delivery
-timing. Treat subscription endpoints and keys as sensitive private state even though they cannot
-grant collaboration access.
+subscription, while the push service still observes the endpoint, source IP, size, instance-derived
+coalescing topic, and delivery timing (including activity-stop timing). Private notification detail
+does not hide this traffic metadata. Treat subscription endpoints and keys as sensitive private
+state even though they cannot grant collaboration access.
 
 ## 5. Relay exposure
 
@@ -220,7 +221,8 @@ Mandatory rules:
 - disable third-party runtime scripts, analytics, telemetry, remote fonts, and source-map upload services;
 - use generated canary capabilities for tests, never real user links.
 
-`inputRequired` remains the only attention field accepted from the OMP snapshot. The gateway may
+`inputRequired` and optional boolean `busy` are the accepted host attention/activity signals.
+Missing/null activity is unknown, never idle or completion. The gateway may
 derive an opaque random request ID and receipt timestamp in memory for each false-to-true
 transition, expose them in list/SSE and routing URLs, and destroy them on clear, removal, expiry, or
 generation replacement. They are metadata, not authorization. Prompt text, options, answers, and
@@ -245,7 +247,11 @@ also add a bounded preview but falls back to `session` until such data is availa
 warn that visible notification text can persist in notification history, screenshots, and
 wearables. A tap routes through `/collab/:instanceId?request=:requestId`, fetches a current
 authenticated snapshot, requires the exact current attention identity and Control availability,
-and then uses the existing generation-bound no-store launch POST.
+and then uses the existing generation-bound no-store launch POST. Activity-stop notification data
+contains only version, type, instance ID, and generation. Its strict route is scrubbed before
+networking and resolves only to View for that same generation after authentication; it carries no
+request ID and cannot be used as an ask/Control intent. Stop detail obeys the same server-side
+privacy choice, with no preview content. No activity state is persisted.
 Never put a collaboration capability in a payload, notification data, route, history,
 service-worker message, persisted push state, badge, or request identifier.
 
@@ -273,7 +279,7 @@ Additional requirements:
 - strip control/bidi characters or display them safely in titles/paths;
 - cap label length and session count;
 - service worker caches only queryless, content-hashed static shell files (the app shell plus the pinned collaboration-client module and stylesheet — never a capability-bearing response) and explicitly bypasses `/api/`, `/internal/`, `/client/`, `/collab/`, `/update/`, navigation, query-bearing URLs, and all non-GET requests;
-- service worker Push handling accepts exact `attention`/`clear` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
+- service worker Push handling accepts exact `attention`/`clear`/`activity_stop` envelopes, uses one per-instance tag, updates only the bounded app badge count, and never fetches or receives a collaboration capability;
 - transient directory transport failure retains the last authenticated metadata only in volatile page memory, marks it stale with the last-fresh timestamp, and disables no actions solely because SSE disconnected; authorization failure clears it;
 - no capability in Redux/React Query persistence, devtools globals, error boundaries, replay tools, performance marks, history state, or directory snapshots;
 - external links use `rel="noopener noreferrer"`;

@@ -590,6 +590,10 @@ h1 {
   text-overflow: ellipsis;
 }
 
+.working-details .session-activity {
+  flex: none;
+}
+
 .working-details .row-time {
   flex: none;
   color: var(--muted);

@@ -25,6 +25,14 @@ interface InternalMetadataRecord {
   metadata: SessionMetadata;
   immutableIdentity: string;
   receivedAtMs: number;
+  activityStopRevision: number | undefined;
+}
+
+/** Gateway-private edge notification; never part of the browser SessionEvent stream. */
+export interface SessionActivityStopEvent {
+  readonly type: "activity_stop";
+  readonly revision: number;
+  readonly session: SessionMetadata;
 }
 
 export type UpsertResult = "inserted" | "updated" | "ignored_older";
@@ -65,7 +73,8 @@ export type LaunchAuthorization =
 export class SessionRegistry {
   readonly #metadata = new Map<string, InternalMetadataRecord>();
   readonly #listeners = new Set<(event: SessionEvent) => void>();
-  readonly #pending: SessionEvent[] = [];
+  readonly #activityStopListeners = new Set<(event: SessionActivityStopEvent) => void>();
+  readonly #pending: (SessionEvent | SessionActivityStopEvent)[] = [];
   readonly #ttlMs: number;
   readonly #maxSessions: number;
   readonly #clock: RegistryClock;
@@ -108,6 +117,24 @@ export class SessionRegistry {
     return () => {
       this.#listeners.delete(listener);
     };
+  }
+
+  subscribeActivityStops(listener: (event: SessionActivityStopEvent) => void): () => void {
+    const admittedRevision = this.#revision;
+    const gate = (event: SessionActivityStopEvent): void => {
+      if (event.revision > admittedRevision) listener(event);
+    };
+    this.#activityStopListeners.add(gate);
+    return () => {
+      this.#activityStopListeners.delete(gate);
+    };
+  }
+
+  /** An intervening activity gap, restart, replacement, or ask invalidates delayed delivery. */
+  isCurrentActivityStop(event: SessionActivityStopEvent): boolean {
+    this.sweepExpired();
+    const record = this.#metadata.get(event.session.instanceId);
+    return record?.activityStopRevision === event.revision && record.metadata.generation === event.session.generation;
   }
 
   /**
@@ -171,7 +198,11 @@ export class SessionRegistry {
     const live = new Set(directory.observed.map(input => input.instanceId));
     let removed = 0;
     for (const [instanceId, record] of [...this.#metadata.entries()]) {
-      if (live.has(instanceId) || directory.retained.has(instanceId)) continue;
+      if (live.has(instanceId)) continue;
+      if (directory.retained.has(instanceId)) {
+        this.#forgetActivity(record);
+        continue;
+      }
       this.#removeRecord(instanceId, record.metadata.generation);
       removed += 1;
     }
@@ -180,7 +211,10 @@ export class SessionRegistry {
 
   #observe(input: ObservedSessionInput): UpsertResult {
     const existing = this.#metadata.get(input.instanceId);
-    if (existing !== undefined && input.generation < existing.metadata.generation) return "ignored_older";
+    if (existing !== undefined && input.generation < existing.metadata.generation) {
+      this.#forgetActivity(existing);
+      return "ignored_older";
+    }
     if (existing === undefined && this.#metadata.size >= this.#maxSessions) return "ignored_older";
     const receivedAtMs = this.#clock.monotonicNowMs();
     const receivedAt = this.#clock.wallNowIso();
@@ -189,6 +223,7 @@ export class SessionRegistry {
     // generation. Trust the host's current answer and treat it as a fresh record.
     const continues =
       existing !== undefined &&
+      receivedAtMs - existing.receivedAtMs < this.#ttlMs &&
       existing.metadata.generation === input.generation &&
       existing.immutableIdentity === projected.immutableIdentity;
     let metadata = projected.metadata;
@@ -206,14 +241,30 @@ export class SessionRegistry {
       existing.metadata = metadata;
       return "updated";
     }
+    const stopped = continues && existing.metadata.busy === true && metadata.busy === false &&
+      !existing.metadata.inputRequired && !metadata.inputRequired;
+    this.#revision += 1;
     this.#metadata.set(input.instanceId, {
       metadata,
       immutableIdentity: projected.immutableIdentity,
       receivedAtMs,
+      activityStopRevision: stopped ? this.#revision :
+        continues && metadata.busy === false && !metadata.inputRequired ? existing.activityStopRevision : undefined,
     });
+    this.#emit(
+      { type: "session_upsert", revision: this.#revision, session: cloneMetadata(metadata) },
+      stopped ? { type: "activity_stop", revision: this.#revision, session: cloneMetadata(metadata) } : undefined,
+    );
+    return existing === undefined ? "inserted" : "updated";
+  }
+
+  #forgetActivity(record: InternalMetadataRecord): void {
+    if (record.metadata.busy === undefined) return;
+    const { busy: _busy, ...metadata } = record.metadata;
+    record.metadata = metadata;
+    record.activityStopRevision = undefined;
     this.#revision += 1;
     this.#emit({ type: "session_upsert", revision: this.#revision, session: cloneMetadata(metadata) });
-    return existing === undefined ? "inserted" : "updated";
   }
 
   /** Compares everything a browser renders, ignoring the liveness stamp that moves every poll. */
@@ -227,6 +278,7 @@ export class SessionRegistry {
       left.canView === right.canView &&
       left.canControl === right.canControl &&
       left.inputRequired === right.inputRequired &&
+      left.busy === right.busy &&
       left.ask?.requestId === right.ask?.requestId
     );
   }
@@ -275,27 +327,35 @@ export class SessionRegistry {
    * hand it to every listener the outer loop has not reached yet, ahead of the older revision they
    * are still owed. Queueing keeps delivery in strictly increasing revision order for all listeners.
    */
-  #emit(event: SessionEvent): void {
+  #notify<T extends SessionEvent | SessionActivityStopEvent>(event: T, listeners: ReadonlySet<(event: T) => void>): void {
+    for (const listener of listeners) {
+      try {
+        const copy = "session" in event ? { ...event, session: cloneMetadata(event.session) }
+          : event.type === "snapshot" ? { ...event, sessions: event.sessions.map(cloneMetadata) } : { ...event };
+        listener(copy);
+      } catch (error) {
+        // Observers cannot interrupt revocation or starve other observers, even if reporting fails.
+        try {
+          this.#onListenerError(error);
+        } catch {
+          // Error reporting is an observer too.
+        }
+      }
+    }
+  }
+
+  #emit(event: SessionEvent, stop?: SessionActivityStopEvent): void {
     this.#pending.push(event);
+    // Both edges belong ahead of any mutation an ordinary observer triggers while receiving upsert.
+    if (stop !== undefined) this.#pending.push(stop);
     if (this.#dispatching) return;
     this.#dispatching = true;
     try {
       while (this.#pendingHead < this.#pending.length) {
-        const next = this.#pending[this.#pendingHead] as SessionEvent;
+        const next = this.#pending[this.#pendingHead] as SessionEvent | SessionActivityStopEvent;
         this.#pendingHead += 1;
-        for (const listener of this.#listeners) {
-          try {
-            listener(next);
-          } catch (error) {
-            // Observers do not own registry state. Report the fault without letting one callback
-            // interrupt capability revocation or starve the remaining observers.
-            try {
-              this.#onListenerError(error);
-            } catch {
-              // Error reporting is an observer too and must not become a mutation dependency.
-            }
-          }
-        }
+        if (next.type === "activity_stop") this.#notify(next, this.#activityStopListeners);
+        else this.#notify(next, this.#listeners);
       }
     } finally {
       this.#pending.splice(0, this.#pendingHead);

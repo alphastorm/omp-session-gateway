@@ -150,7 +150,6 @@ describe("Web Push service", () => {
     const state = await readFile(statePath, "utf8");
     expect(state).toContain(endpoint);
     expect(state).toContain('"detailLevel": "preview"');
-    expect(state).not.toContain("CAPABILITY_CANARY");
     expect((await stat(statePath)).mode & 0o077).toBe(0);
 
     const reopened = await PushService.open({ config: gatewayConfig, registry, transport: new RecordingTransport() });
@@ -180,6 +179,298 @@ describe("Web Push service", () => {
     expect(["https:", "mailto:"]).toContain(subject.protocol);
     const host = subject.protocol === "mailto:" ? subject.pathname.slice(subject.pathname.lastIndexOf("@") + 1) : subject.hostname;
     expect(host).not.toMatch(/(^|\.)(invalid|test|example|localhost)$/u);
+  });
+
+  test("delivers each real stop once at device detail without retaining activity or replaying it", async () => {
+    const root = await createRoot();
+    const gatewayConfig = config(root);
+    const statePath = join(gatewayConfig.paths.stateDir, "push-state.json");
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: gatewayConfig, registry, transport });
+    const subscriptions = (["private", "session", "preview"] as const).map((detailLevel, index) => ({
+      version: PUSH_API_VERSION,
+      detailLevel,
+      subscription: { ...subscription, endpoint: `${endpoint}-${index}` },
+    }));
+    for (const request of subscriptions) await service.subscribe("dev-localhost", request);
+    const stateBeforeActivity = await readFile(statePath, "utf8");
+
+    const session = observedSession(false);
+    registry.reconcile({ observed: [{ ...session, busy: false }], retained: new Set() });
+    await service.flush();
+    expect(transport.calls).toHaveLength(0);
+    for (const canControl of [true, false]) {
+      registry.reconcile({ observed: [{ ...session, canControl, busy: true }], retained: new Set() });
+      registry.reconcile({ observed: [{ ...session, canControl, busy: false }], retained: new Set() });
+      await service.flush();
+      registry.reconcile({ observed: [{ ...session, canControl, busy: false }], retained: new Set() });
+      registry.reconcile({ observed: [{ ...session, canControl, busy: false, model: "provider/updated" }], retained: new Set() });
+      await service.flush();
+    }
+
+    expect(transport.calls).toHaveLength(6);
+    for (const request of subscriptions) {
+      const messages = transport.calls
+        .filter(call => call.subscription.endpoint === request.subscription.endpoint)
+        .map(call => parseAttentionPushMessage(JSON.parse(call.payload)));
+      expect(messages).toEqual(Array.from({ length: 2 }, () => ({
+        version: PUSH_API_VERSION,
+        type: "activity_stop",
+        instanceId: session.instanceId,
+        generation: session.generation,
+        pendingAskCount: 0,
+        title: "OMP session activity stopped",
+        ...(request.detailLevel === "private" ? {} : { body: "PROMPT_CONTENT_CANARY · OPTION_CONTENT_CANARY" }),
+      })));
+    }
+    expect(new Set(transport.calls.map(call => call.options.topic)).size).toBe(1);
+    expect(transport.calls.every(call => call.options.ttlSeconds === 300)).toBe(true);
+    expect(await readFile(statePath, "utf8")).toBe(stateBeforeActivity);
+    await service.stop();
+
+    registry.reconcile({ observed: [{ ...session, busy: true }], retained: new Set() });
+    registry.reconcile({ observed: [{ ...session, busy: false }], retained: new Set() });
+    await service.flush();
+    expect(transport.calls).toHaveLength(6);
+    const restarted = await PushService.open({ config: gatewayConfig, registry, transport });
+    for (const request of subscriptions) await restarted.subscribe("dev-localhost", request);
+    await restarted.subscribe("dev-localhost", {
+      version: PUSH_API_VERSION,
+      detailLevel: "private",
+      subscription: { ...subscription, endpoint: `${endpoint}-0`, keys: renewedKeys },
+    });
+    registry.reconcile({ observed: [{ ...session, busy: false }], retained: new Set() });
+    await restarted.flush();
+    expect(transport.calls).toHaveLength(6);
+    await restarted.stop();
+  });
+
+  test.each([
+    "unknown", "retained gap", "older generation", "new generation",
+    "immutable replacement", "removal", "expiry", "registry reset",
+  ])("does not synthesize or dispatch a queued stop across %s", async boundary => {
+    const root = await createRoot();
+    let now = 0;
+    const registry = new SessionRegistry({
+      ttlSeconds: 35,
+      maxSessions: 10,
+      clock: { monotonicNowMs: () => now, wallNowIso: () => new Date(now).toISOString() },
+    });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    let session = observedSession(false, 2);
+    const sample = (busy: boolean): void => {
+      registry.reconcile({ observed: [{ ...session, busy }], retained: new Set() });
+    };
+    const crossBoundary = (): void => {
+      switch (boundary) {
+        case "unknown":
+          registry.reconcile({ observed: [session], retained: new Set() });
+          break;
+        case "retained gap":
+          registry.reconcile({ observed: [], retained: new Set([session.instanceId]) });
+          break;
+        case "older generation":
+          registry.reconcile({ observed: [{ ...session, generation: 1, busy: false }], retained: new Set() });
+          break;
+        case "new generation":
+          session = { ...session, generation: session.generation + 1 };
+          break;
+        case "immutable replacement":
+          session = { ...session, pid: session.pid + 1 };
+          break;
+        case "removal":
+          registry.reconcile({ observed: [], retained: new Set() });
+          break;
+        case "expiry":
+          now += 35_000;
+          registry.sweepExpired();
+          break;
+        case "registry reset":
+          registry.clear();
+          break;
+      }
+      sample(false);
+    };
+
+    sample(true);
+    crossBoundary();
+    await service.flush();
+    expect(transport.calls).toHaveLength(0);
+
+    transport.blockWhen = () => true;
+    const blocked = transport.nextBlockedSend();
+    sample(true);
+    sample(false);
+    const release = await blocked;
+    sample(true);
+    sample(false);
+    crossBoundary();
+    transport.blockWhen = undefined;
+    release();
+    await service.flush();
+    expect(transport.calls.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual([
+      "activity_stop",
+    ]);
+    await service.stop();
+  });
+
+  test("drops superseded queued stops when activity resumes and rearms", async () => {
+    const root = await createRoot();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    const sample = (busy: boolean): void => {
+      registry.reconcile({ observed: [{ ...observedSession(false), busy }], retained: new Set() });
+    };
+    transport.blockWhen = () => true;
+    const blocked = transport.nextBlockedSend();
+    sample(true);
+    sample(false);
+    const release = await blocked;
+    sample(true);
+    sample(false);
+    sample(true);
+    sample(false);
+    transport.blockWhen = undefined;
+    release();
+    await service.flush();
+    expect(transport.calls.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual([
+      "activity_stop", "activity_stop",
+    ]);
+    await service.stop();
+  });
+
+  test("prioritizes asks at the stop edge and when an ask overtakes queued stop delivery", async () => {
+    const root = await createRoot();
+    let requests = 0;
+    const registry = new SessionRegistry({
+      ttlSeconds: 35, maxSessions: 10, requestIdFactory: () => `push-request-${++requests}-identity`,
+    });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    const sample = (busy: boolean, inputRequired: boolean): void => {
+      registry.reconcile({ observed: [{ ...observedSession(inputRequired), busy }], retained: new Set() });
+    };
+    sample(true, false);
+    sample(false, true);
+    await service.flush();
+    sample(true, true);
+    sample(false, false);
+    await service.flush();
+    expect(transport.calls.map(call => parseAttentionPushMessage(JSON.parse(call.payload)).type)).toEqual([
+      "attention", "attention", "clear",
+    ]);
+
+    transport.blockWhen = () => true;
+    const blocked = transport.nextBlockedSend();
+    sample(true, true);
+    const release = await blocked;
+    sample(true, false);
+    sample(false, false);
+    sample(false, true);
+    transport.blockWhen = undefined;
+    release();
+    await service.flush();
+    const messages = transport.calls.slice(3).map(call => parseAttentionPushMessage(JSON.parse(call.payload)));
+    expect(messages.map(message => message.type)).toEqual([
+      "attention", "clear", "attention",
+    ]);
+    expect(messages.map(message => message.type === "activity_stop" ? undefined : message.requestId)).toEqual([
+      "push-request-2-identity", "push-request-2-identity", "push-request-3-identity",
+    ]);
+    expect(messages.map(message => message.pendingAskCount)).toEqual([1, 0, 1]);
+    expect(new Set(transport.calls.map(call => call.options.topic)).size).toBe(1);
+    await service.stop();
+  });
+
+  test("does not backfill an earlier stop when a device first opts in", async () => {
+    const root = await createRoot();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    registry.reconcile({ observed: [{ ...observedSession(false), busy: true }], retained: new Set() });
+    registry.reconcile({ observed: [{ ...observedSession(false), busy: false }], retained: new Set() });
+    await service.flush();
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    await service.flush();
+    expect(transport.calls).toHaveLength(0);
+    await service.stop();
+  });
+
+  test("uses the latest badge count and the same FIFO topic for stops and asks", async () => {
+    const root = await createRoot();
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: config(root), registry, transport });
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    const session = observedSession(false);
+    const other = { ...observedSession(true), instanceId: "push-other-instance-0001" };
+    transport.blockWhen = () => transport.calls.length === 1;
+    const blocked = transport.nextBlockedSend();
+    registry.reconcile({ observed: [{ ...session, busy: true }], retained: new Set() });
+    registry.reconcile({ observed: [{ ...session, busy: false }], retained: new Set() });
+    const release = await blocked;
+    registry.reconcile({ observed: [{ ...session, busy: true }], retained: new Set() });
+    registry.reconcile({ observed: [{ ...session, busy: false }], retained: new Set() });
+    registry.reconcile({ observed: [{ ...session, busy: false }, other], retained: new Set() });
+    release();
+    await service.flush();
+    registry.reconcile({ observed: [{ ...session, busy: false, inputRequired: true }, other], retained: new Set() });
+    await service.flush();
+    const calls = transport.calls.filter(call => JSON.parse(call.payload).instanceId === session.instanceId);
+    const messages = calls.map(call => parseAttentionPushMessage(JSON.parse(call.payload)));
+    expect(messages.map(message => message.type)).toEqual([
+      "activity_stop", "activity_stop", "attention",
+    ]);
+    expect(messages.map(message => message.pendingAskCount)).toEqual([0, 1, 2]);
+    expect(new Set(calls.map(call => call.options.topic)).size).toBe(1);
+    await service.stop();
+  });
+
+  test("cleans only the failed stop-delivery subscription and ignores presentation-only renewal", async () => {
+    const root = await createRoot();
+    const gatewayConfig = config(root);
+    const statePath = join(gatewayConfig.paths.stateDir, "push-state.json");
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
+    const transport = new RecordingTransport();
+    const service = await PushService.open({ config: gatewayConfig, registry, transport });
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "private", subscription });
+    const sample = (busy: boolean): void => {
+      registry.reconcile({ observed: [{ ...observedSession(false), busy }], retained: new Set() });
+    };
+    const storedLabels = async (): Promise<readonly string[]> => {
+      const state = JSON.parse(await readFile(statePath, "utf8")) as {
+        readonly subscriptions: readonly { readonly keys: PushSubscriptionKeys }[];
+      };
+      return state.subscriptions.map(entry => keyLabel(entry.keys));
+    };
+    transport.blockWhen = () => true;
+    const firstBlocked = transport.nextBlockedSend();
+    sample(true);
+    sample(false);
+    const releaseFirst = await firstBlocked;
+    const renewed = { ...subscription, keys: renewedKeys };
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "preview", subscription: renewed });
+    expect(transport.calls).toHaveLength(1);
+    releaseFirst(pushError(410));
+    await service.flush();
+    expect(await storedLabels()).toEqual(["renewed"]);
+
+    const secondBlocked = transport.nextBlockedSend();
+    sample(true);
+    sample(false);
+    const releaseSecond = await secondBlocked;
+    await service.subscribe("dev-localhost", { version: PUSH_API_VERSION, detailLevel: "session", subscription: renewed });
+    expect(transport.calls.map(call => keyLabel(call.subscription.keys))).toEqual(["previous", "renewed"]);
+    releaseSecond(pushError(404));
+    await service.flush();
+    expect(await storedLabels()).toEqual([]);
+    await service.stop();
   });
 
   test("builds per-device detail, re-pings silently, and clears the exact request", async () => {
@@ -224,7 +515,7 @@ describe("Web Push service", () => {
         .map(call => parseAttentionPushMessage(JSON.parse(call.payload)));
       expect(messages.map(message => message.type)).toEqual(["attention", "attention", "clear"]);
       expect(messages.map(message => message.pendingAskCount)).toEqual([1, 1, 0]);
-      expect(messages.map(message => message.requestId)).toEqual([
+      expect(messages.map(message => message.type === "activity_stop" ? undefined : message.requestId)).toEqual([
         "push-request-identity-0001",
         "push-request-identity-0001",
         "push-request-identity-0001",
@@ -237,7 +528,6 @@ describe("Web Push service", () => {
         expect(first.body).toBe("PROMPT_CONTENT_CANARY · OPTION_CONTENT_CANARY");
       }
       for (const call of transport.calls.filter(call => call.subscription.endpoint === entry.subscription.endpoint)) {
-        expect(call.payload).not.toContain("CAPABILITY_CANARY");
         expect(call.options.ttlSeconds).toBe(300);
         expect(call.options.topic).toHaveLength(32);
         expect(call.options.privateKey).not.toBe(call.options.publicKey);
@@ -273,7 +563,6 @@ describe("Web Push service", () => {
     expect(state).not.toContain(endpoint);
     expect(lines.join("\n")).not.toContain(endpoint);
     expect(lines.join("\n")).not.toContain("CONTENT_CANARY");
-    expect(lines.join("\n")).not.toContain("CAPABILITY_CANARY");
   });
 
   test("keeps a renewed subscription when the in-flight send for the replaced keys is gone", async () => {

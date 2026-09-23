@@ -79,6 +79,9 @@ const shownNotifications: Array<{
 }> = [];
 const registration = {
   async showNotification(title: string, options: NotificationOptions): Promise<void> {
+    for (const notification of shownNotifications) {
+      if (notification.options.tag === options.tag) notification.close();
+    }
     shownNotifications.push({
       title,
       options,
@@ -320,6 +323,128 @@ describe("notification service worker", () => {
     expect(clientState.opened).toEqual([]);
     expect(clientState.navigated).toEqual([
       "/collab/push-instance-000001?request=push-request-identity-0001",
+    ]);
+    expect(fetched).toEqual([]);
+  });
+
+  test("a notification API failure does not block later push delivery", async () => {
+    shownNotifications.length = 0;
+    const push = async (message: unknown): Promise<void> => {
+      let completion: Promise<unknown> | undefined;
+      listener("push")({
+        data: { json: () => message },
+        waitUntil(promise: Promise<unknown>): void { completion = promise; },
+      });
+      await completion;
+    };
+    const stop = {
+      version: 2, type: "activity_stop", instanceId: "push-activity-000002",
+      generation: 3, pendingAskCount: 0, title: "OMP session activity stopped",
+    };
+    const showNotification = registration.showNotification;
+    registration.showNotification = async () => { throw new Error("Notifications unavailable"); };
+    try {
+      await expect(push(stop)).rejects.toThrow();
+    } finally {
+      registration.showNotification = showNotification;
+    }
+    await push({ ...stop, generation: 4 });
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "activity_stop", instanceId: stop.instanceId, generation: 4 }]);
+  });
+
+  test("activity stops preserve displayed attention and exact-request clears cannot close a stop", async () => {
+    shownNotifications.length = 0;
+    badgeState.set.length = 0;
+    badgeState.clears = 0;
+    const push = async (message: unknown): Promise<void> => {
+      let completion: Promise<unknown> | undefined;
+      listener("push")({
+        data: { json: () => message },
+        waitUntil(promise: Promise<unknown>): void { completion = promise; },
+      });
+      await completion;
+    };
+    const stop = {
+      version: 2,
+      type: "activity_stop",
+      instanceId: "push-activity-000001",
+      generation: 3,
+      pendingAskCount: 0,
+      title: "OMP session activity stopped",
+      body: "Session name · project",
+    };
+    await push(stop);
+    expect(shownNotifications.filter(notification => !notification.closed)).toHaveLength(1);
+    const displayedStop = shownNotifications[0]!;
+    expect(displayedStop.options.data).toEqual({
+      version: 2, type: "activity_stop", instanceId: stop.instanceId, generation: 3,
+    });
+    expect(badgeState.clears).toBe(1);
+    const clear = {
+      version: 2, type: "clear", instanceId: stop.instanceId,
+      requestId: "push-request-activity-0001", pendingAskCount: 0,
+    };
+    await push(clear);
+    expect(displayedStop.closed).toBeFalse();
+    await push({ ...stop, requestId: clear.requestId });
+    expect(shownNotifications).toHaveLength(1);
+    const { type: _type, ...attentionFields } = stop;
+    const attention = {
+      ...attentionFields, type: "attention", title: "OMP session needs attention",
+      requestId: clear.requestId, pendingAskCount: 1,
+    };
+    await push(attention);
+    expect(displayedStop.closed).toBeTrue();
+    expect(shownNotifications.at(-1)!.options).toMatchObject({ renotify: true });
+    await push(attention);
+    const displayedAttention = shownNotifications.at(-1)!;
+    expect(displayedAttention.options).toMatchObject({ renotify: false });
+    await push({ ...stop, pendingAskCount: 1 });
+    expect(shownNotifications.filter(notification => !notification.closed)).toEqual([displayedAttention]);
+    expect(badgeState.set.at(-1)).toBe(1);
+    await push(clear);
+    expect(displayedAttention.closed).toBeTrue();
+    await push(stop);
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "activity_stop", instanceId: stop.instanceId, generation: 3 }]);
+    await registration.showNotification("Outdated attention", {
+      tag: "omp-attention-push-activity-000001",
+      data: { version: 1, type: "attention", instanceId: stop.instanceId, requestId: clear.requestId },
+    });
+    await push(stop);
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "activity_stop", instanceId: stop.instanceId, generation: 3 }]);
+    // Push handlers overlap while getNotifications is pending. The later ask must win.
+    shownNotifications.length = 0;
+    await Promise.all([
+      push(stop),
+      push({ ...attentionFields, type: "attention", title: "OMP session needs attention", requestId: clear.requestId, pendingAskCount: 1 }),
+    ]);
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "attention", instanceId: stop.instanceId, requestId: clear.requestId }]);
+    expect(fetched).toEqual([]);
+    expect(cachePuts).toEqual([]);
+  });
+
+  test("stop clicks open a generation-bound route without disturbing active collaboration", async () => {
+    clientState.windows = [{
+      url: "https://sessions.example/client/",
+      async focus(): Promise<unknown> { throw new Error("active client must not be focused"); },
+      async navigate(): Promise<null> { throw new Error("active client must not navigate"); },
+    }];
+    clientState.opened.length = 0;
+    const valid = { version: 2, type: "activity_stop", instanceId: "push-activity-000001", generation: 3 };
+    for (const data of [valid, { ...valid, requestId: "extra-request-00001" }, { ...valid, generation: 0 }]) {
+      let completion: Promise<unknown> | undefined;
+      listener("notificationclick")({
+        notification: { data, close(): void {} },
+        waitUntil(promise: Promise<unknown>): void { completion = promise; },
+      });
+      await completion;
+    }
+    expect(clientState.opened).toEqual([
+      "/collab/push-activity-000001?activity=stopped&generation=3", "/", "/",
     ]);
     expect(fetched).toEqual([]);
   });

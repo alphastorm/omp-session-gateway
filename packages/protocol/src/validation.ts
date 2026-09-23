@@ -14,6 +14,7 @@ import {
   type LaunchMode,
   type LaunchRequest,
   type LaunchResponse,
+  type NotificationLaunchIntent,
   type ObservedSessionInput,
   type OmpDiscoveryEntry,
   type OmpHostSnapshot,
@@ -352,6 +353,7 @@ export function observedSessionFromSnapshot(snapshot: OmpHostSnapshot): Observed
     startedAt: new Date(snapshot.startedAt).toISOString(),
     canControl: snapshot.access === "control",
     inputRequired: snapshot.inputRequired,
+    ...(snapshot.busy === undefined ? {} : { busy: snapshot.busy }),
     ...(title === undefined || title === "" ? {} : { title }),
     ...(cwdLabel === undefined || cwdLabel === "" ? {} : { cwdLabel }),
     ...(model === undefined || model === "" ? {} : { model }),
@@ -500,6 +502,20 @@ export function parseAttentionPushMessage(value: unknown): AttentionPushMessage 
       ...(body === undefined ? {} : { body }),
     };
   }
+  if (record.type === "activity_stop") {
+    requireExactKeys(record, ["version", "type", "instanceId", "generation", "pendingAskCount", "title"], ["body"]);
+    if (record.title !== "OMP session activity stopped") throw new ProtocolValidationError();
+    const body = optionalLabel(record.body);
+    return {
+      version: PUSH_API_VERSION,
+      type: "activity_stop",
+      instanceId: requireInstanceId(record.instanceId),
+      generation: requireInteger(record.generation, 1),
+      pendingAskCount: requireInteger(record.pendingAskCount, 0, MAX_PUSH_PENDING_COUNT),
+      title: record.title,
+      ...(body === undefined ? {} : { body }),
+    };
+  }
   if (record.type === "clear") {
     requireExactKeys(record, ["version", "type", "instanceId", "requestId", "pendingAskCount"]);
     return {
@@ -514,17 +530,63 @@ export function parseAttentionPushMessage(value: unknown): AttentionPushMessage 
 }
 
 
+/** Notification data is deliberately smaller than a push payload and admits no extra fields. */
+export function parseNotificationData(value: unknown): NotificationLaunchIntent | undefined {
+  try {
+    const record = requireRecord(value);
+    if (record.version !== PUSH_API_VERSION) return undefined;
+    if (record.type === "attention") {
+      requireExactKeys(record, ["version", "type", "instanceId", "requestId"]);
+      return { kind: "attention", instanceId: requireInstanceId(record.instanceId), requestId: requireRequestId(record.requestId) };
+    }
+    if (record.type === "activity_stop") {
+      requireExactKeys(record, ["version", "type", "instanceId", "generation"]);
+      return { kind: "activity_stop", instanceId: requireInstanceId(record.instanceId), generation: requireInteger(record.generation, 1) };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/** Shared by the HTTP shell guard and the browser; query keys are exact and non-repeating. */
+export function parseNotificationRoute(url: URL): NotificationLaunchIntent | undefined {
+  const match = /^\/collab\/([^/]{1,384})$/u.exec(url.pathname);
+  if (match?.[1] === undefined || url.hash !== "") return undefined;
+  try {
+    const instanceId = requireInstanceId(decodeURIComponent(match[1]));
+    const entries = [...url.searchParams];
+    if (entries.length === 1 && entries[0]?.[0] === "request") {
+      return { kind: "attention", instanceId, requestId: requireRequestId(entries[0][1]) };
+    }
+    if (entries.length !== 2 || url.searchParams.getAll("activity").length !== 1 || url.searchParams.getAll("generation").length !== 1) return undefined;
+    const generation = url.searchParams.get("generation");
+    if (url.searchParams.get("activity") !== "stopped" || generation === null || !/^[1-9][0-9]*$/u.test(generation)) return undefined;
+    return { kind: "activity_stop", instanceId, generation: requireInteger(Number(generation), 1) };
+  } catch {
+    return undefined;
+  }
+}
+
+export function notificationRoutePath(intent: NotificationLaunchIntent): string {
+  const path = "/collab/" + requireInstanceId(intent.instanceId);
+  return intent.kind === "attention"
+    ? path + "?request=" + requireRequestId(intent.requestId)
+    : path + "?activity=stopped&generation=" + requireInteger(intent.generation, 1);
+}
+
 function parseSessionMetadata(value: unknown): SessionMetadata {
   const record = requireRecord(value);
   requireExactKeys(
     record,
     ["instanceId", "generation", "startedAt", "lastSeenAt", "canView", "canControl"],
-    ["title", "cwdLabel", "model", "inputRequired", "ask"],
+    ["title", "cwdLabel", "model", "inputRequired", "ask", "busy"],
   );
   if (
     typeof record.canView !== "boolean" ||
     typeof record.canControl !== "boolean" ||
-    (record.inputRequired !== undefined && typeof record.inputRequired !== "boolean")
+    (record.inputRequired !== undefined && typeof record.inputRequired !== "boolean") ||
+    (Object.hasOwn(record, "busy") && typeof record.busy !== "boolean")
   ) {
     throw new ProtocolValidationError();
   }
@@ -560,6 +622,7 @@ function parseSessionMetadata(value: unknown): SessionMetadata {
     canView: record.canView,
     canControl: record.canControl,
     inputRequired,
+    ...(record.busy === undefined ? {} : { busy: record.busy as boolean }),
     ...(ask === undefined ? {} : { ask }),
   };
 }
@@ -640,6 +703,7 @@ export function sessionMetadataFromObserved(
       canView: true,
       canControl: input.canControl,
       inputRequired: input.inputRequired,
+      ...(input.busy === undefined ? {} : { busy: input.busy }),
     },
     immutableIdentity: `${input.pid}\0${input.sessionId}\0${input.startedAt}`,
   };

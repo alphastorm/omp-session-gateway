@@ -71,7 +71,9 @@ Success is `{ ok: true, v: 1, snapshot }`. The metadata snapshot contains:
 | `access` | Shared access, `view` or `control`; determines Control availability. |
 
 No snapshot contains a capability. The gateway derives bounded `SessionMetadata` plus its own
-opaque attention identity; neither full paths nor per-host query tokens enter list/SSE.
+opaque attention identity; neither full paths nor per-host query tokens enter list/SSE. Boolean
+`busy` projects into optional browser metadata; absent/null is omitted. A retained/unreadable host
+loses only that activity knowledge, without refreshing last-seen time or TTL.
 
 ### `link`
 
@@ -234,9 +236,10 @@ session metadata or collaboration capability.
 unsubscribe is authoritative; a failed delete leaves an unusable endpoint that the gateway removes
 when delivery returns `404` or `410`.
 
-### Web Push attention envelope
+### Web Push notification envelopes
 
-The encrypted payload is exactly one of:
+The encrypted payload is exactly one of the following attention/clear envelopes, or the strict
+`activity_stop` envelope described below:
 
 ```json
 {
@@ -265,6 +268,19 @@ VAPID `sub` claim is the repository URL, `https://github.com/alphastorm/omp-sess
 contact the push service can reach, which Apple enforces by rejecting the JWT otherwise. The
 service worker uses one notification tag per instance, updates it silently, closes it on `clear`,
 and sets or clears the app badge from `pendingAskCount`.
+
+An `activity_stop` envelope contains exactly `version: 2`, `type: "activity_stop"`, `instanceId`,
+`generation`, `pendingAskCount`, fixed `title: "OMP session activity stopped"`, and optional `body`.
+It has no request ID. Private omits the body; Preview uses Session detail. It shares the existing
+instance topic/tag and five-minute TTL. A displayed valid attention notification wins over a stop;
+a clear closes only matching request data and therefore cannot close a stop. See the exact
+[trigger and precedence contract](ATTENTION_SPEC.md#activity-stop-notifications).
+
+Stop clicks use `/collab/:instanceId?activity=stopped&generation=:generation` and open only View
+for the same current generation/canView after authentication. Gone or changed targets stay on the
+directory. Both routes reject duplicate/mixed/extra parameters and invalid identities/generations,
+then scrub the routing URL before networking. Older v2 workers ignore new stop payloads until
+shell activation; attention/clear and durable push-state schemas remain unchanged.
 
 The click route `/collab/:instanceId?request=:requestId` contains routing metadata only and returns
 the no-store application shell. The app loads current authenticated metadata and performs the

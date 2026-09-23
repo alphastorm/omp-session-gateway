@@ -10,14 +10,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_LABEL_CODEPOINTS, OMP_REGISTRY_VERSION } from "@omp-session-gateway/protocol";
+import { MAX_LABEL_CODEPOINTS, OMP_REGISTRY_VERSION, type OmpHostSnapshot } from "@omp-session-gateway/protocol";
 import {
   OmpHostReader,
   OmpLaunchResolver,
   resolveOmpDiscoveryDirectory,
   startHostPoller,
 } from "../src/omp-registry.ts";
-import { SessionRegistry } from "../src/registry.ts";
+import { SessionRegistry, type SessionActivityStopEvent } from "../src/registry.ts";
 
 const VIEW_URL = "https://collab.example/#wss://relay.example/r/room.viewkeyviewkeyviewkey";
 const CONTROL_URL = "https://collab.example/#wss://relay.example/r/room.controlkeycontrolkeyctl";
@@ -170,11 +170,57 @@ describe("OMP discovery directory", () => {
     expect(registry.snapshot().sessions.map(session => session.instanceId).sort()).toEqual(
       [working, idle, legacy, unknown].map(host => host.instanceId).sort(),
     );
+    expect(Object.fromEntries(registry.snapshot().sessions.map(session => [session.instanceId, session.busy]))).toEqual({
+      [working.instanceId]: true, [idle.instanceId]: false, [legacy.instanceId]: undefined, [unknown.instanceId]: undefined,
+    });
     const resolver = new OmpLaunchResolver({ registry, reader: subject });
     for (const mode of ["view", "control"] as const) {
       expect((await resolver.resolve({ instanceId: working.instanceId, generation: 1, mode })).status).toBe("ok");
     }
     expect(working.requests.map(request => request.op)).toEqual(["snapshot", "link", "link"]);
+  });
+
+  test("an unreadable poll breaks activity continuity while the host remains published", async () => {
+    const directory = await discoveryDirectory();
+    let state: "working" | "gap" | "idle" = "working";
+    let snapshot: OmpHostSnapshot | undefined;
+    const host = await hostDouble(directory, {
+      busy: true,
+      reply: () => {
+        if (state === "gap") return { ok: false, v: 1, error: "snapshot_unavailable" };
+        if (state === "idle") return { ok: true, v: 1, snapshot: { ...snapshot, busy: false } };
+        return undefined;
+      },
+    });
+    const subject = reader(directory);
+    let now = 0;
+    const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10, clock: {
+      monotonicNowMs: () => now,
+      wallNowIso: () => new Date(now).toISOString(),
+    } });
+    const stops: SessionActivityStopEvent[] = [];
+    registry.subscribeActivityStops(event => stops.push(event));
+    const poll = async (): Promise<void> => {
+      const observation = await subject.observe();
+      snapshot ??= observation.hosts[0]?.snapshot;
+      registry.reconcile({ observed: observation.hosts.map(entry => entry.session), retained: observation.retained });
+    };
+    await poll();
+    expect(registry.snapshot().sessions[0]?.busy).toBe(true);
+    state = "gap";
+    now = 1_000;
+    await poll();
+    expect(registry.snapshot().sessions[0]).toMatchObject({ instanceId: host.instanceId, lastSeenAt: new Date(0).toISOString() });
+    expect(Object.hasOwn(registry.snapshot().sessions[0]!, "busy")).toBe(false);
+    state = "idle";
+    await poll();
+    expect(registry.snapshot().sessions[0]?.busy).toBe(false);
+    expect(stops).toEqual([]);
+    state = "working";
+    await poll();
+    state = "idle";
+    await poll();
+    expect(stops.map(event => [event.session.instanceId, event.session.busy])).toEqual([[host.instanceId, false]]);
   });
 
   test("retired admitted hosts release capacity even when discovery remains overfull", async () => {

@@ -90,6 +90,8 @@ export interface ObservedSessionInput {
   readonly startedAt: string;
   readonly canControl: boolean;
   readonly inputRequired: boolean;
+  /** Omitted means activity is unknown, not idle. */
+  readonly busy?: boolean;
 }
 
 export interface SessionAskMetadata {
@@ -111,6 +113,7 @@ export interface SessionMetadata {
   readonly canView: boolean;
   readonly canControl: boolean;
   readonly inputRequired: boolean;
+  readonly busy?: boolean;
   readonly ask?: SessionAskMetadata;
 }
 
@@ -176,12 +179,26 @@ export type AttentionPushMessage =
     }
   | {
       readonly version: typeof PUSH_API_VERSION;
+      readonly type: "activity_stop";
+      readonly instanceId: string;
+      readonly generation: number;
+      readonly pendingAskCount: number;
+      readonly title: "OMP session activity stopped";
+      readonly body?: string;
+    }
+  | {
+      readonly version: typeof PUSH_API_VERSION;
       readonly type: "clear";
       readonly instanceId: string;
       readonly requestId: string;
       readonly pendingAskCount: number;
     };
 
+
+/** Capability-free launch intent, revalidated against the current directory before launch. */
+export type NotificationLaunchIntent =
+  | { readonly kind: "attention"; readonly instanceId: string; readonly requestId: string }
+  | { readonly kind: "activity_stop"; readonly instanceId: string; readonly generation: number };
 
 export interface LaunchRequest {
   readonly mode: LaunchMode;

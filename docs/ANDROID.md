@@ -54,12 +54,15 @@ Browser lifecycle and network-change signals trigger remeasurement rather than p
 connectivity. Optional encrypted idle relay probes require host support; ordinary host frames
 provide passive liveness. See [ARCHITECTURE.md](ARCHITECTURE.md#5-availability-behavior).
 
-Push v2 carries opaque request identity, a bounded pending count, and the chosen presentation detail;
+Push v2 carries bounded identity, a pending-ask count, and the chosen presentation detail;
 attention includes the observed generation, while clear targets the exact request. Private uses
 `OMP session needs attention` with no body. Session (the default) includes bounded session/project
 labels; Preview currently falls back to Session because stock OMP supplies no preview. Visible
 text can persist in Android notification history, screenshots, and wearables. No capability,
-transcript, prompt, option, or answer enters these payloads.
+transcript, prompt, option, or answer enters these payloads. Unreleased activity-stop alerts use a
+fixed activity title and observed generation, no request ID, and the same privacy levels. Their tap
+opens View after authenticated same-generation validation, never Control. This is not new physical
+Android/background-Push qualification.
 
 Permission is requested only from the explicit Settings action. The worker replaces one
 notification per instance, closes only the matching request on clear, and updates the app badge.

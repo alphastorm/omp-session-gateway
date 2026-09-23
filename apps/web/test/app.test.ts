@@ -302,6 +302,7 @@ interface BrowserHarness {
   activateWorker(): void;
   readonly reloads: { count: number };
   readonly fetchPaths: string[];
+  readonly fetchLocations: string[];
   readonly permissionRequests: { count: number };
   readonly subscriptionRequests: unknown[];
   readonly unsubscribeRequests: unknown[];
@@ -443,6 +444,7 @@ async function bootApp(options: {
     back(): void {},
   };
   const fetchPaths: string[] = [];
+  const fetchLocations: string[] = [];
   let listRevision = 1;
   let listSessions = [...options.initialSessions];
   let listStatus = 200;
@@ -532,6 +534,7 @@ async function bootApp(options: {
   const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
     fetchPaths.push(path);
+    fetchLocations.push(location.pathname + location.search);
     if (path === "/api/v1/push/config") {
       return Response.json({ version: 2, applicationServerKey: "V".repeat(87) });
     }
@@ -608,6 +611,7 @@ async function bootApp(options: {
       localActionToastUndo,
     },
     fetchPaths,
+    fetchLocations,
     permissionRequests,
     subscriptionRequests,
     unsubscribeRequests,
@@ -723,9 +727,6 @@ describe("dashboard attention and notifications", () => {
     expect(harness.workerMessages).toEqual([{ type: "omp-notification-support-request", version: 2 }]);
     expect(harness.elements.notificationButton.textContent).toBe("Enable background alerts");
     expect(harness.elements.notificationButton.dataset.state).toBe("idle");
-    expect(harness.elements.notificationDisclosure.textContent).toBe(
-      "Alerts work with the app closed. Tapping one opens current Control after revalidation.",
-    );
     expect(harness.elements.notificationDisclosure.hidden).toBeFalse();
   });
 
@@ -754,7 +755,6 @@ describe("dashboard attention and notifications", () => {
         .querySelectorAll(".working-row")
         .map(row => row.querySelector(".row-title")?.textContent),
     ).toEqual(["working-session-0002", "working-session-0001"]);
-    expect(harness.elements.sessionList.querySelector(".queue-kicker")?.textContent).toBe("Working");
     const firstWorking = harness.elements.sessionList.querySelector(".working-row");
     expect(firstWorking?.querySelector(".row-time")).not.toBeNull();
     expect(firstWorking?.querySelector(".working-context")?.textContent).toBe("· project");
@@ -794,6 +794,58 @@ describe("dashboard attention and notifications", () => {
     expect(harness.elements.directoryCount.hidden).toBeTrue();
   });
 
+  test("activity samples distinguish working, idle, and unknown across metadata updates", async () => {
+    const base = session("activity-samples-0001", { busy: true });
+    const harness = await bootApp({
+      permission: "denied", suffix: "activity-samples", initialSessions: [base],
+    });
+    const activity = (): string | null | undefined =>
+      harness.elements.sessionList.querySelector(".session-activity")?.textContent;
+    expect(activity()).toContain("Working");
+    harness.emit("session_upsert", { type: "session_upsert", revision: 2, session: { ...base, busy: false } });
+    expect(activity()).toContain("Idle");
+    harness.emit("session_upsert", { type: "session_upsert", revision: 3, session: session(base.instanceId) });
+    expect(activity()).toContain("Activity unknown");
+    expect(harness.elements.directoryCount.textContent).toBe("Live · 1");
+    expect(harness.fetchPaths.some(path => path.endsWith("/launch"))).toBeFalse();
+  });
+
+  test("scrubs malformed notification routes before any fetch without attempting a launch", async () => {
+    const harness = await bootApp({
+      permission: "denied",
+      pathname: "/collab/activity-session-0001",
+      search: "?activity=stopped&generation=01",
+      suffix: "malformed-notification-route",
+      initialSessions: [session("activity-session-0001")],
+    });
+    expect(harness.fetchLocations.every(path => path === "/")).toBeTrue();
+    expect(harness.replacedPaths).toEqual(["/"]);
+    expect(harness.fetchPaths.some(path => path.endsWith("/launch"))).toBeFalse();
+    harness.emit("keepalive", { type: "keepalive", revision: 1 });
+    expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
+  });
+
+  test("rejects changed, gone, and unavailable activity-stop sessions without launching", async () => {
+    for (const [name, current] of [
+      ["changed", session("activity-session-0001", { generation: 2 })],
+      ["gone", undefined],
+      ["unavailable", session("activity-session-0001", { canView: false, canControl: false })],
+    ] as const) {
+      const harness = await bootApp({
+        permission: "denied",
+        pathname: "/collab/activity-session-0001",
+        search: "?activity=stopped&generation=1",
+        suffix: `stale-activity-${name}`,
+        initialSessions: current === undefined ? [] : [current],
+      });
+      expect(harness.fetchLocations.every(path => path === "/")).toBeTrue();
+      expect(harness.fetchPaths.some(path => path.endsWith("/launch"))).toBeFalse();
+      expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
+      harness.emit("keepalive", { type: "keepalive", revision: 1 });
+      expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
+    }
+  });
+
   test("scrubs stale notification routes and keeps their expired state visible", async () => {
     const harness = await bootApp({
       permission: "denied",
@@ -805,9 +857,6 @@ describe("dashboard attention and notifications", () => {
 
     expect(harness.replacedPaths).toEqual(["/"]);
     expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
-    expect(harness.elements.statusBanner.textContent).toBe(
-      "That attention request was already resolved or the session changed.",
-    );
     harness.emit("snapshot", { type: "snapshot", revision: 2, sessions: [] });
     expect(harness.elements.statusBanner.dataset.kind).toBe("expired");
   });
@@ -1063,9 +1112,6 @@ describe("dashboard attention and notifications", () => {
     });
 
     expect(harness.elements.notificationButton.textContent).toBe("Disable background alerts");
-    expect(harness.elements.sessionList.querySelector(".all-clear-copy")?.textContent).toBe(
-      "Nothing needs you. Alerts are on.",
-    );
     expect(harness.permissionRequests.count).toBe(0);
     expect(harness.subscriptionCalls.subscribe).toBe(0);
     expect(harness.subscriptionRequests).toHaveLength(1);

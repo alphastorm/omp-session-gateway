@@ -3,12 +3,14 @@ import {
   MAX_SESSIONS,
   PUSH_API_VERSION,
   parseLaunchResponse,
+  parseNotificationRoute,
   parsePushConfigResponse,
   parsePushSubscriptionRequest,
   parsePushSubscriptionResponse,
   parseSessionEvent,
   parseSessionListResponse,
   type LaunchMode,
+  type NotificationLaunchIntent,
   type SessionEvent,
   type SessionMetadata,
   type PushDetailLevel,
@@ -131,12 +133,6 @@ type NotificationControlState =
   | "blocked"
   | "unavailable";
 
-interface PendingAttentionLaunch {
-  readonly instanceId: string;
-  readonly requestId: string;
-}
-
-
 interface DirectoryHistoryState {
   readonly order: readonly string[];
   readonly scrollY: number;
@@ -225,7 +221,7 @@ function setNotificationControl(state: NotificationControlState): void {
       ? "Notifications are blocked. Enable them in this site's browser settings."
       : state === "unavailable"
         ? "Background push is not available in this browser profile."
-        : "Alerts work with the app closed. Tapping one opens current Control after revalidation.";
+        : "Alerts work with the app closed for input requests or activity stops. After revalidation, requests open Control; activity stops open View.";
   notificationDisclosure.hidden = state === "enabled";
   // The all-clear surface repeats the alert promise, so it re-renders with the control state.
   if (changed) render();
@@ -442,34 +438,21 @@ async function toggleBackgroundNotifications(): Promise<void> {
   }
 }
 
-function readPendingAttentionLaunch(): PendingAttentionLaunch | undefined {
-  const match = /^\/collab\/([^/]{1,384})$/u.exec(location.pathname);
-  const requestId = new URL(location.href).searchParams.get("request");
-  if (match === null || requestId === null) return undefined;
-  const encodedInstanceId = match[1];
-  if (encodedInstanceId === undefined) return undefined;
-  let instanceId: string;
-  try {
-    instanceId = decodeURIComponent(encodedInstanceId);
-  } catch {
-    return undefined;
+function readPendingNotificationLaunch(): NotificationLaunchIntent | undefined {
+  const intent = parseNotificationRoute(new URL(location.href));
+  if (location.pathname === "/collab" || location.pathname.startsWith("/collab/")) {
+    history.replaceState(null, "", "/");
   }
-  if (
-    !INSTANCE_ID_PATTERN.test(instanceId) ||
-    !/^[A-Za-z0-9_-]{16,128}$/u.test(requestId)
-  ) {
-    return undefined;
-  }
-  history.replaceState(null, "", "/");
-  return { instanceId, requestId };
+  return intent;
 }
+
+let pendingNotificationRoute = location.pathname === "/collab" || location.pathname.startsWith("/collab/");
+let notificationRouteStatusLocked = pendingNotificationRoute;
+let pendingNotificationLaunch = readPendingNotificationLaunch();
 
 if (location.pathname === "/update/" || location.pathname === "/client/") {
   history.replaceState(null, "", "/");
 }
-
-let pendingAttentionLaunch = readPendingAttentionLaunch();
-let attentionRouteStatusLocked = pendingAttentionLaunch !== undefined;
 
 type StatusKind = "ready" | "offline" | "tailnet" | "desktop" | "gateway" | "unauthorized" | "expired" | "loading";
 
@@ -1045,7 +1028,10 @@ function createWorkingRow(session: SessionMetadata): HTMLElement {
   copy.className = "working-copy";
   const details = document.createElement("span");
   details.className = "working-details";
-  details.append(createTextElement("span", "row-time", uptimeLabel(session)));
+  details.append(
+    createTextElement("span", "row-time", uptimeLabel(session)),
+    createTextElement("span", "session-activity", session.busy === true ? "· Working" : session.busy === false ? "· Idle" : "· Activity unknown"),
+  );
   if (session.cwdLabel) {
     details.append(createTextElement("span", "working-context", `· ${session.cwdLabel}`));
   }
@@ -1147,7 +1133,7 @@ function renderAllClear(
     createTextElement(
       "p",
       "all-clear-copy",
-      `Nothing needs you.${alertsLive ? " Alerts are on." : ""}`,
+      `Nothing needs you.${alertsLive ? " Alerts are on for input requests and activity stops." : ""}`,
     ),
   );
   summary.append(createTextElement("span", "all-clear-dot", ""), message);
@@ -1162,7 +1148,7 @@ function renderAllClear(
   }
   sessionList.append(summary);
   if (working.length > 0) {
-    sessionList.append(createQueueKicker("Working"));
+    sessionList.append(createQueueKicker("Live sessions"));
     for (const session of working) sessionList.append(createWorkingRow(session));
   }
   appendDismissedControl(dismissed);
@@ -1252,7 +1238,7 @@ function renderWaitingQueue(
     for (const session of held) sessionList.append(createHeldRow(session));
   }
   if (working.length > 0) {
-    sessionList.append(createQueueKicker(`Working · ${working.length}`));
+    sessionList.append(createQueueKicker(`Live sessions · ${working.length}`));
     for (const session of working) sessionList.append(createWorkingRow(session));
   }
   appendDismissedControl(dismissed);
@@ -1657,7 +1643,7 @@ function reconcileActiveCollabShell(): void {
   showTriageBar(
     shell,
     "clear",
-    `✓ Answered — all clear · ${working} working`,
+    `✓ Answered — all clear · ${working} live`,
     "Sessions",
     returnToDirectory,
   );
@@ -2089,7 +2075,7 @@ function connectEvents(epoch: number): void {
       }
       armEventLiveness(source, epoch);
       try {
-        if (applyEvent(parseSessionEvent(JSON.parse(event.data)), epoch) && !attentionRouteStatusLocked) {
+        if (applyEvent(parseSessionEvent(JSON.parse(event.data)), epoch) && !notificationRouteStatusLocked) {
           setStatus("ready", "");
         }
       } catch {
@@ -2105,7 +2091,7 @@ function connectEvents(epoch: number): void {
     }
     lastFreshAt = Date.now();
     armEventLiveness(source, epoch);
-    if (!attentionRouteStatusLocked) setStatus("ready", "");
+    if (!notificationRouteStatusLocked) setStatus("ready", "");
   });
   source.onerror = () => {
     // Native EventSource reconnects on network restoration even when Android Chrome loses a
@@ -2115,20 +2101,23 @@ function connectEvents(epoch: number): void {
   };
 }
 
-async function resolvePendingAttentionRoute(): Promise<void> {
-  const pending = pendingAttentionLaunch;
-  if (pending === undefined) return;
-  pendingAttentionLaunch = undefined;
-  const session = sessions.get(pending.instanceId);
-  if (
-    session !== undefined &&
-    session.ask?.requestId === pending.requestId &&
+async function resolvePendingNotificationRoute(): Promise<void> {
+  if (!pendingNotificationRoute) return;
+  pendingNotificationRoute = false;
+  const pending = pendingNotificationLaunch;
+  pendingNotificationLaunch = undefined;
+  const session = pending === undefined ? undefined : sessions.get(pending.instanceId);
+  if (pending?.kind === "activity_stop" && session?.generation === pending.generation && session.canView) {
+    await launch(session, "view");
+  } else if (
+    pending?.kind === "attention" &&
+    session?.ask?.requestId === pending.requestId &&
     session.inputRequired &&
     session.canControl
   ) {
     await launch(session, "control", undefined, pending.requestId);
   } else {
-    setStatus("expired", "That attention request was already resolved or the session changed.");
+    setStatus("expired", "That notification changed or expired. Choose a current session.");
   }
 }
 
@@ -2149,7 +2138,7 @@ async function refreshAndConnect(resetBackoff = true): Promise<boolean> {
     reconnectAttempt = 0;
     connectEvents(epoch);
     warmCollabClient();
-    await resolvePendingAttentionRoute();
+    await resolvePendingNotificationRoute();
     return true;
   }
   if (!authorizationDenied && epoch === directoryEpoch) scheduleReconnect();

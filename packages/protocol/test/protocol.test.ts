@@ -12,6 +12,9 @@ import {
   parseLaunchRequest,
   parseLaunchResponse,
   parseAttentionPushMessage,
+  parseNotificationData,
+  parseNotificationRoute,
+  notificationRoutePath,
   parsePushConfigResponse,
   parsePushSubscriptionRequest,
   parsePushSubscriptionResponse,
@@ -71,6 +74,70 @@ function metadata(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe("strict protocol validation", () => {
+  test("projects known activity and rejects non-boolean browser activity without changing legacy unknown", () => {
+    for (const busy of [true, false, undefined, null]) {
+      const observed = observedSessionFromSnapshot(parseOmpHostSnapshot(hostSnapshot({ busy })));
+      const { metadata: session } = sessionMetadataFromObserved(observed, "2026-07-19T00:00:01.000Z");
+      const parsed = parseSessionListResponse({ revision: 1, sessions: [session] }).sessions[0]!;
+      expect(parsed.busy).toBe(busy ?? undefined);
+      expect(Object.hasOwn(parsed, "busy")).toBe(typeof busy === "boolean");
+      expect(parseSessionEvent({ type: "session_upsert", revision: 1, session })).toMatchObject({ session: parsed });
+    }
+    for (const busy of [null, undefined, "false", 0, [], {}]) {
+      expect(() => parseSessionListResponse({ revision: 1, sessions: [metadata({ busy })] })).toThrow(ProtocolValidationError);
+    }
+    expect(() => parseSessionEvent({ type: "activity_stop", revision: 1, session: metadata({ busy: false }) })).toThrow(ProtocolValidationError);
+  });
+
+  test("accepts exact v2 stop payloads without accepting request identities or capability fields", () => {
+    const stop = { version: 2, type: "activity_stop", instanceId, generation: 1, pendingAskCount: 0, title: "OMP session activity stopped" } as const;
+    expect(parseAttentionPushMessage({ ...stop, body: "Example session" })).toEqual({ ...stop, body: "Example session" });
+    for (const patch of [
+      { version: 1 }, { generation: 0 }, { generation: Number.MAX_SAFE_INTEGER + 1 },
+      { pendingAskCount: -1 }, { pendingAskCount: 1001 }, { title: "OMP session completed" },
+      { requestId: "request-identity-000001" }, { url: capability }, { body: "x".repeat(257) },
+    ]) expect(() => parseAttentionPushMessage({ ...stop, ...patch })).toThrow(ProtocolValidationError);
+    for (const key of Object.keys(stop)) {
+      const incomplete: Record<string, unknown> = { ...stop };
+      delete incomplete[key];
+      expect(() => parseAttentionPushMessage(incomplete)).toThrow(ProtocolValidationError);
+    }
+  });
+
+  test("round-trips strict notification data and routes for attention and activity stops", () => {
+    const attention = { kind: "attention" as const, instanceId, requestId: "request-identity-000001" };
+    const stop = { kind: "activity_stop" as const, instanceId, generation: Number.MAX_SAFE_INTEGER };
+    for (const intent of [attention, stop]) {
+      const { kind, ...identity } = intent;
+      expect(parseNotificationData({ version: 2, type: kind, ...identity })).toEqual(intent);
+      expect(parseNotificationRoute(new URL(notificationRoutePath(intent), "https://gateway.example"))).toEqual(intent);
+    }
+    expect(parseNotificationRoute(new URL("https://gateway.example/collab/" + instanceId + "?generation=1&activity=stopped"))).toEqual({ ...stop, generation: 1 });
+    for (const query of [
+      "activity=stopped", "activity=stopped&generation=0", "activity=stopped&generation=01",
+      "activity=stopped&generation=1.0", "activity=stopped&generation=1e2", "activity=stopped&generation=%2B1",
+      "activity=stopped&generation=9007199254740992", "activity=stopped&generation=1&generation=1",
+      "activity=stopped&activity=stopped&generation=1", "activity=stopped&generation=1&extra=1",
+      "activity=stopped&generation=1&request=" + attention.requestId,
+      "request=" + attention.requestId + "&request=" + attention.requestId,
+      "request=" + attention.requestId + "&extra=1", "request=short",
+    ]) expect(parseNotificationRoute(new URL("https://gateway.example/collab/" + instanceId + "?" + query))).toBeUndefined();
+    for (const path of ["short", "invalid_id", "%2F" + instanceId, "%FF", instanceId + "/"]) {
+      expect(parseNotificationRoute(new URL("https://gateway.example/collab/" + path + "?activity=stopped&generation=1"))).toBeUndefined();
+    }
+    expect(parseNotificationRoute(new URL(notificationRoutePath(stop) + "#fragment", "https://gateway.example"))).toBeUndefined();
+    for (const value of [
+      null, [], { version: 1, type: "attention", instanceId, requestId: attention.requestId },
+      { version: 2, type: "clear", instanceId, requestId: attention.requestId },
+      { version: 2, type: "attention", instanceId, requestId: attention.requestId, generation: 1 },
+      { version: 2, type: "activity_stop", instanceId, generation: 1, requestId: attention.requestId },
+      { version: 2, type: "activity_stop", instanceId, generation: "1" },
+      { version: 2, type: "activity_stop", instanceId, generation: 0 },
+      { version: 2, type: "activity_stop", instanceId },
+      { type: "activity_stop", instanceId, generation: 1 },
+    ]) expect(parseNotificationData(value)).toBeUndefined();
+  });
+
   test("round-trips a discovery file and a host snapshot using the mainline wire shape", () => {
     const entry = parseOmpDiscoveryEntry(entryId, parseJsonFrame(encoder.encode(JSON.stringify(discoveryFile()))));
     expect(entry).toEqual({ entryId, ...discoveryFile() });

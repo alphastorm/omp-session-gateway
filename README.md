@@ -198,7 +198,7 @@ After installation and tailnet configuration:
 3. Each interactive `omp` process automatically starts collaboration when configured. The gateway
    reads OMP’s discovery directory and polls metadata; it fetches a capability only when you launch.
 4. The Android PWA lists collaboration-enabled processes on the next discovery poll: a FIFO **Needs you** queue when
-   anything is waiting, otherwise **All clear** and the working sessions.
+   anything is waiting, otherwise **All clear** and the live sessions.
 5. **Open request** launches Control for the oldest ask; **Hold for desk** defers that exact ask on
    this device and advances to the next one without clearing attention; **Transcript** stays
    read-only. **Hide** can remove a non-attention row on this device with Undo and Show all,
@@ -209,7 +209,9 @@ After installation and tailnet configuration:
 6. **Experimental outside the stable core claim:** the Settings sheet behind the masthead control can enable
    background Web Push alerts and choose Private, Session, or Preview detail. The no-store tap
    path is implemented and capability-free, but closed-PWA/lock-screen/force-stop/network behavior
-   is not stable-qualified.
+   is not stable-qualified. The unreleased activity extension also alerts on observed working-to-idle
+   transitions from hosts publishing `busy`; stop taps open View after fresh generation validation.
+   Unknown activity, disappearance, and reconnect are never treated as completed work.
 7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport
    replacement reconcile without a prominent Refresh control. Abrupt Android radio transitions do
    not reliably self-heal and may require force-stopping Chrome.
