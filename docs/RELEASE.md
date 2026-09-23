@@ -24,54 +24,55 @@ Gateway rollback does not switch OMP, restore the previous configuration, or res
 fork-era publication credential. Qualify the selected predecessor and architecture-crossing
 recovery explicitly; see [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
 
-## v0.4.0 mainline campaign
+## Mainline stable release procedure
 
-Published `v0.4.0` was promoted from qualified signed candidate `v0.4.0-prealpha.1`; its selected
-gateway predecessor was published fork-era `v0.3.0`. All required signed-candidate lanes, final
-runtime comparison, and published-byte local/Android smoke passed as recorded in the
-[release ledger](RELEASE_STATUS.md). The following preserves that campaign’s maintainer procedure,
-not a request to rerun or republish either immutable tag. For a new release, select and qualify
-new exact artifacts; a structurally valid historical stable lock cannot authorize different bytes.
+This sequence published v0.5.0 (#222–#225) and v0.5.1 (#227–#230). Each step is a separate effect;
+a candidate, a passed receipt, or an approved lock never promotes itself. Work from a clean checkout
+of `main` that matches `origin/main` (`qualify:stable` refuses detached or unpublished commits), with
+pinned Bun `1.4.0` first on `PATH`.
 
-Qualification uses pinned Bun `1.4.0`. Before live qualification and promotion, the read-only
-prerequisite command for this campaign was:
+Three steps need an explicit maintainer decision: the release itself (scope, promotion, and
+publication), the live qualification run (a billed Debian droplet, the retained Mac, the attached
+Pixel, and the relay check), and the published-byte smoke (it upgrades the installed gateway and
+drives the Pixel).
 
-```sh
-bun run qualify:stable --tag v0.4.0-prealpha.1 --preflight
-```
+1. **Prepare the candidate.** One `chore(release): prepare X.Y.Z` PR bumps the version in the five
+   `package.json` files, `PRODUCT_VERSION` in `apps/gateway/src/diagnostics.ts` and
+   `scripts/build-release.ts`, and `GATEWAY_VERSION` in `apps/gateway/src/installation.ts`; cuts the
+   `CHANGELOG.md` section; updates the highlights and rollback text in
+   `.github/workflows/signed-release.yml`; and notes the preparation in the release ledger. After it
+   merges, push a signed annotated `vX.Y.Z-prealpha.1` tag on the merge commit and
+   [verify the published candidate](#verify-a-published-build).
+2. **Qualify it.** Run `bun run qualify:stable --tag vX.Y.Z-prealpha.1 --preflight`, which checks
+   admission prerequisites without effects, then the same command without `--preflight` (about 45
+   minutes; see [Release gates](#release-gates)). The droplet workflow takes only an exact candidate
+   tag. After a failure, fix the cause on `main`, keep the failed receipt unchanged, and archive it
+   only as the release gates allow before rerunning. Afterwards confirm that no qualification
+   droplet or ephemeral SSH key remains in the DigitalOcean account.
+3. **Promote it.** One `chore(release): approve vX.Y.Z for stable promotion` PR sets
+   `STABLE_RELEASE.lock.json` from the passed receipt, records every lane and any failed attempt in
+   the ledger, and moves README, COMPATIBILITY, OPERATIONS, and the site to "qualified; publication
+   pending" wording. A clean `OMP_RELEASE_CHANNEL=stable bun run release:build` of that tree must
+   match every candidate archive member by path, mode, and bytes, except `release-info.json`,
+   `SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`. Before
+   merging, run `bun run check`, `bun scripts/release-policy.ts vX.Y.Z X.Y.Z STABLE_RELEASE.lock.json`,
+   and `bun run smoke:release -- --tag vX.Y.Z --plan`.
+4. **Publish.** Merge with the head pinned, confirm the merged tree equals the tested tree, and push
+   a signed annotated `vX.Y.Z` tag on the merge commit; `signed-release.yml` publishes it. Verify the
+   published build, confirm it is GitHub Latest, and reproduce its archive digest with a local
+   stable-channel build of the tag.
+5. **Smoke the published bytes.** Run the [post-release smoke](#post-release-local-installation-smoke)
+   with the verified digest.
+6. **Record the evidence.** One `docs(release): record vX.Y.Z publication and installed
+   verification` PR moves every surface to "published", records the publication run, source,
+   digest, and smoke result, and updates the extraction commands, the verification defaults below,
+   and the predecessor section of [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
+   `scripts/site-coherence.test.ts` fails while any of these disagree with the stable lock.
 
-This checks admission prerequisites, not candidate or platform qualification. Resolve missing
-Android authorization, tooling, credentials, or retained-host readiness before a billed Debian
-dispatch. Run only one orchestrator for the selected tag. Candidate creation/signing, live
-qualification, and final stable promotion remain distinct effects.
-
-After signed candidate provenance is verified, run the normal `qualify:stable` command for that
-same tag. The Debian and Mac predecessor paths must exercise the explicit stopped-service
-transition in [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md), not pretend that a runtime-pointer switch
-can restore fork-era collaboration. The droplet workflow requires an exact candidate input and
-has no automatic schedule or historical candidate fallback.
-
-**Founder-approved v0.4.0 assurance decision, 2026-09-14:** use a fresh 1,800-second (30-minute)
-relay check against the signed candidate instead of holding this release for eight-hour endurance.
-The orchestrator defaults to 1,800 seconds and rejects shorter checks. An explicit
-`OMP_STABLE_RELAY_SECONDS` may select 1,800–3,600 seconds; this campaign uses 1,800. Keep its host,
-Android, recovery, provenance, secret-isolation, and cleanup gates intact. Record the actual duration and
-final relay state. The gateway cutover changes discovery/launch handling rather than the ongoing
-client-to-relay transport. Using mainline OMP alone is not proof of reliability: prolonged-operation
-risk is explicitly accepted. **Eight-hour endurance is not rerun or claimed**, and no historical
-eight-hour receipt transfers. The standalone long-duration harness remains available separately.
-
-The fresh 1,800-second candidate relay check passed with two transitions and final phase `live`.
-Full candidate qualification, including owned-fixture cleanup, passed. The final promotion
-comparison reproduced all 46 non-metadata candidate archive files by paths, bytes, and modes,
-with only the four workflow metadata exclusions. A stable-channel build also reproduced the
-entire published stable archive SHA-256. Exact evidence and the accepted prolonged-operation
-limit are in the [release ledger](RELEASE_STATUS.md).
-
-Host/client, explicit recovery, provenance, forbidden-sink, the approved relay check, and cleanup
-evidence authorized the stable lock and bare `v0.4.0` publication. The stable workflow passed its
-runtime-byte comparison, and the separate post-release installation/Android smoke subsequently
-passed against the published bytes. These remain separate gates for future releases.
+Every mainline release so far has renewed a founder-approved fresh 1,800-second relay check in
+place of the eight-hour gate. The orchestrator defaults to 1,800 seconds and rejects shorter
+checks; `OMP_STABLE_RELAY_SECONDS` may select 1,800–3,600 seconds. Eight-hour endurance is not
+rerun or claimed, and no historical eight-hour receipt transfers.
 
 ## v0.3.0 qualification and promotion
 
@@ -169,7 +170,7 @@ from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree ass
 counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
 mainline output.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`. For this campaign, `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` must equal `v0.3.0`; they cannot select an arbitrary predecessor.
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 
@@ -182,12 +183,9 @@ Bun/source pins and stock OMP `>= 18.1.20`; require readiness-token/config prese
 discovery and launch/revocation, physical Android recovery/isolation, and owned-fixture cleanup.
 Signed-candidate qualification and prior release smokes do not substitute for a published-byte run.
 
-**The v0.4.0 published-byte local/Android smoke passed on 2026-09-14.** It retained the existing
-local OMP 18.1.21 and persistent Bun 1.4.0, without reinstalling OMP or widening the exact
-OMP 18.1.20 qualification matrix. Its initial Android Control-upgrade failure matches the PWA
-update navigation later diagnosed in the ADR-018 amendment; that passing run was not a fix.
-See the [release ledger](RELEASE_STATUS.md#published-byte-local-installation-and-android-smoke)
-for exact source/digest, preservation, physical-client, and cleanup evidence.
+Every release's published-byte result, including any failed first attempt, is recorded in the
+[release ledger](RELEASE_STATUS.md) with its source, digest, preservation, physical-client, and
+cleanup evidence.
 
 ### Fork-era post-release smoke procedure
 
@@ -271,8 +269,9 @@ not removed and remain failed-attempt provenance.
 
 ## Default-relay soak qualification
 
-This optional long-duration lane is not the v0.4.0 release gate; the approved gate above is a fresh
-30-minute signed-candidate check. Only an actual eight-hour run may be reported as eight-hour evidence.
+This optional long-duration lane is not a mainline release gate; each release has used a
+founder-approved fresh 30-minute signed-candidate check instead. Only an actual eight-hour run may
+be reported as eight-hour evidence.
 
 Keep a stock mainline OMP `>= 18.1.20` host and the gateway running, then exercise a view-only client for the default
 eight hours:
@@ -290,9 +289,9 @@ fails if the collaboration client ends or is not live at completion. Set
 a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
 long-lived relay scenario. Record the gateway commit, exact mainline OMP commit, output JSON, final
 gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
-required before claiming bounded memory growth. For v0.4.0, eight-hour endurance is **not rerun
-or claimed**. The passed 30-minute candidate check does not establish bounded memory growth; no
-fork-era long-window result transfers to the changed host/query/client baseline.
+required before claiming bounded memory growth. Eight-hour endurance is **not rerun or claimed** by
+any mainline release. A passed 30-minute candidate check does not establish bounded memory growth;
+no fork-era long-window result transfers to the changed host/query/client baseline.
 
 ## Fleet CI runtime
 

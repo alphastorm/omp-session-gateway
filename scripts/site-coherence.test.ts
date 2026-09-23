@@ -76,6 +76,28 @@ test("install, verification, and predecessor guidance follow the stable lock", a
   expect(rollback).toContain(`The selected predecessor is published ${stable.previousTag}.`);
 });
 
+// Work shipped in v0.5.0 kept its "unreleased" labels in README, ANDROID.md and TEST_PLAN.md. Dated
+// records (the ledger and ADRs) keep their wording.
+test("docs call work unreleased only while the changelog has unreleased entries", async () => {
+  const changelog = await readFile(join(rootPath, "CHANGELOG.md"), "utf8");
+  const pending = changelog.split("\n## [Unreleased]\n")[1]?.split("\n## [")[0]?.trim();
+  if (pending === undefined) throw new Error("CHANGELOG.md lost its [Unreleased] section");
+  if (pending !== "") return;
+  const datedRecords: Record<string, true> = { "DECISIONS.md": true, "RELEASE_STATUS.md": true };
+  const files = [
+    "README.md",
+    ...(await readdir(join(rootPath, "docs"))).filter(name => name.endsWith(".md") && !datedRecords[name]).map(name => `docs/${name}`),
+    ...(await readdir(sitePath, { recursive: true })).filter(name => /\.(html|txt)$/u.test(name)).map(name => `site/${name}`),
+  ];
+  const stale: string[] = [];
+  for (const file of files) {
+    (await readFile(join(rootPath, file), "utf8")).split("\n").forEach((line, index) => {
+      if (/\bunreleased\b/iu.test(line) && !/unreleased development targets/iu.test(line)) stale.push(`${file}:${index + 1}`);
+    });
+  }
+  expect(stale).toEqual([]);
+});
+
 // The machine-readable summary stayed on v0.4.0 through three later stable releases. Promotion
 // commits the lock before the signed workflow publishes, so the summary states either phase.
 test("the machine-readable site summary names only the qualified stable release", async () => {

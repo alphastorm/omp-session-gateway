@@ -195,7 +195,7 @@ attributes that run by mechanism, not by a recovered error.
   qualification passes and the first-attempt View/Control failures after the v0.4.0, v0.4.2, and
   v0.5.0 upgrades. That link is an inference; those earlier outputs were also lost.
 
-**Fix, unreleased on `main`:** activation retires shells and claims clients without navigating any
+**Fix, released in v0.5.1 (#226):** activation retires shells and claims clients without navigating any
 of them (ADR-018 amendment). The page's bounded reload waits for every pending launch and routed
 notification, and a launch failing after another launch mounted a collaboration no longer rewrites
 that page's route, removes its shared stylesheet, or reloads it. An expired routed notification

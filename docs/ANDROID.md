@@ -59,7 +59,7 @@ attention includes the observed generation, while clear targets the exact reques
 `OMP session needs attention` with no body. Session (the default) includes bounded session/project
 labels; Preview currently falls back to Session because stock OMP supplies no preview. Visible
 text can persist in Android notification history, screenshots, and wearables. No capability,
-transcript, prompt, option, or answer enters these payloads. Unreleased activity-stop alerts use a
+transcript, prompt, option, or answer enters these payloads. Activity-stop alerts (since v0.5.0) use a
 fixed activity title and observed generation, no request ID, and the same privacy levels. Their tap
 opens View after authenticated same-generation validation, never Control. This is not new physical
 Android/background-Push qualification.
