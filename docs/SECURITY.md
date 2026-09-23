@@ -285,13 +285,7 @@ Additional requirements:
 - external links use `rel="noopener noreferrer"`;
 - production builds disable framework devtools hooks where practical;
 - reload returns to the metadata directory.
-- an activated shell update may navigate only an exact same-origin idle `/` client to the no-store `/update/` bootstrap; the new document synchronously scrubs it to `/`, while launch-pending, request-routed, and active `/client/` pages are never auto-navigated;
-
-**Unresolved implementation gap:** the last bullet is the accepted ADR-018 requirement, not a
-fully implemented guarantee. The worker excludes non-root URLs, but `launch()` changes the root
-URL to `/client/` only after its asynchronous asset/capability work. Its in-page pending flag
-protects the page's fallback reload, not worker-initiated navigation. Activation may therefore
-interrupt a pending directory launch. The pre-launch reservation requirement remains in force.
+- an activated shell update never navigates a client; the page reloads itself only while no launch is pending, no routed notification awaits its snapshot, and no collaboration client is mounted (ADR-018 amendment). An activation by an earlier worker, such as one restored by rollback, may still navigate a client to the no-store `/update/` bootstrap, which the new document synchronously scrubs to `/`.
 
 If relay origins are configurable, generate `connect-src` only from administrator-controlled validated origins.
 

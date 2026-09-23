@@ -17,20 +17,21 @@ that exact host/source baseline. The embedded browser client has its own preserv
 [v18.1.14 source and wire pins](../packages/collab-client/README.md); do not conflate them with
 the host minimum.
 
-Stable [v0.4.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.4.0) is published
-as immutable GitHub Latest. Its exact signed candidate `v0.4.0-prealpha.1` passed core
-qualification on OMP 18.1.20 / Bun 1.4.0, Debian 13 x86-64, macOS 26.6.1 arm64, and Pixel 10 Pro /
-Android 17 / Chrome 152.0.7977.82. The fresh relay check covered **1,800 seconds**, not eight hours.
-Windows, background Web Push, specialized attention, and branch/resume remain unqualified.
-The published-byte local smoke also passed with the existing OMP 18.1.21; it does not broaden the
-exact matrix or establish the cause of the initial intermittent Control-upgrade failure.
-See the [release ledger](RELEASE_STATUS.md) for receipts, limits, and that unresolved observation;
-no fork-era qualification transfers.
+Stable [v0.5.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0) is published
+as immutable GitHub Latest. It was promoted with identical runtime bytes from signed candidate
+`v0.5.0-prealpha.1`, whose six non-cleanup lanes passed on OMP 18.1.20 / Bun 1.4.0, Debian 13
+x86-64, macOS 26.6.1 arm64, and Pixel 10 Pro / Android 17 / Chrome 153.0.8010.52. The fresh relay
+check covered **1,800 seconds**, not eight hours. Windows, background Web Push, specialized
+attention, and branch/resume remain unqualified. Published-byte local/Pixel checks passed through
+bounded follow-up paths after the first smoke failed at View/Control; that failure matches the PWA
+update navigation described in the [ADR-018 amendment](DECISIONS.md), which the unreleased fix on
+`main` removes. See the [release ledger](RELEASE_STATUS.md) for receipts and limits; no fork-era
+qualification transfers.
 
 ## Additive activity compatibility
 
-The unreleased #219 fix accepts `busy` from OMP 18.2.9 while retaining older hosts in the same
-directory. Upstream [PR #12844](https://github.com/can1357/oh-my-pi/pull/12844), merge
+The #219 fix, shipped in v0.5.0, accepts `busy` from OMP 18.2.9 while retaining older hosts in
+the same directory. Upstream [PR #12844](https://github.com/can1357/oh-my-pi/pull/12844), merge
 `1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9`, adds this optional field without changing registry v1.
 Its source is `session.isStreaming`: true while running a turn, false while idle, and unknown
 when omitted/null. It is not proof of successful completion or process exit. The parser validates

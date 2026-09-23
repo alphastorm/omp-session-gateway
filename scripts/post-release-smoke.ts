@@ -18,6 +18,12 @@ import { dirname, join, resolve, sep } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { defaultGatewayPaths, loadGatewayConfig } from "../apps/gateway/src/config.ts";
+import {
+  ANDROID_ACCEPTANCE_STAGES,
+  ANDROID_COLLAB_STAGES,
+  ANDROID_LEAK_SWEEP_STAGES,
+  lastAndroidStage,
+} from "./android-stages.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_REPOSITORY = "alphastorm/omp-session-gateway";
@@ -54,6 +60,8 @@ interface CommandOptions {
   readonly timeoutMs?: number;
   readonly allowedExitCodes?: readonly number[];
   readonly safeFailureOutput?: boolean;
+  /** Closed stage vocabulary a withheld lane announces; the last announced stage is surfaced. */
+  readonly stages?: readonly string[];
 }
 
 interface CommandResult {
@@ -183,9 +191,15 @@ export function formatCommandFailure(
   stdout: string,
   stderr: string,
   includeSafeOutput: boolean,
+  stages: readonly string[] = [],
 ): string {
-  const detail = includeSafeOutput ? `: ${(stderr || stdout).trim().slice(-2_000)}` : "";
-  return `${name} failed with exit ${exitCode}${detail}`;
+  if (includeSafeOutput) return `${name} failed with exit ${exitCode}: ${(stderr || stdout).trim().slice(-2_000)}`;
+  return `${name} failed with exit ${exitCode}${stageSuffix(stderr, stages)}`;
+}
+
+function stageSuffix(stderr: string, stages: readonly string[]): string {
+  const stage = lastAndroidStage(stderr, stages);
+  return stage === undefined ? "" : ` at stage "${stage}"`;
 }
 
 export function assertReleaseArchiveIdentity(
@@ -291,9 +305,11 @@ async function runCommand(name: string, command: readonly string[], options: Com
     const stdout = Buffer.concat(stdoutChunks).toString("utf8");
     const stderr = Buffer.concat(stderrChunks).toString("utf8");
     if (outputExceeded) throw new Error(`${name} output exceeded the safety limit`);
-    if (timedOut) throw new Error(`${name} timed out`);
+    if (timedOut) throw new Error(`${name} timed out${stageSuffix(stderr, options.stages ?? [])}`);
     if (!(options.allowedExitCodes ?? [0]).includes(exitCode)) {
-      throw new Error(formatCommandFailure(name, exitCode, stdout, stderr, options.safeFailureOutput === true));
+      throw new Error(
+        formatCommandFailure(name, exitCode, stdout, stderr, options.safeFailureOutput === true, options.stages),
+      );
     }
     return { stdout, stderr, exitCode };
   } finally {
@@ -951,7 +967,7 @@ async function runAndroidLanes(
         "--expected-app-asset",
         release.appAsset,
       ],
-      { timeoutMs: 300_000 },
+      { timeoutMs: 300_000, stages: ANDROID_COLLAB_STAGES },
     ),
     "Android View and Control smoke",
   );
@@ -967,12 +983,12 @@ async function runAndroidLanes(
   await runCommand(
     "Android capability sink sweep",
     [bunExecutable, join(repositoryRoot, "scripts/android-leak-sweep.ts"), config.http.publicOrigin, label],
-    { timeoutMs: 300_000 },
+    { timeoutMs: 300_000, stages: ANDROID_LEAK_SWEEP_STAGES },
   );
   await runCommand(
     "Android same-page recovery",
     [bunExecutable, join(repositoryRoot, "scripts/android-acceptance.ts"), config.http.publicOrigin, label],
-    { timeoutMs: 900_000 },
+    { timeoutMs: 900_000, stages: ANDROID_ACCEPTANCE_STAGES },
   );
   await verifyInstalledWebApk(config.http.publicOrigin);
 }

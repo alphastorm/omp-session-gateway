@@ -264,11 +264,13 @@ Known limits are part of the claim — read them before installing:
   and, after 45 seconds of uninterrupted visible failure, opens force-stop/reopen help already
   loaded in the PWA shell; it does not
   claim page JavaScript can repair Chrome ([#65](https://github.com/alphastorm/omp-session-gateway/issues/65)).
-- **A gateway update can interrupt a pending launch.** The worker can still see the directory
-  route while a capability request is in progress; prelaunch route reservation is not implemented.
-  See [the current update behavior](docs/ARCHITECTURE.md).
-- **An initial local View→Control upgrade failed during post-release smoke.** Later probes and
-  the full unchanged smoke passed, but the cause remains undetermined; see the release ledger.
+- **In v0.5.0 and earlier, a gateway update can close a session you are opening or viewing.** On
+  the first visit after an upgrade, the new service worker's activation can navigate a pending
+  launch or an open View/Control page back to the directory; open the session again. Chromium
+  reports each page's creation URL, so the worker cannot see that a page is in use. The first
+  post-release View/Control smoke failures recorded in the release ledger match this navigation.
+  The unreleased fix on `main` never navigates from the worker; see
+  [the current update behavior](docs/ARCHITECTURE.md).
 - **The fresh relay gate is 30 minutes, not eight hours.** Eight-hour endurance was not rerun
   and is not claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth
   claim follows from this check.

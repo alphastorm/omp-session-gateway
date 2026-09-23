@@ -296,8 +296,8 @@ accepted, and bounded memory growth is not established. See the [release ledger]
 
 The v0.4.0 published-stable-byte local/Android smoke above **passed on 2026-09-14**, separately
 from candidate qualification. Exact source/digest, preserved installation state, existing local
-OMP 18.1.21, physical results, and the unexplained initial Control-upgrade failure are recorded
-in the [release ledger](RELEASE_STATUS.md).
+OMP 18.1.21, physical results, and the initial Control-upgrade failure, which matches the update
+navigation in the ADR-018 amendment, are recorded in the [release ledger](RELEASE_STATUS.md).
 
 ## 8. Continuous integration lanes
 

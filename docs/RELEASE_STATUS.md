@@ -12,7 +12,8 @@ The published archive matches the complete clean local stable-channel build.
 **Stable archive SHA-256:** `f5e80b405cdd9e075fcb068e1ced070242d37423b103e549169da00facb47834`.
 
 Published-byte workstation/Pixel checks are complete through the bounded follow-up paths recorded
-below. The first full smoke invocation failed at Android View/Control; that failure remains recorded.
+below. The first full smoke invocation failed at Android View/Control; that failure remains
+recorded, and its diagnosis follows the verification record.
 
 **Candidate:** [v0.5.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.0-prealpha.1).<br>
 **Source:** `3208654b7ec37330d4314c3d69930eb0b3173606`.<br>
@@ -71,11 +72,17 @@ remain unqualified. Every other release gate stays required.
 The verified published archive above is installed as `0.5.0-a88b8ba9ed61`. The service is active,
 ready, uses tailscale-serve authentication, and its active/service versions agree.
 
+Rechecked on 2026-09-23 at the founder's request: `status` reported active, ready, and not
+diverged; `doctor` passed 18/18; GitHub Latest was `v0.5.0` with six assets and the archive digest
+above. All 47 runtime files shared with a fresh download of that archive were byte-identical in the
+installed version directory. The only differences were an added `installation.json`, the absent
+stable lock and its schema, and `cli.js` at mode 0700.
+
 The original `smoke:release` invocation completed downloaded checksum/signature/attestation checks,
 exact tag/source verification, gateway installation with configuration and readiness-token
 preservation, unrelated Serve-mapping preservation, doctor checks, and reuse of existing stock
-OMP 18.1.20. It then **failed at Android View/Control**. The wrapper withheld the child error;
-the cause remains undetermined. No product-code fix or clean first-attempt upgrade is claimed.
+OMP 18.1.20. It then **failed at Android View/Control**. The wrapper withheld the child error, so
+the failing step of that run is unrecorded. No clean first-attempt upgrade is claimed.
 
 A bounded Android-only probe then exercised the same installed archive and expected
 `app.b3055eccd928.js` asset: View read-only, Control writable, prompt accepted, return to the
@@ -88,7 +95,35 @@ ownership-checked directory removal and private staging cleanup completed. Insta
 This is composed published-byte verification, **not** a relabeled passing result for the original
 failed smoke command. Stock OMP was not reinstalled and the Code Mode launcher was not replaced.
 The gateway and PWA remain installed. The workstation smoke does not expand the exact candidate
-host/client matrix, qualify background Push, or resolve the historical intermittent Control issue.
+host/client matrix or qualify background Push.
+
+### Diagnosis of the first View/Control failure — 2026-09-23
+
+The failure matches the PWA update activation. The original child output was withheld, so this
+attributes that run by mechanism, not by a recovered error.
+
+- **Worker view of clients.** In desktop Chromium, `Clients.matchAll()` kept reporting `/` for a
+  page that had moved to `/client/` through `pushState` or `replaceState`, and
+  `client.navigate("/update/")` then navigated it. The v0.5.0 worker navigates every client it sees
+  at `/` when it activates over a prior shell cache.
+- **Reproduction on v0.5.0 source.** A live View page and a pending launch each returned to the
+  directory when an upgraded worker activated, about one second after the controller change. The
+  page's own fallback also reloaded while a second launch was still pending, or while a routed
+  notification awaited its snapshot.
+- **Run shape.** The smoke installed v0.5.0 and then drove View with no settle, on the Pixel's
+  first visit after the upgrade. The acceptance and leak-sweep lanes wait 8 and 6 seconds before
+  interacting, and qualification runs acceptance first. This is consistent with first-attempt
+  qualification passes and the first-attempt View/Control failures after the v0.4.0, v0.4.2, and
+  v0.5.0 upgrades. That link is an inference; those earlier outputs were also lost.
+
+**Fix, unreleased on `main`:** activation retires shells and claims clients without navigating any
+of them (ADR-018 amendment), and the page's bounded reload waits for every pending launch and routed
+notification. Three update end-to-end cases fail on the v0.5.0 source and all four pass after the
+fix; the worker unit case fails on the v0.5.0 worker. The collaboration smoke now waits until the
+controlling worker's only shell cache holds the page's own app bundle, then starts from a fresh
+document. Android lanes announce closed-vocabulary stages, and the post-release smoke reports the
+last one instead of withholding everything. The installed v0.5.0 bytes are unchanged; the fix
+reaches the Pixel only through a release, and no physical rerun of the original failure is claimed.
 
 ## Mainline v0.4.2 — published stable
 

@@ -51,6 +51,16 @@ test("getting-started and site download actions select the qualified stable rele
   expect(downloads).toEqual([expected]);
 });
 
+// The machine-readable summary stayed on v0.4.0 through three later stable releases.
+test("the machine-readable site summary names only the qualified stable release", async () => {
+  const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
+    releaseTag: string;
+  };
+  const summary = (await readFile(join(sitePath, "llms.txt"), "utf8")).split("\n## ")[0] ?? "";
+  expect(summary).toContain(`Stable ${stable.releaseTag} is published as immutable`);
+  expect([...new Set(summary.match(/\bv\d+\.\d+\.\d+\b/gu))]).toEqual([stable.releaseTag]);
+});
+
 test("every relative asset a site page references exists after staging", async () => {
   for (const [name, source] of Object.entries(STAGED_SITE_ASSETS)) {
     expect(await Bun.file(join(rootPath, source)).exists(), `${source} is the canonical source of site/${name}`).toBe(true);

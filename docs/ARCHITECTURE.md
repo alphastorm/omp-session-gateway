@@ -121,16 +121,14 @@ displayed-attention priority are specified in [ATTENTION_SPEC.md](ATTENTION_SPEC
 PWA upgrades activate immediately after the new content-hashed shell is cached. The shell includes
 the pinned collaboration-client module and stylesheet, and an idle directory warms the module
 import so a launch pays only for its capability request and relay connect; launch-time loading
-remains the fallback. The service worker navigates exact-root directory clients through the
-no-store `/update/` bootstrap, which the new document synchronously scrubs to `/`. Active
-`/client/` documents are excluded. The page also defers its own update reload while a launch or
-collaboration client is active.
-
-**Implementation gap — ADR-018 remains binding:** `launch()` sets an in-page pending flag before
-asynchronous work, but reserves `/client/` only when the fetched capability is mounted. The worker
-sees only the URL and cannot distinguish that pending launch from an idle `/` client; activation
-can therefore navigate a pending launch. The required pre-launch route reservation and protection
-against that race are not implemented. Do not claim that all pending launches survive an upgrade.
+remains the fallback. Activation retires prior shell caches and claims clients but never navigates
+one: Chromium reports a client's creation URL, not the route the page later reached through the
+history API, so the worker cannot tell an idle directory from a pending launch or a live `/client/`
+collaboration (ADR-018 amendment). The page observes the controller change and reloads itself after
+one second only while no launch is pending, no routed notification awaits its snapshot, and no
+collaboration client is mounted. Otherwise the update applies when a failed launch returns to the
+directory or the user leaves collaboration. The no-store `/update/` bootstrap, which the new
+document synchronously scrubs to `/`, remains only for activations by earlier workers.
 
 ### 1.5 Existing OMP collaboration client
 

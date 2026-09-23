@@ -1,12 +1,12 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type Route, test } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
-import { startDashboardFixture, type DashboardFixture } from "./fixture-server.ts";
+import { installSilentWebSocket, startDashboardFixture, type DashboardFixture } from "./fixture-server.ts";
 
-function session(): SessionMetadata {
+function session(instanceId = "pwa-upgrade-0001", title = "Automatic PWA upgrade"): SessionMetadata {
   return {
-    instanceId: "pwa-upgrade-0001",
+    instanceId,
     generation: 1,
-    title: "Automatic PWA upgrade",
+    title,
     cwdLabel: "project",
     model: "provider/model",
     startedAt: "2026-07-25T05:00:00.000Z",
@@ -50,6 +50,52 @@ async function triggerWorkerUpgrade(page: Page, fixture: DashboardFixture): Prom
   }
 }
 
+/**
+ * Upgrades the worker and returns once the new worker has finished its `activate` event and the
+ * page's bounded fallback timer has had its chance to fire. Chromium can hold `activate` for about a
+ * second after the controller changes, so a shorter wait would observe neither.
+ */
+async function upgradeThroughActivation(page: Page, fixture: DashboardFixture): Promise<void> {
+  await page.evaluate(() => {
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      sessionStorage.setItem("omp-e2e-controller-changed-at", String(Date.now()));
+    }, { once: true });
+  });
+  await triggerWorkerUpgrade(page, fixture);
+  await expect.poll(
+    () => page.evaluate(async () => {
+      const changedAt = Number(sessionStorage.getItem("omp-e2e-controller-changed-at") ?? Number.NaN);
+      const registration = await navigator.serviceWorker.getRegistration();
+      return Date.now() - changedAt > 1_250 &&
+        registration?.active?.state === "activated" &&
+        registration.installing === null &&
+        registration.waiting === null;
+    }).catch(() => false),
+  ).toBe(true);
+}
+
+/** Holds matching requests until released, then settles each with `finish`. */
+async function holdRoute(
+  page: Page,
+  url: string,
+  finish: (route: Route) => Promise<void>,
+): Promise<{ readonly arrived: Promise<void>; release(): void }> {
+  let release = (): void => undefined;
+  const released = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  let arrive = (): void => undefined;
+  const arrived = new Promise<void>(resolve => {
+    arrive = resolve;
+  });
+  await page.route(url, async route => {
+    arrive();
+    await released;
+    await finish(route).catch(() => undefined);
+  });
+  return { arrived, release: () => release() };
+}
+
 
 async function loadCount(page: Page): Promise<number> {
   try {
@@ -82,25 +128,7 @@ test("an updated PWA activates and reloads an idle directory automatically", asy
 test("an updated PWA preserves active collaboration until the user leaves", async ({ page }) => {
   const fixture = await startDashboardFixture([session()]);
   await installLoadCounter(page);
-  await page.addInitScript(() => {
-    Object.defineProperty(globalThis, "WebSocket", {
-      configurable: true,
-      value: class {
-        static readonly CONNECTING = 0;
-        static readonly OPEN = 1;
-        static readonly CLOSING = 2;
-        static readonly CLOSED = 3;
-        readyState = 0;
-        binaryType = "blob";
-        onopen: ((event: Event) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-        close(): void { this.readyState = 3; }
-        send(): void {}
-      },
-    });
-  });
+  await installSilentWebSocket(page);
 
   try {
     await page.goto(fixture.origin);
@@ -109,20 +137,10 @@ test("an updated PWA preserves active collaboration until the user leaves", asyn
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
     expect(await loadCount(page)).toBe(1);
 
-    await page.evaluate(() => {
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        sessionStorage.setItem("omp-e2e-controller-changed", "true");
-      }, { once: true });
-    });
-    await triggerWorkerUpgrade(page, fixture);
-    await expect.poll(
-      () => page.evaluate(() => sessionStorage.getItem("omp-e2e-controller-changed")),
-    ).toBe("true");
-    await page.evaluate(async () => {
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    });
+    await upgradeThroughActivation(page, fixture);
 
     await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator(".conn-chip")).toBeVisible();
     expect(await loadCount(page)).toBe(1);
 
     const failedLaunchRoute = "**/api/v1/sessions/pwa-upgrade-0001/launch";
@@ -144,6 +162,76 @@ test("an updated PWA preserves active collaboration until the user leaves", asyn
     await expect(page).toHaveURL(`${fixture.origin}/`);
     await expect.poll(() => loadCount(page)).toBe(2);
     await expect(page.locator(".working-row")).toHaveCount(1);
+  } finally {
+    await fixture.stop();
+  }
+});
+
+test("an updated PWA never interrupts launches that are still pending", async ({ page }) => {
+  const failing = session("pwa-upgrade-0002", "Failing launch");
+  const fixture = await startDashboardFixture([session(), failing]);
+  await installLoadCounter(page);
+  await installSilentWebSocket(page);
+  const failingLaunch = await holdRoute(page, `**/api/v1/sessions/${failing.instanceId}/launch`, route =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  const viewLaunch = await holdRoute(page, "**/api/v1/sessions/pwa-upgrade-0001/launch", route => route.continue());
+
+  try {
+    await page.goto(fixture.origin);
+    await expect(page.locator(".working-row")).toHaveCount(2);
+    await waitForControlledWorker(page);
+    await page.getByRole("button", { name: "View Failing launch" }).click();
+    await page.getByRole("button", { name: "View Automatic PWA upgrade" }).click();
+    await Promise.all([failingLaunch.arrived, viewLaunch.arrived]);
+
+    await upgradeThroughActivation(page, fixture);
+    expect(await loadCount(page)).toBe(1);
+
+    // One settled launch must not release the update while the other is still pending.
+    failingLaunch.release();
+    await expect(page.locator("#status-banner")).toHaveText("The session could not be opened. Try again.");
+    await page.waitForTimeout(250);
+    expect(await loadCount(page)).toBe(1);
+
+    viewLaunch.release();
+    await expect(page.locator(".conn-chip")).toBeVisible();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    expect(await loadCount(page)).toBe(1);
+    expect(fixture.launchRequests.map(request => request.instanceId)).toEqual(["pwa-upgrade-0001"]);
+
+    await page.goBack();
+    await expect(page).toHaveURL(`${fixture.origin}/`);
+    await expect.poll(() => loadCount(page)).toBe(2);
+    await expect(page.locator(".working-row")).toHaveCount(2);
+  } finally {
+    failingLaunch.release();
+    viewLaunch.release();
+    await fixture.stop();
+  }
+});
+
+test("an updated PWA keeps a routed notification until its snapshot resolves", async ({ page }) => {
+  const fixture = await startDashboardFixture([session()]);
+  await installLoadCounter(page);
+  await installSilentWebSocket(page);
+
+  try {
+    await page.goto(fixture.origin);
+    await waitForControlledWorker(page);
+    const snapshot = await holdRoute(page, "**/api/v1/sessions", route => route.continue());
+    await page.goto(`${fixture.origin}/collab/pwa-upgrade-0001?activity=stopped&generation=1`);
+    await snapshot.arrived;
+    expect(await loadCount(page)).toBe(2);
+
+    await upgradeThroughActivation(page, fixture);
+    expect(await loadCount(page)).toBe(2);
+
+    snapshot.release();
+    await expect(page.locator(".conn-chip")).toBeVisible();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    expect(fixture.launchRequests).toEqual([{ instanceId: "pwa-upgrade-0001", generation: 1, mode: "view" }]);
+    expect(await loadCount(page)).toBe(2);
   } finally {
     await fixture.stop();
   }

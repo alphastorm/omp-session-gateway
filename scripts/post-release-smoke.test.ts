@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isProtectedLabel } from "./acceptance-target.ts";
 import { parseAndroidCollabSmokeArgs } from "./android-collab-smoke.ts";
+import { ANDROID_COLLAB_STAGES } from "./android-stages.ts";
 import {
   assertFixtureOwnership,
   assertWebApkActiveTask,
@@ -143,6 +144,24 @@ describe("published release binding", () => {
     expect(formatCommandFailure("artifact verification", 1, "", "signature mismatch", true)).toContain(
       "signature mismatch",
     );
+  });
+
+  test("surfaces only the last announced vocabulary stage of a withheld lane", () => {
+    const syntheticSecret = "qualification-capability-never-log-this";
+    const lane = ["android-stage: directory", "android-stage: View", syntheticSecret].join("\n");
+    expect(formatCommandFailure("Android smoke", 1, syntheticSecret, lane, false, ANDROID_COLLAB_STAGES)).toBe(
+      'Android smoke failed with exit 1 at stage "View"',
+    );
+    const forged = formatCommandFailure(
+      "Android smoke",
+      1,
+      "",
+      `android-stage: View\nandroid-stage: ${syntheticSecret}\n`,
+      false,
+      ANDROID_COLLAB_STAGES,
+    );
+    expect(forged).toBe("Android smoke failed with exit 1");
+    expect(forged).not.toContain(syntheticSecret);
   });
 });
 

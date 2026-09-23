@@ -184,8 +184,8 @@ Signed-candidate qualification and prior release smokes do not substitute for a 
 
 **The v0.4.0 published-byte local/Android smoke passed on 2026-09-14.** It retained the existing
 local OMP 18.1.21 and persistent Bun 1.4.0, without reinstalling OMP or widening the exact
-OMP 18.1.20 qualification matrix. The initial intermittent Android Control-upgrade failure
-remains unexplained; the later passing run is not a product-code fix or a root-cause finding.
+OMP 18.1.20 qualification matrix. Its initial Android Control-upgrade failure matches the PWA
+update navigation later diagnosed in the ADR-018 amendment; that passing run was not a fix.
 See the [release ledger](RELEASE_STATUS.md#published-byte-local-installation-and-android-smoke)
 for exact source/digest, preservation, physical-client, and cleanup evidence.
 

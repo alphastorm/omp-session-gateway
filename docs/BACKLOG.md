@@ -3,16 +3,17 @@
 GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) records qualification;
 [the changelog](../CHANGELOG.md) records shipped work. This file keeps only open product direction.
 
-Stable v0.4.0 is published with native stock-OMP integration and a passed core qualification
-matrix. Candidate qualification and the published-byte local/Android smoke are complete; exact
-evidence and remaining limits live in the [release ledger](RELEASE_STATUS.md).
+Stable v0.5.0 is published with native stock-OMP integration and approved candidate evidence.
+The published-byte local/Android checks are complete; exact evidence and remaining limits live in
+the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Investigate the initial local View→Control upgrade failure whose cause remains undetermined,
-  despite subsequent passing probes and the full published-byte smoke.
-- Close the pending-launch service-worker update gap: the launch still occupies `/` until
-  capability resolution, contrary to the prelaunch route reservation described in ADR-018.
+- Release the worker-navigation fix (ADR-018 amendment) and confirm a clean first-attempt
+  post-release View/Control smoke across the upgrade.
+- Decide notification-click window reuse: the worker picks a "dashboard" window by `client.url`,
+  which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
+  notification route. Settle the Android WebAPK single-window behavior before changing it.
 - Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
 - Qualify background Push on the advertised physical Android/browser combination.
 - Decide whether to advertise Windows only after exact mainline discovery and signed-candidate

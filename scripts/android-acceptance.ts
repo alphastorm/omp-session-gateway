@@ -24,6 +24,7 @@ import {
   type AndroidChromeDriver,
 } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
+import { ANDROID_ACCEPTANCE_STAGES, announceAndroidStage } from "./android-stages.ts";
 
 const POWER = "26";
 
@@ -244,6 +245,7 @@ const host = new URL(origin).hostname;
 // Refuse an ineligible target before touching the device or the session. This runs against the
 // gateway rather than the phone precisely so an ineligible target costs nothing and cannot be
 // discovered halfway through a run that has already fired launches at it.
+announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "target preflight");
 const listResponse = await fetch(new URL("/api/v1/sessions", origin), { headers: { accept: "application/json" } });
 if (!listResponse.ok) {
   console.error(`could not read the session list to validate the target: HTTP ${listResponse.status}`);
@@ -267,6 +269,7 @@ if (!eligibility.eligible) {
   process.exit(2);
 }
 
+announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "Android Chrome");
 const summary = await withAndroidChrome(async driver => {
   serial = driver.serial;
   const browserVersion = await driver.version();
@@ -275,6 +278,7 @@ const summary = await withAndroidChrome(async driver => {
   await driver.navigate(`${origin}/`);
   await sleep(8000);
 
+  announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "authorization matrix");
   const authorization = await authorizationMatrix(driver, label);
   console.error(`  authorization: ${JSON.stringify(authorization)}`);
   const baseline = await attempt(driver, "baseline");
@@ -292,6 +296,7 @@ const summary = await withAndroidChrome(async driver => {
 
   try {
     // Lock and resume. Poll the PWA's rendered state instead of failing at one arbitrary instant.
+    announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "lock resume");
     await adb("shell", "input", "keyevent", POWER);
     await sleep(20_000);
     const wokeAt = performance.now();
@@ -302,6 +307,7 @@ const summary = await withAndroidChrome(async driver => {
     record({ step: "lock-resume-summary", wakefulness, presentation, recoveredMs: unlockMs });
 
     // Total network loss and automatic same-page recovery, with no reload and no competing fetch.
+    announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "airplane recovery");
     await adb("shell", "cmd", "connectivity", "airplane-mode", "enable");
     outageBanner = await awaitOutage(driver, performance.now(), host, baselineTimeOrigin, continuity);
     await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
@@ -315,6 +321,7 @@ const summary = await withAndroidChrome(async driver => {
     }
 
     // Forced deep Doze.
+    announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "doze recovery");
     await adb("shell", "dumpsys", "battery", "unplug");
     await adb("shell", "dumpsys", "deviceidle", "force-idle");
     await sleep(20_000);
@@ -351,6 +358,7 @@ const summary = await withAndroidChrome(async driver => {
 
 console.log(JSON.stringify(summary, null, 1));
 
+announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "verdict");
 const authorization = summary.authorization;
 const failures: string[] = [];
 const expect = (name: string, actual: unknown, wanted: unknown): void => {
