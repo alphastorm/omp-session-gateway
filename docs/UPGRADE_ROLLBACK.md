@@ -9,6 +9,38 @@ visit after a rollback can return a pending launch or an open View/Control page 
 open the session again. v0.4.2, one step further back, also rejects `busy` snapshots and can hide
 live sessions (#219) even when the gateway service reports ready.
 
+## Staged-runtime retention from v0.5.2
+
+After a successful install/upgrade proves the new runtime ready and commits both `current.json`
+and activation history, automatic cleanup keeps the active version plus the two most recent
+distinct predecessors (three distinct activations). Repeated activations such as A → B → A do
+not consume extra retention slots. The recorded predecessor selected by plain `rollback` is
+protected, as is any different version named by the installed service definition. Everything
+else under the versions root with a recognized runtime-directory name is eligible for removal,
+including never-activated staging and versions older than the history file.
+
+`rollback --to <version-directory>` selects only a retained, installed directory. A pruned target
+still fails with “version that is not installed”; restore an older release from its separately
+retained verified archive and matching configuration instead. Rollback itself does not prune,
+so the ordinary predecessor/candidate oscillation remains available. Uninstall retains its
+existing data-preservation behavior. Failed/reverted installs and `install --no-start` never
+prune; a stopped installation has not proved readiness.
+
+Cleanup never fails or reverts a successful install. Its numeric summary reports protected,
+removed, and failed cleanup counts. Removal first renames a victim to a private `.prune-<uuid>`
+name that cannot be a rollback target, then removes it; a later successful ready install cleans
+up leftover markers. Only the private versions root is eligible. Symlinks, foreign names, and
+unsafe metadata are refused. A pass is limited to 4,096 examined directory entries and 32 nested
+levels; failures or these bounds can leave additional payloads for a later install.
+
+The qualification rollback targets remain inside this policy: the macOS host lane delegates to
+`qualify-rollback.sh`, whose predecessor install, candidate upgrade, and predecessor reinstall
+all use `--no-start` and therefore never prune. The Linux migration/recovery lane installs the
+predecessor before the candidate; the predecessor is then its recorded rollback target. Its
+stopped `--to`/plain-rollback walk and later active rollback/reinstall loops alternate only those
+two versions, which remain retained on every successful ready install. These are policy
+compatibility statements, not new qualification results.
+
 ## Mainline cutover and rollback boundary
 
 Published stable v0.4.0 uses stock OMP `>= 18.1.20` and `collab.autoStart` only, following

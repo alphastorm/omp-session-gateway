@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Prune superseded staged runtimes after successful ready installs, retaining the active runtime,
+  two distinct predecessors, and any divergent service runtime; cleanup is bounded, crash-safe,
+  best-effort, and never runs during rollback or failed/stopped installs (#231).
+
 ## [v0.5.1] — 2026-09-23
 
 ### Fixed

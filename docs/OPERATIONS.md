@@ -82,6 +82,25 @@ A malformed existing configuration fails closed instead of being replaced with d
 readiness token is retained, and an unchanged configuration is not rewritten. Installation removes
 the legacy fork-era publication token; this is not a reversible credential migration.
 
+Starting with v0.5.2, a successful, readiness-proven install/upgrade also prunes superseded staged
+runtimes after committing `installation/current.json` and `installation/history.json`. It keeps
+the active runtime and the two most recent **distinct** predecessors in activation history
+(three distinct activations total), including the predecessor plain `rollback` selects. If the
+installed service definition names a different runtime, that runtime is additionally protected.
+Older versions, versions predating history, and staged-but-never-activated versions outside this
+set are removed. `rollback --to <version-directory>` can only select versions still retained;
+keep verified release archives separately for deliberate recovery to an older release.
+
+Pruning is best-effort: install prints numeric retained/removed/failed counts and cleanup errors
+never fail or revert the successful installation. It never runs on a failed install, on
+`install --no-start` (which proves no readiness), during rollback, or during uninstall. A victim
+is first renamed inside the private versions root to a non-version `.prune-<uuid>` marker; the
+next successful ready install finishes interrupted removals. Foreign names, non-directory
+entries, symlinks (including within a payload), and unsafe or unrecognized installation metadata
+are left alone. Each pass examines at most 4,096 directory entries and descends at most 32 levels;
+oversized trees or filesystem failures can leave extra payloads for a later successful install.
+The retained count describes runtimes protected by the policy, not failed/deferred removals.
+
 **First fork-era → mainline upgrade:** retain the predecessor's signed archive and private
 configuration, then run that archive's `uninstall` command before installing this gateway.
 Uninstall stops and unregisters its owned service without removing config or installed runtimes.

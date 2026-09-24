@@ -17,6 +17,7 @@ function sandboxEnvironment(root: string): Record<string, string | undefined> {
   return {
     ...process.env,
     HOME: join(root, "home"),
+    LOCALAPPDATA: join(root, "local-app-data"),
     XDG_CONFIG_HOME: join(root, "config"),
     XDG_STATE_HOME: join(root, "state"),
     XDG_RUNTIME_DIR: join(root, "run"),
@@ -734,13 +735,9 @@ describe("rollback refusals against a seeded installation", () => {
  * `status` is consumed by the qualification lanes and by CI, so its stdout is a contract: one JSON
  * object, the documented keys, and every word meant for a human on stderr.
  *
- * Not covered, and not fakeable: `waitForGateway`, the bounded readiness wait whose budget decides
- * whether `install` reports success. It is module-private, and all five call sites sit behind either
- * `installUserService` — which runs `launchctl bootstrap` — or `service.active`, which is true only
- * when the OS holds a loaded job whose program lives under this root. Reaching it means loading a
- * real LaunchAgent on the machine running the suite, so its 15s deadline, its retry cadence, and its
- * managed-service stability re-check have no test seam. The per-probe bound inside `gatewayReady` is
- * the part "a listener that answers nothing at all" below can reach.
+ * These status fixtures never mutate the OS service manager. The install-pruning fixtures below
+ * exercise readiness and compensation using a child-local service adapter and real HTTP proofs;
+ * full launchd/systemd/Task Scheduler lifecycle remains the qualification lanes' responsibility.
  */
 describe("status JSON contract", () => {
   test.skipIf(!DARWIN)("reports a proven readiness flag, both versions, and divergence on stderr", async () => {
@@ -985,5 +982,165 @@ describe("managed-service readiness budget", () => {
     const immediate = probeReadyAt(0);
     expect(await pollUntilReady(readinessBudgetMs("win32"), immediate.probe, immediate.clock)).toBe(true);
     expect(immediate.attempts).toEqual([0]);
+  });
+});
+
+/**
+ * Run the real install/rollback CLI and filesystem in a child, replacing only the OS service
+ * manager and release-input seams. Readiness still crosses a real authenticated HTTP endpoint;
+ * no launchctl/systemctl/schtasks mutation or module mock escapes this disposable process.
+ */
+async function runPruningInstall(
+  mode: "ready" | "not-ready" | "revert-failure" | "no-start" | "prune-failure",
+): Promise<SandboxRun> {
+  return runInSandbox(async root => {
+    const entry = join(root, "install-fixture.ts");
+    const modulePath = (name: string) => JSON.stringify(new URL(`../src/${name}.ts`, import.meta.url).pathname);
+    await writeFile(entry, String.raw`
+import { mock } from "bun:test";
+import { createHmac } from "node:crypto";
+import { chmod, mkdir, readdir, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import * as installation from ${modulePath("installation")};
+import * as service from ${modulePath("service")};
+import { writeGatewayConfigFile } from ${modulePath("config")};
+import { StaticAssetStore } from ${modulePath("static")};
+const mode = ${JSON.stringify(mode)};
+const sourceRoot = join(${JSON.stringify(root)}, "source");
+const cliSource = join(sourceRoot, "cli.js");
+for (const directory of ["apps/web/dist", "licenses/collab-web"]) {
+  await mkdir(join(sourceRoot, directory), { recursive: true });
+}
+for (const path of ["LICENSE", "NOTICE.md", "THIRD_PARTY_NOTICES.md", "UPSTREAM.lock.json", "bun.lock",
+  "licenses/collab-web/LICENSE", "apps/web/dist/index.html"]) {
+  await writeFile(join(sourceRoot, path), "synthetic fixture");
+}
+let instance = "a".repeat(43);
+let rejectReadiness = false;
+const token = "synthetic-readiness-token-DO-NOT-SHIP-00000";
+const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+  const challenge = request.headers.get("X-OMP-Readiness-Challenge") ?? "";
+  if (!active || rejectReadiness) return new Response("unready", { status: 503 });
+  const proof = createHmac("sha256", token).update(challenge).update("\0").update(instance).digest("base64url");
+  return Response.json({ status: "ready", instance, proof });
+}});
+const config = await writeGatewayConfigFile({ publicOrigin: "https://gateway.example.ts.net",
+  allowedLogins: ["user@example.com"], port: server.port });
+await writeFile(config.paths.tokenPath, token + "\n", { mode: 0o600 });
+const runtimes = [];
+const stage = installation.stageRuntimePayload;
+for (let index = 0; index < 35; index += 1) {
+  await writeFile(cliSource, "console.log(" + index + ");\n");
+  runtimes.push(await stage(config, { sourceRoot, cliSource }));
+}
+for (const index of [0, 1, 2, 1]) await installation.activateRuntime(config, runtimes[index]);
+const versions = dirname(runtimes[0].directory);
+const names = runtimes.map(runtime => basename(runtime.directory));
+const render = service.serviceDefinition;
+let active = mode !== "no-start";
+let attempts = 0;
+const before = (await readdir(versions)).sort();
+const definition = render(config, process.platform, runtimes[1].cliPath);
+await mkdir(dirname(definition.path), { recursive: true });
+await writeFile(definition.path, definition.content);
+let elapsed = 0;
+Date.now = () => elapsed;
+const sleep = Bun.sleep;
+Bun.sleep = async ms => { elapsed += Number(ms); await sleep(0); };
+mock.module(${modulePath("service")}, () => ({
+  ...service,
+  assertServiceInstallPreflight: async () => {},
+  userServiceStatus: async () => ({ installed: true, active }),
+  installUserService: async (cfg, start, cli, nextInstance) => {
+    attempts += 1;
+    active = start;
+    instance = nextInstance;
+    rejectReadiness = (mode === "not-ready" && attempts === 1) || mode === "revert-failure";
+    const next = render(cfg, process.platform, cli, nextInstance);
+    await writeFile(next.path, next.content);
+    if (mode === "prune-failure") await chmod(versions, 0o500);
+    return next;
+  },
+}));
+mock.module(${modulePath("installation")}, () => ({
+  ...installation,
+  stageRuntimePayload: cfg => stage(cfg, { sourceRoot, cliSource }),
+}));
+StaticAssetStore.load = async () => ({});
+try {
+  const { main } = await import(${JSON.stringify(GATEWAY_CLI)});
+  let failure = "";
+  try {
+    await main(["install", "--origin=https://gateway.example.ts.net", "--allow=user@example.com",
+      ...(mode === "no-start" ? ["--no-start"] : [])]);
+  } catch (error) { failure = error.message; }
+  const after = (await readdir(versions)).sort();
+  const current = basename((await installation.currentInstalledRuntime(config)).directory);
+  const predecessor = basename((await installation.resolveRollbackTarget(config)).runtime.directory);
+  let prunedTarget = "";
+  try { await main(["rollback", "--to=" + names[0]]); } catch (error) { prunedTarget = error.message; }
+  const afterRollback = (await readdir(versions)).sort();
+  console.log(JSON.stringify({ before, after, afterRollback, current, predecessor, names, failure, prunedTarget }));
+} finally {
+  await chmod(versions, 0o700);
+  server.stop(true);
+}
+`);
+    return [process.execPath, entry];
+  });
+}
+
+describe("install runtime pruning", () => {
+  test("successful ready install retains only three distinct activations and preserves rollback", async () => {
+    const run = await runPruningInstall("ready");
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    const state = JSON.parse(run.stdout.trimEnd().split("\n").at(-1) ?? "");
+    expect(state.failure).toBe("");
+    expect(state.after).toEqual([state.names[34], state.names[1], state.names[2]].sort());
+    expect(state.current).toBe(state.names[34]);
+    expect(state.predecessor).toBe(state.names[1]);
+    expect(state.prunedTarget).toContain("version that is not installed");
+    expect(run.stdout).toContain("retained 3, removed 32, failed 0");
+  });
+
+  test("failed readiness and successful revert prune no staged runtimes", async () => {
+    const run = await runPruningInstall("not-ready");
+    expect(run.exitCode).toBe(0);
+    const state = JSON.parse(run.stdout.trimEnd().split("\n").at(-1) ?? "");
+    expect(state.failure).toBe("service installed but the loopback readiness proof did not become valid");
+    expect(state.after).toEqual(state.before);
+    expect(state.current).toBe(state.names[1]);
+    expect(state.predecessor).toBe(state.names[2]);
+  });
+
+  test("no-start install leaves every staged runtime available", async () => {
+    const run = await runPruningInstall("no-start");
+    expect(run.exitCode).toBe(0);
+    const state = JSON.parse(run.stdout.trimEnd().split("\n").at(-1) ?? "");
+    expect(state.failure).toBe("");
+    expect(state.after).toEqual(state.before);
+    expect(state.afterRollback).toEqual(state.before);
+    expect(state.current).toBe(state.names[34]);
+  });
+
+  test("failed readiness and incomplete revert leave every runtime available", async () => {
+    const run = await runPruningInstall("revert-failure");
+    expect(run.exitCode).toBe(0);
+    const state = JSON.parse(run.stdout.trimEnd().split("\n").at(-1) ?? "");
+    expect(state.failure).toBe("gateway install failed and rollback was incomplete");
+    expect(state.after).toEqual(state.before);
+    expect(state.current).toBe(state.names[1]);
+  });
+
+  test.skipIf(!POSIX)("pruning failure does not fail or revert a ready install", async () => {
+    const run = await runPruningInstall("prune-failure");
+    expect(run.exitCode).toBe(0);
+    const state = JSON.parse(run.stdout.trimEnd().split("\n").at(-1) ?? "");
+    expect(state.failure).toBe("");
+    expect(state.after).toEqual(state.before);
+    expect(state.current).toBe(state.names[34]);
+    expect(state.predecessor).toBe(state.names[1]);
+    expect(run.stdout).toContain("retained 3, removed 0, failed 32");
   });
 });
