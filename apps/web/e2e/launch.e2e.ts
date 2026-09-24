@@ -115,7 +115,7 @@ function capturedPhotoPrompts(page: Page): Promise<readonly {
   });
 }
 
-test("installed-PWA View and Control mount in the current window without losing the handoff", async ({ context, page }) => {
+test("installed-PWA View and Control mount in the current window without losing the handoff", { tag: "@core" }, async ({ context, page }) => {
   const fixture = await startDashboardFixture([session(), ...Array.from({ length: 12 }, (_, index) => workingSession(index))]);
   let auxiliaryPages = 0;
   context.on("page", candidate => {
@@ -1050,7 +1050,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
   }
 });
 
-test("direct client navigation returns to the session directory without legacy bootstrap UI", async ({ page }) => {
+test("direct client navigation returns to the session directory without legacy bootstrap UI", { tag: "@core" }, async ({ page }) => {
   const fixture = await startDashboardFixture([session()]);
 
   try {
@@ -1063,7 +1063,7 @@ test("direct client navigation returns to the session directory without legacy b
   }
 });
 
-test("answer feedback dismisses from the keyboard with Escape", async ({ page }) => {
+test("answer feedback dismisses from the keyboard with Escape", { tag: "@core" }, async ({ page }) => {
   const initial = session();
   const fixture = await startDashboardFixture([initial]);
 
@@ -1082,7 +1082,7 @@ test("answer feedback dismisses from the keyboard with Escape", async ({ page })
   }
 });
 
-test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout", async ({ page }) => {
+test("answer feedback dismisses by tap-out, swipe, and the eight-second timeout", { tag: "@core" }, async ({ page }) => {
   const initial = session();
   const fixture = await startDashboardFixture([initial]);
 
@@ -1169,6 +1169,9 @@ test("a bfcache restore whose session changed generation returns to the live dir
     await expect(page.locator("#root > .sh-app")).toHaveCount(1);
     expect(fixture.launchRequests).toHaveLength(1);
 
+    // The client opens its relay transport after it mounts, asynchronously; on some engines the
+    // first frame lands before it. Wait for it so the freeze below starts from a live transport.
+    await expect.poll(() => relaySocketCount(page)).toBeGreaterThanOrEqual(1);
     // Count the bearer's transports and freeze the page in the same task, so no relay attempt can
     // slip between the reading and the teardown. Never return the capability-bearing URLs to the
     // test runner, where a failed assertion could print them into CI output.
@@ -1222,7 +1225,7 @@ test("a bfcache restore whose session changed generation returns to the live dir
   }
 });
 
-test("a bfcache restore reopens the backgrounded session and stores no capability", async ({ page }) => {
+test("a bfcache restore reopens the backgrounded session and stores no capability", { tag: "@core" }, async ({ page }) => {
   const active = session();
   const fixture = await startDashboardFixture([
     active,
@@ -1241,6 +1244,7 @@ test("a bfcache restore reopens the backgrounded session and stores no capabilit
     await expect(page.locator("#root > .sh-app")).toHaveCount(1);
     expect(fixture.launchRequests).toHaveLength(1);
 
+    await expect.poll(() => relaySocketCount(page)).toBeGreaterThanOrEqual(1);
     // Backgrounding an installed PWA is a `pagehide`, which disposes the client and drops its
     // capability. That is what made switching apps for a moment look like the session dying (#198).
     const bootstrapSocketCount = await page.evaluate(() => {
@@ -1289,7 +1293,7 @@ test("a bfcache restore reopens the backgrounded session and stores no capabilit
   }
 });
 
-test("a bfcache restore reopens a session whose question was answered elsewhere", async ({ page }) => {
+test("a bfcache restore reopens a session whose question was answered elsewhere", { tag: "@core" }, async ({ page }) => {
   const active = session();
   const fixture = await startDashboardFixture([active, workingSession(0)]);
 
