@@ -3,7 +3,7 @@
 GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) records qualification;
 [the changelog](../CHANGELOG.md) records shipped work. This file keeps only open product direction.
 
-Stable v0.5.2 is published with native stock-OMP integration. Exact evidence and remaining limits
+The latest stable release ships native stock-OMP integration. Exact evidence and remaining limits
 live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
