@@ -1173,13 +1173,20 @@ REMOTE
   )
   trap cleanup_omp_lane EXIT
 
+  # scripts/omp-fixture.json is the single source of the fixture model; OMP_SKIP_SETUP keeps an
+  # onboarding wizard from silently dropping prompts on this fresh HOME.
+  fixture_model="$(jq -r '.model' "$SCRIPT_ROOT/scripts/omp-fixture.json")"
+  case "$fixture_model" in
+    "" | null | *[!A-Za-z0-9._/:-]*) die "scripts/omp-fixture.json has no usable fixture model" ;;
+  esac
+
   # Keep an input descriptor open without sending bytes. SSH supplies the real PTY OMP requires;
   # its entire output goes to /dev/null so a collaboration capability cannot enter logs or files.
   omp_input="$LOCAL_TEMP/omp-linux-input"
   mkfifo "$omp_input"
   exec 9<>"$omp_input"
   ssh "${SSH_OPTS[@]}" -tt "${QUAL_USER}@${DROPLET_IP}" \
-    "cd \"\$HOME/omp-linux-qualification\" && exec \"\$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${OMP_SOURCE_TREE:0:8}/omp\" --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low" \
+    "cd \"\$HOME/omp-linux-qualification\" && OMP_SKIP_SETUP=1 exec \"\$HOME/.local/lib/omp-session-gateway/omp/v${OMP_VERSION}-${OMP_SOURCE_TREE:0:8}/omp\" --model '${fixture_model}' --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low" \
     <&9 >/dev/null 2>&1 &
   omp_ssh_pid=$!
 
@@ -1201,7 +1208,7 @@ REMOTE
   wait_for "mainline OMP publication" 90 1 omp_session_present
 
   remote_user DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" \
-    GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
+    GATEWAY_PORT="$GATEWAY_PORT" FIXTURE_MODEL="$fixture_model" <<'REMOTE'
 set -euo pipefail
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 sessions="$(curl -fsS -H "Tailscale-User-Login: $ALLOWED_LOGIN" \
@@ -1211,6 +1218,10 @@ record="$(printf '%s' "$sessions" |
 instance_id="$(printf '%s' "$record" | jq -r '.instanceId')"
 generation="$(printf '%s' "$record" | jq -r '.generation')"
 test "$(printf '%s' "$record" | jq -r '.canView and .canControl')" = true
+if [ "$(printf '%s' "$record" | jq -r '.model | type')" != string ]; then
+  printf 'FAILED: the OMP fixture published without a model: this OMP did not resolve %s with the synthetic key, so it would reject the Control prompt\n' "$FIXTURE_MODEL" >&2
+  exit 1
+fi
 show "published metadata" "one generation-${generation} session with View and Control"
 
 for mode in view control; do

@@ -12,6 +12,8 @@ import {
   createSmokeLabel,
   findWebApkForHost,
   isStockOmpBinary,
+  type OmpInstall,
+  preferStockOmp,
   isWebApkAppTarget,
   formatCommandFailure,
   parseJsonRecord,
@@ -64,6 +66,30 @@ test("distinguishes stock mainline omp from another product wearing the name", (
   // Near misses must not pass: a lookalike package name or a path merely mentioning the vendor.
   expect(isStockOmpBinary("/Users/x/node_modules/@oh-my-pi/pi-coding-agent-fork/dist/cli.js")).toBe(false);
   expect(isStockOmpBinary("/Users/x/oh-my-pi/pi-coding-agent/dist/cli.js")).toBe(false);
+});
+
+describe("stock OMP selection", () => {
+  const launcher: OmpInstall = { compatible: true, binary: "/Users/x/.local/bin/omp", version: "18.3.0", binarySha256: "a", stock: false };
+  const bunGlobal: OmpInstall = { compatible: true, binary: "/Users/x/.bun/bin/omp", version: "18.1.20", binarySha256: "b", stock: true };
+
+  test("keeps a stock omp on PATH even when Bun's global install is also stock", () => {
+    const onPath: OmpInstall = { ...bunGlobal, binary: "/opt/bin/omp", version: "18.3.0", binarySha256: "c" };
+    expect(preferStockOmp(onPath, bunGlobal)).toBe(onPath);
+  });
+
+  test("uses Bun's global stock install in place of a same-named launcher on PATH", () => {
+    // The v0.5.2 smoke's first attempt stopped here: a Code Mode launcher owned `omp` on PATH
+    // while stock OMP was already installed globally.
+    expect(preferStockOmp(launcher, bunGlobal)).toBe(bunGlobal);
+  });
+
+  test("keeps the launcher when no stock alternative exists, so the refusal names it", () => {
+    expect(preferStockOmp(launcher, { compatible: false, binary: "/Users/x/.bun/bin/omp" })).toBe(launcher);
+  });
+
+  test("uses Bun's global stock install when PATH has no omp at all", () => {
+    expect(preferStockOmp({ compatible: false }, bunGlobal)).toBe(bunGlobal);
+  });
 });
 
 describe("post-release smoke arguments", () => {
