@@ -223,9 +223,10 @@ persistent pinned Bun runtime, proves the config and publisher token remained by
 creates only the configured Serve mapping while comparing every unrelated mapping, and requires all
 `doctor` checks to pass.
 
-The OMP lane reuses an already exact source/runtime or builds the archived patch and pins without
-deleting a changed checkout. It starts one uniquely named `omp-post-release-*` tmux fixture carrying
-only the synthetic qualification credential, then runs physical View-to-Control prompt/interrupt,
+The OMP lane requires the `omp` on `PATH` to resolve inside the mainline `@oh-my-pi/pi-coding-agent`
+package at `>=18.1.20`, refuses a same-named launcher such as Code Mode, and sets `collab.autoStart`
+to `control`. It starts one uniquely named `omp-post-release-*` tmux fixture carrying only the
+synthetic qualification credential, then runs physical View-to-Control prompt/interrupt,
 forbidden-sink, lock/Airplane/Doze same-page recovery, and installed-WebAPK launch checks. The
 installed WebAPK may resume either the directory or its existing collaboration route; the launch
 check preserves that page instead of requiring the directory title. Target
@@ -234,10 +235,13 @@ non-Control fixtures fail closed.
 
 Normal success and failure kill only that tmux session, wait for registry revocation, remove the
 fixture only when its per-run ownership marker still matches, and delete private staging. The stable
-gateway, config/token, Bun runtime, exact patched OMP source/binary/symlink, Serve configuration, and
-WebAPK remain installed. `--force-reinstall` retests an already active stable gateway;
-`--rebuild-omp` rebuilds only an already exact source/runtime. `--plan` prints the bounded effects
-without network, service, Tailscale, OMP, or Android changes.
+gateway, config/token, Bun runtime, mainline OMP, Serve configuration, and WebAPK remain installed.
+The gateway is installed and checked before OMP, so a refused `omp` leaves the published gateway
+active; rerun with the stock binary selected. `--rebuild-omp` runs `bun add --global --exact` for
+the pinned package and puts Bun's global bin first on the smoke's `PATH`; if that exact version is
+already installed, placing its bin directory after the pinned Bun on `PATH` selects it without a
+reinstall. `--force-reinstall` retests an already active stable gateway. `--plan` prints the
+bounded effects without network, service, Tailscale, OMP, or Android changes.
 
 If the orchestrator is killed before its `finally` cleanup runs, inspect tmux for the single
 `omp-post-release-*` name and require the matching

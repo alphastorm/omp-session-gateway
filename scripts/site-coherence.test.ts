@@ -113,6 +113,27 @@ test("the machine-readable site summary names only the qualified stable release"
   expect([...new Set(summary.match(/\bv\d+\.\d+\.\d+\b/gu))]).toEqual([stable.releaseTag]);
 });
 
+// The status page's campaign note kept v0.5.1's attempt history through the v0.5.2 promotion while
+// the candidate row beside it moved on. Current-release campaign text names only the locked candidate.
+test("current campaign notes name only the locked qualification candidate", async () => {
+  const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
+    candidateTag: string;
+  };
+  const candidates = (text: string) => [...new Set(text.match(/\bv\d+\.\d+\.\d+-prealpha\.\d+\b/gu))];
+  const current = [stable.candidateTag];
+  const status = (await readFile(join(sitePath, "status", "index.html"), "utf8")).split("<h2>Fork-era release history</h2>")[0] ?? "";
+  const note = status.match(/<p class="verified">([\s\S]*?)<\/p>/u)?.[1];
+  if (note === undefined) throw new Error("site/status/index.html lost its campaign note");
+  expect(candidates(note)).toEqual(current);
+  expect(candidates(status)).toEqual(current);
+  const boundary = (await readFile(join(sitePath, "llms.txt"), "utf8")).split("\n## Current qualification boundary\n")[1]?.split("\n## ")[0];
+  if (boundary === undefined) throw new Error("site/llms.txt lost its qualification boundary");
+  expect(candidates(boundary)).toEqual(current);
+  const readme = (await readFile(join(rootPath, "README.md"), "utf8")).split("\n## Compatibility and release status\n")[1]?.split("\n## ")[0]?.split("\n### Fork-era")[0];
+  if (readme === undefined) throw new Error("README.md lost its release status section");
+  expect(candidates(readme)).toEqual(current);
+});
+
 test("every relative asset a site page references exists after staging", async () => {
   for (const [name, source] of Object.entries(STAGED_SITE_ASSETS)) {
     expect(await Bun.file(join(rootPath, source)).exists(), `${source} is the canonical source of site/${name}`).toBe(true);
