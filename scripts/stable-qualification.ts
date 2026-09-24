@@ -1440,7 +1440,7 @@ async function stopSubprocess(process: ManagedProcess | undefined): Promise<void
   }
 }
 
-async function waitForPublishedSession(origin: string, label: string): Promise<Record<string, unknown>> {
+export async function waitForPublishedSession(origin: string, label: string): Promise<Record<string, unknown>> {
   for (let attempt = 1; attempt <= 90; attempt += 1) {
     const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store" });
     if (response.ok) {
@@ -1463,7 +1463,7 @@ async function waitForPublishedSession(origin: string, label: string): Promise<R
   throw new Error("mainline OMP session did not publish within 90 seconds");
 }
 
-async function verifyLaunchContracts(origin: string, session: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function verifyLaunchContracts(origin: string, session: Record<string, unknown>): Promise<Record<string, unknown>> {
   const instanceId = session.instanceId;
   const generation = session.generation;
   if (typeof instanceId !== "string" || typeof generation !== "number") throw new Error("published session identity is invalid");
@@ -1487,7 +1487,7 @@ async function verifyLaunchContracts(origin: string, session: Record<string, unk
   return { instanceId, generation, modes };
 }
 
-async function waitForRevocation(origin: string, label: string): Promise<void> {
+export async function waitForRevocation(origin: string, label: string): Promise<void> {
   for (let attempt = 1; attempt <= 45; attempt += 1) {
     const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store" });
     const payload = (await response.json()) as { sessions?: Array<{ cwdLabel?: string }> };
