@@ -129,14 +129,18 @@ PY
 }
 
 run_session() {
+  local fixture_model="${OMP_FIXTURE_MODEL:-}"
+  require_value OMP_FIXTURE_MODEL "$fixture_model"
   validate_host
   [ -x "$binary" ] || fail "mainline OMP binary is missing; run build first"
   source_is_prepared || fail "mainline OMP source or native addon is missing, changed, or unpinned"
   [ "$("$binary" --version)" = "omp/$omp_version" ] || fail "mainline OMP version changed"
   mkdir -p "$qualification_cwd"
   cd "$qualification_cwd"
-  exec "$binary" \
-    --model openai-codex/gpt-5.4-mini \
+  # The orchestrator supplies the model from scripts/omp-fixture.json. OMP_SKIP_SETUP keeps an
+  # onboarding wizard from silently dropping the Control prompt.
+  OMP_SKIP_SETUP=1 exec "$binary" \
+    --model "$fixture_model" \
     --api-key qualification-synthetic-never-sent \
     --no-extensions --no-skills --thinking low >/dev/null 2>&1
 }
