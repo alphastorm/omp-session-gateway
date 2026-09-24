@@ -8,14 +8,14 @@
 
 # OMP Session Gateway
 
-**Every live OMP session. One private mobile page.**
+**Every live OMP session. One private page, in any modern browser.**
 
 **Native integration with stock OMP `18.1.20+`. No fork or custom OMP build.**
 
 Keep using [Oh My Pi](https://github.com/can1357/oh-my-pi) in your terminal.
 OMP Session Gateway discovers your collaboration-enabled sessions, shows which need attention,
-and opens OMP's own encrypted **View** or **Control** client from your phone — no QR scans,
-copied links, or per-session setup.
+and opens OMP's own encrypted **View** or **Control** client from your phone or any other browser —
+no QR scans, copied links, or per-session setup.
 
 <img src="docs/media/omp-session-gateway-demo.gif" alt="Four live OMP sessions listed automatically in the private Sessions directory; a fifth appears on its own; when sessions start waiting for input the directory switches to Needs you and promotes the oldest request; Open request opens OMP's encrypted collaboration client on that exact request, which stays connected." width="900">
 
@@ -54,6 +54,30 @@ copied links, or per-session setup.
 > install the gateway, and configure Tailscale Serve. Then start sessions with plain `omp`.
 > **[Get started with the latest stable release](#build-and-run)** ·
 > [Exact support and limits](docs/COMPATIBILITY.md) · [Release evidence](docs/RELEASE_STATUS.md).
+
+## Works with
+
+Use OMP Session Gateway from modern browsers. Install it as a PWA on platforms that support
+installation.
+
+| Gateway host | Status |
+|---|---|
+| Linux | ✅ |
+| macOS | ✅ |
+| Windows | ✅ |
+
+| Browser | Status |
+|---|---|
+| Chrome / Chromium | ✅ |
+| Edge | ✅ via Chromium |
+| Firefox | ✅ |
+| Safari / WebKit | ✅ |
+| Android | ✅ |
+| iPhone / iPad | ✅ as a browser; tested with WebKit emulation, not on a physical device |
+
+✅ means supported: CI tests it on every change. Each release is also qualified on real hardware
+for exact combinations. Those, and every limit, are in
+[Compatibility](docs/COMPATIBILITY.md#platforms-and-browsers).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
 of truth: the gateway is a private directory for already-running interactive OMP processes, a
@@ -197,7 +221,7 @@ After installation and tailnet configuration:
 2. Tailscale Serve exposes only the loopback dashboard/API to approved tailnet identities.
 3. Each interactive `omp` process automatically starts collaboration when configured. The gateway
    reads OMP’s discovery directory and polls metadata; it fetches a capability only when you launch.
-4. The Android PWA lists collaboration-enabled processes on the next discovery poll: a FIFO **Needs you** queue when
+4. The PWA lists collaboration-enabled processes on the next discovery poll: a FIFO **Needs you** queue when
    anything is waiting, otherwise **All clear** and the live sessions.
 5. **Open request** launches Control for the oldest ask; **Hold for desk** defers that exact ask on
    this device and advances to the next one without clearing attention; **Transcript** stays
@@ -229,8 +253,9 @@ never redacts.</sub>
 ## Compatibility and release status
 
 The [latest stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest) was
-promoted from a qualified signed candidate with identical runtime bytes. Qualification is limited to
-the exact combinations in the [compatibility policy](docs/COMPATIBILITY.md#current-claim); the
+promoted from a qualified signed candidate with identical runtime bytes. Support covers the
+platform families in [Works with](#works-with), each tested in CI; qualification is limited to the
+exact hardware combinations in the [compatibility policy](docs/COMPATIBILITY.md#current-claim). The
 minimum OMP version does not qualify every host, browser, or future OMP release.
 
 | | Current contract |
@@ -239,7 +264,8 @@ minimum OMP version does not qualify every host, browser, or future OMP release.
 | Exact qualified OMP | `v18.3.0`, commit `62bc57be1b03ef0802a33cf7f5f530e534527531`; Bun `1.4.0` |
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
-| Qualified platforms | Debian 13 x86-64 and macOS arm64 hosts with a Pixel/Android/Chrome client; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
+| Supported platforms | Linux, macOS, and Windows hosts; Chromium-based browsers including Edge, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser. Each is tested in CI ([matrix](docs/COMPATIBILITY.md#platforms-and-browsers)) |
+| Qualified on hardware | Debian 13 x86-64 and macOS arm64 hosts with a Pixel/Android/Chrome client; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP
@@ -275,11 +301,14 @@ Known limits are part of the claim — read them before installing:
   current physical checks qualify the core directory/View/Control path, not these separate lanes.
 - **Background Web Push is outside the stable core claim.** Repository and desktop Chromium
   coverage exists, but the exact physical closed-PWA, lock-screen, tap-to-Control,
-  stale-generation, force-stop, network-change, and forbidden-sink matrix has not passed.
+  stale-generation, force-stop, network-change, and forbidden-sink matrix has not passed. On iPhone
+  and iPad, background alerts need OMP Sessions added to the Home Screen.
 - **Preview notification detail currently falls back to Session detail** — the OMP snapshot
   carries no bounded preview field.
-- **Windows OMP remains unqualified and unadvertised.** Exact signed gateway and mainline OMP
-  artifacts must repeat the lane before support is claimed ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90)).
+- **Windows hosts are supported but not yet release-qualified.** CI tests the gateway's install and
+  service lifecycle on every change and a stock-OMP canary daily; the persistent reboot-and-login
+  lane for a signed release is still open ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90),
+  [delta](docs/WINDOWS_QUALIFICATION.md)). The gateway starts at logon, not at boot.
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.
@@ -309,7 +338,7 @@ flowchart LR
     GATEWAY -->|read discovery + query host| OMP2[OMP process B]
     GATEWAY -->|read discovery + query host| OMPN[OMP process N]
 
-    PHONE[Android PWA] -->|tailnet HTTPS| SERVE[Tailscale Serve]
+    PHONE[PWA in a phone or desktop browser] -->|tailnet HTTPS| SERVE[Tailscale Serve]
     SERVE -->|loopback HTTP + identity headers| GATEWAY
 
     PHONE -->|encrypted collaboration frames| RELAY[OMP relay]

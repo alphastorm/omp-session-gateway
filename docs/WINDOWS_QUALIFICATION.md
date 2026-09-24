@@ -19,7 +19,16 @@ The Windows canary passed all six stages against stock OMP 18.3.0 in discovery r
 later run, [36015033822](https://github.com/alphastorm/omp-session-gateway/actions/runs/36015033822),
 failed at `publish`: OMP's first command in the fresh profile, which also unpacks its native addon,
 outlasted the canary's 10-second command bound. OMP commands now get a 60-second bound, with no
-retry.
+retry. With that bound, the pull request's `canary-windows` runs passed all six stages against the
+latest stock OMP (18.3.0), for example [36016871476](https://github.com/alphastorm/omp-session-gateway/actions/runs/36016871476).
+
+The published v0.5.3 archive also installed on `windows-latest` with the PowerShell commands in
+[OPERATIONS.md](OPERATIONS.md#2-cli-and-daemon-installation) and [RELEASE.md](RELEASE.md#verify-a-published-build),
+run exactly as written, in discovery run
+[36018098085](https://github.com/alphastorm/omp-session-gateway/actions/runs/36018098085). The
+checksum check printed `True`, `install` reported loopback health ready, and `status` showed
+installed, active, ready, and not diverged. `uninstall` then preserved configuration and the
+readiness token. That was a one-time rehearsal of the published bytes, not a standing lane.
 
 **What this closes.** Before these lanes, the gateway had never queried a real stock OMP over the
 named pipe OMP publishes on Windows; hosted CI covered only the gateway's own service lifecycle.

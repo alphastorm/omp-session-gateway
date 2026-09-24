@@ -23,7 +23,8 @@ Implemented modules:
 - systemd-user, LaunchAgent, and Windows current-user integration;
 - privacy-safe structured logging.
 
-Platform service code is not a support claim: the exact v0.4.0 qualified matrix is recorded in the
-[release ledger](../../docs/RELEASE_STATUS.md); Windows remains unqualified.
+Platform service code is not a support claim by itself: supported platforms, their CI lanes, and the
+exact qualified matrix are in [compatibility](../../docs/COMPATIBILITY.md#platforms-and-browsers).
+Windows is supported and CI-tested, not yet release-qualified.
 
 Do not implement a relay in this package for v1. Do not add a persistent session database.

@@ -110,9 +110,10 @@ in your terminal.
 v0.4.0 now works with stock OMP 18.1.20+, so there's no gateway-specific OMP fork to install.
 enable collaboration once; no copying a fresh link or scanning a QR code for each session.
 
-it uses Tailscale Serve on your private tailnet, not a public dashboard. Android/Chrome is the
-qualified phone path; iOS and background notifications aren't stable support claims. the README
-has the exact host/client matrix.
+it uses Tailscale Serve on your private tailnet, not a public dashboard. it works in any modern
+browser, and CI tests Linux, macOS, and Windows hosts with Chrome, Edge, Firefox, and Safari. the
+Android/Chrome path is qualified on real hardware; background notifications aren't a stable
+support claim. the README has the exact matrix.
 
 repo and setup: https://github.com/alphastorm/omp-session-gateway
 

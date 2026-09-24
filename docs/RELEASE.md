@@ -417,6 +417,13 @@ Verify the archive checksum (`shasum -a 256 -c SHA256SUMS` is the macOS equivale
 sha256sum --check SHA256SUMS
 ```
 
+On Windows, in PowerShell (prints `True`):
+
+```powershell
+$archive = Get-Item omp-session-gateway-*-bun.tar
+(Get-FileHash $archive -Algorithm SHA256).Hash -eq (Select-String -Path SHA256SUMS -SimpleMatch $archive.Name).Line.Split(' ')[0]
+```
+
 Verify GitHub build provenance against the exact repository, workflow, and tag ref:
 
 ```sh

@@ -924,7 +924,7 @@ describe("dashboard attention and notifications", () => {
 
 
 
-  test("keeps the last directory while distinguishing phone and tailnet outages", async () => {
+  test("keeps the last directory while distinguishing device and tailnet outages", async () => {
     const offlineBase = session("offline-session-0001");
     const offline = await bootApp({
       permission: "denied",
@@ -956,7 +956,7 @@ describe("dashboard attention and notifications", () => {
       "Tailnet unreachable",
     );
     expect(tailnet.elements.statusBanner.querySelector(".status-detail")?.textContent).toBe(
-      "Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone.",
+      "This device is online, but your tailnet isn't answering — Tailscale is off or logged out here.",
     );
     expect(tailnet.elements.statusBanner.querySelector(".status-freshness")?.textContent).toContain(
       "Last seen",
@@ -990,7 +990,7 @@ describe("dashboard attention and notifications", () => {
     harness.window.dispatchEvent(new Event("online"));
     await settleUntil(() => harness.elements.statusBanner.querySelector(".status-guidance") !== null);
     expect(harness.elements.statusBanner.querySelector(".status-guidance")?.textContent).toContain(
-      "Android Chrome may be stuck after a network change",
+      "The browser may be stuck after sleep or a network change",
     );
     const troubleshooting = harness.elements.statusBanner
       .querySelectorAll(".status-action")

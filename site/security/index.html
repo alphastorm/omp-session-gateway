@@ -57,10 +57,10 @@ report a vulnerability privately via the
 Control. Passkey verification is proposed, not implemented. The accepted protection against
 upgrades interrupting a pending launch also has an unresolved implementation gap; see
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/DECISIONS.md#current-implementation-audit--2026-09-14">ADR-018</a>.</p>
-<p class="verified">Stable v0.4.0 core qualification uses OMP 18.1.20 / Bun 1.4.0, Debian 13 x86-64,
-macOS 26.6.1 arm64, and Pixel 10 Pro / Android 17 / Chrome 152.0.7977.82. The fresh relay check ran
-1,800 seconds, not eight hours. Exact receipts, exclusions, and the initial unresolved
-Control-upgrade failure are in the <a href="../status/">release status</a>.</p>
+<p class="verified">Each stable release's core qualification names its exact OMP, Bun, Debian,
+macOS, and Pixel builds and a 1,800-second relay check, not eight hours; the current release's
+receipts and exclusions are on the <a href="../status/">status page</a>. Testing more platforms and
+browsers in CI does not change this security boundary.</p>
 </main>
 <footer>
   Community project; not affiliated with or endorsed by the Oh My Pi maintainers.

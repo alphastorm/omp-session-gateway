@@ -68,7 +68,7 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     await expect(page.locator("#status-banner")).toHaveAttribute("data-kind", "offline");
     await expect(page.locator("#status-banner .status-title")).toHaveText("You're offline");
     await expect(page.locator("#status-banner .status-detail")).toContainText(
-      "This phone has no connection. Showing the list as of",
+      "This device has no connection. Showing the list as of",
     );
     await assertFits();
 
@@ -84,7 +84,7 @@ test("failure states keep stale sessions, exact copy, timestamps, and mobile fit
     });
     await expect(page.locator("#status-banner .status-title")).toHaveText("Tailnet unreachable");
     await expect(page.locator("#status-banner .status-detail")).toHaveText(
-      "Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone.",
+      "This device is online, but your tailnet isn't answering — Tailscale is off or logged out here.",
     );
     await expect(page.locator("#status-banner .status-freshness")).toContainText("Last seen");
     await assertFits();
@@ -148,7 +148,7 @@ test("a prolonged visible outage opens recovery help from the loaded shell", asy
 
     await page.clock.fastForward(45_100);
     await expect(page.locator("#status-banner .status-guidance")).toContainText(
-      "Android Chrome may be stuck after a network change",
+      "The browser may be stuck after sleep or a network change",
     );
     await page.route("**/*", route => route.abort("connectionrefused"));
     await page.getByRole("button", { name: "Troubleshooting" }).click();

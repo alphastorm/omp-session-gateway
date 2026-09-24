@@ -19,8 +19,8 @@
 {"@context": "https://schema.org", "@type": "SoftwareApplication",
  "name": "OMP Session Gateway",
  "applicationCategory": "DeveloperApplication",
- "operatingSystem": "Linux, macOS (gateway host); Android (client)",
- "description": "Native integration with stock Oh My Pi 18.1.20+: a private mobile directory and just-in-time View/Control broker for collaboration-enabled terminal sessions, using OMP's own encrypted client and Tailscale Serve. No custom OMP build.",
+ "operatingSystem": "Linux, macOS, Windows (gateway host); any modern browser, including Android, iOS, and iPadOS (client)",
+ "description": "Native integration with stock Oh My Pi 18.1.20+: a private directory and just-in-time View/Control broker for collaboration-enabled terminal sessions, in any modern browser, using OMP's own encrypted client and Tailscale Serve. No custom OMP build.",
  "url": "https://alphastorm.github.io/omp-session-gateway/",
  "codeRepository": "https://github.com/alphastorm/omp-session-gateway",
  "license": "https://github.com/alphastorm/omp-session-gateway/blob/main/LICENSE"}
@@ -42,16 +42,18 @@
 <h1>Every live OMP session. One private mobile&nbsp;page.</h1>
 <p class="lede">Keep using <a href="https://github.com/can1357/oh-my-pi">Oh My Pi</a> in your terminal.
 <strong>OMP Session Gateway works with stock OMP 18.1.20+</strong> to put your collaboration-enabled
-sessions on one private page on your phone. See which need attention, then tap View or Control
- to open OMP's own encrypted client — no QR scans, copied links, or per-session setup.</p>
+sessions on one private page, on your phone or any modern browser. See which need attention, then
+tap View or Control to open OMP's own encrypted client — no QR scans, copied links, or per-session setup.</p>
 
 <div class="receipt">
 <strong>Stock OMP. One-time setup.</strong><br>
 Enable <code>collab.autoStart</code>, install the gateway with Bun <code>1.4.0</code>, and configure
 Tailscale Serve. Then start sessions with plain <code>omp</code>. No custom OMP build or
-gateway-specific OMP plugin. The phone interface is an installable Android-first PWA.
+gateway-specific OMP plugin. Use it from modern browsers, and install it as a PWA on platforms that
+support installation.
 <div class="verified"><a href="https://github.com/alphastorm/omp-session-gateway/releases/latest">Latest stable release</a> ·
-qualified Debian/macOS hosts and Pixel client ·
+Linux, macOS, and Windows hosts; Chrome, Edge, Firefox, and Safari, tested in CI ·
+qualified on Debian/macOS hosts and a Pixel ·
 <a href="status/">exact matrix and limits</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release evidence</a></div>
 </div>
@@ -68,8 +70,9 @@ qualification; <a href="https://github.com/alphastorm/omp-session-gateway/blob/m
 
 <p>The founder-approved relay gate for mainline releases is 30 minutes, not eight hours: eight-hour endurance was
 not rerun or claimed, and residual prolonged-operation risk is accepted. No bounded-memory-growth
-claim is made. Windows OMP, background Web Push, specialized attention and branch/resume, and new
-media qualification remain outside the qualified core claim.</p>
+claim is made. Windows hosts are supported and CI-tested but not yet release-qualified. Background
+Web Push, specialized attention and branch/resume, and new media qualification remain outside the
+qualified core claim.</p>
 
 <h2>Use it when</h2>
 <ul>
