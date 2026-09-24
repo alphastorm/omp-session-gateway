@@ -8,7 +8,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify and publish v0.5.3, the first candidate built from the v18.3.0 engineering baseline.
 - Decide notification-click window reuse: the worker picks a "dashboard" window by `client.url`,
   which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
   notification route. Settle the Android WebAPK single-window behavior before changing it.
