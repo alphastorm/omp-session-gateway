@@ -4,6 +4,7 @@ import addFormats from "ajv-formats";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { SecretCapability, type ObservedSessionInput } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
@@ -1086,7 +1087,7 @@ describe("HTTP boundary", () => {
 
   test("serves stop notification navigation as the no-store PWA shell and refuses ambiguous routes", async () => {
     const shellRoot = new URL("../../web/src/", import.meta.url);
-    const shellAssets = await StaticAssetStore.load(shellRoot.pathname);
+    const shellAssets = await StaticAssetStore.load(fileURLToPath(shellRoot));
     const handler = createTestHttpHandler({ config: config(), registry: populatedRegistry(), staticAssets: shellAssets });
     const shell = await Bun.file(new URL("index.html", shellRoot)).text();
     for (const query of ["activity=stopped&generation=1", "generation=9007199254740991&activity=stopped"]) {

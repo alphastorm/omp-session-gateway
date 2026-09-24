@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { assertStableReleaseQualification, releasePolicy } from "./release-policy.ts";
 
@@ -107,7 +108,7 @@ describe("release tag policy", () => {
       const subprocess = Bun.spawn(
         [process.execPath, "scripts/release-policy.ts", "v0.2.1", VERSION, manifestPath],
         {
-          cwd: new URL("..", import.meta.url).pathname,
+          cwd: fileURLToPath(new URL("..", import.meta.url)),
           stdout: "pipe",
           stderr: "pipe",
         },

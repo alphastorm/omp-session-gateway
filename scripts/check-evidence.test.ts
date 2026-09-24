@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { checkEvidence, mentionsCandidate, parseLedger } from "./check-evidence.ts";
 import { validateEvidenceRecord, type EvidenceAssertion, type EvidenceRecord } from "./evidence-schema.ts";
 
@@ -216,7 +217,7 @@ describe("evidence versus ledger", () => {
 });
 
 describe("checker command", () => {
-  const checker = new URL("./check-evidence.ts", import.meta.url).pathname;
+  const checker = fileURLToPath(new URL("./check-evidence.ts", import.meta.url));
 
   async function run(record: EvidenceRecord): Promise<{ code: number; stderr: string; stdout: string }> {
     const dir = await mkdtemp(join(tmpdir(), "omp-evidence-"));

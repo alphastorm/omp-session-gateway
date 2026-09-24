@@ -1,0 +1,40 @@
+name: Compatibility
+
+# Cross-platform evidence for every change: the same checkout builds and passes its tests on each
+# host OS family. This is source portability, not release qualification: exact signed releases are
+# qualified separately, on the matrix in docs/COMPATIBILITY.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-source:
+    name: portable-source (${{ matrix.os }})
+    strategy:
+      # One OS failing must not cancel the others' evidence.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Observed under 5 minutes on each runner; the bound stops a hang holding a check for 6 hours.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - name: Verify pinned Bun
+        shell: bash
+        run: test "$(bun --version)" = 1.4.0
+      - run: bun install --frozen-lockfile
+      # Repository scan, typecheck, web build, every test not bound to another host OS
+      # (scripts/test-portable.ts names each exclusion and its reason), and both leak scans.
+      - run: bun run check:portable

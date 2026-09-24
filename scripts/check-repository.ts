@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../", import.meta.url);
-const rootPath = root.pathname;
+const rootPath = fileURLToPath(new URL("../", import.meta.url));
 
 const required = [
   "README.md",
@@ -65,7 +65,8 @@ for (const rel of required) {
 }
 
 for (const file of await walk(rootPath)) {
-  const rel = relative(rootPath, file);
+  // Rules below name files with forward slashes; Windows `relative` returns backslashes.
+  const rel = relative(rootPath, file).split(sep).join("/");
   if (rel === "scripts/check-repository.ts") continue;
   if (!/\.(?:md|json|jsonc|hujson|ts|tsx|yml|yaml|toml)$/.test(file) && !["LICENSE", "NOTICE"].includes(rel)) {
     continue;
@@ -73,6 +74,10 @@ for (const file of await walk(rootPath)) {
   const text = await readFile(file, "utf8");
   for (const old of forbiddenLegacy) {
     if (text.includes(old)) errors.push(`${rel}: contains legacy identifier ${JSON.stringify(old)}`);
+  }
+  // A file URL's pathname is "/D:/..." on Windows, which no filesystem API can open.
+  if (/\.tsx?$/u.test(rel) && /import\.meta\.url\)\.pathname\b/u.test(text)) {
+    errors.push(`${rel}: uses a file URL's pathname as a filesystem path; use fileURLToPath`);
   }
 }
 

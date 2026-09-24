@@ -1,0 +1,3 @@
+# Check out LF on every OS. Tests parse tracked text line by line and the web build hashes it, so a
+# CRLF checkout (Git for Windows' default) fails both and changes the built asset names.
+* text=auto eol=lf
