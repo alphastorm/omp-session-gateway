@@ -15,10 +15,11 @@
 and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
 publication credential is needed. Install the separate gateway service once.
 
-**Install published stable [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1).**
-Its signed-candidate evidence is approved, signed publication passed, and its published-byte
-local/Android smoke passed on the first attempt. It removes v0.5.0's PWA update navigation
-described in the [ADR-018 amendment](DECISIONS.md). Exact scopes are
+**After publication, install stable [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2).**
+Its signed-candidate evidence is approved; publication and the separate published-byte local/Android smoke are pending.
+Until then, published v0.5.1 remains current; it rejects OMP registry fields it does not know and
+rereads leftover discovery files every round, which v0.5.2 fixes, and it keeps every staged runtime.
+Exact scopes are
 recorded in the [release ledger](RELEASE_STATUS.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
 retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s
@@ -34,7 +35,7 @@ For v1 header-based authorization, the Android source must be a user-authenticat
 
 Use the published Bun-runtime archive, not a source checkout or candidate tag, for normal
 installation. Follow [Verify a published build](RELEASE.md#verify-a-published-build) for
-`v0.5.1` before extracting or executing it.
+`v0.5.2` before extracting or executing it.
 
 **Upgrading from a fork-era gateway?** Complete the matching-old-CLI stopped-service step below
 first. Do not run the new installer over an active fork-era service.
@@ -43,8 +44,8 @@ From the directory containing the verified download, run as the desktop user, no
 the example origin and login with the deployment’s exact Tailscale HTTPS origin and allowlist:
 
 ```sh
-tar -xf omp-session-gateway-0.5.1-bun.tar
-cd omp-session-gateway-0.5.1-bun
+tar -xf omp-session-gateway-0.5.2-bun.tar
+cd omp-session-gateway-0.5.2-bun
 bun apps/gateway/src/cli.js install \
   --origin https://host.tailnet.ts.net \
   --allow you@example.com
@@ -278,7 +279,7 @@ If the phone is lost or compromised:
 6. rotate the readiness token only when local desktop exposure is suspected—it does not revoke an
    OMP query token or a remote collaboration room.
 
-WebAuthn Control protection is not implemented in v0.5.1;
+WebAuthn Control protection is not implemented in v0.5.2;
 [ADR-008](DECISIONS.md#adr-008--optional-webauthn-gate-not-native-biometrics) remains a proposal.
 Do not rely on a separate biometric or credential-enrollment gate for revocation.
 
@@ -312,7 +313,7 @@ Never ask a user to paste a collaboration link into an issue.
 
 ## 12. Self-hosted relay mode
 
-Self-hosted/proxied relays are outside v0.5.1 support. The following are qualification
+Self-hosted/proxied relays are outside v0.5.2 support. The following are qualification
 requirements for a separately designed deployment, not a supported installation recipe:
 
 - deploy a pinned compatible OMP relay;

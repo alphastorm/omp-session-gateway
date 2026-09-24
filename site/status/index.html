@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway status — current qualified release and support boundary</title>
-<meta name="description" content="Published stable v0.5.1, stock OMP v18.1.20, the exact qualified Debian/macOS/Pixel matrix, verified release provenance, and known limits.">
+<meta name="description" content="Qualified v0.5.2 candidate; stable publication pending, stock OMP v18.1.20, the exact qualified Debian/macOS/Pixel matrix, verified release provenance, and known limits.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
-<meta property="og:description" content="Stable v0.5.1 is published with stock OMP v18.1.20. Exact qualification, verified provenance, and support boundaries are recorded in the release ledger.">
+<meta property="og:description" content="v0.5.2 is qualified for promotion with stock OMP v18.1.20. Exact qualification, verified provenance, and support boundaries are recorded in the release ledger.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
@@ -29,26 +29,26 @@
 </header>
 <main>
 <p class="eyebrow">Native OMP integration · release status</p>
-<h1>Stable v0.5.1</h1>
+<h1>v0.5.2 — promotion pending</h1>
 <p class="lede"><strong>Works with stock OMP 18.1.20+.</strong> No OMP fork, custom build, or
 gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
-setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve. Stable
-<strong>v0.5.1</strong> was promoted from <code>v0.5.1-prealpha.1</code> with identical
+setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve.
+<strong>v0.5.2</strong> is approved for promotion from <code>v0.5.2-prealpha.1</code> with identical
 runtime bytes. Support applies to the exact combinations below, not every later OMP version,
 platform family, or arbitrary build from <code>main</code>.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
-<tr><td>Stable publication</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1">v0.5.1</a> is GitHub Latest, published 2026-09-23. Exact source, digest and completion evidence are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
-<tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1-prealpha.1">v0.5.1-prealpha.1</a>; source <code>ba64d4ad8fe7</code>, archive <code>ac7abda7…acfcf</code>. Signatures, checksums, SBOM, three GitHub attestations and three Sigstore bundles passed.</td></tr>
+<tr><td>Stable publication</td><td>v0.5.2 pending; v0.5.1 remains GitHub Latest until the signed workflow succeeds. Exact source, digest and completion evidence are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
+<tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2-prealpha.1">v0.5.2-prealpha.1</a>; source <code>86cb8584bd13</code>, archive <code>a380baaa…8bdee</code>. Signatures, checksums, SBOM, three GitHub attestations and three Sigstore bundles passed.</td></tr>
 <tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; exact qualified <code>v18.1.20</code>, source <a href="https://github.com/can1357/oh-my-pi/commit/1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b"><code>1bd60c6fbd0e</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential.</td></tr>
-<tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 83/83 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/35851744582">run 35851744582</a></td></tr>
+<tr><td>Qualified Linux host</td><td>Debian 13 (trixie) x86-64, Linux <code>6.12.94+deb13-amd64</code>; 83/83 migration/recovery invariants, stock OMP generation-1 View/Control publication and revocation, persistence, tagged-identity denial/exposure, uninstall and droplet/ephemeral-key destruction in <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/35967074443">run 35967074443</a></td></tr>
 <tr><td>Qualified Mac host</td><td><code>Mac14,3</code>, macOS <code>26.6.1</code> arm64; <code>doctor</code> 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks</td></tr>
-<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build <code>CP2A.260805.005</code>, Chrome <code>153.0.8010.52</code>; View read-only, Control writable, prompt accepted, return to directory. Same-page unlock 9,297 ms, Airplane 8,496 ms, Doze 8,375 ms; all seven forbidden capability sinks detectable and clean.</td></tr>
+<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build <code>CP2A.260805.005</code>, Chrome <code>153.0.8010.52</code>; View read-only, Control writable, prompt accepted, return to directory. Same-page recovery at a 250 ms probe cadence: unlock 5,949 ms (including device wake), Airplane 5,236 ms, Doze 323 ms; all seven forbidden capability sinks detectable and clean.</td></tr>
 <tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.</td></tr>
-<tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-23T11:10:25.233Z</code>–<code>11:40:25.240Z</code>; two transitions, final phase <code>live</code></td></tr>
+<tr><td>Fresh relay check</td><td>1,800 seconds, <code>2026-09-24T08:22:42.272Z</code>–<code>08:52:42.274Z</code>; two transitions, final phase <code>live</code></td></tr>
 <tr><td>OMP publication and revocation</td><td>Stock-OMP host generation 1: View and Control each returned <code>200</code> carrying a capability with <code>no-store</code>, then the host was revoked. Stale-generation and forged-identity refusals are covered by the Debian lane's 83 invariants.</td></tr>
-<tr><td>Migration/rollback predecessor</td><td><code>v0.5.0</code>, mainline. The predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential. Gateway rollback does not switch OMP.</td></tr>
-<tr><td>Published-byte local/Pixel smoke</td><td>Passed on the first attempt against the published bytes: the installed gateway upgraded from v0.5.0 with configuration, readiness token and unrelated Serve mappings preserved; doctor 18/18; existing stock OMP 18.1.20 and Bun 1.4.0. On the Pixel, View was read-only and Control writable; capability-sink, same-page recovery and installed-WebAPK checks passed. The owned fixture was removed. This separate smoke does not expand the exact candidate matrix.</td></tr>
+<tr><td>Migration/rollback predecessor</td><td><code>v0.5.1</code>, mainline. The predecessor installer takes over a running candidate and both rollback selections activate it, preserving configuration and the readiness credential. Gateway rollback does not switch OMP.</td></tr>
+<tr><td>Published-byte local/Pixel smoke</td><td>Pending after stable publication. Candidate qualification does not substitute for the installed published-byte check.</td></tr>
 </table>
 <h2>Known limits — part of the claim</h2>
 <ul>
