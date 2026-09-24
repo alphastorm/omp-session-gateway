@@ -1,17 +1,70 @@
 # Release status
 
-## v0.5.2 preparation — not yet qualified or published
+## Mainline v0.5.2 — qualified; stable publication pending
+
+**Updated:** 2026-09-24. The exact candidate below is approved for stable promotion. Published
+v0.5.1 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.5.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2-prealpha.1).<br>
+**Source:** `86cb8584bd13bd66b37587e45a6bd917b5f30556`.<br>
+**Archive SHA-256:** `a380baaa33e8d41bb733a5c7581beba4ba0577a455bd3bbc662537828c48bdee`.<br>
+**Predecessor:** published `v0.5.1`. Rollback does not change OMP; v0.5.1 rejects OMP registry
+fields it does not know and rereads leftover discovery files every round.
 
 The candidate carries #233 (unknown fields that OMP adds under registry v1 no longer hide sessions;
 leftover discovery files from killed OMP processes no longer keep new sessions out of the scan) and
 #235/#231 (a successful ready install prunes superseded staged runtimes while keeping the active
-runtime, two distinct predecessors, and any divergent service runtime). #234 repairs the capacity
-workflow and measures Android recovery at a 250 ms probe cadence; it changes qualification tooling
-only and is not in the candidate archive. The first capacity run on the discovery-polling design,
-[35963993897](https://github.com/alphastorm/omp-session-gateway/actions/runs/35963993897) on
-`922bf47`, held 50 hosts for 600 seconds at 0.365% of one core and 63,236 KiB peak RSS; it promotes
-no ledger row. Published v0.5.1 remains the predecessor and current stable; no v0.5.2 qualification
-or publication is claimed, and the stable lock remains unchanged until approval.
+runtime, two distinct predecessors, and any divergent service runtime). #234 and #237 change
+qualification tooling only and are not in the candidate archive: the capacity workflow config is
+repaired, Android recovery is probed at a 250 ms cadence, and release-asset downloads retry
+transient GitHub HTTP 5xx. The minimum OMP contract remains 18.1.20.
+
+### Candidate evidence — 2026-09-24
+
+The passing orchestrator ran from `50eeb9569239cd5b1ad9159c0ea4fe520805b8cd` (candidate source
+plus #237); its private receipt records `passed`.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [35966146523](https://github.com/alphastorm/omp-session-gateway/actions/runs/35966146523) |
+| Debian | [35967074443](https://github.com/alphastorm/omp-session-gateway/actions/runs/35967074443) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; 83/83 migration/recovery invariants; predecessor v0.5.1; droplet, tailnet node and ephemeral SSH key removed |
+| Mac | Mac14,3, macOS 26.6.1 arm64; doctor 18/18, token rotation, reboot-to-login persistence with unchanged token digest, rollback invariants 23/23; archive digest matched |
+| OMP publication | exact stock 18.1.20 (`1bd60c6f`); generation-1 View/Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP2A.260805.005, Chrome 153.0.8010.52, asset `app.39cccc9c245b.js`; View read-only, Control writable, prompt accepted, return to directory; at a 250 ms probe cadence, same-page unlock 5,949 ms (including device wake), Airplane 5,236 ms, Doze 323 ms |
+| Secret sinks | all seven sinks detectable and clean; no capability in resource timings or DOM |
+| Relay | 1,800 seconds, 2026-09-24T08:22:42.272Z–08:52:42.274Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts |
+
+Recovery milliseconds are no longer comparable with earlier ledger rows: those recorded the first
+probe after a fixed 8-second (3-second for unlock) wait, not the recovery itself.
+
+**Earlier attempts:** the first orchestrator run, from `86cb858`, stopped in the artifacts lane
+when GitHub answered HTTP 500 to the candidate asset download, before any other lane started. Its
+private receipt is archived unchanged as failed, and #237 added the bounded download retry. The
+passing receipt's first run passed artifacts, Debian, and Mac, then three lanes failed against the
+retained Mac. After Doze the Pixel's page reported the gateway unavailable, then the desktop and
+then the tailnet unreachable, and did not recover within the 48-second window, although 75 of 76
+pings from the device shell to the Mac succeeded. The relay lane ran from 07:09:17Z to 08:06:50Z
+and ended with a command timeout (`bun timed out`). Cleanup SSH to the Mac failed. The first OMP
+publication attempt was left incomplete (`running`), not failed. The Mac's gateway process ran
+throughout without restarting, and the Mac did not sleep. A bounded Android-only run of the same
+lane against the retained fixture then passed (Doze 363 ms). The resume re-verified the artifacts
+and passed OMP publication, Android, relay, and cleanup on their second attempts. The cause of the
+failures is not established.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files**, paths and modes, after re-verifying the candidate digest.
+Only the existing workflow exclusions apply: release-info.json, SBOM.spdx.json,
+STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
+Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required. The first capacity run on the
+discovery-polling design, [35963993897](https://github.com/alphastorm/omp-session-gateway/actions/runs/35963993897)
+on `922bf47`, held 50 hosts for 600 seconds at 0.365% of one core and 63,236 KiB peak RSS; it
+promotes no ledger row.
 
 ## Mainline v0.5.1 — published stable
 

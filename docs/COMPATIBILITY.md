@@ -21,13 +21,16 @@ Earlier releases are unsupported because this local registry does not exist in t
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in
 [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
+From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
+reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
+gateway change.
 
-**Published stable:** [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1),
-GitHub Latest, promoted from v0.5.1-prealpha.1 with identical runtime bytes. Its published-byte
-local/Pixel smoke passed on the first attempt. The rollback predecessor is v0.5.0; its update
-activation can navigate an open page back to the directory, which the ADR-018 amendment in v0.5.1
-removes. The [release ledger](RELEASE_STATUS.md) records the seven passed candidate lanes, the
-earlier stopped attempt, and exact source/archive bindings.
+**Qualified for stable promotion:** [v0.5.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2-prealpha.1), for v0.5.2.
+Publication and the separate published-byte local/Pixel smoke are pending. Published v0.5.1
+remains GitHub Latest until promotion and is this candidate's rollback predecessor; it rejects OMP
+registry fields it does not know and rereads leftover discovery files every round. The
+[release ledger](RELEASE_STATUS.md) records the seven passed candidate lanes, the earlier stopped
+attempts, and exact source/archive bindings.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
@@ -45,8 +48,8 @@ storing them. The minimum version is an integration contract, not proof that eve
 or platform has been tested. No fork-era qualification, signed receipt, or endurance result
 transfers to this architecture. Current source/package pins live in `UPSTREAM.lock.json`.
 
-For v0.5.1, the founder renewed a fresh 30-minute signed-candidate relay check in place of
-the eight-hour gate; that bounded check passed on 2026-09-23. Other release gates remain intact.
+For v0.5.2, the founder renewed a fresh 30-minute signed-candidate relay check in place of
+the eight-hour gate; that bounded check passed on 2026-09-24. Other release gates remain intact.
 Eight-hour endurance is not rerun or claimed;
 prolonged-operation risk remains an accepted limitation rather than transferred historical proof.
 

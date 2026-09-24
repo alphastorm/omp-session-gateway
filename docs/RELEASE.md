@@ -51,12 +51,15 @@ drives the Pixel).
    droplet or ephemeral SSH key remains in the DigitalOcean account.
 3. **Promote it.** One `chore(release): approve vX.Y.Z for stable promotion` PR sets
    `STABLE_RELEASE.lock.json` from the passed receipt, records every lane and any failed attempt in
-   the ledger, and moves README, COMPATIBILITY, OPERATIONS, and the site to "qualified; publication
-   pending" wording. A clean `OMP_RELEASE_CHANNEL=stable bun run release:build` of that tree must
-   match every candidate archive member by path, mode, and bytes, except `release-info.json`,
-   `SBOM.spdx.json`, `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`. Before
-   merging, run `bun run check`, `bun scripts/release-policy.ts vX.Y.Z X.Y.Z STABLE_RELEASE.lock.json`,
-   and `bun run smoke:release -- --tag vX.Y.Z --plan`.
+   the ledger, moves README, COMPATIBILITY, OPERATIONS, and the site to "qualified; publication
+   pending" wording, and updates the extraction commands, the verification defaults below, and the
+   predecessor section of [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
+   `scripts/site-coherence.test.ts` fails while any of these disagree with the stable lock. A clean
+   `OMP_RELEASE_CHANNEL=stable bun run release:build` of that tree must match every candidate
+   archive member by path, mode, and bytes, except `release-info.json`, `SBOM.spdx.json`,
+   `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`. Before merging, run
+   `bun run check`, `bun scripts/release-policy.ts vX.Y.Z X.Y.Z STABLE_RELEASE.lock.json`, and
+   `bun run smoke:release -- --tag vX.Y.Z --plan`.
 4. **Publish.** Merge with the head pinned, confirm the merged tree equals the tested tree, and push
    a signed annotated `vX.Y.Z` tag on the merge commit; `signed-release.yml` publishes it. Verify the
    published build, confirm it is GitHub Latest, and reproduce its archive digest with a local
@@ -64,10 +67,8 @@ drives the Pixel).
 5. **Smoke the published bytes.** Run the [post-release smoke](#post-release-local-installation-smoke)
    with the verified digest.
 6. **Record the evidence.** One `docs(release): record vX.Y.Z publication and installed
-   verification` PR moves every surface to "published", records the publication run, source,
-   digest, and smoke result, and updates the extraction commands, the verification defaults below,
-   and the predecessor section of [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
-   `scripts/site-coherence.test.ts` fails while any of these disagree with the stable lock.
+   verification` PR moves every surface to "published" and records the publication run, source,
+   digest, and smoke result.
 
 Every mainline release so far has renewed a founder-approved fresh 1,800-second relay check in
 place of the eight-hour gate. The orchestrator defaults to 1,800 seconds and rejects shorter
@@ -371,10 +372,10 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=v0.5.1
+TAG=v0.5.2
 WORKFLOW=signed-release.yml
-ARCHIVE=omp-session-gateway-0.5.1-bun.tar
-SBOM=omp-session-gateway-0.5.1.spdx.json
+ARCHIVE=omp-session-gateway-0.5.2-bun.tar
+SBOM=omp-session-gateway-0.5.2.spdx.json
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
