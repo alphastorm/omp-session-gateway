@@ -1,5 +1,18 @@
 # Release status
 
+## v0.5.2 preparation — not yet qualified or published
+
+The candidate carries #233 (unknown fields that OMP adds under registry v1 no longer hide sessions;
+leftover discovery files from killed OMP processes no longer keep new sessions out of the scan) and
+#235/#231 (a successful ready install prunes superseded staged runtimes while keeping the active
+runtime, two distinct predecessors, and any divergent service runtime). #234 repairs the capacity
+workflow and measures Android recovery at a 250 ms probe cadence; it changes qualification tooling
+only and is not in the candidate archive. The first capacity run on the discovery-polling design,
+[35963993897](https://github.com/alphastorm/omp-session-gateway/actions/runs/35963993897) on
+`922bf47`, held 50 hosts for 600 seconds at 0.365% of one core and 63,236 KiB peak RSS; it promotes
+no ledger row. Published v0.5.1 remains the predecessor and current stable; no v0.5.2 qualification
+or publication is claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.5.1 — published stable
 
 **Updated:** 2026-09-23. [v0.5.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.1)
