@@ -217,29 +217,51 @@ jobs:
       # argument was measured not to descend into dot-directories, so `.qualification/` is not swept
       # in either way; the ordering stands because the cheaper failure should come first.
       - run: bun test
+      # The job reads its OMP pin from UPSTREAM.lock.json instead of repeating it, so a baseline
+      # move cannot leave this lane verifying and testing the previous source.
+      - name: Read the pinned OMP baseline
+        id: omp-pin
+        run: |
+          set -euo pipefail
+          commit="$(jq -r '.commit' UPSTREAM.lock.json)"
+          tree="$(jq -r '.tree' UPSTREAM.lock.json)"
+          version="$(jq -r '.packageVersion' UPSTREAM.lock.json)"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ && "$tree" =~ ^[0-9a-f]{40}$ && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            printf '::error title=Invalid OMP pin::UPSTREAM.lock.json must name a 40-hex commit and tree and a semver packageVersion\n'
+            exit 1
+          }
+          {
+            printf 'commit=%s\n' "$commit"
+            printf 'tree=%s\n' "$tree"
+            printf 'version=%s\n' "$version"
+          } >>"$GITHUB_OUTPUT"
       - name: Check out pinned OMP source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: can1357/oh-my-pi
-          ref: 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
+          ref: ${{ steps.omp-pin.outputs.commit }}
           path: .qualification/oh-my-pi
           persist-credentials: false
       - name: Verify mainline OMP source and run its registry fixtures on aarch64
         working-directory: .qualification/oh-my-pi
+        env:
+          OMP_PIN_COMMIT: ${{ steps.omp-pin.outputs.commit }}
+          OMP_PIN_TREE: ${{ steps.omp-pin.outputs.tree }}
+          OMP_PIN_VERSION: ${{ steps.omp-pin.outputs.version }}
         run: |
           set -euo pipefail
           fail() { printf '::error title=%s::%s\n' "$1" "$2"; exit 1; }
 
-          test "$(git rev-parse HEAD)" = 1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b
-          test "$(git rev-parse 'HEAD^{tree}')" = aca949970fb8b73170b05f6a23bf18e23fb5841f
-          printf 'unmodified mainline OMP v18.1.20 source verified\n'
+          test "$(git rev-parse HEAD)" = "$OMP_PIN_COMMIT"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$OMP_PIN_TREE"
+          printf 'unmodified mainline OMP v%s source verified\n' "$OMP_PIN_VERSION"
 
           bun install --frozen-lockfile
 
-          # v18.1.20 publishes the ARM64 addon. Stage it because the source workspace shadows npm.
+          # The pinned release publishes the ARM64 addon. Stage it because the source workspace shadows npm.
           native_fixture="$(mktemp -d)"
           trap 'rm -rf "$native_fixture"' EXIT
-          printf '%s\n' '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-linux-arm64":"18.1.20"}}' >"$native_fixture/package.json"
+          printf '{"private":true,"dependencies":{"@oh-my-pi/pi-natives-linux-arm64":"%s"}}\n' "$OMP_PIN_VERSION" >"$native_fixture/package.json"
           (cd "$native_fixture" && bun install --ignore-scripts)
           cp "$native_fixture/node_modules/@oh-my-pi/pi-natives-linux-arm64/pi_natives.linux-arm64.node" \
             packages/natives/native/pi_natives.linux-arm64.node

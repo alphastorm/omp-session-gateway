@@ -714,6 +714,14 @@ branch/resume remain unqualified. The approved fresh 30-minute relay check passe
 endurance is **not rerun or claimed**, with prolonged-operation risk accepted. No old test count,
 signed receipt, native result, or relay endurance result is transferred.
 
+**Engineering baseline update (2026-09-24):** Accept exact mainline v18.3.0
+(`62bc57be1b03ef0802a33cf7f5f530e534527531`, tree `b36226cce6a225a4c0d2c2162da223d61d7123da`) as the
+engineering pin and refresh the embedded client to its `collab-web`. Registry v1, the collaboration
+protocol, and relay framing are unchanged apart from the optional `busy` field; the minimum host
+stays `18.1.20`, and the client keeps the hub-family renderers that older supported hosts still
+emit. This supersedes the source baseline only: published v0.5.2 qualification stays bound to
+v18.1.20, and v18.3.0 needs its own exact signed-candidate evidence before a stable claim.
+
 ---
 
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability

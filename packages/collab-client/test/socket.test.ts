@@ -607,6 +607,34 @@ describe("CollabSocket browser lifecycle recovery", () => {
     expect(client.getSnapshot().endedReason).toBe("no such room");
   });
 
+  // The transcript memoizes its active-tool scan on the entries reference, so streaming frames
+  // must keep it and only entry frames may replace it.
+  test("keeps the entries reference across streaming frames and replaces it on entry frames", () => {
+    const client = new GuestClient(TEST_LINK, "test guest");
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) throw new Error("initial WebSocket was not created");
+    socket.open();
+    client.applyFrameForTest(TEST_WELCOME);
+    const before = client.getSnapshot().entries;
+    client.applyFrameForTest({ t: "state", state: { ...TEST_STATE, isStreaming: true } });
+    expect(client.getSnapshot().entries).toBe(before);
+    client.applyFrameForTest({
+      t: "entry",
+      entry: {
+        type: "message",
+        id: "m-new",
+        parentId: null,
+        timestamp: "2026-07-20T00:00:02Z",
+        message: { role: "user", content: "hi", timestamp: 2 },
+      },
+    });
+    const after = client.getSnapshot().entries;
+    expect(after).not.toBe(before);
+    expect(after).toHaveLength(before.length + 1);
+    client.close();
+  });
+
 });
 
 describe("Collaboration link error redaction", () => {

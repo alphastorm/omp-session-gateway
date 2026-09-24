@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Move the OMP engineering baseline to v18.3.0 and refresh the embedded collaboration client to
+  OMP's v18.3.0 `collab-web`. The client renders the new `wait` tool, keeps the `hub`, `irc`, `job`,
+  `await`, `poll`, and `cancel_job` renderers that older supported hosts still emit, and memoizes the
+  transcript's active-tool scan so streaming tokens no longer re-walk the whole transcript.
+  `@oh-my-pi/pi-wire` is pinned to 18.3.0. The minimum supported OMP stays 18.1.20, and the
+  qualified matrix moves only when a candidate built from this baseline qualifies.
+
 ### Fixed
 
 - Qualification, smoke, and canary fixtures start OMP with a model that stock OMP 18.3.0 resolves

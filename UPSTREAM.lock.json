@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-09-14",
+  "observedAt": "2026-09-24",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v18.1.20",
-  "commit": "1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b",
-  "packageVersion": "18.1.20",
+  "tag": "v18.3.0",
+  "commit": "62bc57be1b03ef0802a33cf7f5f530e534527531",
+  "packageVersion": "18.3.0",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "18.1.20",
-    "@oh-my-pi/pi-wire": "18.1.14",
+    "@oh-my-pi/pi-coding-agent": "18.3.0",
+    "@oh-my-pi/pi-wire": "18.3.0",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.4.0",
@@ -28,16 +28,17 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown. Registry v1, the exact 18.1.20 baseline, and client/native pins remain unchanged.",
-    "Pinned to mainline OMP v18.1.20. Upstream PR #11908 merged the collaboration controller and host registry; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
+    "Baseline moved to mainline OMP v18.3.0 on 2026-09-24. Registry v1 is unchanged apart from the optional busy field the gateway already accepts, and no collaboration protocol or relay version changed. The minimum supported host stays 18.1.20; this baseline is qualified only once a candidate built from it passes stable qualification.",
+    "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown.",
+    "Upstream PR #11908 merged the collaboration controller and host registry, first shipped in v18.1.20; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
     "The gateway reads OMP discovery files and queries each host for metadata snapshots. View and Control links are resolved on demand; OMP requires only collab.autoStart, with no gateway-facing credential or integration patch.",
     "Discovery endpoints are read from each owner-only file, including upstream socket-path relocation; the gateway never modifies OMP discovery state.",
-    "The vendored collab-web client and npm pi-wire pins remain unchanged. Client provenance and the in-memory bootstrap modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
-    "The Darwin arm64 native hashes identify the official 18.1.20 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
+    "The embedded client follows collab-web and npm pi-wire at v18.3.0. Its provenance and local modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
+    "The Darwin arm64 native hashes identify the official 18.3.0 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
   ],
-  "tree": "aca949970fb8b73170b05f6a23bf18e23fb5841f",
+  "tree": "b36226cce6a225a4c0d2c2162da223d61d7123da",
   "darwinArm64Native": {
-    "tarballSha256": "82b8e4b47e76766f12058648fe26a11acc969973fb6a69a55682a3cc587c4b3e",
-    "binarySha256": "a729f425fe7eb6e0fc673c6977749eeb161369d68ee815488020048a7a5ed807"
+    "tarballSha256": "c7d3fb0f8167c23b021ff7cd55b7fea37a2c2353993988b47520472f7e2c41dd",
+    "binarySha256": "ed9ddcee73382103ba656ca3b2b8ebcc1814563e7b359bc4279ce143d9c397b3"
   }
 }

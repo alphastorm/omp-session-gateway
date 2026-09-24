@@ -23,7 +23,9 @@ Earlier releases are unsupported because this local registry does not exist in t
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
-gateway change.
+gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREAM.lock.json`);
+the qualified matrix below records the current stable's exact qualification and changes only when
+a candidate built from a newer baseline qualifies.
 
 **Published stable:** [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2),
 GitHub Latest, promoted from v0.5.2-prealpha.1 with identical runtime bytes. The
@@ -53,7 +55,8 @@ remain intact.
 Eight-hour endurance is not rerun or claimed;
 prolonged-operation risk remains an accepted limitation rather than transferred historical proof.
 
-The Linux ARM64 source-checkout job stages its published platform native package at `18.1.20`
+The Linux ARM64 source-checkout job stages the published platform native package at the
+`UPSTREAM.lock.json` version
 and runs upstream's `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`.
 It gates only the discovery/query contract consumed by the gateway, not unrelated upstream
 collaboration suites or full repository checks. The required Windows job gates gateway contracts,
