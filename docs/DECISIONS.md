@@ -671,6 +671,21 @@ PR #12844 (`1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9`) under unchanged registry 
 means unknown, not idle. Keep other snapshot keys strict and retain the 18.1.20 baseline and
 existing client/native pins. The compatibility fix does not itself implement stop notifications.
 
+**Additive evolution, 2026-09-24:** Supersedes "keep other snapshot keys strict" above. Upstream
+adds registry v1 fields without a version bump, because a bump would hide every host from
+differently versioned listers; rejecting unknown keys therefore hides every session on each
+addition, as #219 did. Require and validate the discovery, snapshot, `model`, and reply fields the
+gateway reads, ignore other keys, and build every result from named fields only, so nothing
+unknown reaches browser metadata. Keep the exact version gate, and refuse a snapshot that names ask
+content (`prompt`, `question`, `options`, `prefill`, `answer`, `requestId`, `count`).
+
+Upstream prunes a killed host's discovery file only while listing, and the gateway never deletes
+one. After revisiting admitted publications, examine at most 4,096 names per round and read
+unknown publications newest first, so leftovers and other residue ahead of a new session in
+directory order cannot displace it. Remember each publication whose endpoint proved dead by file
+identity, bounded at ten per admission slot, and skip its unchanged file without a read or query.
+A replaced file is read again; a pruned one is forgotten.
+
 Rename the local managed-readiness credential to `readiness-token` and the rotation command to
 `rotate-readiness-token`; it is not an OMP credential. Installation removes the legacy fork-era
 `publisher-token`. Add `omp.discoveryDir` and `omp.queryTimeoutMs`; retain
