@@ -7,7 +7,7 @@
  * is a property of that wire rather than of the gateway's own code.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_LABEL_CODEPOINTS, OMP_REGISTRY_VERSION, type OmpHostSnapshot } from "@omp-session-gateway/protocol";
@@ -310,6 +310,44 @@ describe("OMP discovery directory", () => {
     // Upstream never reuses a publication name, so memory keys on the file itself, not the name.
     const live = await hostDouble(directory, { instanceId: "ffff6666aaaa7777" });
     await rename(join(directory, `${live.entryId}.json`), join(directory, `${crashed.entryId}.json`));
+    expect((await subject.observe()).hosts.map(host => host.session.instanceId)).toEqual([live.instanceId]);
+  });
+
+  test("a new session appears even after dead-publication memory is full", async () => {
+    const directory = await discoveryDirectory();
+    const hourAgo = new Date(Date.now() - 3_600_000);
+    // With maxEntries 1 the reader remembers at most ten dead publications; the eleventh is not.
+    for (let index = 0; index < 11; index++) {
+      const crashed = await hostDouble(directory, { instanceId: `dddd4444eeee55${String(index).padStart(2, "0")}` });
+      await crashed.stop();
+      await utimes(join(directory, `${crashed.entryId}.json`), hourAgo, hourAgo);
+    }
+    const live = await hostDouble(directory, { instanceId: "ffff6666aaaa7777" });
+    const subject = new OmpHostReader({
+      directory,
+      maxEntries: 1,
+      timeoutMs: 500,
+      openDirectory: path => orderedDirectory(path, name => (name.startsWith(live.entryId) ? 1 : 0)),
+    });
+    const seen = new Set<string>();
+    for (let round = 0; round < 15; round++) {
+      for (const host of (await subject.observe()).hosts) seen.add(host.session.instanceId);
+    }
+    expect([...seen]).toEqual([live.instanceId]);
+  });
+
+  test("residue that is not a publication cannot keep a new session out of the scan", async () => {
+    const directory = await discoveryDirectory();
+    // A kill between listen and rename leaves a temporary file and a socket, but never a `.json`.
+    await writeFile(join(directory, "eeee5555ffff6666.json.tmp"), "{", { mode: 0o600 });
+    await writeFile(join(directory, "eeee5555ffff6666.sock"), "", { mode: 0o600 });
+    const live = await hostDouble(directory, { instanceId: "ffff6666aaaa7777" });
+    const subject = new OmpHostReader({
+      directory,
+      maxEntries: 1,
+      timeoutMs: 500,
+      openDirectory: path => orderedDirectory(path, name => (name.startsWith(live.entryId) ? 1 : 0)),
+    });
     expect((await subject.observe()).hosts.map(host => host.session.instanceId)).toEqual([live.instanceId]);
   });
 

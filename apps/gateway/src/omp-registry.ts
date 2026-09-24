@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, open, opendir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -71,10 +71,12 @@ const DEAD_ENDPOINT_CODES: Readonly<Record<string, true>> = { ENOENT: true, ECON
 /**
  * Proven-dead publications remembered per admitted-host slot. OMP prunes a killed host's discovery
  * file only while listing, and the gateway must never delete it, so without this memory every
- * leftover file costs a read, a query, and a share of each round's budget, until enough of them
- * hide new sessions. Past the limit, further dead files are read again as before, still bounded.
+ * leftover file would cost a read and a query each round. Past the limit, further dead files are
+ * read again; newest-first reading keeps them from displacing a newer publication.
  */
 const DEAD_PUBLICATIONS_PER_ENTRY = 10;
+/** Directory names examined per round, whatever they are; the bound on residue a round tolerates. */
+const MAX_DISCOVERY_NAMES = 4_096;
 
 /** A dead publication stays dead only while its exact file is unchanged. */
 function fileIdentity(info: { readonly dev: number; readonly ino: number; readonly size: number; readonly mtimeMs: number }): string {
@@ -274,12 +276,13 @@ export class OmpHostReader {
         // Revisit admitted publications first: an overfull prefix must neither evict a live host
         // nor preserve a vanished host forever. These reads consume the same per-round budget.
         for (const entryId of knownFiles.keys()) await readEntry(entryId);
-        // A normal publication has a JSON file and a socket. Alien names consume this budget too;
-        // a remembered dead publication costs only its names, and its unchanged file is not read.
-        const nameBudget = (this.#maxEntries + this.#dead.size) * 2;
+        // Then read unknown publications newest first. A new session is the newest file, so
+        // neither killed hosts' leftovers nor foreign names ahead of it in directory order can keep
+        // it out of this round's budget; a remembered dead publication costs one lstat.
+        const candidates: { readonly entryId: string; readonly mtimeMs: number }[] = [];
         const seenDead = new Set<string>();
         let complete = false;
-        for (let scanned = 0; scanned < nameBudget && files < this.#maxEntries; scanned++) {
+        for (let scanned = 0; scanned < MAX_DISCOVERY_NAMES; scanned++) {
           const name = await directory.read();
           if (name === null) {
             complete = true;
@@ -288,11 +291,27 @@ export class OmpHostReader {
           if (!name.name.endsWith(".json")) continue;
           const entryId = name.name.slice(0, -".json".length);
           if (knownFiles.has(entryId)) continue;
-          if (await this.#stillDead(entryId)) {
-            seenDead.add(entryId);
+          let info: Stats;
+          try {
+            info = await lstat(join(this.#directory, name.name));
+          } catch {
             continue;
           }
-          await readEntry(entryId);
+          const remembered = this.#dead.get(entryId);
+          if (remembered !== undefined) {
+            if (remembered === fileIdentity(info)) {
+              seenDead.add(entryId);
+              continue;
+            }
+            // A replaced file is a new publication under an old name; read it again.
+            this.#dead.delete(entryId);
+          }
+          candidates.push({ entryId, mtimeMs: info.mtimeMs });
+        }
+        candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+        for (const candidate of candidates) {
+          if (files >= this.#maxEntries) break;
+          await readEntry(candidate.entryId);
         }
         // Only a finished scan proves which remembered files OMP has since pruned.
         if (complete) {
@@ -309,19 +328,6 @@ export class OmpHostReader {
       return { entries: [], identities: new Map(), retained: new Set(this.#entries.keys()), directoryHealthy: false };
     }
     return { entries: [...entries.values()], identities, retained, directoryHealthy: true };
-  }
-
-  /** True while a remembered dead publication's file is unchanged; otherwise the name is forgotten. */
-  async #stillDead(entryId: string): Promise<boolean> {
-    const remembered = this.#dead.get(entryId);
-    if (remembered === undefined) return false;
-    try {
-      if (fileIdentity(await lstat(join(this.#directory, entryId + ".json"))) === remembered) return true;
-    } catch {
-      // Missing or unreadable: forget it and let the normal read classify the name.
-    }
-    this.#dead.delete(entryId);
-    return false;
   }
 
   #rememberDead(entryId: string, identity: string | undefined): void {

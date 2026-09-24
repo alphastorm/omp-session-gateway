@@ -80,8 +80,9 @@ Every publication consists of a private discovery file and an owner-only query e
 per-host query token. It uses the published endpoint verbatim: long socket paths may be relocated
 under `/tmp/omp-collab-<hash>`. Discovery files are written once, so file timestamps do not
 represent metadata freshness. The gateway only reads them and never repairs or removes them. A
-killed host's file stays until an OMP listing (`omp collab list`) prunes it; the gateway skips
-unchanged files whose endpoint already proved dead, so leftovers cannot hide new sessions.
+killed host's file stays until an OMP listing (`omp collab list`) prunes it. Because each file's
+timestamp is its publication time, the gateway reads unknown publications newest first and skips
+unchanged files whose endpoint already proved dead, so leftovers cannot displace a new session.
 
 Queries are newline-framed JSON, one request and response per connection. `snapshot` returns
 metadata, while `link` resolves one exact generation and role on an explicit launch. The complete

@@ -680,9 +680,11 @@ unknown reaches browser metadata. Keep the exact version gate, and refuse a snap
 content (`prompt`, `question`, `options`, `prefill`, `answer`, `requestId`, `count`).
 
 Upstream prunes a killed host's discovery file only while listing, and the gateway never deletes
-one. Remember each publication whose endpoint proved dead by file identity, bounded at ten per
-admission slot, and skip its unchanged file, so leftovers cannot consume the per-round discovery
-budget and hide new sessions. A replaced file is read again; a pruned one is forgotten.
+one. After revisiting admitted publications, examine at most 4,096 names per round and read
+unknown publications newest first, so leftovers and other residue ahead of a new session in
+directory order cannot displace it. Remember each publication whose endpoint proved dead by file
+identity, bounded at ten per admission slot, and skip its unchanged file without a read or query.
+A replaced file is read again; a pruned one is forgotten.
 
 Rename the local managed-readiness credential to `readiness-token` and the rotation command to
 `rotate-readiness-token`; it is not an OMP credential. Installation removes the legacy fork-era

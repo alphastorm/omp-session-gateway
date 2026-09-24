@@ -42,9 +42,11 @@ field that is present, requires the non-optional ones, ignores the rest, and bui
 from named fields only. Any other `version` or `v` is refused.
 
 A killed host leaves its file behind until an OMP listing such as `omp collab list` prunes it; the
-gateway never deletes it. The gateway remembers, by file identity, each publication whose endpoint
-proved dead (`ENOENT`/`ECONNREFUSED`) and skips that unchanged file, so leftovers cannot exhaust
-the per-round discovery budget. A replaced file is read again; a pruned one is forgotten.
+gateway never deletes it. Each round the gateway revisits admitted publications, then examines at
+most 4,096 directory names and reads unknown publications newest first, so older leftovers and
+non-publication residue cannot displace a new session. It remembers, by file identity, up to ten
+publications per admission slot whose endpoint proved dead (`ENOENT`/`ECONNREFUSED`) and skips each
+unchanged one without a read or query. A replaced file is read again; a pruned one is forgotten.
 
 ## 2. Per-host query transport
 
