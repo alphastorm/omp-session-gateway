@@ -14,9 +14,21 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Keep sessions visible when OMP adds a field to its registry v1 discovery file, snapshot, or
+  replies. OMP added `busy` that way, and the next such field would have hidden every session again
+  (#219). The gateway still requires and validates every field it reads, never forwards an unknown
+  one, rejects other registry versions, and refuses a snapshot that names ask content.
+- Stop leftover discovery files from killed OMP processes hiding new sessions. OMP deletes them only
+  while listing and the gateway never does, so every round re-read and re-queried each one against
+  the 100-publication budget. The gateway now reads unknown publications newest first and skips
+  unchanged files whose socket already proved dead; `omp collab list` still prunes them immediately.
 - Recognize the installed service's runtime when the installation path contains `&`, `<`, `>`, or
   `"`. LaunchAgent and task XML escape those characters and systemd quotes them, so `status`
   reported a false divergence and cleanup deferred.
+- Remove the stale capacity qualification registry key and validate the workflow-generated config
+  through the real gateway loader in script tests (qualification tooling only, outside the runtime archive).
+- Measure Android recovery from the first successful rendered-directory probe with 250 ms between
+  attempts and unchanged scenario windows, rather than a multi-second initial sleep (qualification tooling only).
 
 ## [v0.5.1] — 2026-09-23
 
