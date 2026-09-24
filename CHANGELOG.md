@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Run a daily upstream OMP canary against latest stock OMP, checking discovery, queries, generation-
+  bound View/Control joins, prompt echo, and host death; scheduled failures update one tracking issue.
+
 ### Changed
 
 - Move the OMP engineering baseline to v18.3.0 and refresh the embedded collaboration client to
