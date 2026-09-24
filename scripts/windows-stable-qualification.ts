@@ -82,7 +82,8 @@ const FACTS = ["preloginSamples", "preloginDurationMs", "automaticStartMs", "doc
   "loopbackOnly", "pixelIdentityAccepted", "viewReadOnly", "controlWritable", "promptAccepted", "returnedToDirectory",
   "configPreserved", "readinessPreserved", "readinessChanged", "historySelected", "restored", "uninstalled", "revoked",
   "windowsBuild", "cpus", "memoryMiB", "failedPhaseAttempts", "doctorTrue", "doctorIdentityAllowed", "doctorPwa",
-  "doctorSessionHealth", "doctorPublisherHealth", "doctorSecurityHeaders", "logonTrigger", "interactivePrincipal"] as const;
+  "doctorSessionHealth", "doctorPublisherHealth", "doctorSecurityHeaders", "logonTrigger", "interactivePrincipal",
+  "transportStabilitySamples", "transportStabilityDurationMs"] as const;
 interface Progress extends Record<string, unknown> {
   schemaVersion: 1;
   lane: "windows";
@@ -249,7 +250,12 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
       await save();
       await runtime.saveAccess(progress.epoch, instance);
     });
-    await step("transport_ready", async () => { facts(await guest("transport")); });
+    await step("transport_ready", async () => {
+      const result = await guest("transport");
+      requireFact(typeof result.transportStabilitySamples === "number" && result.transportStabilitySamples >= 3 &&
+        typeof result.transportStabilityDurationMs === "number" && result.transportStabilityDurationMs >= 60_000, "authenticated WinRM stability window incomplete");
+      facts(result);
+    });
     await step("toolchain_staged", async () => { await save(); await runtime.rdp(context); facts(await guest("stage")); });
     await step("predecessor_installed", async () => { requireFact((await guest("installPredecessor")).ready === true, "predecessor did not become ready"); });
     await step("candidate_upgraded", async () => {

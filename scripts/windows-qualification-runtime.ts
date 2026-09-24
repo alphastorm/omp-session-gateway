@@ -105,6 +105,31 @@ export async function verifyWindowsStaleLaunch(origin: string, session: Record<s
   return { staleViewStatus: 409, staleControlStatus: 409 };
 }
 
+export async function waitForStableWindowsTransport(
+  probe: () => Promise<Record<string, unknown>>,
+  clock: Pick<WindowsRuntime, "now" | "sleep">,
+  deadline: number,
+): Promise<Record<string, unknown>> {
+  let samples = 0; let firstSuccess = 0;
+  while (clock.now() < deadline) {
+    try {
+      const observation = await probe();
+      const observedAt = clock.now();
+      if (observedAt >= deadline) break;
+      if (samples === 0) firstSuccess = observedAt;
+      samples += 1;
+      if (samples >= 3 && observedAt - firstSuccess >= 60_000) {
+        return { ...observation, transportStabilitySamples: samples, transportStabilityDurationMs: observedAt - firstSuccess };
+      }
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("WinRM transport not yet ready:")) throw error;
+      samples = 0; firstSuccess = 0;
+    }
+    await clock.sleep(Math.min(30_000, Math.max(0, deadline - clock.now())));
+  }
+  throw new Error("authenticated WinRM stability window timed out");
+}
+
 export async function createWindowsRuntime(options: { development?: boolean } = {}): Promise<WindowsRuntime> {
   const environment: Record<string, string | undefined> = { ...process.env };
   const vultrKey = (await privateFile(join(homedir(), ".vultr-apikey"))).trim();
@@ -150,7 +175,6 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       }
     },
     async createInstance(label: string, firewall: string) {
-      if (environment.OMP_STABLE_ALLOW_WINDOWS_PROVISION !== "1") throw new Error("Windows provisioning admission is disabled");
       const group = await provider.firewall(firewall);
       if (!group || group.description !== label || !firewallEligibility(group.id, group.description, environment).eligible) throw new Error("attached firewall ownership changed");
       const counterPath = join(devRoot, `creations-${activeTag}.json`);
@@ -278,13 +302,13 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       const rdpVersion = await command(["sdl-freerdp", "/version"]);
       if (!rdpVersion.includes(`version ${pins.freerdpVersion} `)) throw new Error("FreeRDP version mismatch");
       await requireSingleDevice(); // Read-only device enumeration; navigation is behind pixel().
-      const tailnet = await request<{ devices: unknown[] }>("https://api.tailscale.com/api/v2/tailnet/alphastorm.github/devices", tsHeaders);
+      const tailnet = await request<{ devices: unknown[] }>("https://api.tailscale.com/api/v2/tailnet/-/devices", tsHeaders);
       if (!tailnet || !Array.isArray(tailnet.devices)) throw new Error("qualification tailnet admission failed");
       if (input.identity) for (const artifact of [input.identity.candidate, input.identity.predecessor]) {
         const info = await lstat(artifact.archivePath);
         if (!info.isFile() || info.isSymbolicLink() || digest(await readFile(artifact.archivePath)) !== artifact.archiveSha256) throw new Error("verified gateway archive changed or is not a regular file");
       }
-      return { admitted: true, protectionVerified: true, toolchainVerified: true, provisioningEnabled: environment.OMP_STABLE_ALLOW_WINDOWS_PROVISION === "1" };
+      return { admitted: true, protectionVerified: true, toolchainVerified: true };
     },
     async saveAccess(epoch, instance) {
       if (!instance.default_password) throw new Error("create response lacks guest access; destroy required");
@@ -295,6 +319,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       const access = await loadAccess(context.epoch);
       const save = async (changes: Record<string, unknown>) => atomicPrivate(vaultPath(context.epoch), { ...await loadAccess(context.epoch), ...changes });
       if (action === "transport") {
+        const deadline = Date.now() + 12 * 60_000;
         // Creation can return a provisional address. Wait for provider allocation,
         // then authenticate the guest at that freshly observed address.
         await poll(async () => {
@@ -303,16 +328,11 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
           if (current.status !== "active" || current.server_status !== "ok" || current.power_status !== "running" || !current.main_ip) return false;
           await context.beforeEffect(); await save({ host: current.main_ip });
           return true;
-        }, 12 * 60_000, "provider Windows allocation");
-        let result: Record<string, unknown> = {};
-        await poll(async () => {
-          try { result = await ps(context, "transport", {}, 75_000); return true; }
-          catch (error) {
-            if (error instanceof Error && error.message.includes("WinRM transport not yet ready:")) return false;
-            throw error;
-          }
-        }, 12 * 60_000, "authenticated WinRM");
-        return result;
+        }, Math.max(0, deadline - Date.now()), "provider Windows allocation");
+        return waitForStableWindowsTransport(
+          () => ps(context, "transport", {}, Math.max(1, Math.min(75_000, deadline - Date.now()))),
+          { now: Date.now, sleep: Bun.sleep }, deadline,
+        );
       }
       if (action === "stage") {
         if (access.toolsReady !== true) {
@@ -414,7 +434,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     },
     restorePixel,
     async deleteTailnet(context) {
-      const listing = await request<{ devices: Array<{ id: string; hostname: string }> }>("https://api.tailscale.com/api/v2/tailnet/alphastorm.github/devices", tsHeaders);
+      const listing = await request<{ devices: Array<{ id: string; hostname: string }> }>("https://api.tailscale.com/api/v2/tailnet/-/devices", tsHeaders);
       if (!listing) throw new Error("tailnet listing failed");
       const matches = listing.devices.filter(item => item.hostname === windowsCampaignLabel(context.epoch));
       for (const match of matches) {
@@ -423,7 +443,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
         if (fresh.hostname !== windowsCampaignLabel(context.epoch)) throw new Error("tailnet ownership changed");
         await context.beforeEffect(); await request(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders, "DELETE");
       }
-      const after = await request<{ devices: Array<{ hostname: string }> }>("https://api.tailscale.com/api/v2/tailnet/alphastorm.github/devices", tsHeaders);
+      const after = await request<{ devices: Array<{ hostname: string }> }>("https://api.tailscale.com/api/v2/tailnet/-/devices", tsHeaders);
       if (!after || after.devices.some(item => item.hostname === windowsCampaignLabel(context.epoch))) throw new Error("tailnet node remains");
     },
   };

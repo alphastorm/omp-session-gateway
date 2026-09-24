@@ -55,6 +55,10 @@ credential in the existing private qualification files. Preflight checks current
 image/plan availability, existing resources, tools, the attached device, and archive digests.
 All pre-existing instance and firewall IDs become protected for the attempt. A Vultr API access
 control rejection requires authorizing the operator's current `/32`; never broaden it to all IPs.
+The stable campaign (or explicit development `run`) is provisioning authority; there is no
+second environment-variable gate. The creation cap, positive ownership label and protected
+inventory snapshot remain mandatory. Tailscale inventory and cleanup use `tailnet/-`, binding
+every query to the API credential's own tailnet rather than a hard-coded account identifier.
 
 The development commands are:
 
@@ -62,7 +66,7 @@ The development commands are:
 export PATH="$HOME/.local/lib/omp-session-gateway/bun/v1.4.0:$PATH"
 bun scripts/windows-stable-qualification.ts preflight
 bun scripts/windows-stable-qualification.ts artifacts
-OMP_STABLE_ALLOW_WINDOWS_PROVISION=1 bun scripts/windows-stable-qualification.ts run
+bun scripts/windows-stable-qualification.ts run
 # Also safe after an interrupted controller; recovers ownership from the checkpoint epoch.
 bun scripts/windows-stable-qualification.ts cleanup
 ```
@@ -83,6 +87,11 @@ used. The tagged Tailscale join uses a private guest file consumed via `--auth-k
 removed in `finally`. TUN-mode Serve targets loopback, with Funnel disabled.
 Windows uses `tailscale up --unattended=true` for machine-wide connectivity; authenticating
 with `login` alone did not establish the persistent backend in the development run.
+Allocation and authenticated WinRM admission share one 12-minute deadline. Admission requires
+three consecutive read-only successes spanning at least 60 seconds; a transport error resets
+both the count and window, while a guest assertion failure aborts immediately. The observed
+`transportStabilitySamples` and `transportStabilityDurationMs` are receipt facts. Mutations are
+not retried by this readiness boundary.
 
 An initial pinned RDP logon establishes the interactive session required by installation; the
 client then disconnects. The sequence is predecessor install → candidate upgrade with private-state digests unchanged →
@@ -255,10 +264,61 @@ zero-resource result. The receipt is mode 0600 and passed the forbidden-key/netw
 scan; the Pixel lease was released only after foreground/display/keyguard restoration. Temporary
 parser, uncompressed source archive and restoration scratch files were removed.
 
-No product defect was established. These are resumed v0.5.3 development observations, not a
-fresh uninterrupted run of the final harness and not v0.6.0 qualification. The exact signed
-candidate must still run through the integrated stable orchestrator from a fresh epoch; in
-particular it must exercise the combined post-login HMAC/TUN readiness gate during a new reboot.
+No product defect was established. Those third-VM observations were resumed v0.5.3 development
+evidence, not a fresh uninterrupted run or v0.6.0 qualification. They did not exercise the
+combined post-login HMAC/TUN gate during a new reboot; the fourth-VM observation below does.
+
+### Fourth VM: first-boot admission follow-up
+
+A new VM was started with the separate provisioning flag unset and credential-scoped
+`tailnet/-` inventory. The uninterrupted invocation failed after 455.95 s: firewall creation
+took 7,883 ms, instance creation 7,171 ms, and cold authenticated WinRM 346,711 ms, but the
+subsequent initial RDP fingerprint request returned `WinRMTransportError HTTP 400`. A separate
+framed read-only certificate query later succeeded without a repair. The original fault's
+cause is not established; neither that query nor the subsequent resume is a claimed fix.
+
+The admission contract was strengthened separately: one authenticated success after boot is
+not stability. The final boundary requires the three consecutive observations described above.
+Injected tests prove that an error between successes resets the count and elapsed window,
+that instability cannot extend the deadline, and that a guest assertion is not retried. A
+separate live read-only smoke on this fourth guest observed three successes spanning 74,314 ms
+(82.19 s command), recorded privately in `transport-stability-vm4.json`. This verifies the new
+boundary but does not retroactively replace the original attempt's transport checkpoint.
+
+The retained fourth VM then completed in one resumed invocation of **1,814.61 s** with exactly
+one failed-phase resume recorded. From `toolchain_staged` onward, the final implementations ran
+in sequence without another repair or resume, including a real reboot and the combined
+post-login readiness gate. Its v0.5.3/v0.5.2 gateway inputs, stock OMP 18.3.0, Bun 1.4.0,
+Tailscale 1.102.4 and Windows build 26100 were unchanged from the pins above.
+
+| Fourth-VM phase | Observed duration | Result |
+|---|---:|---|
+| Toolchain staging | 936,976 ms | Fresh guest tools, archived source build and tagged TUN/Serve |
+| Predecessor installation | 47,011 ms | v0.5.2 ready |
+| Candidate upgrade | 67,189 ms | v0.5.3 ready; both private-state digests preserved |
+| Reboot request / pre-login gate | 26,852 / 88,521 ms | Three negative samples spanning 61,958 ms |
+| Automatic post-login startup | **94,568 ms** | Pinned RDP login, HMAC readiness and actual connected/TUN doctor predicates |
+| Post-reboot doctor | 23,524 ms | 15/18; only the three expected identity denials; logon/interactive task verified |
+| OMP publication and launch | 41,679 ms | Named pipe, generation 1, View/Control 200, stale generations 409, no-store |
+| Pixel lease, checks and restoration | 279,809 ms | User identity accepted; View, Control, prompt, directory return and baseline restoration |
+| OMP revocation | 14,519 ms | Owned fixture stopped and revocation observed |
+| Readiness rotation | 32,937 ms | New readiness digest, ready, configuration preserved |
+| History-selected rollback | 35,726 ms | v0.5.2 restored with private state preserved |
+| Candidate restoration | 36,323 ms | v0.5.3 restored with private state preserved |
+| Uninstall | 17,582 ms | No gateway task/process/listener; private state preserved |
+
+The user-owned Pixel again reached the **tagged Windows node** successfully; DND was untouched.
+No manual gateway task start occurred after reboot. Start-to-evidence elapsed time was
+2,472,201 ms (about 41.2 minutes), including the failed initial invocation and diagnosis. This
+is explicitly **resumed**, not fresh-uninterrupted, and remains tested-development-only.
+
+Cleanup proved zero qualification instances and firewalls, the matching tailnet node deleted
+and the access vault absent. A separate 2.82 s cleanup invocation returned the same result.
+Four VMs were created in total and all were destroyed. The Pixel lease was released after
+verified restoration. Mode-0600 `evidence-vm4-resumed.json` and `progress-vm4-resumed.json`
+preserve this attempt; its evidence and the separate stability proof passed the forbidden-key
+and network-identifier scan. The exact signed v0.6.0 candidate still requires its own stable
+campaign; no development evidence is promoted to qualification.
 
 ## Fork-era procedure and evidence archive
 

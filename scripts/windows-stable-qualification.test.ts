@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { cleanupWindows, runWindows, verifyWindowsDoctor, windowsCampaignLabel, windowsNeedsCleanup, assertWindowsPins } from "./windows-stable-qualification.ts";
 import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsRuntime } from "./windows-stable-qualification.ts";
-import { verifyWindowsStaleLaunch, windowsPixelLauncherPackage } from "./windows-qualification-runtime.ts";
+import { verifyWindowsStaleLaunch, windowsPixelLauncherPackage, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
 import { firewallEligibility } from "./vultr-target.ts";
 import { parseQualificationPins } from "./stable-qualification.ts";
 
@@ -19,6 +19,38 @@ const taggedDoctorChecks = { assets: true, compatibility: true, config: true, da
   serveMapping: true, serviceActive: true, serviceInstalled: true, tailscaleConnected: true,
   identityAllowed: false, pwa: false, sessionHealth: false, securityHeaders: true };
 const doctorState = { loopbackOnly: true, logonTrigger: true, interactivePrincipal: true };
+test("an authenticated transport error resets both the stability count and window", async () => {
+  let now = 0; let failed = false;
+  const uninterrupted: number[] = [];
+  const result = await waitForStableWindowsTransport(async () => {
+    if (!failed && uninterrupted.length === 1) {
+      failed = true; uninterrupted.length = 0;
+      throw new Error("WinRM transport not yet ready: HTTP 400");
+    }
+    uninterrupted.push(now);
+    return { windowsBuild: 26100 };
+  }, { now: () => now, sleep: async ms => { now += ms; } }, 180_000);
+  expect(result.transportStabilitySamples).toBe(uninterrupted.length);
+  expect(result.transportStabilitySamples).toBeGreaterThanOrEqual(3);
+  expect(result.transportStabilityDurationMs).toBe(uninterrupted.at(-1)! - uninterrupted[0]!);
+  expect(result.transportStabilityDurationMs).toBeGreaterThanOrEqual(60_000);
+});
+test("transport instability cannot extend the allocation deadline", async () => {
+  let now = 0;
+  await expect(waitForStableWindowsTransport(async () => {
+    if (now >= 75_000) throw new Error("probe started after allocation deadline");
+    throw new Error("WinRM transport not yet ready: HTTP 400");
+  }, { now: () => now, sleep: async ms => { now += ms; } }, 75_000)).rejects.toThrow("stability window timed out");
+  expect(now).toBe(75_000);
+});
+test("guest rejection is not treated as transient transport instability", async () => {
+  let probes = 0; let elapsed = 0;
+  const failure = new Error("provider guest shape mismatch");
+  await expect(waitForStableWindowsTransport(async () => { probes += 1; throw failure; },
+    { now: () => elapsed, sleep: async ms => { elapsed += ms; } }, 75_000)).rejects.toBe(failure);
+  expect(probes).toBe(1);
+  expect(elapsed).toBe(0);
+});
 test("Pixel restoration selects the installed app behind a non-exported Chrome activity", () => {
   const component = "com.android.chrome/org.chromium.chrome.browser.webapps.SameTaskWebApkActivity";
   const activities = [
@@ -67,6 +99,7 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
         configPreserved: true, readinessPreserved: true, readinessChanged: true, checks: taggedDoctorChecks, ...doctorState,
         namedPipe: true, generation: 1, viewStatus: 200, controlStatus: 200, staleViewStatus: options.stale ?? 409, staleControlStatus: 409, noStore: true,
         revoked: true, historySelected: true, restored: true, uninstalled: true,
+        transportStabilitySamples: 3, transportStabilityDurationMs: 60_000,
       };
     },
     rdp: async () => { events.push("rdp"); },
