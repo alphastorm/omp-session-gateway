@@ -1,18 +1,18 @@
 {
   "repository": "https://github.com/can1357/oh-my-pi",
-  "commit": "daf07999c2fee9b22edc7bf8fea1fb6272e0df5e",
-  "tag": "v18.1.14",
+  "commit": "62bc57be1b03ef0802a33cf7f5f530e534527531",
+  "tag": "v18.3.0",
   "package": "@oh-my-pi/collab-web",
   "packageVersion": "16.3.6",
   "sourcePath": "packages/collab-web",
   "additionalSources": [
     {
       "package": "@oh-my-pi/pi-utils",
-      "packageVersion": "18.1.14",
+      "packageVersion": "18.3.0",
       "sourcePath": "packages/utils/src/math-delimiters.ts"
     }
   ],
-  "observedAt": "2026-09-08",
+  "observedAt": "2026-09-24",
   "bunVersion": "1.4.0",
   "localPatches": [
     "Validate Markdown link schemes through the browser URL parser, including control-character normalization",
@@ -20,7 +20,8 @@
     "Installed-PWA same-document mount through a reusable in-memory bootstrap",
     "Return to the gateway directory on leave or reload",
     "Force a fresh relay transport after mobile foreground and online transitions",
-    "Recover established guests across bounded relay room replacement",
+    "Recover established guests across bounded relay room replacement instead of adopting upstream's unbounded guest room-recovery retry",
+    "Keep the hub, irc, job, await, poll, and cancel_job renderers upstream removed in v18.3.0, because older supported OMP releases still emit those tools",
     "Use a metadata-free same-origin gateway health probe to replace relay transport once after an observed outage recovers",
     "Preserve strict exact-optional typing for view links without a write token",
     "Redact invalid capability input from collaboration-link errors",
@@ -34,7 +35,7 @@
     "Enforce view-link read-only state inside every mutating guest-client method",
     "Capture active composer pointers so status-row layout changes cannot cancel mobile actions",
     "Keep the npm marked dependency instead of @oh-my-pi/pi-utils/marked so the bundled runtime closure stays pure JavaScript",
-    "Vendor the pure v18.1.14 math delimiter grammar instead of adding @oh-my-pi/pi-utils and its native dependency closure",
+    "Vendor the pure math delimiter grammar instead of adding @oh-my-pi/pi-utils and its native dependency closure",
     "Render upstream LaTeX delimiters through CSP-safe native MathML without KaTeX stylesheet or font assets",
     "Preserve upstream rejected-currency and half-streamed delimiter semantics across the retained npm marked parser",
     "Force the transcript to its tail when an initial or recovered connection becomes live without discarding transcript windowing",

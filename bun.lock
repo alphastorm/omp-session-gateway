@@ -17,7 +17,7 @@
     },
     "apps/gateway": {
       "name": "@omp-session-gateway/gateway",
-      "version": "0.4.2",
+      "version": "0.5.2",
       "dependencies": {
         "@omp-session-gateway/protocol": "workspace:*",
         "web-push": "3.6.7",
@@ -28,16 +28,16 @@
     },
     "apps/web": {
       "name": "@omp-session-gateway/web",
-      "version": "0.4.2",
+      "version": "0.5.2",
       "dependencies": {
         "@omp-session-gateway/protocol": "workspace:*",
       },
     },
     "packages/collab-client": {
       "name": "@omp-session-gateway/collab-client",
-      "version": "0.4.2",
+      "version": "0.5.2",
       "dependencies": {
-        "@oh-my-pi/pi-wire": "18.1.14",
+        "@oh-my-pi/pi-wire": "18.3.0",
         "katex": "0.18.5",
         "lucide-react": "1.31.0",
         "marked": "18.0.9",
@@ -47,11 +47,11 @@
     },
     "packages/protocol": {
       "name": "@omp-session-gateway/protocol",
-      "version": "0.4.2",
+      "version": "0.5.2",
     },
   },
   "packages": {
-    "@oh-my-pi/pi-wire": ["@oh-my-pi/pi-wire@18.1.14", "", {}, "sha512-YmQmDE45mZsreCU/eH4YXtqjJPW25P0SsubXcZnw/hmgC4p4nygOLST7bubwLFbegouoY7mnZhIoomuIV0eD3w=="],
+    "@oh-my-pi/pi-wire": ["@oh-my-pi/pi-wire@18.3.0", "", {}, "sha512-Raj3PoKCddKcznQ/n/EfYDxUPF+4SAXex6W1btzIIHiGlb3MM9pKNG6GUnypYARhWzEQV+YOH2fykDkvKFvqZQ=="],
 
     "@omp-session-gateway/collab-client": ["@omp-session-gateway/collab-client@workspace:packages/collab-client"],
 

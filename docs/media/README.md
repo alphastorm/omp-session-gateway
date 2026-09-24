@@ -15,8 +15,8 @@ bun run media:check
 
 `media:capture` builds the actual PWA and pinned collaboration client before capture. It publishes the canonical set only after staging the complete package. `media:check` verifies the binaries, manifest, public-safety rules, and root README references; it does not regenerate media. Both use `packages/collab-client/upstream/UPSTREAM.json` for browser-client provenance, independently of the OMP host baseline.
 
-Source revision: `396995c4c35a144d48e6aff23017ff9ac7692f82`  
-Pinned client: `v18.1.14` / `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e` (`@oh-my-pi/collab-web` 16.3.6)
+Source revision: `b1a37a7edc5b224435810e5cf2af1528324a6edc`  
+Pinned client: `v18.3.0` / `62bc57be1b03ef0802a33cf7f5f530e534527531` (`@oh-my-pi/collab-web` 16.3.6)
 
 Normalized tool versions:
 
@@ -25,7 +25,7 @@ Normalized tool versions:
 - Playwright 1.62.1
 - Chromium 151.0.7922.34
 - FFmpeg 9.0
-- ffprobe 9.0.1
+- ffprobe 9.0.2
 
 The synthetic clock is 2026-08-21T12:10:00.000Z, with locale en-US, timezone UTC, dark color scheme, and reduced motion. Mobile captures use a 390×844 CSS-pixel viewport at DPR 2, producing 780×1688 PNGs.
 

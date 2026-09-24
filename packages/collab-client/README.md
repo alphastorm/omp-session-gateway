@@ -1,14 +1,14 @@
 # `packages/collab-client`
 
-Pinned integration of OMP's existing `packages/collab-web` source at tag `v18.1.14`, commit
-`daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`. The upstream collab package remains version
-`16.3.6`; `@oh-my-pi/pi-wire` is pinned exactly to `18.1.14`. Wire protocol source is unchanged
-from `v17.4.1`; the wire package delta is release metadata and toolchain scripts only.
+Pinned integration of OMP's existing `packages/collab-web` source at tag `v18.3.0`, commit
+`62bc57be1b03ef0802a33cf7f5f530e534527531`. The upstream collab package remains version
+`16.3.6`; `@oh-my-pi/pi-wire` is pinned exactly to `18.3.0`. Its collaboration protocol is
+unchanged from `v18.1.14`; the wire package only adds unrelated `skillshare` and `stream` modules.
 
-These are the preserved browser-client provenance pins, not the OMP host prerequisite. Gateway
-v0.4.0 consumes the native registry/controller in stock OMP `>= 18.1.20` without a fork, custom
-OMP build, or gateway-specific OMP plugin. Its root `UPSTREAM.lock.json` records that separate
-host/source baseline; do not rewrite this client's provenance to match it. See
+These are the preserved browser-client provenance pins, not the OMP host prerequisite. The gateway
+consumes the native registry/controller in stock OMP `>= 18.1.20` without a fork, custom OMP
+build, or gateway-specific OMP plugin. Its root `UPSTREAM.lock.json` records that separate
+host/source baseline; the two pins happen to name the same tag but move independently. See
 [OMP_INTEGRATION.md](../../docs/OMP_INTEGRATION.md) for qualification and deployment scope.
 
 The local patch passes the capability directly into the root `App` component. The installed PWA
@@ -22,10 +22,17 @@ Network Information transitions replace a potentially stale relay transport. Whi
 metadata-free same-origin health probe also forces one replacement after a detected gateway outage
 recovers.
 
-The `v18.1.14` client changes are integrated without weakening the gateway's local boundaries. LaTeX
+The `v18.1.14` and `v18.3.0` client changes are integrated without weakening the gateway's local
+boundaries. `v18.3.0` adds the `wait` tool renderer and memoizes the transcript's active-tool
+scan; the hub-family renderers upstream removed (`hub`, `irc`, `job`, `await`, `poll`,
+`cancel_job`) stay registered because the older OMP releases the gateway supports still emit them.
+Upstream's unbounded guest room-recovery retry and its cached entries array are not adopted: the
+bounded local room recovery recorded in `upstream/UPSTREAM.json` already keeps established guests,
+and entries are replaced only by entry frames, so their reference is already stable across
+streaming frames. LaTeX
 delimiters render through KaTeX `0.18.5` as native MathML with `trust: false`; no KaTeX stylesheet,
 font URL, or remote asset is emitted. The browser bundle retains npm `marked` `18.0.9` and vendors
-the pure delimiter grammar from `@oh-my-pi/pi-utils` `18.1.14` at the same commit rather than adding
+the pure delimiter grammar from `@oh-my-pi/pi-utils` `18.3.0` at the same commit rather than adding
 that package's native dependency closure. Initial and recovered `live` transitions return the main
 transcript to its tail, while the compact agent transcript remains independent. Upstream's retired
 `inspect_image` renderer is removed.

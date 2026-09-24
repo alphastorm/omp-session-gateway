@@ -368,26 +368,31 @@ export function Transcript(props: TranscriptProps): ReactNode {
 	};
 
 	// Active tools not already represented as toolCall blocks in committed rows or the stream ghost.
-	const renderedToolIds = new Set<string>();
-	for (const entry of entries) {
-		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		for (const block of entry.message.content) {
-			if (block.type === "toolCall") renderedToolIds.add(block.id);
+	// Memoized on its inputs: the inline scan re-walked every entry and block on every render, which
+	// is every streaming token.
+	const tailTools = useMemo(() => {
+		const renderedToolIds = new Set<string>();
+		for (const entry of entries) {
+			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+			for (const block of entry.message.content) {
+				if (block.type === "toolCall") renderedToolIds.add(block.id);
+			}
 		}
-	}
-	if (stream !== null) {
-		for (const block of stream.content) {
-			if (block.type === "toolCall") renderedToolIds.add(block.id);
+		if (stream !== null) {
+			for (const block of stream.content) {
+				if (block.type === "toolCall") renderedToolIds.add(block.id);
+			}
 		}
-	}
-	const tailTools: ActiveTool[] = [];
+		const tail: ActiveTool[] = [];
+		for (const tool of activeTools.values()) {
+			if (suppressAskTool === true && tool.toolName === "ask") continue;
+			if (!renderedToolIds.has(tool.toolCallId)) tail.push(tool);
+		}
+		return tail;
+	}, [entries, stream, activeTools, suppressAskTool]);
 	const visibleActiveToolCount = [...activeTools.values()].filter(
 		tool => suppressAskTool !== true || tool.toolName !== "ask",
 	).length;
-	for (const tool of activeTools.values()) {
-		if (suppressAskTool === true && tool.toolName === "ask") continue;
-		if (!renderedToolIds.has(tool.toolCallId)) tailTools.push(tool);
-	}
 
 	return (
 		<div

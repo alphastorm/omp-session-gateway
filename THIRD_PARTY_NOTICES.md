@@ -12,9 +12,9 @@ source locations, and required attributions are included at the stated archive p
 
 ## Bundled runtime dependencies
 
-### @oh-my-pi/pi-wire@18.1.14
+### @oh-my-pi/pi-wire@18.3.0
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/v18.1.14/packages/wire>
+- Source: <https://github.com/can1357/oh-my-pi/tree/v18.3.0/packages/wire>
 - License: MIT
 - Copyright: Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/runtime/@oh-my-pi__pi-wire/LICENSE`
@@ -194,10 +194,10 @@ source locations, and required attributions are included at the stated archive p
 
 ### @oh-my-pi/collab-web@16.3.6
 
-- Source: <https://github.com/can1357/oh-my-pi/tree/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/collab-web>
-- Additional source: `@oh-my-pi/pi-utils@18.1.14` delimiter grammar from
-  <https://github.com/can1357/oh-my-pi/blob/daf07999c2fee9b22edc7bf8fea1fb6272e0df5e/packages/utils/src/math-delimiters.ts>
-- Pinned source: tag `v18.1.14`, commit `daf07999c2fee9b22edc7bf8fea1fb6272e0df5e`
+- Source: <https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531/packages/collab-web>
+- Additional source: `@oh-my-pi/pi-utils@18.3.0` delimiter grammar from
+  <https://github.com/can1357/oh-my-pi/blob/62bc57be1b03ef0802a33cf7f5f530e534527531/packages/utils/src/math-delimiters.ts>
+- Pinned source: tag `v18.3.0`, commit `62bc57be1b03ef0802a33cf7f5f530e534527531`
 - License: MIT
 - Copyright: Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük; Copyright (c) 2026 Stencil Labs, Inc.
 - License text: `licenses/collab-web/LICENSE`

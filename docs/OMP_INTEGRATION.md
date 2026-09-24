@@ -10,18 +10,18 @@ than 18.1.20 lack this registry and are unsupported by the current gateway. The 
 requires Bun 1.4.0, TUN-mode Tailscale Serve, an exact login allowlist, and the one-time
 `collab.autoStart` setting below; native integration does not mean a bundled gateway or public access.
 
-`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.1.20`, commit
-`1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`, tree
-`aca949970fb8b73170b05f6a23bf18e23fb5841f`. The minimum supported host version is distinct from
+`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.3.0`, commit
+`62bc57be1b03ef0802a33cf7f5f530e534527531`, tree
+`b36226cce6a225a4c0d2c2162da223d61d7123da`. The minimum supported host version is distinct from
 that exact host/source baseline. The embedded browser client has its own preserved
-[v18.1.14 source and wire pins](../packages/collab-client/README.md); do not conflate them with
-the host minimum.
+[source and wire pins](../packages/collab-client/README.md), currently also `v18.3.0`; do not
+conflate them with the host minimum.
 
 The current published stable and its exact qualified matrix are recorded in the
 [compatibility policy](COMPATIBILITY.md); per-candidate receipts, limits, and published-byte checks
-are in the [release ledger](RELEASE_STATUS.md). Qualification uses the exact baseline above, stock
-OMP 18.1.20 with Bun 1.4.0, and does not qualify every later OMP release; no fork-era
-qualification transfers.
+are in the [release ledger](RELEASE_STATUS.md). A candidate is qualified against the exact baseline
+above with Bun 1.4.0, which does not qualify every later OMP release; no fork-era qualification
+transfers.
 
 ## Additive activity compatibility
 
@@ -32,8 +32,8 @@ Its source is `session.isStreaming`: true while running a turn, false while idle
 when omitted/null. It is not proof of successful completion or process exit. The parser validates
 this named extension. Other fields upstream adds under v1 are ignored rather than rejected and are
 never projected; a snapshot naming prompt/answer content is still refused (ADR-028).
-The exact engineering baseline, minimum host version, embedded client, and native pins above stay
-unchanged. Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
+The minimum host version stayed unchanged when the engineering baseline later moved to v18.3.0.
+Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
 The source activity extension projects known `busy` into browser metadata and supports stop alerts
 through the existing opt-in Push channel. Older hosts remain unknown and cannot produce stop

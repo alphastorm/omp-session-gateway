@@ -1,6 +1,9 @@
 /**
  * Tool renderer registry. Keys are current wire tool names; aliases keep old
- * transcript names renderable. Unknown tools fall back to the generic JSON renderer.
+ * transcript names renderable. OMP 18.3.0 replaced the hub-family tools with `wait`, and
+ * upstream dropped their renderers, but the older OMP releases the gateway supports still
+ * emit `hub`, `irc`, `job`, `await`, `poll`, and `cancel_job`, so those stay registered.
+ * Unknown tools fall back to the generic JSON renderer.
  */
 import { genericRenderer } from "./generic";
 import { askRenderer } from "./tools/ask";
@@ -29,6 +32,7 @@ import { reportToolIssueRenderer } from "./tools/report-tool-issue";
 import { resolveRenderer } from "./tools/resolve";
 import { taskRenderer } from "./tools/task";
 import { todoRenderer } from "./tools/todo";
+import { waitRenderer } from "./tools/wait";
 import { webSearchRenderer } from "./tools/web-search";
 import { writeRenderer } from "./tools/write";
 import { yieldRenderer } from "./tools/yield";
@@ -60,6 +64,7 @@ const RENDERERS: Record<string, ToolRenderer> = {
 	await: jobRenderer,
 	poll: jobRenderer,
 	cancel_job: jobRenderer,
+	wait: waitRenderer,
 	lsp: lspRenderer,
 	recall: recallRenderer,
 	reflect: reflectRenderer,
