@@ -105,14 +105,17 @@ not qualify an actual OMP binary, native host, relay, or physical client.
 - Linux ARM64 source-checkout CI stages the pinned platform native and runs only
   upstream `registry.test.ts`, `registry-smoke.test.ts`, and `host-registry.test.ts`; gateway
   gates cover the discovery/query contract, not upstream's unrelated suites or full repo checks.
-- Windows CI covers gateway contracts, ACLs, and service lifecycle only; upstream Windows registry
-  tests and real named-pipe discovery remain outside this gate and unqualified.
+- Windows CI covers gateway contracts, ACLs, and service lifecycle on every change; upstream's
+  Windows registry tests stay outside that gate. Real named-pipe discovery runs in the daily
+  `canary-windows` lane below, which is tested evidence, not qualification.
 
 The daily [upstream OMP canary](../.github/workflows/upstream-canary.yml) installs latest stock OMP
-into an isolated directory and exercises discovery, snapshot/model validation, stale-generation
-refusal, and the embedded client’s View/Control joins and prompt echo against one disposable host.
+into an isolated directory on Linux and, in `canary-windows`, on Windows. On each host it exercises
+discovery, snapshot/model validation, stale-generation refusal, and the embedded client’s
+View/Control joins and prompt echo against one disposable host. On Windows the host runs in its own
+hidden console and is ended by process-tree termination, since a console takes no signal.
 Run locally with `bun scripts/upstream-canary.ts --omp <binary>`; `--model <provider/id>` overrides
-the shared fixture model for diagnosis. After SIGTERM, it requires PID exit plus an absent entry
+the shared fixture model for diagnosis. After SIGTERM (or, on Windows, termination), it requires PID exit plus an absent entry
 or a gateway `gone` reply, never `unavailable`. Stock 18.1.20 and 18.3.0 leave their publication on
 SIGTERM: `discoveryFileRemoved` reports that separately, and OMP prunes its own dead entry only
 after the verdict. This is not qualification, touches no phone, and proves neither provider

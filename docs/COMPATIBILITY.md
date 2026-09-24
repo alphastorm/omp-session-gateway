@@ -1,5 +1,38 @@
 # Compatibility and support policy
 
+## Platforms and browsers
+
+Use OMP Session Gateway from a modern browser, and install it as a PWA where the platform supports
+web-app installation. The gateway runs on the computer that runs OMP.
+
+| Surface | Status | Tested by | Qualified on hardware |
+|---|---|---|---|
+| Linux host | Supported | `portable-source (ubuntu-24.04)`, `implementation-checks`, `linux-arm64-source-checkout` (aarch64), daily `canary` against stock OMP | Debian 13 (trixie) x86-64 |
+| macOS host | Supported | `portable-source (macos-latest)` | macOS 26.6.1 arm64 (`Mac14,3`) |
+| Windows host | Supported | `portable-source (windows-latest)`, `windows-service-lifecycle`, daily `canary-windows` against stock OMP | Not yet; see the [Windows delta](WINDOWS_QUALIFICATION.md) |
+| Chrome and Chromium | Supported | `browser-core` desktop Chromium; `browser-notifications` full suite at Pixel sizes | Chrome on Android 17, Pixel 10 Pro |
+| Edge and other Chromium-based browsers | Supported through Chromium | `browser-core` desktop Chromium; the client has no Edge-specific code path | None |
+| Firefox | Supported | `browser-core` desktop Firefox | None |
+| Safari and WebKit | Supported | `browser-core` desktop WebKit | None |
+| Android | Supported | `browser-notifications` at measured Pixel sizes | Pixel 10 Pro, Android 17, Chrome |
+| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | None; no physical Apple device is tested |
+
+**Supported** means every listed lane stays green (on each change, the canaries daily) and bug
+reports are accepted. **Qualified on hardware** names what a signed release passed on real
+machines, in [Current claim](#current-claim) and the [release ledger](RELEASE_STATUS.md). Hosted
+runners and browser engines are not physical devices, so neither column stands in for the other;
+see the [status vocabulary](#status-vocabulary).
+
+- **Installing as a PWA.** Chromium browsers install from the browser menu on desktop and Android.
+  Safari installs with Add to Home Screen on iPhone and iPad, and Add to Dock on macOS. Desktop
+  Firefox has no web-app install; it works in a tab.
+- **Background alerts** (Web Push) are outside every qualification. iPhone and iPad offer them only
+  to a Home Screen app (iOS and iPadOS 16.4+). Playwright's WebKit has no push service, so the
+  compatibility lane runs desktop WebKit without service workers and does not test WebKit push.
+- **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
+  browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.
+- **Windows** starts the gateway at interactive logon, not at unattended boot.
+
 ## v0.5.0 compatibility correction
 
 Published v0.4.2 rejects the additive `busy` field emitted by OMP 18.2.9 and can hide live sessions
@@ -64,8 +97,10 @@ It gates only the discovery/query contract consumed by the gateway, not unrelate
 collaboration suites or full repository checks. The required Windows job gates gateway contracts,
 ACLs, and service lifecycle only. In [run 34818847249](https://github.com/alphastorm/omp-session-gateway/actions/runs/34818847249),
 native staging succeeded, but upstream's graceful SIGTERM fixture received exit 143 rather than
-0, followed by a Bun 1.4.0 crash during registry tests. Neither job qualifies real OMP-to-gateway
-discovery on Windows; its named-pipe path remains unverified and Windows remains unadvertised.
+0, followed by a Bun 1.4.0 crash during registry tests. Real OMP-to-gateway discovery on Windows
+is exercised instead by the `canary-windows` lane, which drives stock OMP's named pipe through the
+unchanged reader ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)); Windows is supported and
+tested, not qualified.
 
 ## Fork-era published-release history
 
@@ -151,15 +186,19 @@ Compatibility statements use these terms deliberately:
 
 | Term | Meaning |
 |---|---|
+| **Tested** | A named CI lane runs it and is green, on every change or on its stated schedule. It proves that lane's scope on hosted runners or browser engines, not a physical device or a signed release. |
+| **Supported** | A platform family the project keeps working and accepts bug reports against. Each supported family names the Tested lanes that cover it and its known limits; support never implies qualification. |
+| **Qualified** | The complete applicable release matrix passed on the named version, OS, browser, and deployment path. |
 | **Implemented** | The relevant code path exists and has repository-level automated coverage. |
 | **Smoke-tested** | A named scenario passed in one recorded environment. This is not a platform support claim. |
-| **Qualified** | The complete applicable release matrix passed on the named version, OS, browser, and deployment path. |
-| **Supported** | A published release advertises that qualified combination and accepts bug reports against it. |
 | **Deferred** | Intentionally outside the current release target. |
 | **Unsupported** | Must not be presented as a working deployment path. |
 
 An implemented or smoke-tested row remains unqualified until every applicable security,
 installation, lifecycle, and cleanup scenario passes. Blank version ranges never imply support.
+Tested and supported never become qualified: a green hosted or emulated lane is not a
+physical-device or signed-release result. A family whose lanes stop running loses its support
+status (ADR-030).
 
 ## Exact OMP baseline
 
@@ -259,8 +298,9 @@ smoke only.
 | Android client | Installable HTTPS PWA through Tailscale Serve | Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 152.0.7977.75 loaded signed candidate asset `/assets/app.32115375c6b5.js`. View/read-only, Control, and prompt acknowledgement passed. Same-page lock (9,451 ms), Airplane (8,481 ms), and forced Doze (8,799 ms) recovered without a reload; all seven forbidden capability sinks were detectable and clean. | Qualified only for the named device/OS/browser. Issue #65 remains a process-wide Chrome limitation outside the proven transitions. | Stable v0.3.0: named Pixel combination only |
 | Desktop Chromium | Development/smoke client | Serve access as the current node's allowed identity, loopback-backend identity rejection, three real OMP cards, View/Control/interrupt, SSE, URL scrub, browser-store/cache checks, process removal, foreground/online reconnect, and live `/new` generation revocation (`409` for the stale generation) passed | Not a release target, and never a substitute for physical Android qualification: emulating a device's viewport and pixel ratio is not a result from that device. The denied-identity evidence in this document comes from a tagged droplet and the physical Pixel, not from desktop Chromium. | Smoke only |
 
-No other Linux init system, macOS deployment mode, Windows service mechanism, iOS browser,
-Firefox, Safari, or Chromium derivative has a compatibility claim.
+At those fork-era releases, no other Linux init system, macOS deployment mode, Windows service
+mechanism, iOS browser, Firefox, Safari, or Chromium derivative had a compatibility claim. Current
+platform and browser support is in [Platforms and browsers](#platforms-and-browsers).
 
 The v1 HTTP identity boundary assumes a user-controlled workstation. Any untrusted process or
 different OS account that can connect to the desktop's loopback port can forge the non-cryptographic

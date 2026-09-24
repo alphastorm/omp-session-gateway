@@ -533,7 +533,7 @@ v18.1.14 needs its own exact evidence before a stable claim.
 
 ## ADR-025 — Publish stable 0.1 against a narrow matrix and bound browser-process failure
 
-**Status:** Accepted
+**Status:** Accepted; its support scope is amended by ADR-030
 
 **Context:** GitHub excludes every prerelease from its Latest release surface. The qualified beta
 already proves the gateway's core security, host, lifecycle, View/Control, and physical-Android
@@ -758,3 +758,41 @@ directory. Resume costs one additional launch round trip and one fresh relay tra
 fire while a client is still live, because it is reachable only after disposal. An offline restore
 resumes nothing and shows the directory's own failure state. Resume is qualified by the browser lane
 only; it carries no iOS claim.
+
+## ADR-030 — Claim support for CI-tested platform families, separately from qualification
+
+**Status:** Accepted
+
+**Date:** 2026-09-24
+
+**Context:** ADR-025 tied every claim to the exact matrix a signed candidate passed on physical
+hardware, so the public story read as one Debian host, one Mac, and one Pixel. The web client has no
+platform-specific code path: no user-agent sniffing, no install-prompt dependency, and feature
+detection for badges, push, and viewport APIs. Users asking whether it works on their computer and
+browser found only that matrix, and "Windows OMP remains unqualified and unadvertised" read as
+"Windows does not work". Hosted CI now supplies the missing evidence at no cost for a public
+repository. `portable-source` runs the checks on Linux, macOS, and Windows. `browser-core` runs the
+browser-neutral e2e tests on Chromium, Firefox, WebKit, and iPhone-class WebKit. `canary-windows`
+drives stock OMP's Windows named pipe through the gateway's reader, joins View and Control through
+the relay, and checks the prompt echo.
+
+**Decision:** Separate three claims, defined in the COMPATIBILITY.md status vocabulary. *Tested*: a
+named CI lane is green. *Supported*: a platform family the project keeps working, backed by named
+Tested lanes, with bug reports accepted. *Qualified*: the exact combination a signed release passed in
+the release matrix, unchanged from ADR-025.
+
+Public surfaces lead with the supported families: Linux, macOS, and Windows hosts; Chrome, Chromium,
+and Edge through Chromium; Firefox; Safari and WebKit; Android; iPhone and iPad as a WebKit browser.
+The qualified matrix stays in COMPATIBILITY.md and the release ledger. Edge has no separate lane
+unless an Edge-specific defect appears.
+
+Tested and supported never transfer into qualified, and emulation is never presented as a
+physical-device result. No retry, runtime skip, or `continue-on-error` may keep a supporting lane
+green. A host-bound test exclusion names its platform and reason in `scripts/test-portable.ts`.
+
+**Consequences:** "Supported" no longer implies qualified. This replaces ADR-025's consequence that
+stable means supported inside one exact matrix; stable still means qualified inside it. A supported
+family can regress between qualifications. Its lanes are the tripwire, and a family whose lanes stop
+running loses support status. Windows hosts are supported without release qualification until a
+persistent signed Windows lane runs (WINDOWS_QUALIFICATION.md). Stable release notes list the
+qualified combinations as qualified, not as the limit of support.

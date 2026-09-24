@@ -49,6 +49,16 @@ bun apps/gateway/src/cli.js install \
 bun apps/gateway/src/cli.js serve-guidance
 ```
 
+On Windows, run the same steps in PowerShell, one command per line; Windows 10 and later include
+`tar`:
+
+```powershell
+tar -xf (Get-Item omp-session-gateway-*-bun.tar).Name
+cd omp-session-gateway-*-bun
+bun apps/gateway/src/cli.js install --origin https://host.tailnet.ts.net --allow you@example.com
+bun apps/gateway/src/cli.js serve-guidance
+```
+
 The archive contains one bundled JavaScript CLI and static web assets, not separate native
 `omp-gateway` and `omp-gatewayd` binaries. Both package command names refer to that CLI. The
 installer stages the verified payload in private, content-addressed storage, creates or retains
@@ -113,8 +123,9 @@ Service mechanisms (qualification is limited to the exact release matrix):
 - Linux: systemd user service named `omp-session-gateway.service`; Debian 13 x86-64 is qualified,
   not every Linux distribution or non-systemd host;
 - macOS: LaunchAgent under the current user; starts after that user logs in, not at unattended boot;
-- Windows: current-user scheduled task; mainline discovery and signed-candidate lifecycle
-  qualification remain pending. No Windows support claim transfers from fork-era source acceptance.
+- Windows: current-user scheduled task that starts at interactive logon, not at unattended boot;
+  supported and CI-tested (service lifecycle on every change, a daily stock-OMP named-pipe canary),
+  with signed-release qualification pending ([Windows delta](WINDOWS_QUALIFICATION.md)).
 
 Operator commands:
 

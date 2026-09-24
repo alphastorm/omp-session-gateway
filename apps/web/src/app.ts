@@ -220,7 +220,7 @@ function setNotificationControl(state: NotificationControlState): void {
     state === "blocked"
       ? "Notifications are blocked. Enable them in this site's browser settings."
       : state === "unavailable"
-        ? "Background push is not available in this browser profile."
+        ? "Background push is not available in this browser profile. On iPhone and iPad it needs OMP Sessions added to the Home Screen."
         : "Alerts work with the app closed for input requests or activity stops. After revalidation, requests open Control; activity stops open View.";
   notificationDisclosure.hidden = state === "enabled";
   // The all-clear surface repeats the alert promise, so it re-renders with the control state.
@@ -539,11 +539,11 @@ function showTransportFailure(kind: TransportFailureKind): void {
   const copy: Record<TransportFailureKind, readonly [string, string]> = {
     offline: [
       "You're offline",
-      "This phone has no connection. Showing the list as of " + asOf + " — retries automatically.",
+      "This device has no connection. Showing the list as of " + asOf + " — retries automatically.",
     ],
     tailnet: [
       "Tailnet unreachable",
-      "Phone is online, but your tailnet isn't answering — Tailscale is off or logged out on this phone.",
+      "This device is online, but your tailnet isn't answering — Tailscale is off or logged out here.",
     ],
     desktop: [
       "Desktop unreachable",
@@ -571,7 +571,7 @@ function showTransportFailure(kind: TransportFailureKind): void {
       createTextElement(
         "span",
         "status-guidance",
-        "Still unreachable? Android Chrome may be stuck after a network change. Force stop the browser hosting OMP Sessions in Android Settings, then reopen OMP Sessions.",
+        "Still unreachable? The browser may be stuck after sleep or a network change. Fully close the browser hosting OMP Sessions, then reopen OMP Sessions.",
       ),
     );
   }

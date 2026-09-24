@@ -34,10 +34,11 @@
 gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
 setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve.
 <strong>v0.5.3</strong> was promoted from <code>v0.5.3-prealpha.1</code> with identical
-runtime bytes. Support applies to the exact combinations below, not every later OMP version,
-platform family, or arbitrary build from <code>main</code>.</p>
+runtime bytes. Qualification applies to the exact combinations below; supported platform families
+are tested in CI (first row). Neither covers every later OMP version or an arbitrary build from <code>main</code>.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
+<tr><td>Supported platforms (CI-tested)</td><td>Linux, macOS, and Windows hosts; Chrome and Chromium, Edge through Chromium, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser, emulated rather than on a physical device. Tested on every change by <code>portable-source</code>, <code>browser-core</code>, <code>browser-notifications</code> and <code>windows-service-lifecycle</code>, and daily by the stock-OMP canaries on Linux and Windows. Supported is not qualified; see the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md#platforms-and-browsers">platform matrix</a>.</td></tr>
 <tr><td>Stable publication</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3">v0.5.3</a> is GitHub Latest, published 2026-09-24. Exact source, digest and completion evidence are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
 <tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3-prealpha.1">v0.5.3-prealpha.1</a>; source <code>e07186280745</code>, archive <code>95377102…fadab</code>. Signatures, checksums, SBOM, three GitHub attestations and three Sigstore bundles passed.</td></tr>
 <tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; exact qualified <code>v18.3.0</code>, source <a href="https://github.com/can1357/oh-my-pi/commit/62bc57be1b03ef0802a33cf7f5f530e534527531"><code>62bc57be1b03</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential.</td></tr>
@@ -57,7 +58,7 @@ platform family, or arbitrary build from <code>main</code>.</p>
 <li><strong>Android radio transitions</strong> can wedge Chrome's process-wide network stack while Android stays healthy; the PWA retries and, after 45 s of visible failure, opens force-stop/reopen help.</li>
 <li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the eight-hour gate with this fresh check, as for v0.4.1 and v0.4.0. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
 <li><strong>Background Web Push, specialized attention, branch/resume, and new media qualification</strong> are outside this core claim; these physical checks do not qualify those separate lanes.</li>
-<li><strong>Windows OMP</strong> remains unqualified and unadvertised; gateway source/lifecycle checks do not qualify the real OMP named-pipe path.</li>
+<li><strong>Windows hosts</strong> are supported and CI-tested, including a daily canary that drives stock OMP's named pipe through the gateway, but not yet release-qualified. The gateway starts at logon, not at boot.</li>
 <li><strong>In v0.5.0 and earlier, an update can close a page in use:</strong> on the first visit after a gateway upgrade, the new service worker's activation can navigate a pending launch or an open View/Control page back to the directory, because Chromium reports each page's creation URL. The first post-release View/Control smoke failures, including v0.4.0's return to the directory after View, match this navigation. The v0.5.1 fix never navigates from the worker; see the release ledger.</li>
 <li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
 <li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>

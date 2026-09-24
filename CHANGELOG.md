@@ -20,6 +20,19 @@ The format is based on Keep a Changelog and Semantic Versioning.
   View and Control joins through the relay, prompt echo, and host-death checks run against it. A
   scheduled failure names the failing host in the tracking issue. OMP's own commands now have a
   60-second bound, because a fresh profile's first command also unpacks OMP's native addon.
+- Windows install and checksum steps in PowerShell, rehearsed against the published v0.5.3 archive
+  on a Windows runner.
+
+### Changed
+
+- Support and qualification are separate claims (ADR-030). Linux, macOS, and Windows hosts;
+  Chrome, Chromium, and Edge; Firefox; Safari/WebKit; and Android are supported and tested in CI,
+  with iPhone and iPad tested as a WebKit browser. Qualification remains the exact hardware matrix
+  each signed release passes. The README opens with a compatibility table, and the
+  compatibility policy with the per-platform lanes.
+- The PWA's outage messages and troubleshooting sheet no longer assume an Android phone: they
+  speak of "this device", explain how to fully close the browser on Android, iPhone and iPad, and
+  computers, and note that iPhone and iPad offer background alerts only to a Home Screen app.
 
 ### Fixed
 

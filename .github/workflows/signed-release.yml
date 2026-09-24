@@ -219,9 +219,9 @@ jobs:
           EOF
           elif [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
             cat > "$notes" <<EOF
-          ## v$PACKAGE_VERSION — narrowly supported stable release
+          ## v$PACKAGE_VERSION — qualified stable release
 
-          This release supersedes $QUALIFIED_PREVIOUS_TAG as GitHub Latest. Stable describes the exact supported matrix below; it does not claim compatibility with unnamed hosts, browsers, OMP builds, or remote-access paths.
+          This release supersedes $QUALIFIED_PREVIOUS_TAG as GitHub Latest. Its signed candidate passed the exact qualified combinations below on real hardware. Supported platform families (Linux, macOS, and Windows hosts; Chromium-based browsers, Firefox, and Safari/WebKit) are tested in CI, not qualified; see docs/COMPATIBILITY.md. Neither claims unnamed hosts, browsers, OMP builds, or remote-access paths.
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
@@ -230,7 +230,7 @@ jobs:
           - The exact qualified OMP baseline moves to stock v18.3.0; mainline OMP >=18.1.20 remains the minimum.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
-          ### Advertised combinations
+          ### Qualified combinations
 
           | role | combination |
           |---|---|
@@ -248,7 +248,7 @@ jobs:
           ### Known environment limitation
 
           Android Chrome can wedge its process-wide network state outside the qualified lock/Airplane/Doze transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
-          Windows remains unadvertised. Background Web Push delivery remains best-effort and is not part of the stable core support claim.
+          Windows hosts are supported and CI-tested but not release-qualified. Background Web Push delivery remains best-effort and is not part of the stable core claim.
 
           ### Install or upgrade
 

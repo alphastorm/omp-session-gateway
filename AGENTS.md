@@ -135,8 +135,10 @@ The supported settings contract is:
 - Add or update tests for every behavior change, including failure modes and secret non-persistence.
 - Use distinctive synthetic secrets and keep capability and identifier leak scans green.
 - Exercise the real changed surface before declaring it working.
-- Advertise only the exact combinations marked qualified in `docs/RELEASE_STATUS.md` and
-  `docs/COMPATIBILITY.md`.
+- Use the Tested / Supported / Qualified vocabulary in `docs/COMPATIBILITY.md` (ADR-030). Claim
+  support only for platform families whose named CI lanes are green, and qualification only for the
+  exact combinations marked qualified in `docs/RELEASE_STATUS.md` and `docs/COMPATIBILITY.md`. Never
+  present hosted-runner, emulated-device, or smoke evidence as qualification.
 - Update architecture, protocol, operations, compatibility, security, and changelog material when
   their contracts change. Record accepted architecture changes in `docs/DECISIONS.md`.
 - Keep generated assets and unrelated refactors out of integration changes.

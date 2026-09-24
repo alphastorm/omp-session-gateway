@@ -3,10 +3,14 @@
 > Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
 > gateway-specific OMP plugin, or publisher credential. Stable v0.5.3 is published as immutable
 > GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
-> sessions and opens OMP's own encrypted View/Control client from an Android-first PWA. One-time
+> sessions and opens OMP's own encrypted View/Control client in any modern browser, installable as a PWA where the platform supports it. One-time
 > setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
 > with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
 > with or endorsed by the Oh My Pi maintainers.
+
+## Supported platforms
+
+- Supported and tested in CI on every change (the stock-OMP canaries run daily): Linux, macOS, and Windows gateway hosts; Chrome and Chromium, Edge through Chromium, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser, tested with emulation and no physical Apple device. Supported is not qualified: qualification is the exact hardware matrix below. Lanes: portable-source (Ubuntu, macOS, Windows), browser-core (Chromium, Firefox, WebKit, iPhone-class WebKit), browser-notifications (Pixel sizes), windows-service-lifecycle, canary and canary-windows.
 
 ## Current qualification boundary
 
@@ -16,7 +20,7 @@
 - Mac14,3 / macOS 26.6.1 arm64: doctor 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.
 - Pixel 10 Pro / Android 17 build CP2A.260805.005 / Chrome 153.0.8010.52: View read-only, Control writable, prompt accepted, return to directory; same-page recovery measured at a 250 ms probe cadence: unlock 5,866 ms (including device wake), Airplane 7,006 ms, Doze 286 ms; all seven forbidden capability sinks detectable and clean.
 - Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds (2026-09-24T11:31:08.494Z–12:01:08.504Z), two transitions, final phase live. The founder renewed the 30-minute check in place of eight hours; eight-hour endurance was not rerun or claimed, no historical endurance transfers, and residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.
-- Windows OMP, background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Seeded-fixture product media is not release-qualification evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
+- Windows hosts are supported and CI-tested, including a daily canary that drives stock OMP's named pipe through the gateway, but not release-qualified. Background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Seeded-fixture product media is not release-qualification evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
 - v0.5.2 is the migration/rollback predecessor. It renders OMP 18.3.0's wait tool calls as generic tool cards. Gateway rollback does not switch OMP.
 - In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The v0.5.1 fix never navigates from the worker.
 - The v0.5.3 published-byte local/Pixel smoke passed on its first attempt across the upgrade from v0.5.2, against stock OMP 18.3.0. The v0.5.2 smoke passed on its second attempt across the upgrade from v0.5.1.
