@@ -30,6 +30,14 @@ function xmlEscape(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
+/**
+ * Every form in which a rendered service definition can embed `path`: raw, XML-escaped (LaunchAgent
+ * plist and Windows task XML), or JSON-escaped (systemd `ExecStart`). Readers match all of them.
+ */
+export function serializedPathForms(path: string): readonly string[] {
+  return [...new Set([path, xmlEscape(path), JSON.stringify(path).slice(1, -1)])];
+}
+
 export function serviceDefinition(
   config: ServicePathConfig,
   platform = process.platform,

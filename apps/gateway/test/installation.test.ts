@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import {
   activationHistory,
   activationState,
   currentInstalledRuntime,
+  pruneSupersededRuntimes,
   resolveRollbackTarget,
   stageRuntimePayload,
 } from "../src/installation.ts";
@@ -78,6 +79,211 @@ async function stageTwo(
 async function sha256(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
+
+test("pruning preserves the distinct rollback horizon and a divergent service across 35 staged versions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-history-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const runtimes: InstalledRuntime[] = [];
+    for (let index = 0; index < 34; index += 1) {
+      await writeFile(source.cliSource, `console.log(${index});\n`);
+      runtimes.push(await stageRuntimePayload(gatewayConfig, source));
+    }
+    const [old, active, predecessor, older] = runtimes;
+    const divergent = runtimes.at(-1);
+    if (!old || !active || !predecessor || !older || !divergent) throw new Error("missing fixture runtime");
+    const versions = dirname(active.directory);
+    const preHistory = join(versions, "0.1.0-prealpha.1-000000000000");
+    await mkdir(preHistory);
+    await writeFile(join(preHistory, "old-bun-path"), "synthetic-retired-bun");
+    for (const runtime of [old, older, active, predecessor, active]) await activateRuntime(gatewayConfig, runtime);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", divergent.cliPath).content);
+    const beforeHistory = await activationHistory(gatewayConfig);
+    const beforePointer = await readFile(join(gatewayConfig.paths.stateDir, "installation", "current.json"), "utf8");
+
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 4, removed: 31, failed: 0 });
+    expect((await readdir(versions)).sort()).toEqual(
+      [active, predecessor, older, divergent].map(runtime => basename(runtime.directory)).sort(),
+    );
+    expect((await resolveRollbackTarget(gatewayConfig)).runtime.directory).toBe(predecessor.directory);
+    await expect(resolveRollbackTarget(gatewayConfig, basename(old.directory))).rejects.toThrow("is not installed");
+    expect(await activationHistory(gatewayConfig)).toEqual(beforeHistory);
+    expect(await readFile(join(gatewayConfig.paths.stateDir, "installation", "current.json"), "utf8")).toBe(beforePointer);
+    // Plain rollback still oscillates between the two actually activated versions, without pruning.
+    await activateRuntime(gatewayConfig, (await resolveRollbackTarget(gatewayConfig)).runtime);
+    expect((await resolveRollbackTarget(gatewayConfig)).runtime.directory).toBe(active.directory);
+    expect((await lstat(older.directory)).isDirectory()).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === "win32")("pruning completes private markers but never touches foreign names or symlinks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-marker-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    await activateRuntime(gatewayConfig, first);
+    await activateRuntime(gatewayConfig, second);
+    const versions = dirname(first.directory);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    const marker = ".prune-00000000-0000-4000-8000-000000000000";
+    await mkdir(join(versions, marker));
+    await writeFile(join(versions, marker, "partial-payload"), "interrupted removal");
+    const outside = join(root, "unrelated");
+    await mkdir(outside);
+    await writeFile(join(outside, "keep"), "untouched outside payload");
+    for (const name of ["operator-notes", ".prune-not-a-private-marker"]) await mkdir(join(versions, name));
+    for (const name of ["0.0.1-000000000000", ".prune-00000000-0000-4000-8000-000000000001"]) {
+      await symlink(outside, join(versions, name));
+    }
+    await writeFile(join(versions, "0.0.2-000000000000"), "not a directory");
+    const linkedVictim = join(versions, "0.0.3-000000000000");
+    await mkdir(linkedVictim);
+    await symlink(outside, join(linkedVictim, "linked-payload"));
+    const before = await readdir(versions);
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 2, removed: 1, failed: 1 });
+    expect((await readdir(versions)).sort()).toEqual(before.filter(name => name !== marker).sort());
+    expect((await lstat(join(versions, "0.0.1-000000000000"))).isSymbolicLink()).toBe(true);
+    expect((await lstat(join(linkedVictim, "linked-payload"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(outside, "keep"), "utf8")).toBe("untouched outside payload");
+    expect(await readFile(join(versions, "0.0.2-000000000000"), "utf8")).toBe("not a directory");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === "win32")("pruning refuses symlinked state, installation, and versions roots", async () => {
+  for (const component of ["state", "installation", "versions"]) {
+    const root = await mkdtemp(join(tmpdir(), "gateway-pruning-root-"));
+    try {
+      const gatewayConfig = config(root);
+      const source = await sourceFixture(root);
+      const { first, second } = await stageTwo(gatewayConfig, source);
+      await activateRuntime(gatewayConfig, second);
+      const definitionPath = join(root, "service.plist");
+      await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+      const path = component === "state" ? gatewayConfig.paths.stateDir : component === "installation"
+        ? dirname(dirname(first.directory)) : dirname(first.directory);
+      const moved = join(root, "outside-installation");
+      await rename(path, moved);
+      await symlink(moved, path);
+      const before = (await readdir(moved, { recursive: true })).sort();
+      expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 0, removed: 0, failed: 1 });
+      expect((await readdir(moved, { recursive: true })).sort()).toEqual(before);
+      expect((await lstat(path)).isSymbolicLink()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("pruning refuses uncommitted history and over-deep victims without removing their contents", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-bounds-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    await activateRuntime(gatewayConfig, second);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    const historyPath = join(gatewayConfig.paths.stateDir, "installation", "history.json");
+    const history = await readFile(historyPath, "utf8");
+    await writeFile(historyPath, JSON.stringify({ activations: [basename(first.directory)] }));
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 0, removed: 0, failed: 1 });
+    expect((await lstat(first.directory)).isDirectory()).toBe(true);
+    await writeFile(historyPath, history);
+    await writeFile(definitionPath, "unrecognized service definition");
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 0, removed: 0, failed: 1 });
+    expect((await lstat(first.directory)).isDirectory()).toBe(true);
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    let deep = first.directory;
+    for (let depth = 0; depth < 33; depth += 1) deep = join(deep, "nested");
+    await mkdir(deep, { recursive: true });
+    await writeFile(join(deep, "keep"), "deep payload");
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 1, removed: 0, failed: 1 });
+    expect(await readFile(join(deep, "keep"), "utf8")).toBe("deep payload");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pruning bounds oversized payload traversal before renaming or removing it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-entry-bound-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    await activateRuntime(gatewayConfig, second);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    for (let index = 0; index < 4_097; index += 1) {
+      await writeFile(join(first.directory, `entry-${index}`), "synthetic payload");
+    }
+    const before = (await readdir(first.directory)).sort();
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 1, removed: 0, failed: 1 });
+    expect((await readdir(first.directory)).sort()).toEqual(before);
+    expect(await currentInstalledRuntime(gatewayConfig)).toEqual(second);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pruning finishes an interrupted marker at the traversal bound however many runtimes are staged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-marker-bound-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    for (const runtime of [first, second]) await activateRuntime(gatewayConfig, runtime);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    // An interrupted removal whose own tree fits the bound must not depend on how many siblings
+    // the versions root has gained since.
+    const marker = join(dirname(second.directory), `.prune-${randomUUID()}`);
+    await mkdir(marker);
+    for (let index = 0; index < 4_094; index += 1) {
+      await writeFile(join(marker, `entry-${index}`), "synthetic payload");
+    }
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 2, removed: 1, failed: 0 });
+    expect(await readdir(dirname(second.directory))).not.toContain(basename(marker));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recognizes its own service runtime when the state path needs escaping", async () => {
+  // Every service serializer escapes something: plist and task XML escape &<>", systemd uses JSON.
+  const special = process.platform === "win32" ? "&" : `&<>"`;
+  const root = await mkdtemp(join(tmpdir(), `gateway-escaped-${special}-`));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    for (const runtime of [first, second]) await activateRuntime(gatewayConfig, runtime);
+    for (const platform of ["darwin", "win32", "linux"] as const) {
+      const definitionPath = join(root, `service-${platform}`);
+      await writeFile(definitionPath, serviceDefinition(gatewayConfig, platform, second.cliPath).content);
+      const state = await activationState(gatewayConfig, definitionPath);
+      expect({ platform, serviceVersion: state.serviceVersion, diverged: state.diverged }).toEqual({
+        platform,
+        serviceVersion: basename(second.directory),
+        diverged: false,
+      });
+    }
+    expect(await pruneSupersededRuntimes(gatewayConfig, join(root, "service-darwin"))).toEqual({
+      retained: 2,
+      removed: 0,
+      failed: 0,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("stages immutable content-addressed runtimes and atomically advances the current pointer", async () => {
   const root = await mkdtemp(join(tmpdir(), "gateway-installation-"));

@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent, Stats } from "node:fs";
-import { chmod, cp, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, open, opendir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { GatewayConfig } from "./config.ts";
+import { type GatewayConfig, ensureRuntimeDirectories } from "./config.ts";
+import { serializedPathForms } from "./service.ts";
 
 export const GATEWAY_VERSION = "0.5.1";
 const VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u;
@@ -17,6 +18,17 @@ const VERSION_NAME_PATTERN =
 const ACTIVATION_HISTORY_LIMIT = 64;
 const ACTIVATION_HISTORY_MAX_BYTES = 4_096;
 const SERVICE_DEFINITION_MAX_BYTES = 16_384;
+/** Active plus the two most recent distinct predecessors; a divergent service adds protection. */
+const RUNTIME_RETENTION_LIMIT = 3;
+const RUNTIME_PRUNE_ENTRY_LIMIT = 4_096;
+const RUNTIME_PRUNE_DEPTH_LIMIT = 32;
+const PRUNE_MARKER_PATTERN = /^\.prune-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+export interface RuntimePruneResult {
+  readonly retained: number;
+  readonly removed: number;
+  readonly failed: number;
+}
 
 export interface InstalledRuntime {
   readonly directory: string;
@@ -387,14 +399,16 @@ async function readServiceDefinition(path: string): Promise<string | undefined> 
  * being mistaken for one of ours.
  */
 function serviceDefinitionVersion(config: GatewayConfig, content: string): string | undefined {
-  const marker = versionsRoot(config) + sep;
-  const start = content.indexOf(marker);
-  if (start < 0) return undefined;
-  const remainder = content.slice(start + marker.length);
-  const end = remainder.indexOf(sep);
-  if (end < 0) return undefined;
-  const name = remainder.slice(0, end);
-  return VERSION_NAME_PATTERN.test(name) ? name : undefined;
+  for (const marker of serializedPathForms(versionsRoot(config) + sep)) {
+    const start = content.indexOf(marker);
+    if (start < 0) continue;
+    const remainder = content.slice(start + marker.length);
+    const end = remainder.indexOf(sep);
+    if (end < 0) return undefined;
+    const name = remainder.slice(0, end);
+    return VERSION_NAME_PATTERN.test(name) ? name : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -488,4 +502,85 @@ export async function resolveRollbackTarget(config: GatewayConfig, requested?: s
     selection = "requested";
   }
   return { runtime: await validatedRuntime(join(versionsRoot(config), target)), from: active, selection };
+}
+
+/** Best-effort cleanup; only a ready, committed install calls this, never rollback or its repair. */
+export async function pruneSupersededRuntimes(
+  config: GatewayConfig,
+  serviceDefinitionPath: string,
+): Promise<RuntimePruneResult> {
+  const result = { retained: 0, removed: 0, failed: 0 };
+  try {
+    // Reuse the state-root privacy check (including Windows ACLs). Descendants are created inside
+    // that private root; reject redirected roots rather than following them during recursive rm.
+    await ensureRuntimeDirectories(config);
+    const root = versionsRoot(config);
+    for (const path of [installationRoot(config), root]) {
+      const info = await lstat(path);
+      if (!info.isDirectory() || info.isSymbolicLink() || (process.platform !== "win32" &&
+        (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0))) {
+        throw new Error("unsafe runtime pruning root");
+      }
+    }
+    const state = await activationState(config, serviceDefinitionPath);
+    const history = await activationHistory(config);
+    const active = state.pointerVersion;
+    // An unrecognized/escaped definition must defer cleanup, not guess which runtime it uses.
+    if (active === undefined || history.at(-1) !== active || state.serviceVersion === undefined) {
+      throw new Error("runtime activation has not committed");
+    }
+    const retained = new Set([active]);
+    // Walking distinct entries, not the last three rows, preserves A/B/A rollback oscillations.
+    // The first distinct entry before active is exactly recordedPredecessor's selection.
+    for (let index = history.length - 2; index >= 0 && retained.size < RUNTIME_RETENTION_LIMIT; index -= 1) {
+      const version = history[index];
+      if (version !== undefined) retained.add(version);
+    }
+    retained.add(state.serviceVersion);
+
+    // Root enumeration and victim inspection have separate budgets, so an interrupted marker that
+    // fits the traversal bound is always finished, however many siblings the root gains.
+    let rootEntriesLeft = RUNTIME_PRUNE_ENTRY_LIMIT;
+    let treeEntriesLeft = RUNTIME_PRUNE_ENTRY_LIMIT;
+    const victims: string[] = [];
+    for await (const entry of await opendir(root)) {
+      if (rootEntriesLeft-- <= 0) throw new Error("runtime pruning entry limit reached");
+      if (!entry.isDirectory()) continue;
+      if (VERSION_NAME_PATTERN.test(entry.name)) {
+        if (retained.has(entry.name)) result.retained += 1;
+        else victims.push(entry.name);
+      } else if (PRUNE_MARKER_PATTERN.test(entry.name)) victims.push(entry.name);
+    }
+    // Refuse links/special files anywhere in a victim, and bound traversal before recursive rm.
+    // The private root excludes other users; concurrent same-user filesystem mutation is outside
+    // the gateway threat model, just as it is for staging and activation.
+    const inspectTree = async (path: string, depth: number): Promise<void> => {
+      if (depth > RUNTIME_PRUNE_DEPTH_LIMIT) throw new Error("runtime pruning depth limit reached");
+      const info = await lstat(path);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe runtime pruning directory");
+      for await (const entry of await opendir(path)) {
+        if (treeEntriesLeft-- <= 0) throw new Error("runtime pruning entry limit reached");
+        if (entry.isDirectory()) await inspectTree(join(path, entry.name), depth + 1);
+        else if (!entry.isFile()) throw new Error("unsafe runtime pruning entry");
+      }
+    };
+    // Finish interrupted removals first so repeated bounded passes do not accumulate markers.
+    victims.sort((left, right) => Number(PRUNE_MARKER_PATTERN.test(right)) - Number(PRUNE_MARKER_PATTERN.test(left)));
+    for (const name of victims) {
+      try {
+        const path = join(root, name);
+        await inspectTree(path, 0);
+        const marker = PRUNE_MARKER_PATTERN.test(name) ? path : join(root, `.prune-${randomUUID()}`);
+        if (marker !== path) await rename(path, marker);
+        await rm(marker, { recursive: true });
+        result.removed += 1;
+      } catch {
+        result.failed += 1;
+        if (treeEntriesLeft <= 0) break;
+      }
+    }
+  } catch {
+    result.failed += 1;
+  }
+  return result;
 }

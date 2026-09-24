@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Prune superseded staged runtimes after successful ready installs, retaining the active runtime,
+  two distinct predecessors, and any divergent service runtime; cleanup is bounded, crash-safe,
+  best-effort, and never runs during rollback or failed/stopped installs (#231).
+
 ### Fixed
 
 - Keep sessions visible when OMP adds a field to its registry v1 discovery file, snapshot, or
@@ -16,6 +22,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   while listing and the gateway never does, so every round re-read and re-queried each one against
   the 100-publication budget. The gateway now reads unknown publications newest first and skips
   unchanged files whose socket already proved dead; `omp collab list` still prunes them immediately.
+- Recognize the installed service's runtime when the installation path contains `&`, `<`, `>`, or
+  `"`. LaunchAgent and task XML escape those characters and systemd quotes them, so `status`
+  reported a false divergence and cleanup deferred.
 - Remove the stale capacity qualification registry key and validate the workflow-generated config
   through the real gateway loader in script tests (qualification tooling only, outside the runtime archive).
 - Measure Android recovery from the first successful rendered-directory probe with 250 ms between

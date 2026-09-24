@@ -25,6 +25,7 @@ import {
   activationState,
   currentInstalledRuntime,
   GATEWAY_VERSION,
+  pruneSupersededRuntimes,
   resolveRollbackTarget,
   stageRuntimePayload,
 } from "./installation.ts";
@@ -407,6 +408,12 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
       throw new AggregateError([error, ...rollbackErrors], "gateway install failed and rollback was incomplete");
     }
     throw error;
+  }
+  // Cleanup is outside the revert boundary and only follows a readiness-proven activation.
+  // --no-start commits a stopped runtime but cannot prove it is safe to discard older payloads.
+  if (activate && config !== undefined) {
+    const counts = await pruneSupersededRuntimes(config, serviceDefinition(config).path);
+    console.log(`Staged runtimes: retained ${counts.retained}, removed ${counts.removed}, failed ${counts.failed}.`);
   }
 }
 
