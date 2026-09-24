@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
+import { downloadReleaseAssets } from "./release-download.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
@@ -461,16 +462,16 @@ async function verifyCandidate(
   ghToken: string,
 ): Promise<CandidateVerification> {
   const assetDirectory = join(options.receiptRoot, "assets");
-  await rm(assetDirectory, { recursive: true, force: true });
-  await mkdir(assetDirectory, { recursive: true, mode: 0o700 });
   await runCommand(["git", "fetch", "origin", `refs/tags/${options.tag}:refs/tags/${options.tag}`], { timeoutMs: 120_000 });
   await runCommand(["git", "tag", "-v", options.tag], { timeoutMs: 120_000 });
   const sourceCommit = await commandOutput(["git", "rev-list", "-n1", options.tag]);
   if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("candidate tag did not resolve to a commit");
 
-  await runCommand(["gh", "release", "download", options.tag, "--repo", REPOSITORY, "--dir", assetDirectory], {
-    timeoutMs: 300_000,
-  });
+  await downloadReleaseAssets(assetDirectory, () =>
+    runCommand(["gh", "release", "download", options.tag, "--repo", REPOSITORY, "--dir", assetDirectory], {
+      timeoutMs: 300_000,
+    }),
+  );
   const downloaded = (await Array.fromAsync(new Bun.Glob("*").scan({ cwd: assetDirectory }))).sort();
   if (JSON.stringify(downloaded) !== JSON.stringify([...ASSET_NAMES].sort())) {
     throw new Error(`candidate release assets differ: ${downloaded.join(", ")}`);
