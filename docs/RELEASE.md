@@ -51,10 +51,11 @@ drives the Pixel).
    droplet or ephemeral SSH key remains in the DigitalOcean account.
 3. **Promote it.** One `chore(release): approve vX.Y.Z for stable promotion` PR sets
    `STABLE_RELEASE.lock.json` from the passed receipt, records every lane and any failed attempt in
-   the ledger, moves README, COMPATIBILITY, OPERATIONS, and the site to "qualified; publication
-   pending" wording, and updates the extraction commands, the verification defaults below, and the
-   predecessor section of [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md).
-   `scripts/site-coherence.test.ts` fails while any of these disagree with the stable lock. A clean
+   the ledger, moves the COMPATIBILITY release paragraph, the status page, and `site/llms.txt` to
+   "qualified; publication pending" wording, and writes the predecessor section of
+   [UPGRADE_ROLLBACK.md](UPGRADE_ROLLBACK.md). Install and download surfaces link to the latest
+   release and name no version. `scripts/site-coherence.test.ts` fails while any of these disagree
+   with the stable lock. A clean
    `OMP_RELEASE_CHANNEL=stable bun run release:build` of that tree must match every candidate
    archive member by path, mode, and bytes, except `release-info.json`, `SBOM.spdx.json`,
    `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`. Before merging, run
@@ -67,8 +68,8 @@ drives the Pixel).
 5. **Smoke the published bytes.** Run the [post-release smoke](#post-release-local-installation-smoke)
    with the verified digest.
 6. **Record the evidence.** One `docs(release): record vX.Y.Z publication and installed
-   verification` PR moves every surface to "published" and records the publication run, source,
-   digest, and smoke result.
+   verification` PR moves the COMPATIBILITY release paragraph, the status page, and `site/llms.txt`
+   to "published" and records the publication run, source, digest, and smoke result.
 
 Every mainline release so far has renewed a founder-approved fresh 1,800-second relay check in
 place of the eight-hour gate. The orchestrator defaults to 1,800 seconds and rejects shorter
@@ -378,19 +379,20 @@ directory:
 
 ```sh
 REPO=alphastorm/omp-session-gateway
-TAG=v0.5.2
+TAG="$(gh release view --repo "$REPO" --json tagName --jq .tagName)"
 WORKFLOW=signed-release.yml
-ARCHIVE=omp-session-gateway-0.5.2-bun.tar
-SBOM=omp-session-gateway-0.5.2.spdx.json
+ARCHIVE="omp-session-gateway-${TAG#v}-bun.tar"
+SBOM="omp-session-gateway-${TAG#v}.spdx.json"
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
 cd release-verification
 ```
 
-These defaults verify the current stable release. When verifying a historical artifact, use
-its matching asset version and signing workflow: for example, `v0.1.0-beta.1` used `release.yml`,
-not `signed-release.yml`. Do not substitute today’s workflow identity for a historical receipt.
+Without a tag, `gh release view` resolves the current GitHub Latest release, which is always the
+qualified stable. To verify a historical artifact, set `TAG` to it and use its matching signing
+workflow: for example, `v0.1.0-beta.1` used `release.yml`, not `signed-release.yml`. Do not
+substitute today’s workflow identity for a historical receipt.
 
 Verify the immutable release attestation and every release asset. A failure means the release is not yet immutable or the downloaded asset is
 not part of the attested release:

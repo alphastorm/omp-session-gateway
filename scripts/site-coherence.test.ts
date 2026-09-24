@@ -28,49 +28,45 @@ async function sitePages(): Promise<Array<{ path: string; url: string }>> {
   return out.sort((a, b) => a.url.localeCompare(b.url));
 }
 
-// A prose mention of the new version must not conceal a stale installation/download action.
-test("getting-started and site download actions select the qualified stable release", async () => {
-  const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
-    releaseTag: string;
-  };
-  const releaseBase = "https://github.com/alphastorm/omp-session-gateway/releases/tag/";
-  const expected = `${releaseBase}${stable.releaseTag}`;
-  const readme = await readFile(join(rootPath, "README.md"), "utf8");
-  const gettingStarted = readme.split("## Build and run\n")[1]?.split("\n## ")[0];
-  const firstRelease = gettingStarted?.match(/\]\((https:\/\/github\.com\/alphastorm\/omp-session-gateway\/releases\/tag\/[^)]+)\)/u)?.[1];
-  expect(firstRelease, "the installation guide must start with the stable artifact").toBe(expected);
+async function section(file: string, heading: string): Promise<string> {
+  const text = (await readFile(join(rootPath, file), "utf8")).split(`\n${heading}\n`)[1]?.split("\n## ")[0];
+  if (text === undefined) throw new Error(`${file} lost its "${heading}" section`);
+  return text;
+}
+
+// Promotion flipped some download links while install commands and other links kept naming older
+// archives through several stable releases. Install and download surfaces therefore name no
+// release: links resolve GitHub Latest, and commands derive the version from the download.
+test("install and download surfaces link to the latest release and pin no version", async () => {
+  const latest = "https://github.com/alphastorm/omp-session-gateway/releases/latest";
+  const gettingStarted = await section("README.md", "## Build and run");
+  const firstRelease = gettingStarted.match(/\]\((https:\/\/github\.com\/alphastorm\/omp-session-gateway\/releases\/[^)]+)\)/u)?.[1];
+  expect(firstRelease, "the installation guide must start with the latest stable release").toBe(latest);
 
   const downloads: string[] = [];
   const html = await readFile(join(sitePath, "index.html"), "utf8");
   await new HTMLRewriter().on("a.cta", {
     element(element) {
       const href = element.getAttribute("href");
-      if (href?.startsWith(releaseBase)) downloads.push(href);
+      if (href?.includes("/releases/")) downloads.push(href);
     },
   }).transform(new Response(html)).text();
-  expect(downloads).toEqual([expected]);
+  expect(downloads).toEqual([latest]);
+
+  const pinned = (text: string) => text.match(/omp-session-gateway-\d+\.\d+\.\d+|releases\/tag\/v\d+\.\d+\.\d+/gu) ?? [];
+  expect(pinned(gettingStarted)).toEqual([]);
+  expect(pinned(await section("docs/OPERATIONS.md", "## 2. CLI and daemon installation"))).toEqual([]);
+  const verification = await section("docs/RELEASE.md", "## Verify a published build");
+  expect(pinned(verification)).toEqual([]);
+  expect(verification).toMatch(/^TAG="\$\(gh release view --repo "\$REPO" --json tagName --jq \.tagName\)"$/mu);
 });
 
-// Promotion flipped the download links while the install and verification commands kept naming
-// 0.4.x archives through two later stable releases, and rollback guidance kept an older pair.
-test("install, verification, and predecessor guidance follow the stable lock", async () => {
+// Rollback guidance kept an older predecessor pair through a later stable release.
+test("rollback guidance names the locked release and its predecessor", async () => {
   const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
-    version: string;
     releaseTag: string;
     previousTag: string;
   };
-  const section = async (file: string, heading: string): Promise<string> => {
-    const text = (await readFile(join(rootPath, file), "utf8")).split(`\n${heading}\n`)[1]?.split("\n## ")[0];
-    if (text === undefined) throw new Error(`${file} lost its "${heading}" section`);
-    return text;
-  };
-  const artifacts = (text: string) => [...new Set(text.match(/omp-session-gateway-\d+\.\d+\.\d+/gu))];
-  const current = [`omp-session-gateway-${stable.version}`];
-  expect(artifacts(await section("README.md", "## Build and run"))).toEqual(current);
-  expect(artifacts(await section("docs/OPERATIONS.md", "## 2. CLI and daemon installation"))).toEqual(current);
-  const verification = await section("docs/RELEASE.md", "## Verify a published build");
-  expect(artifacts(verification)).toEqual(current);
-  expect(verification.match(/^TAG=(\S+)$/mu)?.[1]).toBe(stable.releaseTag);
   const rollback = await readFile(join(rootPath, "docs/UPGRADE_ROLLBACK.md"), "utf8");
   expect(rollback).toContain(`\n## ${stable.releaseTag} predecessor compatibility\n`);
   expect(rollback).toContain(`The selected predecessor is published ${stable.previousTag}.`);
@@ -114,9 +110,11 @@ test("the machine-readable site summary names only the qualified stable release"
 });
 
 // The status page's campaign note kept v0.5.1's attempt history through the v0.5.2 promotion while
-// the candidate row beside it moved on. Current-release campaign text names only the locked candidate.
-test("current campaign notes name only the locked qualification candidate", async () => {
+// the candidate row beside it moved on. Current-release claims name only the locked release and
+// candidate.
+test("current release claims name only the locked release and candidate", async () => {
   const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
+    releaseTag: string;
     candidateTag: string;
   };
   const candidates = (text: string) => [...new Set(text.match(/\bv\d+\.\d+\.\d+-prealpha\.\d+\b/gu))];
@@ -129,9 +127,9 @@ test("current campaign notes name only the locked qualification candidate", asyn
   const boundary = (await readFile(join(sitePath, "llms.txt"), "utf8")).split("\n## Current qualification boundary\n")[1]?.split("\n## ")[0];
   if (boundary === undefined) throw new Error("site/llms.txt lost its qualification boundary");
   expect(candidates(boundary)).toEqual(current);
-  const readme = (await readFile(join(rootPath, "README.md"), "utf8")).split("\n## Compatibility and release status\n")[1]?.split("\n## ")[0]?.split("\n### Fork-era")[0];
-  if (readme === undefined) throw new Error("README.md lost its release status section");
-  expect(candidates(readme)).toEqual(current);
+  const claim = await section("docs/COMPATIBILITY.md", "## Current claim");
+  expect(candidates(claim)).toEqual(current);
+  expect(claim).toContain(`releases/tag/${stable.releaseTag})`);
 });
 
 test("every relative asset a site page references exists after staging", async () => {
