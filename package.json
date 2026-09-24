@@ -1,6 +1,6 @@
 {
   "name": "omp-session-gateway",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.0",

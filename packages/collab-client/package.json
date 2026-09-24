@@ -1,6 +1,6 @@
 {
   "name": "@omp-session-gateway/collab-client",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "scripts": {
