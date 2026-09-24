@@ -25,6 +25,14 @@ export const OMP_FIXTURE_ARGS: readonly string[] = [
 ];
 
 /**
+ * Environment every fixture host starts with. `OMP_SKIP_SETUP` suppresses OMP's onboarding wizard
+ * (honored by 18.1.20 and 18.3.0) without writing the host's config. A fresh HOME always opens the
+ * wizard, and an OMP that raises its setup version reopens it on an existing one; while it is open,
+ * the host publishes and admits guests but silently drops every prompt.
+ */
+export const OMP_FIXTURE_ENV: Readonly<Record<string, string>> = { OMP_SKIP_SETUP: "1" };
+
+/**
  * A fixture that published without a model cannot run the Control prompt, so every lane refuses it
  * at publication with the reason instead of timing out at the prompt stage.
  */
