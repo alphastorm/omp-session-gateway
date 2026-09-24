@@ -324,6 +324,7 @@ blocking a merge.
 | `implementation-checks` | `bun run check`: repository check, typecheck, build, `bun test`, and both leak scans | gating |
 | `portable-source` | `bun run check:portable` on Ubuntu, macOS, and Windows: repository check, typecheck, build, every test not bound to another host OS (`scripts/test-portable.ts` names each exclusion and its reason), and both leak scans | gating |
 | `browser-notifications` | `bun run test:browser`: the whole Playwright suite on two mobile viewports, not only the notification cases its historical name suggests | gating |
+| `browser-core` | `bun run test:browser:compat`: the `@core` Playwright tests on desktop Chromium, Firefox, and WebKit and on WebKit with iPhone-class emulation (`apps/web/playwright.compat.config.ts`) | gating |
 | `windows-service-lifecycle` | Windows contracts and ACLs, install, readiness-token isolation and rotation, uninstall | gating |
 | `linux-arm64-source-checkout` | Native aarch64 typecheck, build, `bun test`, and the pinned mainline OMP registry fixtures | advisory |
 | `coverage` | `bun run test:coverage` and the Codecov upload | advisory |

@@ -110,7 +110,7 @@ async function loadCount(page: Page): Promise<number> {
   }
 }
 
-test("an updated PWA activates and reloads an idle directory automatically", async ({ page }) => {
+test("an updated PWA activates and reloads an idle directory automatically", { tag: ["@core", "@serviceworker"] }, async ({ page }) => {
   const fixture = await startDashboardFixture([session()]);
   await installLoadCounter(page);
 
