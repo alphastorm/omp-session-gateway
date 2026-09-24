@@ -60,3 +60,15 @@ export function instanceEligibility(
   }
   return { eligible: true };
 }
+
+/** Firewall descriptions are the provider's equivalent of an instance label. */
+export function firewallEligibility(
+  id: string,
+  description: string | undefined,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): InstanceEligibility {
+  const protectedGroups = (environment.OMP_QUAL_PROTECTED_FIREWALLS ?? "").split(",").map(value => value.trim());
+  if (protectedGroups.includes(id)) return { eligible: false, reason: "firewall group is protected" };
+  if (!description?.startsWith(QUAL_LABEL_PREFIX)) return { eligible: false, reason: "firewall ownership cannot be established" };
+  return { eligible: true };
+}

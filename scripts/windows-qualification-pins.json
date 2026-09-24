@@ -1,0 +1,23 @@
+{
+  "region": "ewr",
+  "plan": "vc2-2c-4gb",
+  "osId": 2514,
+  "osName": "Windows 2025 Standard x64",
+  "cpus": 2,
+  "memoryMiB": 4096,
+  "bunVersion": "1.4.0",
+  "bunSha256": "e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901",
+  "tailscaleVersion": "1.102.4",
+  "tailscaleSha256": "80eb007e39dfebe17299fa1a09c79a8e1d934f76e0246c0817ebe3af675b7ef6",
+  "tailscalePublisher": "Tailscale Inc.",
+  "pywinrmVersion": "0.5.0",
+  "freerdpVersion": "3.31.1",
+  "omp": {
+    "version": "18.3.0",
+    "sourceCommit": "62bc57be1b03ef0802a33cf7f5f530e534527531",
+    "sourceTree": "b36226cce6a225a4c0d2c2162da223d61d7123da",
+    "nativeFile": "pi_natives.win32-x64-baseline.node",
+    "nativeTarballSha256": "1fe98dbcb6712d1a66b1e9f7bb98800377c9c46b477f178030927711e71473dd",
+    "nativeBinarySha256": "d72ee03e6d888756f0c4be858356d696d78a30e536aa7288c16ded95ab653e18"
+  }
+}
