@@ -91,6 +91,51 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** Quote one argument for a Windows command line (the CommandLineToArgvW/MSVCRT rules). */
+export function windowsArgument(value: string): string {
+  if (value !== "" && !/[\s"]/u.test(value)) return value;
+  return `"${value.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/u, "$1$1")}"`;
+}
+
+/**
+ * PowerShell that starts one host in its own hidden console and prints only its PID. The console is
+ * the point: OMP starts its interactive session, the only one `collab.autoStart` publishes from,
+ * only when it has a terminal, and on Windows a redirected child has none. Nothing is redirected.
+ * PowerShell itself runs with the runner's profile, because a cold start against an empty private
+ * profile outlasted the command bound; it then replaces its whole environment with `environment`
+ * before the start, so the host inherits nothing else, as `env -i` guarantees on POSIX.
+ */
+export function windowsHostScript(bun: string, argv: readonly string[], work: string, environment: Readonly<Record<string, string>>): string {
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    // Resolve the cmdlet while the runner's module path is still in place.
+    "$start = Get-Command -Name Start-Process -CommandType Cmdlet",
+    "Get-ChildItem -Path Env: | ForEach-Object { Remove-Item -LiteralPath \"Env:$($_.Name)\" }",
+    ...Object.entries(environment).map(([name, value]) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) throw new CanaryFailure("invalid host environment");
+      return `Set-Item -LiteralPath ${literal(`Env:${name}`)} -Value ${literal(value)}`;
+    }),
+    `$host_process = & $start -FilePath ${literal(bun)} -ArgumentList ${literal(argv.map(windowsArgument).join(" "))} -WorkingDirectory ${literal(work)} -WindowStyle Hidden -PassThru`,
+    "[Console]::Out.Write($host_process.Id)",
+  ].join("; ");
+}
+
+/** The variables a Windows child needs to start at all, from the runner, plus a private profile. */
+function windowsEnvironment(home: string, temp: string, path: string): Record<string, string> {
+  const inherited = ["SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT",
+    "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS"] as const;
+  const environment: Record<string, string> = {};
+  for (const name of inherited) {
+    const value = process.env[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  return {
+    ...environment, PATH: path, HOME: home, USERPROFILE: home, TEMP: temp, TMP: temp,
+    APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local"),
+  };
+}
+
 async function runCanary(args: readonly string[]): Promise<{ summary: CanarySummary; reason?: string }> {
   const started = performance.now();
   let stage: CanaryStage = "publish";
@@ -112,20 +157,29 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
   const path = process.env.PATH ?? "";
+  const windows = process.platform === "win32";
   let environment: Record<string, string> = { PATH: path };
+  // Stock OMP ships a Bun script. Windows cannot execute its shebang, so this Bun runs it there.
+  const omp = (binary: string, ...rest: string[]): string[] => windows ? [process.execPath, binary, ...rest] : [binary, ...rest];
 
   // All child output is discarded except bounded version/PID/status responses retained in memory.
-  function command(argv: string[], failure: string, allowFailure = false): string | undefined {
+  function command(argv: string[], failure: string, allowFailure = false, options: { readonly env?: NodeJS.ProcessEnv; readonly timeoutMs?: number } = {}): string | undefined {
     const result = spawnSync(argv[0]!, argv.slice(1), {
-      env: environment, cwd: root === undefined ? undefined : join(root, "work"),
+      env: options.env ?? environment, cwd: root === undefined ? undefined : join(root, "work"),
       encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000, maxBuffer: 4_096,
+      timeout: options.timeoutMs ?? 10_000, maxBuffer: 4_096,
     });
     if (result.error !== undefined || result.status !== 0) {
       if (allowFailure) return undefined;
       throw new CanaryFailure(failure);
     }
     return result.stdout.trim();
+  }
+
+  // The first OMP command in a fresh private home also unpacks OMP's native addon; on a Windows
+  // runner that alone outlasted 10 s (run 36015033822). The bound is longer, never retried.
+  function ompCommand(binary: string, args: readonly string[], failure: string): string | undefined {
+    return command(omp(binary, ...args), failure, false, { timeoutMs: 60_000 });
   }
 
   async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs: number, failure: string, cleaning = false): Promise<void> {
@@ -140,6 +194,15 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
 
   function stopHost(): void {
     if (!ownsSession || hostStopRequested) return;
+    if (windows) {
+      // A console process takes no signal from outside its console, so end the host's whole tree.
+      // It then cannot unregister, which the verdict accepts: its named pipe goes with it.
+      if (hostPid !== undefined && !hostExited()) {
+        command(["taskkill.exe", "/PID", String(hostPid), "/T", "/F"], "host stop failed");
+      }
+      hostStopRequested = true;
+      return;
+    }
     const pidText = command(["tmux", "display-message", "-p", "-t", `=${session}:`, "#{pane_pid}"], "host stop failed", true);
     if (pidText === undefined) return;
     const pid = Number(pidText);
@@ -184,21 +247,36 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
     const work = join(root, "work");
     await mkdir(home, { mode: 0o700 });
     await mkdir(work, { mode: 0o700 });
-    environment = { HOME: home, PATH: path, TERM: "xterm-256color" };
+    if (windows) {
+      const temp = join(root, "temp");
+      for (const directory of [temp, join(home, "AppData", "Roaming"), join(home, "AppData", "Local")]) {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+      }
+      environment = windowsEnvironment(home, temp, path);
+    } else {
+      environment = { HOME: home, PATH: path, TERM: "xterm-256color" };
+    }
     discoveryDirectory = join(home, ".omp", "run", "collab-hosts");
     reader = new OmpHostReader({ directory: discoveryDirectory, timeoutMs: 5_000 });
-    ompVersion = parseOmpVersion(command([binary, "--version"], "OMP version query failed") ?? "") ?? "";
+    ompVersion = parseOmpVersion(ompCommand(binary, ["--version"], "OMP version query failed") ?? "") ?? "";
     if (!isSupportedOmpVersion(ompVersion)) throw new CanaryFailure("stock OMP >=18.1.20 is required");
-    command([binary, "config", "set", "collab.autoStart", "control"], "auto-start configuration failed");
+    ompCommand(binary, ["config", "set", "collab.autoStart", "control"], "auto-start configuration failed");
     const fixtureArgs = OMP_FIXTURE_ARGS.map((value, index) =>
       options.model !== undefined && OMP_FIXTURE_ARGS[index - 1] === "--model" ? options.model : value);
-    const launcher = join(root, "launch.sh");
-    const hostEnvironment = Object.entries({ ...environment, ...OMP_FIXTURE_ENV }).map(([key, value]) => `${key}=${quote(value)}`).join(" ");
-    // env -i matters even with a private HOME: an existing tmux server keeps its own environment.
-    await writeFile(launcher, `#!/bin/sh\ncd ${quote(work)} || exit 1\nexec /usr/bin/env -i ${hostEnvironment} ${[binary, ...fixtureArgs].map(quote).join(" ")}\n`, { mode: 0o700 });
-    command(["tmux", "new-session", "-d", "-s", session, "-x", "200", "-y", "50", `exec ${quote(launcher)}`], "host startup failed");
-    ownsSession = true;
-    hostPid = Number(command(["tmux", "display-message", "-p", "-t", `=${session}:`, "#{pane_pid}"], "host PID query failed"));
+    if (windows) {
+      hostPid = Number(command(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+        windowsHostScript(process.execPath, [binary, ...fixtureArgs], work, { ...environment, ...OMP_FIXTURE_ENV })],
+      "host startup failed", false, { env: process.env, timeoutMs: 60_000 }));
+      ownsSession = true;
+    } else {
+      const launcher = join(root, "launch.sh");
+      const hostEnvironment = Object.entries({ ...environment, ...OMP_FIXTURE_ENV }).map(([key, value]) => `${key}=${quote(value)}`).join(" ");
+      // env -i matters even with a private HOME: an existing tmux server keeps its own environment.
+      await writeFile(launcher, `#!/bin/sh\ncd ${quote(work)} || exit 1\nexec /usr/bin/env -i ${hostEnvironment} ${[binary, ...fixtureArgs].map(quote).join(" ")}\n`, { mode: 0o700 });
+      command(["tmux", "new-session", "-d", "-s", session, "-x", "200", "-y", "50", `exec ${quote(launcher)}`], "host startup failed");
+      ownsSession = true;
+      hostPid = Number(command(["tmux", "display-message", "-p", "-t", `=${session}:`, "#{pane_pid}"], "host PID query failed"));
+    }
     if (!Number.isSafeInteger(hostPid) || hostPid <= 1) throw new CanaryFailure("host PID query failed");
     let entry: OmpDiscoveryEntry | undefined;
     await waitFor(async () => {
@@ -260,7 +338,7 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
         await waitFor(hostExited, 10_000, "host stop timed out", true);
       }
     } catch { cleanupFailed = true; }
-    if (ownsSession) {
+    if (ownsSession && !windows) {
       command(["tmux", "kill-session", "-t", `=${session}`], "session cleanup failed", true);
       if (command(["tmux", "has-session", "-t", `=${session}`], "session cleanup failed", true) !== undefined) cleanupFailed = true;
     }
@@ -268,7 +346,7 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
       await waitFor(observeStoppedHost, 30_000, "discovery cleanup timed out", true);
       // The verdict above is already fixed. Let OMP, never the gateway, prune its dead publication.
       if (reader !== undefined && !discoveryFileRemoved && stockBinary !== undefined) {
-        command([stockBinary, "collab", "list"], "OMP-owned cleanup failed");
+        ompCommand(stockBinary, ["collab", "list"], "OMP-owned cleanup failed");
       }
       // Refuse to recursively remove a surviving discovery file, including one the reader rejected.
       // OMP alone owns unregistering; rmdir succeeds only once its discovery directory is empty.

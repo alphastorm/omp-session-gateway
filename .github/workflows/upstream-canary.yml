@@ -16,6 +16,7 @@ on:
       - scripts/upstream-canary.test.ts
       - .github/workflows/upstream-canary.yml
       - scripts/omp-fixture.*
+      - apps/gateway/src/omp-registry.ts
 
 permissions:
   contents: read
@@ -24,6 +25,8 @@ concurrency:
   group: upstream-canary-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
+# Two jobs rather than an OS matrix: a matrix job exposes only its last leg's outputs, and the
+# failure report needs each host's version and failed stage.
 jobs:
   canary:
     runs-on: ubuntu-24.04
@@ -106,10 +109,88 @@ jobs:
             process.stdout.write(`${JSON.stringify(summary)}\n`);
           '
 
+  # The same stages against a Windows host: OMP publishes a named pipe instead of a Unix socket,
+  # and the canary starts it in its own hidden console instead of a tmux session.
+  canary-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    outputs:
+      omp_version: ${{ steps.summary.outputs.omp_version }}
+      failed_stage: ${{ steps.summary.outputs.failed_stage }}
+    env:
+      OMP_VERSION: ${{ inputs.omp_version || 'latest' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out gateway
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - name: Verify pinned Bun
+        run: test "$(bun --version)" = 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Install isolated stock OMP
+        env:
+          OMP_PACKAGE: ${{ runner.temp }}/omp-upstream-package
+        run: |
+          set -euo pipefail
+          if [[ ! "$OMP_VERSION" =~ ^(latest|[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+            printf 'publish: invalid OMP version input\n' >&2
+            exit 1
+          fi
+          mkdir "$OMP_PACKAGE"
+          cd "$OMP_PACKAGE"
+          printf '{"private":true}\n' >package.json
+          if ! bun add --exact "@oh-my-pi/pi-coding-agent@$OMP_VERSION" >/dev/null 2>&1; then
+            printf 'publish: OMP installation failed\n' >&2
+            exit 1
+          fi
+      - name: Exercise gateway compatibility
+        env:
+          OMP_PACKAGE: ${{ runner.temp }}/omp-upstream-package
+          CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
+        run: |
+          set -euo pipefail
+          bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" >"$CANARY_REPORT"
+      - name: Publish bounded summary
+        id: summary
+        if: always()
+        env:
+          CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
+        run: |
+          # shellcheck disable=SC2016 # the single-quoted argument is JavaScript for bun, not shell
+          bun --eval '
+            import { appendFile } from "node:fs/promises";
+            import { CANARY_STAGES, canarySummary, parseCanarySummary } from "./scripts/upstream-canary.ts";
+            let summary;
+            try {
+              summary = parseCanarySummary(await Bun.file(process.env.CANARY_REPORT).text());
+            } catch {
+              summary = canarySummary("", 0, "publish");
+              process.exitCode = 1;
+            }
+            const passed = summary.failedStage === undefined;
+            const lines = [
+              `ompVersion: ${summary.ompVersion}`,
+              `passed: ${passed}`,
+              `discoveryFileRemoved: ${summary.discoveryFileRemoved}`,
+              `durationMs: ${summary.durationMs}`,
+              ...CANARY_STAGES.map(stage => `${stage}: ${summary.stages[stage]}`),
+            ];
+            await appendFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+            await appendFile(process.env.GITHUB_OUTPUT, `omp_version=${summary.ompVersion}\nfailed_stage=${summary.failedStage ?? ""}\n`);
+            process.stdout.write(`${JSON.stringify(summary)}\n`);
+          '
+
   report-failure:
     # The code that installs/runs upstream never receives an issue-writing token; PRs cannot enter here.
-    if: ${{ always() && github.event_name == 'schedule' && needs.canary.result == 'failure' }}
-    needs: canary
+    if: ${{ always() && github.event_name == 'schedule' && (needs.canary.result == 'failure' || needs.canary-windows.result == 'failure') }}
+    needs: [canary, canary-windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -118,20 +199,27 @@ jobs:
       - name: Open or update the upstream canary issue
         env:
           GH_TOKEN: ${{ github.token }}
-          OMP_VERSION: ${{ needs.canary.outputs.omp_version }}
-          FAILED_STAGE: ${{ needs.canary.outputs.failed_stage }}
+          LINUX_RESULT: ${{ needs.canary.result }}
+          LINUX_VERSION: ${{ needs.canary.outputs.omp_version }}
+          LINUX_STAGE: ${{ needs.canary.outputs.failed_stage }}
+          WINDOWS_RESULT: ${{ needs.canary-windows.result }}
+          WINDOWS_VERSION: ${{ needs.canary-windows.outputs.omp_version }}
+          WINDOWS_STAGE: ${{ needs.canary-windows.outputs.failed_stage }}
         run: |
           set -euo pipefail
           # Validate again across the job/permission boundary. Never copy raw reports into an issue.
-          if [[ ! "$OMP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            OMP_VERSION=unknown
+          version() { if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then printf '%s' "$1"; else printf unknown; fi; }
+          stage() { case "$1" in publish|snapshot|stale-generation|view|control|unregister) printf '%s' "$1" ;; *) printf publish ;; esac; }
+          failures=()
+          if [[ "$LINUX_RESULT" == failure ]]; then
+            failures+=("$(version "$LINUX_VERSION") failed at $(stage "$LINUX_STAGE") on Linux")
           fi
-          case "$FAILED_STAGE" in
-            publish|snapshot|stale-generation|view|control|unregister) ;;
-            *) FAILED_STAGE=publish ;;
-          esac
-          title="Upstream OMP canary: $OMP_VERSION failed at $FAILED_STAGE"
-          body="OMP version: $OMP_VERSION. Failed stage: $FAILED_STAGE. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ "$WINDOWS_RESULT" == failure ]]; then
+            failures+=("$(version "$WINDOWS_VERSION") failed at $(stage "$WINDOWS_STAGE") on Windows")
+          fi
+          title="Upstream OMP canary: ${failures[0]}"
+          if (( ${#failures[@]} > 1 )); then title="$title (and Windows)"; fi
+          body="$(printf '%s. ' "${failures[@]}")Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           gh label create upstream-canary --repo "$GITHUB_REPOSITORY" --color d73a4a --force >/dev/null
           issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream-canary --state all --limit 1 --json number --jq '.[0].number // empty')
           if [[ -n "$issue" ]]; then
