@@ -16,6 +16,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
   while listing and the gateway never does, so every round re-read and re-queried each one against
   the 100-publication budget. The gateway now reads unknown publications newest first and skips
   unchanged files whose socket already proved dead; `omp collab list` still prunes them immediately.
+- Remove the stale capacity qualification registry key and validate the workflow-generated config
+  through the real gateway loader in script tests (qualification tooling only, outside the runtime archive).
+- Measure Android recovery from the first successful rendered-directory probe with 250 ms between
+  attempts and unchanged scenario windows, rather than a multi-second initial sleep (qualification tooling only).
 
 ## [v0.5.1] — 2026-09-23
 

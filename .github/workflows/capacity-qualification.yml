@@ -218,7 +218,6 @@ jobs:
             "registry": {
               "heartbeatSeconds": 10,
               "ttlSeconds": 35,
-              "maxHosts": 100,
               "maxSessions": 100
             }
           }

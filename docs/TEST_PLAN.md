@@ -294,6 +294,10 @@ accepted, and bounded memory growth is not established. See the [release ledger]
   Mainline v0.4.0 core qualification passed; Windows, background Web Push, specialized attention,
   and branch/resume remain unqualified. No fork-era qualification result transfers.
 
+Android recovery milliseconds measure elapsed time from the disruption ending to the first
+completed same-page, ready-directory probe, probing immediately and then waiting 250 ms between
+completed attempts within the existing 36/160/48-second lock/airplane/Doze windows.
+
 The v0.4.0 published-stable-byte local/Android smoke above **passed on 2026-09-14**, separately
 from candidate qualification. Exact source/digest, preserved installation state, existing local
 OMP 18.1.21, physical results, and the initial Control-upgrade failure, which matches the update
@@ -329,5 +333,7 @@ assert the resume is a second launch — a fresh relay transport and no capabili
 caches, history, or the URL — which no unit test can observe.
 
 `capacity-qualification.yml` and `droplet-qualification.yml` deliberately have no `pull_request`
-trigger; they are dispatch-only and never gate a merge. Release publication runs from a pushed tag
+trigger; they run by dispatch or schedule and never gate a merge. The capacity workflow config
+test substitutes synthetic shell variables into its config heredoc and validates it with the real
+gateway loader in the ordinary script suite. Release publication runs from a pushed tag
 in `signed-release.yml` and is covered by the release checklist above, not by these lanes.
