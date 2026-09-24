@@ -779,6 +779,20 @@ test("the Pixel lease runs one action at a time and survives a failed holder", a
   expect(results.map(result => result.status)).toEqual(["rejected", "fulfilled", "fulfilled"]);
 });
 
+test("a Pixel left unrestored refuses every later device lane", async () => {
+  const lease = createPixelLease(() => {});
+  let later = 0;
+  const unrestored = Object.assign(new Error("keyguard restore failed"), { pixelUnrestored: true });
+  const [holder, waiter] = await Promise.allSettled([
+    lease("windows", async () => { throw unrestored; }),
+    lease("androidPush", async () => { later += 1; }),
+  ]);
+  expect(holder).toMatchObject({ status: "rejected", reason: unrestored });
+  if (waiter?.status !== "rejected") throw new Error("the waiting lane must be refused");
+  expect(String(waiter.reason)).toContain("left unrestored by windows");
+  expect(later).toBe(0);
+});
+
 describe("resource-owning lanes", () => {
   interface LaneLog {
     readonly calls: string[];

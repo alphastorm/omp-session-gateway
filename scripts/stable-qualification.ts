@@ -497,16 +497,27 @@ export async function executeReceiptLane<T extends Record<string, unknown>>(
  * client. Push changes radios, Doze and notification permission, which would corrupt either other
  * lane mid-run, so every Pixel action runs alone. In-process only: RELEASE.md allows one campaign
  * at a time, and a second orchestrator process is not coordinated.
+ *
+ * An action that could not restore the device throws an error carrying `pixelUnrestored: true`.
+ * The lease then refuses every later action, so no lane measures a phone another lane left in an
+ * unknown state, and a failed restore can never be mistaken for the next lane's baseline.
  */
 export function createPixelLease(log: (line: string) => void = line => console.error(line)): PixelLease {
   let tail: Promise<unknown> = Promise.resolve();
   let holder: string | undefined;
+  let unrestoredBy: string | undefined;
   return (owner, action) => {
     if (holder !== undefined) log(`pixel lease: ${owner} waits for ${holder}`);
     const turn = tail.then(async () => {
+      if (unrestoredBy !== undefined) {
+        throw new Error(`the Pixel was left unrestored by ${unrestoredBy}; restore it before any further device lane`);
+      }
       holder = owner;
       try {
         return await action();
+      } catch (error) {
+        if (isRecord(error) && error.pixelUnrestored === true) unrestoredBy = owner;
+        throw error;
       } finally {
         holder = undefined;
       }
