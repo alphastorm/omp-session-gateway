@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const rootPath = new URL("../", import.meta.url).pathname;
+const rootPath = fileURLToPath(new URL("../", import.meta.url));
 const sitePath = join(rootPath, "site");
 const siteOrigin = "https://alphastorm.github.io/omp-session-gateway/";
 

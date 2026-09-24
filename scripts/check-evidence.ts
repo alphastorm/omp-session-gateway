@@ -20,6 +20,7 @@
  * usage: bun scripts/check-evidence.ts [--ledger docs/RELEASE_STATUS.md] <record.json> [...]
  */
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { claimedCounts, validateEvidenceRecord, type EvidenceRecord } from "./evidence-schema.ts";
 
 /**
@@ -200,7 +201,7 @@ const USAGE = "usage: bun scripts/check-evidence.ts [--ledger docs/RELEASE_STATU
 async function main(argv: readonly string[]): Promise<number> {
   const remaining = [...argv];
   const recordPaths: string[] = [];
-  let ledger = { path: new URL("../docs/RELEASE_STATUS.md", import.meta.url).pathname, label: "docs/RELEASE_STATUS.md" };
+  let ledger = { path: fileURLToPath(new URL("../docs/RELEASE_STATUS.md", import.meta.url)), label: "docs/RELEASE_STATUS.md" };
   while (remaining.length > 0) {
     const arg = remaining.shift();
     if (arg === undefined) break;

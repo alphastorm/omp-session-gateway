@@ -3,6 +3,7 @@ import { createHash, createHmac } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { main, pollUntilReady, readinessBudgetMs } from "../src/cli.ts";
 import { defaultGatewayPaths, type GatewayConfig } from "../src/config.ts";
 import { GATEWAY_VERSION } from "../src/installation.ts";
@@ -60,7 +61,7 @@ test("exits promptly and closes staged resources when HTTP startup fails", async
       `http://127.0.0.1:${port}`,
     ],
     {
-      cwd: new URL("../../..", import.meta.url).pathname,
+      cwd: fileURLToPath(new URL("../../..", import.meta.url)),
       env: sandboxEnvironment(root),
       stdin: "ignore",
       stdout: "ignore",
@@ -106,8 +107,8 @@ const COMMAND_SURFACE: Readonly<Record<string, readonly string[]>> = {
 };
 
 const EVERY_OPTION: readonly string[] = [...new Set(Object.values(COMMAND_SURFACE).flat())];
-const REPOSITORY_ROOT = new URL("../../..", import.meta.url).pathname;
-const GATEWAY_CLI = new URL("../src/cli.ts", import.meta.url).pathname;
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+const GATEWAY_CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
 interface SandboxRun {
   readonly exitCode: number;
@@ -995,7 +996,7 @@ async function runPruningInstall(
 ): Promise<SandboxRun> {
   return runInSandbox(async root => {
     const entry = join(root, "install-fixture.ts");
-    const modulePath = (name: string) => JSON.stringify(new URL(`../src/${name}.ts`, import.meta.url).pathname);
+    const modulePath = (name: string) => JSON.stringify(fileURLToPath(new URL(`../src/${name}.ts`, import.meta.url)));
     await writeFile(entry, String.raw`
 import { mock } from "bun:test";
 import { createHmac } from "node:crypto";

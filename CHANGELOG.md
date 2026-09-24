@@ -6,6 +6,19 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- CI checks every change on Linux, macOS, and Windows (`portable-source`): repository scan,
+  typecheck, web build, the test suite, and both leak scans. Linux and macOS run every test; Windows
+  excludes five host-bound test files, each named with its reason in `scripts/test-portable.ts`.
+
+### Fixed
+
+- The repository scanners and several tests open files on Windows. They used a file URL's
+  `pathname` as a filesystem path (`/D:/...`), and the scanners compared backslash-separated paths
+  against forward-slash exemptions; the repository check now rejects the `pathname` pattern.
+  Tracked text also checks out with LF line endings on every OS.
+
 ## [v0.5.3] — 2026-09-24
 
 ### Added

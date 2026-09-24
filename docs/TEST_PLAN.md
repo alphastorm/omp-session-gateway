@@ -315,13 +315,14 @@ navigation in the ADR-018 amendment, are recorded in the [release ledger](RELEAS
 
 ## 8. Continuous integration lanes
 
-Every pull request runs the lanes below, from `ci.yml` and `platform-qualification.yml`. Only the
+Every pull request runs the lanes below, from `ci.yml`, `compatibility.yml`, and `platform-qualification.yml`. Only the
 lanes marked **gating** are required status checks on `main`; the others publish a result without
 blocking a merge.
 
 | Lane | Runs | Merge |
 | --- | --- | --- |
 | `implementation-checks` | `bun run check`: repository check, typecheck, build, `bun test`, and both leak scans | gating |
+| `portable-source` | `bun run check:portable` on Ubuntu, macOS, and Windows: repository check, typecheck, build, every test not bound to another host OS (`scripts/test-portable.ts` names each exclusion and its reason), and both leak scans | gating |
 | `browser-notifications` | `bun run test:browser`: the whole Playwright suite on two mobile viewports, not only the notification cases its historical name suggests | gating |
 | `windows-service-lifecycle` | Windows contracts and ACLs, install, readiness-token isolation and rotation, uninstall | gating |
 | `linux-arm64-source-checkout` | Native aarch64 typecheck, build, `bun test`, and the pinned mainline OMP registry fixtures | advisory |
