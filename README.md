@@ -307,8 +307,8 @@ Known limits are part of the claim — read them before installing:
   carries no bounded preview field.
 - **Windows hosts are supported but not yet release-qualified.** CI tests the gateway's install and
   service lifecycle on every change and a stock-OMP canary daily; the persistent reboot-and-login
-  lane for a signed release is still open ([#90](https://github.com/alphastorm/omp-session-gateway/issues/90),
-  [delta](docs/WINDOWS_QUALIFICATION.md)). The gateway starts at logon, not at boot.
+  lane for a signed release is still open ([delta](docs/WINDOWS_QUALIFICATION.md)). The gateway
+  starts at logon, not at boot.
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.
