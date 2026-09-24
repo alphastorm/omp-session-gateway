@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -228,6 +228,58 @@ test("pruning bounds oversized payload traversal before renaming or removing it"
     expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 1, removed: 0, failed: 1 });
     expect((await readdir(first.directory)).sort()).toEqual(before);
     expect(await currentInstalledRuntime(gatewayConfig)).toEqual(second);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pruning finishes an interrupted marker at the traversal bound however many runtimes are staged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "gateway-pruning-marker-bound-"));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    for (const runtime of [first, second]) await activateRuntime(gatewayConfig, runtime);
+    const definitionPath = join(root, "service.plist");
+    await writeFile(definitionPath, serviceDefinition(gatewayConfig, "darwin", second.cliPath).content);
+    // An interrupted removal whose own tree fits the bound must not depend on how many siblings
+    // the versions root has gained since.
+    const marker = join(dirname(second.directory), `.prune-${randomUUID()}`);
+    await mkdir(marker);
+    for (let index = 0; index < 4_094; index += 1) {
+      await writeFile(join(marker, `entry-${index}`), "synthetic payload");
+    }
+    expect(await pruneSupersededRuntimes(gatewayConfig, definitionPath)).toEqual({ retained: 2, removed: 1, failed: 0 });
+    expect(await readdir(dirname(second.directory))).not.toContain(basename(marker));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recognizes its own service runtime when the state path needs escaping", async () => {
+  // Every service serializer escapes something: plist and task XML escape &<>", systemd uses JSON.
+  const special = process.platform === "win32" ? "&" : `&<>"`;
+  const root = await mkdtemp(join(tmpdir(), `gateway-escaped-${special}-`));
+  try {
+    const gatewayConfig = config(root);
+    const source = await sourceFixture(root);
+    const { first, second } = await stageTwo(gatewayConfig, source);
+    for (const runtime of [first, second]) await activateRuntime(gatewayConfig, runtime);
+    for (const platform of ["darwin", "win32", "linux"] as const) {
+      const definitionPath = join(root, `service-${platform}`);
+      await writeFile(definitionPath, serviceDefinition(gatewayConfig, platform, second.cliPath).content);
+      const state = await activationState(gatewayConfig, definitionPath);
+      expect({ platform, serviceVersion: state.serviceVersion, diverged: state.diverged }).toEqual({
+        platform,
+        serviceVersion: basename(second.directory),
+        diverged: false,
+      });
+    }
+    expect(await pruneSupersededRuntimes(gatewayConfig, join(root, "service-darwin"))).toEqual({
+      retained: 2,
+      removed: 0,
+      failed: 0,
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

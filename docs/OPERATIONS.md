@@ -97,8 +97,9 @@ never fail or revert the successful installation. It never runs on a failed inst
 is first renamed inside the private versions root to a non-version `.prune-<uuid>` marker; the
 next successful ready install finishes interrupted removals. Foreign names, non-directory
 entries, symlinks (including within a payload), and unsafe or unrecognized installation metadata
-are left alone. Each pass examines at most 4,096 directory entries and descends at most 32 levels;
-oversized trees or filesystem failures can leave extra payloads for a later successful install.
+are left alone. Each pass examines at most 4,096 versions-root entries and, separately, 4,096
+payload entries, descending at most 32 levels, so an interrupted removal that fits is always
+finished; oversized payloads or filesystem failures can leave extra payloads for a later install.
 The retained count describes runtimes protected by the policy, not failed/deferred removals.
 
 **First fork-era → mainline upgrade:** retain the predecessor's signed archive and private

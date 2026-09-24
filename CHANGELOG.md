@@ -12,6 +12,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   two distinct predecessors, and any divergent service runtime; cleanup is bounded, crash-safe,
   best-effort, and never runs during rollback or failed/stopped installs (#231).
 
+### Fixed
+
+- Recognize the installed service's runtime when the installation path contains `&`, `<`, `>`, or
+  `"`. LaunchAgent and task XML escape those characters and systemd quotes them, so `status`
+  reported a false divergence and cleanup deferred.
+
 ## [v0.5.1] — 2026-09-23
 
 ### Fixed

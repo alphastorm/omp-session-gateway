@@ -4,6 +4,7 @@ import { chmod, cp, lstat, mkdir, open, opendir, readFile, readdir, rename, rm, 
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type GatewayConfig, ensureRuntimeDirectories } from "./config.ts";
+import { serializedPathForms } from "./service.ts";
 
 export const GATEWAY_VERSION = "0.5.1";
 const VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u;
@@ -398,14 +399,16 @@ async function readServiceDefinition(path: string): Promise<string | undefined> 
  * being mistaken for one of ours.
  */
 function serviceDefinitionVersion(config: GatewayConfig, content: string): string | undefined {
-  const marker = versionsRoot(config) + sep;
-  const start = content.indexOf(marker);
-  if (start < 0) return undefined;
-  const remainder = content.slice(start + marker.length);
-  const end = remainder.indexOf(sep);
-  if (end < 0) return undefined;
-  const name = remainder.slice(0, end);
-  return VERSION_NAME_PATTERN.test(name) ? name : undefined;
+  for (const marker of serializedPathForms(versionsRoot(config) + sep)) {
+    const start = content.indexOf(marker);
+    if (start < 0) continue;
+    const remainder = content.slice(start + marker.length);
+    const end = remainder.indexOf(sep);
+    if (end < 0) return undefined;
+    const name = remainder.slice(0, end);
+    return VERSION_NAME_PATTERN.test(name) ? name : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -535,14 +538,13 @@ export async function pruneSupersededRuntimes(
     }
     retained.add(state.serviceVersion);
 
-    let remaining = RUNTIME_PRUNE_ENTRY_LIMIT;
-    const spendEntry = (): void => {
-      if (remaining <= 0) throw new Error("runtime pruning entry limit reached");
-      remaining -= 1;
-    };
+    // Root enumeration and victim inspection have separate budgets, so an interrupted marker that
+    // fits the traversal bound is always finished, however many siblings the root gains.
+    let rootEntriesLeft = RUNTIME_PRUNE_ENTRY_LIMIT;
+    let treeEntriesLeft = RUNTIME_PRUNE_ENTRY_LIMIT;
     const victims: string[] = [];
     for await (const entry of await opendir(root)) {
-      spendEntry();
+      if (rootEntriesLeft-- <= 0) throw new Error("runtime pruning entry limit reached");
       if (!entry.isDirectory()) continue;
       if (VERSION_NAME_PATTERN.test(entry.name)) {
         if (retained.has(entry.name)) result.retained += 1;
@@ -557,7 +559,7 @@ export async function pruneSupersededRuntimes(
       const info = await lstat(path);
       if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("unsafe runtime pruning directory");
       for await (const entry of await opendir(path)) {
-        spendEntry();
+        if (treeEntriesLeft-- <= 0) throw new Error("runtime pruning entry limit reached");
         if (entry.isDirectory()) await inspectTree(join(path, entry.name), depth + 1);
         else if (!entry.isFile()) throw new Error("unsafe runtime pruning entry");
       }
@@ -574,7 +576,7 @@ export async function pruneSupersededRuntimes(
         result.removed += 1;
       } catch {
         result.failed += 1;
-        if (remaining <= 0) break;
+        if (treeEntriesLeft <= 0) break;
       }
     }
   } catch {

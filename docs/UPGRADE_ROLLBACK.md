@@ -30,8 +30,10 @@ Cleanup never fails or reverts a successful install. Its numeric summary reports
 removed, and failed cleanup counts. Removal first renames a victim to a private `.prune-<uuid>`
 name that cannot be a rollback target, then removes it; a later successful ready install cleans
 up leftover markers. Only the private versions root is eligible. Symlinks, foreign names, and
-unsafe metadata are refused. A pass is limited to 4,096 examined directory entries and 32 nested
-levels; failures or these bounds can leave additional payloads for a later install.
+unsafe metadata are refused. A pass examines at most 4,096 versions-root entries and, separately,
+4,096 payload entries within 32 nested levels; failures or these bounds can leave additional
+payloads for a later install. Service definitions are recognized in raw, XML-escaped, and
+JSON-escaped form, so installation paths containing `&`, `<`, `>`, or `"` still prune.
 
 The qualification rollback targets remain inside this policy: the macOS host lane delegates to
 `qualify-rollback.sh`, whose predecessor install, candidate upgrade, and predecessor reinstall
