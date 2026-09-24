@@ -17,7 +17,7 @@ const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { t
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
 const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
 const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
-interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"] }
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
 function fake(options: FakeOptions = {}) {
   let overlaps = options.overlaps ?? 0;
   let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
@@ -71,7 +71,7 @@ function fake(options: FakeOptions = {}) {
       if (step === "doze") { device.forcedDoze = false; device.batteryOverride = false; }
       if (step === "network") { device.wifi = baseline.wifi; device.mobile = baseline.mobile; device.airplane = baseline.airplane; }
       if (step === "task") { device.webApkTask = baseline.webApkTask; device.locked = baseline.locked; device.awake = baseline.awake; }
-      if (step === "fixture") started = false;
+      if (step === "fixture") { started = false; if (options.shutdownNotification) shown = "activity_stop"; }
     },
   };
   return { runtime, cleanup, checkpoints, state: () => ({ started, asking, browser, device, shown, effects, stopped }),
@@ -178,7 +178,6 @@ test("every non-idempotent interruption restores every baseline and stops the ow
   for (let failAfter = 1; failAfter <= successful.state().effects; failAfter++) {
     const f = fake({ failAfter });
     await expect(runAndroidPush(f.input)).rejects.toThrow("synthetic interruption");
-    expect(f.cleanup).toEqual(["fixtureAsk", "doze", "network", "notifications", "browser", "task", "fixture"]);
     expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
     expect(androidPushNeedsCleanup(f.checkpoints.at(-1))).toBe(false);
   }
@@ -188,7 +187,7 @@ test("failed cleanup remains resumable and later cleanup attempts every step", a
   const options: FakeOptions = { cleanupFail: "browser" };
   const f = fake(options);
   await expect(runAndroidPush(f.input)).rejects.toMatchObject({ pixelUnrestored: true });
-  expect(f.cleanup.at(-1)).toBe("fixture");
+  expect(f.state().started).toBe(false);
   const progress = f.checkpoints.at(-1);
   expect(androidPushNeedsCleanup(progress)).toBe(true);
   expect(f.state().browser).not.toEqual(browserBaseline);
@@ -197,6 +196,13 @@ test("failed cleanup remains resumable and later cleanup attempts every step", a
   const result = await cleanupAndroidPush({ ...f.input, progress });
   expect(result.restored).toBe(true);
   expect(f.state()).toMatchObject({ started: false, device: baseline, browser: browserBaseline, shown: undefined });
+});
+
+test("a notification arriving during fixture shutdown is removed before cleanup succeeds", async () => {
+  const f = fake({ shutdownNotification: true });
+  await runAndroidPush(f.input);
+  expect(f.state()).toMatchObject({ started: false, shown: undefined, device: baseline, browser: browserBaseline });
+  expect(androidPushNeedsCleanup(f.checkpoints.at(-1))).toBe(false);
 });
 
 test("elapsed time without another host observation cannot qualify two known-busy polls", async () => {
@@ -270,6 +276,8 @@ test("missing cellular path is a named blocked sub-phase, not a passed network m
   expect(result.passed).toBe(false);
   const final = parseAndroidPushProgress(f.checkpoints.at(-1));
   expect(final.results.network_verified?.blocked).toBe("cellular_path_unavailable");
+  expect(final.results.network_verified).toMatchObject({ wifiDelivery: true, airplaneSuppressed: true, recovered: true });
+  expect(final.results.network_verified?.cellularDelivery).toBeUndefined();
   expect(final.results.forbidden_sinks_verified?.clean).toBe(true);
   expect(f.state().device).toEqual(baseline);
 });

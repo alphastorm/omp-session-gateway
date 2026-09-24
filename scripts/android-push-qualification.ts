@@ -81,7 +81,7 @@ interface LaneInput {
   readonly pixel: <T>(owner: string, action: () => Promise<T>) => Promise<T>;
   readonly runtime?: AndroidPushRuntime;
 }
-const CLEANUP_STEPS: readonly PushCleanupStep[] = ["fixtureAsk", "doze", "network", "notifications", "browser", "task", "fixture"];
+const CLEANUP_STEPS: readonly PushCleanupStep[] = ["fixtureAsk", "doze", "network", "fixture", "notifications", "browser", "task"];
 const RESULT_FIELDS: Partial<Record<AndroidPushPhase, readonly string[]>> = {
   subscription_ready: ["enabled"],
   private_verified: ["delivered", "locked", "singleNotification", "detailMatched", "elapsedMs"],
@@ -362,26 +362,26 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
       await attempt("network_verified", async () => {
         if (!await runtime.network("wifi")) throw new Error("Android Push Wi-Fi tailnet path unavailable");
         await delivery("private"); await clear();
-        if (!await runtime.network("cellular")) {
-          await finish("network_verified", { blocked: "cellular_path_unavailable", wifiDelivery: true });
-        } else {
+        const cellular = await runtime.network("cellular");
+        if (cellular) {
           await delivery("private"); await clear();
-          if (!await runtime.network("airplane")) throw new Error("Android Push Airplane state unavailable");
-          await fixture("ask");
-          const offline = await snapshot(s => s.inputRequired);
-          for (let elapsed = 0; elapsed < 30_000; elapsed += 500) {
-            if ((await runtime.observe(offline, "attention", "private")).count !== 0) throw new Error("Android Push delivered while offline");
-            await runtime.pause(500);
-          }
-          await runtime.network("wifi");
-          await wait("Airplane recovery", async () => {
-            const observed = await runtime.observe(offline, "attention", "private");
-            if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Airplane recovery privacy failure");
-            return observed.count === 1 ? true : undefined;
-          }, 160_000);
-          await clear();
-          await finish("network_verified", { wifiDelivery: true, cellularDelivery: true, airplaneSuppressed: true, recovered: true });
         }
+        // Missing cellular service blocks that sub-phase, not the independent offline/recovery proof.
+        if (!await runtime.network("airplane")) throw new Error("Android Push Airplane state unavailable");
+        await fixture("ask");
+        const offline = await snapshot(s => s.inputRequired);
+        for (let elapsed = 0; elapsed < 30_000; elapsed += 500) {
+          if ((await runtime.observe(offline, "attention", "private")).count !== 0) throw new Error("Android Push delivered while offline");
+          await runtime.pause(500);
+        }
+        if (!await runtime.network("wifi")) throw new Error("Android Push restored Wi-Fi tailnet path unavailable");
+        await wait("Airplane recovery", async () => {
+          const observed = await runtime.observe(offline, "attention", "private");
+          if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Airplane recovery privacy failure");
+          return observed.count === 1 ? true : undefined;
+        }, 160_000);
+        await clear();
+        await finish("network_verified", { wifiDelivery: true, ...(cellular ? { cellularDelivery: true } : { blocked: "cellular_path_unavailable" }), airplaneSuppressed: true, recovered: true });
       });
       await attempt("forbidden_sinks_verified", async () => {
         await runtime.network("wifi");

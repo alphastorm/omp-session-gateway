@@ -200,7 +200,8 @@ read only by `android-device.ts`, never echoed or copied into configuration.
 - Origin-permission denial suppresses notifications; restoring permission must permit a fresh
   delivery. Lock/resume and forced Doze record observed behavior, not a delivery guarantee.
 - Real Wi-Fi and cellular tailnet delivery, Airplane suppression, and bounded recovery. Missing
-  working cellular data is a named blocked sub-phase, never substituted with Wi-Fi.
+  working cellular data is a named blocked sub-phase, never substituted with Wi-Fi. Airplane
+  suppression and Wi-Fi recovery are still exercised; the missing cellular result prevents a pass.
 - A positive control proves the seven historical browser sinks plus notification title/body/data
   are detectable; real launch material stays in page memory during the sweep. URL/history, DOM,
   and resource timings are included. On macOS, `plutil` must confirm both LaunchAgent streams are
@@ -213,8 +214,10 @@ or instance identifier is checkpointed. `phaseElapsedMs` records
 checkpoint-to-checkpoint time, including any explicitly recorded re-arm.
 Raw OS notification keys, tags, and content remain transient. Cleanup attempts every step
 even after failure: settle the owned ask, exit forced Doze/reset battery emulation, restore radios,
-remove owned notifications, restore subscription/detail/origin permission, restore WebAPK task and
-display/keyguard state, and stop only the owned fixture. A failed cleanup remains cleanup-required;
+stop only the owned fixture, remove owned notifications, restore subscription/detail/origin
+permission, and restore WebAPK task and display/keyguard state. Stopping the producer before
+notification and subscription cleanup ensures that cleanup also follows fixture shutdown.
+A failed cleanup remains cleanup-required;
 it never becomes a passing receipt. Its error carries `pixelUnrestored: true`, poisoning the shared
 stable-campaign Pixel lease; an ordinary phase failure followed by successful cleanup does not.
 The private development cleanup command can recover its own retained lease only after the recorded
@@ -253,8 +256,46 @@ authoritative clear/fresh retention, and the `delivered_while_force_stopped` var
 post-relaunch delivery. It then exposed a harness error: its denied-permission connection had already
 closed. A corrected focused probe held denial for 33.158 seconds with the WebAPK task closed,
 restored the real permission, received a fresh notification, and restored the baseline in 183.23 seconds.
-The complete matrix has not yet passed; full acceptance remains separate from these partial probes.
-These are tested observations, not qualification of v0.5.3 or the future v0.6.0 candidate.
+Later full-sequence attempts passed the permission phase but repeatedly failed
+`lock_resume_verified` with an authoritative-clear timeout. Waiting for initialized notification
+controls and a visible directory did not resolve that failure. The Android build was
+**CP2A.260805.005**, with Bun **1.4.0** throughout.
+
+Bounded predecessor bisection and in-memory request-correlated instrumentation observed:
+
+| Predecessor before lock/resume | Observed result | Attempt time, including restoration |
+| --- | --- | --- |
+| Subscription only | Exact current request cleared | 85.027 s |
+| Force-stop only | Exact current request cleared | 149.501 s |
+| Permission denial/restoration only | Exact current request cleared | 211.008 s |
+| Clear/fresh only | Exact current request cleared | 159.149 s |
+| Stale-generation only | Exact current request cleared | 210.218 s |
+| Stale-generation → clear/fresh | Exact current request cleared | 285.682 s |
+| Stale-generation → clear/fresh → force-stop | First post-relaunch authoritative clear timed out, before lock/resume | Failure observed at 324.204 s |
+
+The last row is the **smallest observed failing combined prefix**, not a proven minimal cause.
+Repeating that prefix with a worker-side recorder passed: force-stop clear took 1.105 s after
+authoritative resolution; subsequent lock/resume clear took 0.584 s; restoration was observed at
+358.663 s. In the instrumented lock/resume probes, the displayed request matched the received
+clear, the gateway held the browser's current endpoint, and both browser and OS records disappeared.
+The permission probe also observed a changed endpoint correctly retained by the gateway. These
+passing traces do not establish why the uninstrumented failure occurred; attaching CDP changes the
+observation conditions. No gateway or worker product fix is claimed.
+
+The failed combined prefix left one owned active OS notification with no corresponding browser
+notification handle. Ordinary cleanup failed closed and retained the Pixel lease. A separate
+restoration experiment showed that immediately closing a same-tag replacement could be followed by
+its late native OS post. Waiting for that replacement's actual OS post (observed after 806 ms) before
+closing its browser handle removed the owned row for a 7.588-second observation window while
+preserving unrelated notifications. This was explicit cleanup, not a successful authoritative clear
+or a retry of the failed phase; its connection to the original clear failure remains unestablished.
+
+All final device baseline booleans matched, the original granted/subscribed Preview preference was
+restored, the owned fixture was absent, and the development Pixel lease was independently observed
+released. The daily gateway, global OMP installations, and user OMP configuration were unchanged.
+The complete uninterrupted matrix remains **blocked at authoritative clear**. Forced Doze, the
+complete real network matrix, and the final real sink sweep have not passed end to end. These are
+**tested observations**, not qualification of v0.5.3 or the future v0.6.0 candidate.
 
 ## Optional passkey/biometric gate
 

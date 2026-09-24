@@ -244,7 +244,13 @@ rewarms Chrome before releasing that connection, then verifies the restored pref
 The 2026-09-25 development probes against v0.5.3 prove the stock-18.3.0 fixture transitions,
 closed-task delivery and lock-screen detail at all three levels, full-sequence attention Control,
 known-busy-to-idle View, same-instance stale rejection, clear/fresh retention, force-stop observed
-delivery with fresh post-relaunch delivery, focused denied-permission suppression/restoration, and
-digest-bound orphan-notification cleanup. The entire matrix has not yet passed. These are
-**tested evidence**, not completion of
-this checklist and not qualification. See ANDROID.md for the exact observed platform combination.
+delivery with fresh post-relaunch delivery, denied-permission suppression/restoration, and
+digest-bound notification cleanup. The full sequence repeatedly timed out on lock/resume clear.
+The smallest observed failing combined prefix was stale-generation → clear/fresh → force-stop,
+failing its first post-relaunch clear. Instrumented repetitions received the exact current clear
+and removed both browser and OS records; they did not establish the uninstrumented failure's cause.
+Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
+experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
+matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,
+not completion of this checklist and not qualification. See ANDROID.md for timings, restored
+baselines, and the exact observed platform combination.

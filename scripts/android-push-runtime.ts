@@ -584,7 +584,7 @@ export function createAndroidPushRuntime(identity: AndroidPushIdentity, options:
       currentEpoch = progress.epoch;
       switch (step) {
         case "fixtureAsk":
-          // A not-yet-started fixture has nothing to settle. Stop later still verifies ownership.
+          // A not-yet-started fixture has nothing to settle. Stop verifies ownership before notification cleanup.
           if (await snapshot(currentEpoch) !== undefined) {
             await runtime.fixture("answer", currentEpoch);
             await wait(async () => (await snapshot(currentEpoch!))?.inputRequired !== true, "cleanup authoritative resolution", 90_000);
