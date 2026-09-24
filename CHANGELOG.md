@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.5.2] — 2026-09-24
+
 ### Changed
 
 - Prune superseded staged runtimes after successful ready installs, retaining the active runtime,
