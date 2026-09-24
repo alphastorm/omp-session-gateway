@@ -15,11 +15,11 @@
 and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
 publication credential is needed. Install the separate gateway service once.
 
-**After publication, install stable [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2).**
-Its signed-candidate evidence is approved; publication and the separate published-byte local/Android smoke are pending.
-Until then, published v0.5.1 remains current; it rejects OMP registry fields it does not know and
-rereads leftover discovery files every round, which v0.5.2 fixes, and it keeps every staged runtime.
-Exact scopes are
+**Install published stable [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2).**
+Its signed-candidate evidence is approved, signed publication passed, and its published-byte
+local/Android smoke passed. Unlike v0.5.1, it accepts fields OMP adds under registry v1, keeps
+leftover discovery files from killed OMP processes from displacing new sessions, and prunes
+superseded staged runtimes after a ready install. Exact scopes are
 recorded in the [release ledger](RELEASE_STATUS.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
 retain their **fork-era** patched OMP v18.1.14 and v17.4.1 evidence respectively; use each tag’s

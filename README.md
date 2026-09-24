@@ -24,7 +24,7 @@ copied links, or per-session setup.
 **[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[v0.5.2 release target](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2)**
+**[Stable v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
@@ -52,7 +52,7 @@ copied links, or per-session setup.
 > shipped in [v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)
 > ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908)). Enable `collab.autoStart` once,
 > install the gateway, and configure Tailscale Serve. Then start sessions with plain `omp`.
-> **[Get started with v0.5.2 once published](#build-and-run)** ·
+> **[Get started with stable v0.5.2](#build-and-run)** ·
 > [Exact support and limits](docs/COMPATIBILITY.md) · [Release evidence](docs/RELEASE_STATUS.md).
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
@@ -65,7 +65,7 @@ This is a community project and is not affiliated with or endorsed by the Oh My 
 
 ## Build and run
 
-After publication, start with the [v0.5.2 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2),
+Start with the [stable v0.5.2 release](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2),
 **Bun 1.4.0**, and stock **OMP 18.1.20 or later**. Read the
 [exact supported combinations and limits](docs/COMPATIBILITY.md) before installing.
 The gateway and phone need Tailscale on the same tailnet; the gateway host must use the TUN-mode
@@ -228,7 +228,7 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-**v0.5.2 is qualified for stable promotion; publication is pending.** Candidate `v0.5.2-prealpha.1` has
+Published stable **v0.5.2** was promoted from qualified candidate `v0.5.2-prealpha.1` with
 identical runtime bytes. Qualification is limited to the exact combinations below; the minimum OMP version does not
 qualify every host, browser, or future OMP release.
 

@@ -3,13 +3,11 @@
 GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) records qualification;
 [the changelog](../CHANGELOG.md) records shipped work. This file keeps only open product direction.
 
-Stable v0.5.1 is published with native stock-OMP integration; v0.5.2 is in preparation. Exact
-evidence and remaining limits live in the [release ledger](RELEASE_STATUS.md).
+Stable v0.5.2 is published with native stock-OMP integration. Exact evidence and remaining limits
+live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Publish v0.5.2 and confirm on the installed workstation that superseded staged runtimes are
-  pruned while the recorded rollback predecessor stays installed.
 - Decide notification-click window reuse: the worker picks a "dashboard" window by `client.url`,
   which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
   notification route. Settle the Android WebAPK single-window behavior before changing it.

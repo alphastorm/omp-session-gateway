@@ -1,10 +1,17 @@
 # Release status
 
-## Mainline v0.5.2 — qualified; stable publication pending
+## Mainline v0.5.2 — published stable
 
-**Updated:** 2026-09-24. The exact candidate below is approved for stable promotion. Published
-v0.5.1 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-24. [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2)
+was published at **09:16:17 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[35980094058](https://github.com/alphastorm/omp-session-gateway/actions/runs/35980094058) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `ed63a934f6b85513d6d9242dd43566e9b39466c3`.<br>
+**Stable archive SHA-256:** `898a334ecc8d41551dd0dcfba57104d1ed1006a57c7fbbfca922c9a94669ffb9`.
+
+The published-byte workstation/Pixel smoke passed on its **second attempt**; see below.
 
 **Candidate:** [v0.5.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2-prealpha.1).<br>
 **Source:** `86cb8584bd13bd66b37587e45a6bd917b5f30556`.<br>
@@ -56,7 +63,8 @@ failures is not established.
 **Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
 all **46 non-metadata candidate files**, paths and modes, after re-verifying the candidate digest.
 Only the existing workflow exclusions apply: release-info.json, SBOM.spdx.json,
-STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json. The merged promotion tree was
+identical, and the published stable archive also matched all 46 candidate files.
 
 **Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
 Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
@@ -65,6 +73,30 @@ remain unqualified. Every other release gate stays required. The first capacity 
 discovery-polling design, [35963993897](https://github.com/alphastorm/omp-session-gateway/actions/runs/35963993897)
 on `922bf47`, held 50 hosts for 600 seconds at 0.365% of one core and 63,236 KiB peak RSS; it
 promotes no ledger row.
+
+### Published-byte workstation/Pixel verification
+
+The first `smoke:release` invocation, bound to the stable tag, source and archive digest above,
+verified the published provenance, upgraded the installed gateway from `0.5.1-8f5031174380` to
+`0.5.2-005df2868300`, and passed the Serve and `doctor` steps. It then stopped at its OMP identity
+check: the `omp` on the default `PATH` resolves to the Code Mode launcher, which the smoke refuses
+as a different product, so no fixture or Pixel step ran. The install removed 33 of the 35 earlier
+staged runtimes and kept `0.5.2-005df2868300`, `0.5.1-8f5031174380` and `0.5.0-a88b8ba9ed61`; no
+prune marker remained, and the plain `rollback` target is `0.5.1-8f5031174380`.
+
+The second invocation placed the existing stock OMP 18.1.20 Bun global bin after the pinned Bun on
+`PATH` and passed in 3 minutes 49 seconds. It verified the installed gateway with the configuration
+and readiness token preserved; Tailscale Serve was unchanged and unrelated mappings were preserved.
+`doctor` passed 18/18. It reused stock OMP 18.1.20 without reinstalling it.
+
+On the Pixel, with asset `app.39cccc9c245b.js`, View was read-only and Control writable; the
+capability-sink, same-page recovery, and installed-WebAPK checks passed. The owned disposable
+fixture was removed; the smoke fails if its tmux session survives cleanup.
+
+Afterwards, `status` reported active, ready, tailscale-serve and not diverged, with active and
+service versions `0.5.2-005df2868300`, and `doctor` passed 18/18. The Code Mode launcher on the
+default PATH was unchanged. The smoke does not expand the exact candidate host/client matrix or
+qualify background Push.
 
 ## Mainline v0.5.1 — published stable
 

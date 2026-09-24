@@ -25,10 +25,11 @@ From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates 
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
 gateway change.
 
-**Qualified for stable promotion:** [v0.5.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2-prealpha.1), for v0.5.2.
-Publication and the separate published-byte local/Pixel smoke are pending. Published v0.5.1
-remains GitHub Latest until promotion and is this candidate's rollback predecessor; it rejects OMP
-registry fields it does not know and rereads leftover discovery files every round. The
+**Published stable:** [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2),
+GitHub Latest, promoted from v0.5.2-prealpha.1 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the second attempt; the first stopped at the smoke's OMP identity check
+because the default-PATH `omp` is the Code Mode launcher. The rollback predecessor is v0.5.1; it
+rejects OMP registry fields it does not know and rereads leftover discovery files every round. The
 [release ledger](RELEASE_STATUS.md) records the seven passed candidate lanes, the earlier stopped
 attempts, and exact source/archive bindings.
 
