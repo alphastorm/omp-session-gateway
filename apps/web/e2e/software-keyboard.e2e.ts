@@ -66,7 +66,7 @@ function visualViewportHeight(page: Page): Promise<number> {
   return page.evaluate(() => window.visualViewport?.height ?? window.innerHeight);
 }
 
-test("an open software keyboard cannot cover the composer", async ({ page }) => {
+test("an open software keyboard cannot cover the composer", { tag: "@core" }, async ({ page }) => {
   const fixture = await startDashboardFixture([session()]);
 
   try {

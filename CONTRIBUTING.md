@@ -25,7 +25,8 @@ A source checkout is for development and is not signed-artifact qualification.
    For browser behavior, also run `bun run test:browser` and exercise the changed surface. That
    lane needs Playwright's own Chromium build, which `bun install` does not fetch: run
    `bunx playwright install chromium` on a fresh checkout, and again after a Playwright version
-   bump, or every case fails at browser launch with `Executable doesn't exist`.
+   bump, or every case fails at browser launch with `Executable doesn't exist`. The cross-engine
+   `bun run test:browser:compat` lane also needs `bunx playwright install firefox webkit`.
 6. Open a pull request using the template and explain architecture/security impact. Report the
    exact verification performed; repository checks do not qualify a host, relay, or physical phone.
 

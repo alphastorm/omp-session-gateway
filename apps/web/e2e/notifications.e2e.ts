@@ -34,7 +34,7 @@ function session(instanceId: string, overrides: Partial<SessionMetadata> = {}): 
   };
 }
 
-test("activity-stop routes launch View even with a current ask or without Control, without persistent capability sinks", async ({ page }) => {
+test("activity-stop routes launch View even with a current ask or without Control, without persistent capability sinks", { tag: "@core" }, async ({ page }) => {
   await installSilentWebSocket(page);
   const roomKey = new Uint8Array(32).fill(109);
   const capabilityCanary = Buffer.from(roomKey).toString("base64url");
@@ -95,7 +95,7 @@ test("activity-stop routes launch View even with a current ask or without Contro
   }
 });
 
-test("attention routes still acquire Control only for the exact current request", async ({ page }) => {
+test("attention routes still acquire Control only for the exact current request", { tag: "@core" }, async ({ page }) => {
   await installSilentWebSocket(page);
   const current = session("attention-route-current-01", { inputRequired: true });
   const requestId = current.ask!.requestId;
@@ -116,7 +116,7 @@ test("attention routes still acquire Control only for the exact current request"
   }
 });
 
-test("changed, gone, and unavailable stop routes remain in the directory without acquiring capabilities", async ({ page }) => {
+test("changed, gone, and unavailable stop routes remain in the directory without acquiring capabilities", { tag: "@core" }, async ({ page }) => {
   const current = session("stop-expired-instance-01", { generation: 2 });
   const fixture = await startDashboardFixture([current]);
   try {

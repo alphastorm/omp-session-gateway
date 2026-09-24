@@ -17,7 +17,7 @@ function session(): SessionMetadata {
   };
 }
 
-test("dashboard reconnects after its live transport is interrupted", async ({ page }) => {
+test("dashboard reconnects after its live transport is interrupted", { tag: "@core" }, async ({ page }) => {
   const active = session();
   const fixture = await startDashboardFixture([active]);
 

@@ -11,6 +11,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - CI checks every change on Linux, macOS, and Windows (`portable-source`): repository scan,
   typecheck, web build, the test suite, and both leak scans. Linux and macOS run every test; Windows
   excludes five host-bound test files, each named with its reason in `scripts/test-portable.ts`.
+- CI runs the browser-neutral end-to-end tests (tagged `@core`) on desktop Chromium, Firefox, and
+  WebKit and on WebKit with iPhone-class emulation (`browser-core`): directory, View and Control
+  launch, stale-route refusal, capability-sink sweeps, bfcache resume, reconnect, the software
+  keyboard, and a service-worker update. The Pixel/Chromium lane keeps the full suite.
 - The upstream OMP canary also runs on Windows (`canary-windows`): stock OMP starts in its own
   hidden console and publishes its named pipe, and the gateway's reader, stale-generation refusal,
   View and Control joins through the relay, prompt echo, and host-death checks run against it. A
