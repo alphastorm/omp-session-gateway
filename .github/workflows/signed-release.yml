@@ -225,9 +225,9 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Keep sessions visible when OMP adds fields to its registry v1 discovery files, snapshots, or replies; unknown fields are never forwarded, and a snapshot naming ask content is still refused.
-          - Leftover discovery files from killed OMP processes no longer keep new sessions out of the directory: new publications are read first and publications proven dead are skipped.
-          - A successful ready install prunes superseded staged runtimes, keeping the active runtime, two distinct predecessors, and any divergent service runtime (#231).
+          - Render OMP 18.3.0's wait tool in the collaboration client; hub-family tool cards from older supported OMP releases still render.
+          - Streaming no longer re-scans the whole transcript for active tool cards on every token.
+          - The exact qualified OMP baseline moves to stock v18.3.0; mainline OMP >=18.1.20 remains the minimum.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Advertised combinations
@@ -257,7 +257,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.5.1 predecessor rejects OMP registry fields it does not know, so a later OMP that adds one hides sessions under v0.5.1, and it rereads leftover discovery files every round; omp collab list prunes them. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.5.2 predecessor renders OMP 18.3.0's wait tool calls as generic tool cards. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -272,9 +272,9 @@ jobs:
 
           ### Changes to test
 
-          - An OMP host whose discovery file, snapshot, or reply carries an unknown registry v1 field stays visible, and the field never reaches browser metadata.
-          - A new session appears despite leftover discovery files from killed OMP processes.
-          - A successful ready install prunes superseded staged runtimes and keeps the plain rollback target installed.
+          - A wait tool call from an OMP 18.3.0 host renders as a peer message or a job summary, and hub-family tool calls from older hosts still render.
+          - Long streaming turns keep active tool cards and transcript scrolling correct.
+          - Qualification builds and runs stock OMP v18.3.0 from source on every host lane.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -291,7 +291,7 @@ jobs:
 
           ### Rollback
 
-          The selected predecessor is v0.5.1. It rejects registry fields it does not know and rereads leftover discovery files every round; omp collab list prunes them. Pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.5.2. It renders OMP 18.3.0's wait tool calls as generic tool cards; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

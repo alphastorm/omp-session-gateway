@@ -1,5 +1,19 @@
 # Release status
 
+## v0.5.3 preparation — not yet qualified or published
+
+The candidate moves the OMP engineering baseline to stock v18.3.0 and refreshes the embedded
+collaboration client to its `collab-web` (#242). The client renders OMP 18.3.0's `wait` tool,
+keeps the hub-family tool cards older supported hosts still emit, and memoizes the transcript's
+active-tool scan. #240, #241, #243, and #244 change qualification fixtures and smoke tooling,
+documentation, the daily upstream canary, and workflow linting only; they are not in the candidate
+archive. Before preparation, the installed v0.5.2 gateway passed the physical Pixel smoke against a
+stock 18.3.0 host, the Mac lane's 18.3.0 source build passed locally, and the canary passed against
+latest stock OMP (18.3.0) in
+[run 35990860547](https://github.com/alphastorm/omp-session-gateway/actions/runs/35990860547).
+Published v0.5.2 remains the predecessor and current stable; no v0.5.3 qualification or
+publication is claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.5.2 — published stable
 
 **Updated:** 2026-09-24. [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2)

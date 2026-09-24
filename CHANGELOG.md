@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.5.3] — 2026-09-24
+
 ### Added
 
 - Run a daily upstream OMP canary against latest stock OMP, checking discovery, queries, generation-
