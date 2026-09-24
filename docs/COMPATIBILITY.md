@@ -24,19 +24,20 @@ only and start participating sessions with plain `omp`; no gateway-specific OMP 
 From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
 gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREAM.lock.json`);
-the qualified matrix below records the current stable's exact qualification and changes only when
-a candidate built from a newer baseline qualifies.
+the qualified matrix below records the exact qualification of the release named next and changes
+only when a candidate built from a newer baseline qualifies.
 
-**Published stable:** [v0.5.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.2),
-GitHub Latest, promoted from v0.5.2-prealpha.1 with identical runtime bytes. The
-[release ledger](RELEASE_STATUS.md) records its qualification lanes, earlier failed attempts,
-published-byte smoke, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md)
-covers its rollback predecessor, v0.5.1.
+**Qualified for stable promotion:** [v0.5.3-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3-prealpha.1),
+for [v0.5.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3). Publication
+and the separate published-byte local/Pixel smoke are pending; published v0.5.2 remains GitHub
+Latest until promotion. The [release ledger](RELEASE_STATUS.md) records the qualification lanes
+and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback
+predecessor, v0.5.2.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
-| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.1.20` publication, View/Control, stale-generation rejection, and revocation passed |
-| Exact qualified source | `v18.1.20`, `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b` | Fresh signed-candidate evidence; no fork-era transfer |
+| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.3.0` publication, View/Control, stale-generation rejection, and revocation passed |
+| Exact qualified source | `v18.3.0`, `62bc57be1b03ef0802a33cf7f5f530e534527531` | Fresh signed-candidate evidence; no fork-era transfer |
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |

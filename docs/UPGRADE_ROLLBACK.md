@@ -1,13 +1,13 @@
 # Upgrade and rollback lane
 
-## v0.5.2 predecessor compatibility
+## v0.5.3 predecessor compatibility
 
-The selected predecessor is published v0.5.1. Gateway rollback does not change the separately
-running OMP process. v0.5.1 rejects OMP registry fields it does not know, so a later OMP that adds
-one hides sessions under v0.5.1, and it rereads leftover discovery files from killed OMP processes
-every round; `omp collab list` prunes them. v0.5.1 does not prune staged runtimes, and after a
-v0.5.2 install `rollback --to` can select only the runtimes v0.5.2 retained. v0.5.0, one step
-further back, also navigates in-use pages when its service worker activates (ADR-018 amendment).
+The selected predecessor is published v0.5.2. Gateway rollback does not change the separately
+running OMP process. v0.5.2 renders OMP 18.3.0's `wait` tool calls as generic tool cards; that is
+display-only, and sessions, View, Control, and Ask behave the same. After a v0.5.3 install,
+`rollback --to` can select only the runtimes pruning retained. v0.5.1, one step further back, also
+rejects OMP registry fields it does not know and rereads leftover discovery files from killed OMP
+processes every round.
 
 ## Staged-runtime retention from v0.5.2
 
