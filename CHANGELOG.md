@@ -29,6 +29,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   publishes without a model, instead of timing out a minute later at the prompt stage.
 - The post-release smoke uses Bun's global stock OMP when the `omp` on `PATH` is another product,
   such as a Code Mode launcher, and refuses an unusable OMP before it changes the installed gateway.
+- The upstream canary workflow runs on GitHub. It used the `runner` context in job-level `env`,
+  which GitHub rejects, so the workflow never started. CI now lints every workflow with a pinned,
+  checksum-verified actionlint, so a rejected workflow cannot merge as a silent no-op.
 
 ## [v0.5.2] — 2026-09-24
 

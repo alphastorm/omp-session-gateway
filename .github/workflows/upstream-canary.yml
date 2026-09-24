@@ -33,8 +33,6 @@ jobs:
       failed_stage: ${{ steps.summary.outputs.failed_stage }}
     env:
       OMP_VERSION: ${{ inputs.omp_version || 'latest' }}
-      OMP_PACKAGE: ${{ runner.temp }}/omp-upstream-package
-      CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
     steps:
       - name: Check out gateway
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,6 +54,8 @@ jobs:
             sudo apt-get install -y tmux
           fi
       - name: Install isolated stock OMP
+        env:
+          OMP_PACKAGE: ${{ runner.temp }}/omp-upstream-package
         run: |
           set -euo pipefail
           if [[ ! "$OMP_VERSION" =~ ^(latest|[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
@@ -70,13 +70,19 @@ jobs:
             exit 1
           fi
       - name: Exercise gateway compatibility
+        env:
+          OMP_PACKAGE: ${{ runner.temp }}/omp-upstream-package
+          CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
         run: |
           set -euo pipefail
           bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" >"$CANARY_REPORT"
       - name: Publish bounded summary
         id: summary
         if: always()
+        env:
+          CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
         run: |
+          # shellcheck disable=SC2016 # the single-quoted argument is JavaScript for bun, not shell
           bun --eval '
             import { appendFile } from "node:fs/promises";
             import { CANARY_STAGES, canarySummary, parseCanarySummary } from "./scripts/upstream-canary.ts";

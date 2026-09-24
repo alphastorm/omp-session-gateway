@@ -57,6 +57,7 @@ jobs:
           policy_file="$RUNNER_TEMP/release-policy.env"
           bun scripts/release-policy.ts "$GITHUB_REF_NAME" "$version" STABLE_RELEASE.lock.json > "$policy_file"
           cat "$policy_file" >> "$GITHUB_ENV"
+          # shellcheck source=/dev/null # release-policy.ts writes this file in the step above
           source "$policy_file"
           if [[ "$OMP_RELEASE_CHANNEL" == "stable" ]]; then
             candidate_tag="$(jq -er '.candidateTag' STABLE_RELEASE.lock.json)"
