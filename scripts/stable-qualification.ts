@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
+import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
@@ -1067,7 +1068,7 @@ function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins): s
   return [
     'export PATH="$HOME/.bun/bin:$PATH"',
     'root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"',
-    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
+    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} OMP_FIXTURE_MODEL=${shellQuote(OMP_FIXTURE_MODEL)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
   ].join("; ");
 }
 
@@ -1113,6 +1114,8 @@ async function waitForPublishedSession(origin: string, label: string): Promise<R
         if (session.canView !== true || session.canControl !== true || session.generation !== 1) {
           throw new Error("mainline OMP metadata did not publish View and Control at generation 1");
         }
+        const modelError = fixtureModelError(session);
+        if (modelError !== undefined) throw new Error(modelError);
         return session;
       }
     }

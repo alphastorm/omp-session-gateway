@@ -25,6 +25,7 @@ import {
   lastAndroidStage,
 } from "./android-stages.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
+import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_REPOSITORY = "alphastorm/omp-session-gateway";
@@ -87,7 +88,7 @@ interface ServeStatus {
   readonly [key: string]: unknown;
 }
 
-interface OmpInstall {
+export interface OmpInstall {
   readonly compatible: boolean;
   readonly binary?: string;
   readonly version?: string;
@@ -102,6 +103,7 @@ interface PublishedSession {
   readonly generation?: number;
   readonly canView?: boolean;
   readonly canControl?: boolean;
+  readonly model?: string;
 }
 
 interface FixtureHandle {
@@ -710,14 +712,18 @@ export function isStockOmpBinary(realPath: string): boolean {
 
 export async function inspectOmpInstall(): Promise<OmpInstall> {
   const binary = Bun.which("omp", { PATH: process.env.PATH ?? "" });
-  if (binary === null) return { compatible: false };
+  return binary === null ? { compatible: false } : inspectOmpBinary(binary);
+}
+
+/** Inspects one candidate binary; a missing or unreadable one reports incompatible, not stock. */
+export async function inspectOmpBinary(binary: string): Promise<OmpInstall> {
   try {
     const stock = isStockOmpBinary(await realpath(binary));
     const output = await commandOutput("OMP version", [binary, "--version"]);
     const version = /^(?:omp[ /])?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s|$)/u.exec(output)?.[1];
     if (version === undefined || !Bun.semver.satisfies(version, ">=18.1.20")) return { compatible: false, binary, stock };
     // `compatible` stays a statement about version and settings only; product identity is a
-    // separate fact that `installOrVerifyOmp` refuses on, so the two never mask each other.
+    // separate fact that `resolveOmp` refuses on, so the two never mask each other.
     const autoStart = parseJsonRecord(
       await commandOutput("OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),
       "OMP auto-start",
@@ -734,34 +740,61 @@ export async function inspectOmpInstall(): Promise<OmpInstall> {
   }
 }
 
-async function installOrVerifyOmp(
+/**
+ * The `omp` on PATH wins when it is stock mainline. On a workstation where that name belongs to
+ * another product, such as a Code Mode launcher, a stock alternative replaces it; otherwise the PATH
+ * result stands so the refusal names the binary the operator would run.
+ */
+export function preferStockOmp(onPath: OmpInstall, alternative: OmpInstall): OmpInstall {
+  return onPath.stock !== true && alternative.stock === true ? alternative : onPath;
+}
+
+interface ResolvedOmp {
+  readonly installed: boolean;
+  readonly version: string;
+  readonly binary: string;
+  readonly binarySha256: string;
+}
+
+/**
+ * Selects the single OMP the smoke exercises, before any gateway change, so an unusable OMP fails
+ * while the installed gateway is still untouched. Bun's global stock install is used in place of a
+ * same-named launcher on PATH without reinstalling it; `--rebuild-omp` reinstalls the pinned package.
+ */
+async function resolveOmp(
   options: PostReleaseSmokeOptions,
   release: VerifiedRelease,
   bunExecutable: string,
-): Promise<{ installed: boolean; version: string; binary: string; binarySha256: string }> {
+): Promise<ResolvedOmp> {
+  const bunGlobalBin = () => commandOutput("Bun global bin", [bunExecutable, "pm", "bin", "--global"]);
   let inspection = await inspectOmpInstall();
+  if (!options.rebuildOmp && inspection.stock !== true) {
+    inspection = preferStockOmp(inspection, await inspectOmpBinary(join(await bunGlobalBin(), "omp")));
+  }
   let installed = false;
   if (options.rebuildOmp || inspection.binary === undefined) {
     await runCommand("mainline OMP install", [bunExecutable, "add", "--global", "--exact", "@oh-my-pi/pi-coding-agent@" + release.ompVersion], {
       timeoutMs: 1_800_000,
       safeFailureOutput: true,
     });
-    const globalBin = await commandOutput("Bun global bin", [bunExecutable, "pm", "bin", "--global"]);
-    process.env.PATH = globalBin + ":" + (process.env.PATH ?? "");
+    process.env.PATH = (await bunGlobalBin()) + ":" + (process.env.PATH ?? "");
     installed = true;
     inspection = await inspectOmpInstall();
   }
   if (inspection.stock === false) {
     throw new Error(
-      "the omp on PATH is not stock mainline: it resolves outside @oh-my-pi/pi-coding-agent, so it is a different product wearing the same name. " +
+      "the omp on PATH is not stock mainline and Bun's global install has no stock omp: it resolves outside @oh-my-pi/pi-coding-agent, so it is a different product wearing the same name. " +
         "Qualifying a release against it would prove nothing about the advertised prerequisite. Use --rebuild-omp to install and use the pinned mainline package.",
     );
   }
   if (!inspection.compatible || inspection.binary === undefined || inspection.binarySha256 === undefined || inspection.version === undefined) {
-    throw new Error("omp on PATH must be mainline >=18.1.20 with readable collab.autoStart; use --rebuild-omp to reinstall it");
+    throw new Error("the selected omp must be mainline >=18.1.20 with readable collab.autoStart; use --rebuild-omp to reinstall it");
   }
-  await runCommand("OMP auto-start setup", [inspection.binary, "config", "set", "collab.autoStart", "control"]);
   return { installed, version: inspection.version, binary: inspection.binary, binarySha256: inspection.binarySha256 };
+}
+
+async function enableOmpAutoStart(binary: string): Promise<void> {
+  await runCommand("OMP auto-start setup", [binary, "config", "set", "collab.autoStart", "control"]);
 }
 
 function shellQuote(value: string): string {
@@ -790,7 +823,8 @@ async function startFixture(
     [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
-      `exec ${shellQuote(binary)} --model openai-codex/gpt-5.4-mini --api-key qualification-synthetic-never-sent --no-extensions --no-skills --thinking low >/dev/null 2>&1`,
+      ...Object.entries(OMP_FIXTURE_ENV).map(([name, value]) => `export ${name}=${shellQuote(value)}`),
+      `exec ${[binary, ...OMP_FIXTURE_ARGS].map(shellQuote).join(" ")} >/dev/null 2>&1`,
       "",
     ].join("\n"),
     { mode: 0o700, flag: "wx" },
@@ -823,6 +857,8 @@ async function startFixture(
         ) {
           throw new Error("published smoke fixture metadata is incomplete");
         }
+        const modelError = fixtureModelError(session);
+        if (modelError !== undefined) throw new Error(modelError);
         handle.published = true;
         return;
       }
@@ -1024,9 +1060,9 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
       repository: options.repository,
       effects: [
         "verify published release provenance",
+        "select stock mainline OMP >=18.1.20 from PATH or Bun's global install before any gateway change",
         "install or verify the stable gateway without changing config or readiness token",
         "preserve unrelated Tailscale Serve mappings",
-        "install or verify mainline OMP >=18.1.20",
         "exercise an owned disposable tmux session on the physical Android client",
         "remove only the owned session and private staging",
         "leave the stable gateway, mainline OMP, and installed PWA in place",
@@ -1042,10 +1078,12 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
   try {
     const release = await verifyPublishedRelease(options, staging, packageManifest);
     const bunExecutable = await ensurePersistentBun(release.bunVersion);
+    // An unusable OMP fails the run before the installed gateway changes.
+    const omp = await resolveOmp(options, release, bunExecutable);
     const gateway = await installOrVerifyGateway(options, release, bunExecutable);
     const serve = await ensureServeMapping();
     const doctorChecks = await verifyGatewayDoctor(release, bunExecutable);
-    const omp = await installOrVerifyOmp(options, release, bunExecutable);
+    await enableOmpAutoStart(omp.binary);
     fixture = await createFixture(release.version);
     await startFixture(fixture, omp.binary, staging);
     await runAndroidLanes(release, bunExecutable, fixture.label);

@@ -6,6 +6,16 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Qualification, smoke, and canary fixtures start OMP with a model that stock OMP 18.3.0 resolves
+  with the synthetic key. OMP 18.3.0 no longer offers `openai-codex/gpt-5.4-mini` without a signed-in
+  Codex account, so its fixture host ran without a model and rejected the Control prompt. Fixtures
+  now also skip OMP's onboarding wizard per process, and every lane fails when its fixture
+  publishes without a model, instead of timing out a minute later at the prompt stage.
+- The post-release smoke uses Bun's global stock OMP when the `omp` on `PATH` is another product,
+  such as a Code Mode launcher, and refuses an unusable OMP before it changes the installed gateway.
+
 ## [v0.5.2] — 2026-09-24
 
 ### Changed
