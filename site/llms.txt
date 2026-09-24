@@ -1,8 +1,8 @@
 # OMP Session Gateway
 
 > Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
-> gateway-specific OMP plugin, or publisher credential. v0.5.3 is qualified for stable promotion; publication is pending.
-> Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> gateway-specific OMP plugin, or publisher credential. Stable v0.5.3 is published as immutable
+> GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
 > sessions and opens OMP's own encrypted View/Control client from an Android-first PWA. One-time
 > setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
 > with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
@@ -10,7 +10,7 @@
 
 ## Current qualification boundary
 
-- v0.5.3 is approved for stable promotion from signed candidate v0.5.3-prealpha.1 (source e0718628074527746096d74398f112900aea5ee5) with identical runtime bytes. All seven qualification lanes passed on 2026-09-24 against stock OMP v18.3.0, each on its first attempt. Published stable v0.5.2 (source ed63a934f6b85513d6d9242dd43566e9b39466c3) remains GitHub Latest until v0.5.3 publication. No claim for arbitrary builds from main.
+- Stable v0.5.3 (source 54356c80b21e101c25eca9be8119d4ffe62d50c9) was promoted from signed candidate v0.5.3-prealpha.1 with identical runtime bytes. All seven qualification lanes passed on 2026-09-24 against stock OMP v18.3.0 with no failed attempt; the artifacts lane records a second attempt because the orchestrator was relaunched during it. No claim for arbitrary builds from main.
 - Exact OMP v18.3.0 source: 62bc57be1b03ef0802a33cf7f5f530e534527531. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway.
 - Debian 13 (trixie) x86-64, Linux 6.12.94+deb13-amd64: 83/83 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown.
 - Mac14,3 / macOS 26.6.1 arm64: doctor 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.
@@ -19,7 +19,7 @@
 - Windows OMP, background Web Push, specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Seeded-fixture product media is not release-qualification evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
 - v0.5.2 is the migration/rollback predecessor. It renders OMP 18.3.0's wait tool calls as generic tool cards. Gateway rollback does not switch OMP.
 - In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The v0.5.1 fix never navigates from the worker.
-- The v0.5.3 published-byte local/Pixel smoke is pending. The v0.5.2 smoke passed on its second attempt across the upgrade from v0.5.1.
+- The v0.5.3 published-byte local/Pixel smoke passed on its first attempt across the upgrade from v0.5.2, against stock OMP 18.3.0. The v0.5.2 smoke passed on its second attempt across the upgrade from v0.5.1.
 
 ## Fork-era release history
 
