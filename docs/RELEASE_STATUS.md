@@ -1,18 +1,54 @@
 # Release status
 
-## v0.5.3 preparation — not yet qualified or published
+## Mainline v0.5.3 — qualified; stable publication pending
 
-The candidate moves the OMP engineering baseline to stock v18.3.0 and refreshes the embedded
-collaboration client to its `collab-web` (#242). The client renders OMP 18.3.0's `wait` tool,
-keeps the hub-family tool cards older supported hosts still emit, and memoizes the transcript's
-active-tool scan. #240, #241, #243, and #244 change qualification fixtures and smoke tooling,
-documentation, the daily upstream canary, and workflow linting only; they are not in the candidate
-archive. Before preparation, the installed v0.5.2 gateway passed the physical Pixel smoke against a
-stock 18.3.0 host, the Mac lane's 18.3.0 source build passed locally, and the canary passed against
-latest stock OMP (18.3.0) in
-[run 35990860547](https://github.com/alphastorm/omp-session-gateway/actions/runs/35990860547).
-Published v0.5.2 remains the predecessor and current stable; no v0.5.3 qualification or
-publication is claimed, and the stable lock remains unchanged until approval.
+**Updated:** 2026-09-24. The exact candidate below is approved for stable promotion. Published
+v0.5.2 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.5.3-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3-prealpha.1).<br>
+**Source:** `e0718628074527746096d74398f112900aea5ee5`.<br>
+**Archive SHA-256:** `95377102279da3867295cf6ec991992a1f3c9c0cab5d62cee4b5f5fbf5ffadab`.<br>
+**Predecessor:** published `v0.5.2`. Rollback does not change OMP; v0.5.2 renders OMP 18.3.0's
+`wait` tool calls as generic tool cards.
+
+The candidate moves the OMP engineering and qualified baseline to stock v18.3.0 and refreshes the
+embedded collaboration client to its `collab-web` (#242). The client renders OMP 18.3.0's `wait`
+tool, keeps the hub-family tool cards older supported hosts still emit, and memoizes the
+transcript's active-tool scan. #240, #241, #243, and #244 change qualification fixtures and smoke
+tooling, documentation, the daily upstream canary, and workflow linting only; they are not in the
+candidate archive. The minimum OMP contract remains 18.1.20.
+
+### Candidate evidence — 2026-09-24
+
+The orchestrator ran from the candidate source `e0718628074527746096d74398f112900aea5ee5`; its
+private receipt records `passed`.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [35991612617](https://github.com/alphastorm/omp-session-gateway/actions/runs/35991612617) |
+| Debian | [35992100974](https://github.com/alphastorm/omp-session-gateway/actions/runs/35992100974) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; stock OMP v18.3.0 built from source (`omp/18.3.0`); 83/83 migration/recovery invariants; predecessor v0.5.2; droplet, tailnet node and ephemeral SSH key removed |
+| Mac | Mac14,3, macOS 26.6.1 arm64; stock OMP v18.3.0 built from source at `62bc57be1b03` / tree `b36226cce6a2` with native addon `ed9ddcee7338`; doctor 18/18, token rotation `d83119faafb7` → `4467e3e14d5a`, reboot-to-login persistence with unchanged token digest, rollback invariants 23/23; archive digest matched |
+| OMP publication | stock v18.3.0 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP2A.260805.005, Chrome 153.0.8010.52, asset `app.179f57dc0fd6.js`; View read-only, Control writable, prompt accepted, return to directory; at a 250 ms probe cadence, same-page unlock 5,866 ms (including device wake), Airplane 7,006 ms, Doze 286 ms |
+| Secret sinks | all seven sinks detectable and clean |
+| Relay | 1,800 seconds, 2026-09-24T11:31:08.494Z–12:01:08.504Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; the Mac's OMP binary and source removed |
+
+**Attempts:** no lane failed. The artifacts lane records two attempts because the first
+orchestrator launch was stopped during that read-only lane and relaunched in its own session, so
+that a tool deadline could not interrupt a live lane; every other lane passed on its first
+attempt.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files**, paths and modes, after re-verifying the candidate digest.
+Only the existing workflow exclusions apply: release-info.json, SBOM.spdx.json,
+STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the founder renewed a fresh 1,800-second relay check for this candidate.
+Eight-hour endurance and bounded memory growth are not claimed. Windows OMP, background Push,
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.5.2 — published stable
 

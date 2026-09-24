@@ -236,7 +236,7 @@ minimum OMP version does not qualify every host, browser, or future OMP release.
 | | Current contract |
 |---|---|
 | OMP prerequisite | Stock mainline `>= 18.1.20`; earlier releases lack the local registry |
-| Exact qualified OMP | `v18.1.20`, commit `1bd60c6fbd0e800a75fd09b1e4804af5a5e6d63b`; Bun `1.4.0` |
+| Exact qualified OMP | `v18.3.0`, commit `62bc57be1b03ef0802a33cf7f5f530e534527531`; Bun `1.4.0` |
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | Qualified platforms | Debian 13 x86-64 and macOS arm64 hosts with a Pixel/Android/Chrome client; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
