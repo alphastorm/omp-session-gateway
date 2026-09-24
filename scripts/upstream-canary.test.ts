@@ -5,6 +5,8 @@ import {
   parseCanaryArgs,
   parseCanarySummary,
   parseOmpVersion,
+  windowsArgument,
+  windowsHostScript,
 } from "./upstream-canary.ts";
 
 describe("upstream canary arguments", () => {
@@ -81,5 +83,24 @@ describe("canary public reports", () => {
     ]) {
       expect(() => parseCanarySummary(text)).toThrow("invalid canary summary");
     }
+  });
+});
+
+describe("Windows host launch", () => {
+  test("quotes arguments by the Windows command-line rules", () => {
+    expect(windowsArgument("plain")).toBe("plain");
+    expect(windowsArgument("")).toBe('""');
+    expect(windowsArgument("C:\\stock omp\\cli.js")).toBe('"C:\\stock omp\\cli.js"');
+    // A trailing backslash would otherwise escape the closing quote.
+    expect(windowsArgument("C:\\stock omp\\")).toBe('"C:\\stock omp\\\\"');
+    expect(windowsArgument('say "hi"')).toBe('"say \\"hi\\""');
+    // Backslashes before a quote double, then the quote itself is escaped.
+    expect(windowsArgument('a\\"b')).toBe('"a\\\\\\"b"');
+  });
+
+  test("escapes PowerShell literals and refuses a variable name it cannot set safely", () => {
+    const script = windowsHostScript("C:\\bun.exe", ["C:\\omp\\cli.js"], "C:\\work", { USERPROFILE: "C:\\it's" });
+    expect(script).toContain("Set-Item -LiteralPath 'Env:USERPROFILE' -Value 'C:\\it''s'");
+    expect(() => windowsHostScript("C:\\bun.exe", [], "C:\\work", { "PATH;Remove-Item": "x" })).toThrow("invalid host environment");
   });
 });

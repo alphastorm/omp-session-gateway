@@ -11,6 +11,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - CI checks every change on Linux, macOS, and Windows (`portable-source`): repository scan,
   typecheck, web build, the test suite, and both leak scans. Linux and macOS run every test; Windows
   excludes five host-bound test files, each named with its reason in `scripts/test-portable.ts`.
+- The upstream OMP canary also runs on Windows (`canary-windows`): stock OMP starts in its own
+  hidden console and publishes its named pipe, and the gateway's reader, stale-generation refusal,
+  View and Control joins through the relay, prompt echo, and host-death checks run against it. A
+  scheduled failure names the failing host in the tracking issue. OMP's own commands now have a
+  60-second bound, because a fresh profile's first command also unpacks OMP's native addon.
 
 ### Fixed
 

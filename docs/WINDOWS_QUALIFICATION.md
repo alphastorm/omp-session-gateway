@@ -1,10 +1,35 @@
 # Windows qualification
 
-## Mainline qualification — pending
+## Mainline Windows: tested evidence and the remaining delta — 2026-09-24
 
 Stock OMP `>= 18.1.20` is the current prerequisite; [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Configure only
-`collab.autoStart` and use plain `omp`. Mainline Windows discovery/query and exact signed-candidate
-lifecycle qualification are **pending**. Windows remains unadvertised.
+`collab.autoStart` and use plain `omp`.
+
+Three hosted `windows-latest` lanes now exercise the mainline Windows host path:
+
+| Lane | Runs | What it exercises |
+|---|---|---|
+| `portable-source (windows-latest)` | every change | repository scan, typecheck, web build, 47 of 52 test files, both leak scans; `scripts/test-portable.ts` names the five host-bound exclusions and why |
+| `windows-service-lifecycle` | every change | gateway install as a current-user scheduled task, readiness, another local user denied the readiness token, rotation, port-changing reinstall, no-stop refusal, uninstall |
+| `canary-windows` (upstream canary) | daily against latest stock OMP, and on canary or reader changes | stock OMP starts in its own hidden console and publishes its named pipe; the unchanged `OmpHostReader` reads the discovery entry, queries a snapshot, refuses a stale generation, and releases View and Control; both join through the default relay and Control's prompt echoes; the host tree is ended and its pipe observed gone |
+
+The Windows canary passed all six stages against stock OMP 18.3.0 in discovery runs
+[36012005712](https://github.com/alphastorm/omp-session-gateway/actions/runs/36012005712) and
+[36014286823](https://github.com/alphastorm/omp-session-gateway/actions/runs/36014286823). One
+later run, [36015033822](https://github.com/alphastorm/omp-session-gateway/actions/runs/36015033822),
+failed at `publish`: OMP's first command in the fresh profile, which also unpacks its native addon,
+outlasted the canary's 10-second command bound. OMP commands now get a 60-second bound, with no
+retry.
+
+**What this closes.** Before these lanes, the gateway had never queried a real stock OMP over the
+named pipe OMP publishes on Windows; hosted CI covered only the gateway's own service lifecycle.
+
+**What still separates Windows from the qualified release matrix.** An exact signed gateway
+candidate and mainline OMP binary through install, reboot with no pre-login listener, interactive
+login and automatic start, `doctor`, rotation, upgrade, rollback, and uninstall, with TUN-mode
+Tailscale Serve and a physical client. Hosted runners cannot reboot into a login session, so this
+stays a release-lane requirement. Windows starts the gateway at interactive logon (`LogonTrigger`),
+not at unattended boot.
 
 ## Fork-era procedure and evidence archive
 
