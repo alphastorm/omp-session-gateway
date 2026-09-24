@@ -108,6 +108,16 @@ not qualify an actual OMP binary, native host, relay, or physical client.
 - Windows CI covers gateway contracts, ACLs, and service lifecycle only; upstream Windows registry
   tests and real named-pipe discovery remain outside this gate and unqualified.
 
+The daily [upstream OMP canary](../.github/workflows/upstream-canary.yml) installs latest stock OMP
+into an isolated directory and exercises discovery, snapshot/model validation, stale-generation
+refusal, and the embedded client’s View/Control joins and prompt echo against one disposable host.
+Run locally with `bun scripts/upstream-canary.ts --omp <binary>`; `--model <provider/id>` overrides
+the shared fixture model for diagnosis. After SIGTERM, it requires PID exit plus an absent entry
+or a gateway `gone` reply, never `unavailable`. Stock 18.1.20 and 18.3.0 leave their publication on
+SIGTERM: `discoveryFileRemoved` reports that separately, and OMP prunes its own dead entry only
+after the verdict. This is not qualification, touches no phone, and proves neither provider
+completion nor relay endurance; it uses OMP’s public relay.
+
 ### Qualification tooling
 
 The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate

@@ -34,9 +34,10 @@ export const OMP_FIXTURE_ENV: Readonly<Record<string, string>> = { OMP_SKIP_SETU
 
 /**
  * A fixture that published without a model cannot run the Control prompt, so every lane refuses it
- * at publication with the reason instead of timing out at the prompt stage.
+ * at publication with the reason instead of timing out at the prompt stage. `requested` names the
+ * model the fixture was started with when a diagnostic run overrides the shared one.
  */
-export function fixtureModelError(session: { readonly model?: unknown }): string | undefined {
+export function fixtureModelError(session: { readonly model?: unknown }, requested = OMP_FIXTURE_MODEL): string | undefined {
   if (typeof session.model === "string" && session.model !== "") return undefined;
-  return `the OMP fixture published without a model: this OMP did not resolve ${OMP_FIXTURE_MODEL} with the synthetic key, so it would reject the Control prompt`;
+  return `the OMP fixture published without a model: this OMP did not resolve ${requested} with the synthetic key, so it would reject the Control prompt`;
 }

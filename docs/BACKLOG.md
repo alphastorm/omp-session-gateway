@@ -15,8 +15,9 @@ live in the [release ledger](RELEASE_STATUS.md).
 - Qualify background Push on the advertised physical Android/browser combination.
 - Decide whether to advertise Windows only after exact mainline discovery and signed-candidate
   install/reboot-login/upgrade/rollback/uninstall acceptance.
-- Track upstream discovery/query compatibility after PR #11908 (`4999b98bd5`), shipped in
-  `v18.1.20`. The gateway ignores fields OMP adds under registry v1 (ADR-028); a version bump or a
+- Track upstream discovery/query compatibility with the daily executable
+  [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
+  The gateway ignores fields OMP adds under registry v1 (ADR-028); a version bump or a
   changed type for a field it reads still needs a gateway change.
 
 ## Candidate follow-ups
