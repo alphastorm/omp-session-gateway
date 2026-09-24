@@ -25,6 +25,7 @@ import {
 } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 import { ANDROID_ACCEPTANCE_STAGES, announceAndroidStage } from "./android-stages.ts";
+import { measureAndroidRecovery } from "./android-recovery.ts";
 
 const POWER = "26";
 
@@ -144,15 +145,13 @@ async function awaitRecovery(
   driver: AndroidChromeDriver,
   label: string,
   since: number,
-  attempts: number,
+  timeoutMs: number,
   host: string,
   expectedTimeOrigin: number,
   continuity: PageContinuity,
-  delayMs = 8_000,
 ): Promise<{ recoveredMs: number | null; deviceReachableFirstMs: number | null }> {
   let deviceReachableFirstMs: number | null = null;
-  for (let index = 1; index <= attempts; index++) {
-    await sleep(delayMs);
+  const recoveredMs = await measureAndroidRecovery(since, timeoutMs, async index => {
     // The app's resume path is driven by visibilityState, so a probe against a hidden or frozen page
     // measures nothing. Record the presentation state alongside the result so an unmeasurable run is
     // visibly unmeasurable rather than looking like an application stall.
@@ -163,9 +162,9 @@ async function awaitRecovery(
     const sinceMs = Math.round(performance.now() - since);
     if (deviceReachable && deviceReachableFirstMs === null) deviceReachableFirstMs = sinceMs;
     record({ ...probe, samePage, presentation, deviceReachable, sinceMs });
-    if (probe.directoryReady === true && samePage) return { recoveredMs: sinceMs, deviceReachableFirstMs };
-  }
-  return { recoveredMs: null, deviceReachableFirstMs };
+    return probe.directoryReady === true && samePage;
+  });
+  return { recoveredMs, deviceReachableFirstMs };
 }
 async function awaitOutage(
   driver: AndroidChromeDriver,
@@ -302,7 +301,7 @@ const summary = await withAndroidChrome(async driver => {
     const wokeAt = performance.now();
     const wakefulness = await wake();
     const presentation = await ensureVisible(driver);
-    const lock = await awaitRecovery(driver, "lock-resume", wokeAt, 12, host, baselineTimeOrigin, continuity, 3_000);
+    const lock = await awaitRecovery(driver, "lock-resume", wokeAt, 36_000, host, baselineTimeOrigin, continuity);
     unlockMs = lock.recoveredMs;
     record({ step: "lock-resume-summary", wakefulness, presentation, recoveredMs: unlockMs });
 
@@ -311,7 +310,7 @@ const summary = await withAndroidChrome(async driver => {
     await adb("shell", "cmd", "connectivity", "airplane-mode", "enable");
     outageBanner = await awaitOutage(driver, performance.now(), host, baselineTimeOrigin, continuity);
     await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
-    airplane = await awaitRecovery(driver, "airplane-recovery", performance.now(), 20, host, baselineTimeOrigin, continuity);
+    airplane = await awaitRecovery(driver, "airplane-recovery", performance.now(), 160_000, host, baselineTimeOrigin, continuity);
     if (airplane.recoveredMs !== null) {
       await sleep(10_000);
       const settled = await attempt(driver, "airplane-settled");
@@ -328,7 +327,7 @@ const summary = await withAndroidChrome(async driver => {
     record({ step: "doze-state", idle: await adb("shell", "dumpsys", "deviceidle", "get", "deep") });
     await adb("shell", "dumpsys", "deviceidle", "unforce");
     await adb("shell", "dumpsys", "battery", "reset");
-    doze = await awaitRecovery(driver, "doze-recovery", performance.now(), 6, host, baselineTimeOrigin, continuity);
+    doze = await awaitRecovery(driver, "doze-recovery", performance.now(), 48_000, host, baselineTimeOrigin, continuity);
   } finally {
     await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
     await adb("shell", "svc", "wifi", "enable");

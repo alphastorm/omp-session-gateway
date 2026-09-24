@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove the stale capacity qualification registry key and validate the workflow-generated config
+  through the real gateway loader in script tests (qualification tooling only, outside the runtime archive).
+- Measure Android recovery from the first successful rendered-directory probe with 250 ms between
+  attempts and unchanged scenario windows, rather than a multi-second initial sleep (qualification tooling only).
+
 ## [v0.5.1] — 2026-09-23
 
 ### Fixed
