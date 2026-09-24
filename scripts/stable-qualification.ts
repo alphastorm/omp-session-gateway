@@ -21,20 +21,35 @@ const DEFAULT_MAC_LOGIN = "alphastorm@github";
 const DEFAULT_SESSION_LABEL = "omp-stable-pixel-qualification";
 const MINIMUM_RELAY_SECONDS = 1_800;
 const PROTECTED_REPOSITORY_FILES = ["STABLE_RELEASE.lock.json", "docs/RELEASE_STATUS.md"] as const;
-const ASSET_NAMES = [
-  "SHA256SUMS",
-  "SHA256SUMS.sigstore.json",
-  `omp-session-gateway-${VERSION}-bun.tar`,
-  `omp-session-gateway-${VERSION}-bun.tar.sigstore.json`,
-  `omp-session-gateway-${VERSION}.spdx.json`,
-  `omp-session-gateway-${VERSION}.spdx.json.sigstore.json`,
+function releaseAssetNames(version: string): readonly string[] {
+  return [
+    "SHA256SUMS",
+    "SHA256SUMS.sigstore.json",
+    `omp-session-gateway-${version}-bun.tar`,
+    `omp-session-gateway-${version}-bun.tar.sigstore.json`,
+    `omp-session-gateway-${version}.spdx.json`,
+    `omp-session-gateway-${version}.spdx.json.sigstore.json`,
+  ];
+}
+function attestedAssetNames(version: string): readonly string[] {
+  return [`omp-session-gateway-${version}-bun.tar`, `omp-session-gateway-${version}.spdx.json`, "SHA256SUMS"];
+}
+const LANE_NAMES = [
+  "artifacts",
+  "debian",
+  "macos",
+  "ompPublication",
+  "android",
+  "androidPush",
+  "androidPushCleanup",
+  "relay",
+  "cleanup",
+  "windows",
+  "windowsCleanup",
 ] as const;
-const ATTESTED_ASSETS = [
-  `omp-session-gateway-${VERSION}-bun.tar`,
-  `omp-session-gateway-${VERSION}.spdx.json`,
-  "SHA256SUMS",
-] as const;
-const LANE_NAMES = ["artifacts", "debian", "macos", "ompPublication", "android", "relay", "cleanup"] as const;
+/** Lanes that own external resources, each paired with the lane that must release them. */
+const CLEANUP_LANES = { windows: "windowsCleanup", androidPush: "androidPushCleanup" } as const;
+const RECEIPT_SCHEMA_VERSION = 2;
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 /**
@@ -92,7 +107,7 @@ export interface CandidateIdentity {
 }
 
 export interface StableQualificationReceipt {
-  schemaVersion: 1;
+  schemaVersion: typeof RECEIPT_SCHEMA_VERSION;
   tag: string;
   previousTag: string;
   status: "running" | "passed" | "failed";
@@ -101,6 +116,8 @@ export interface StableQualificationReceipt {
   updatedAt: string;
   completedAt?: string;
   candidate?: CandidateIdentity;
+  /** The verified rollback predecessor that host lanes install before the candidate. */
+  predecessor?: CandidateIdentity;
   lanes: Record<StableQualificationLane, LaneReceipt>;
   error?: string;
 }
@@ -123,6 +140,7 @@ interface CommandOptions {
   readonly timeoutMs?: number;
   readonly echo?: boolean;
   readonly allowFailure?: boolean;
+  readonly stdin?: Uint8Array;
 }
 
 interface CommandResult {
@@ -174,6 +192,78 @@ export interface ProtectedFileSnapshot {
 
 interface Checkpoint {
   (evidence: Record<string, unknown>): Promise<void>;
+}
+
+/** A signed release whose assets the orchestrator verified; lanes install from `archivePath`. */
+export interface VerifiedRelease extends CandidateIdentity {
+  readonly archivePath: string;
+}
+
+/** What every resource-owning lane is bound to. Nothing here is secret. */
+export interface ExternalLaneIdentity {
+  readonly tag: string;
+  readonly previousTag: string;
+  readonly orchestratorCommit: string;
+  readonly receiptRoot: string;
+  readonly candidate: VerifiedRelease;
+  readonly predecessor: VerifiedRelease;
+  readonly omp: OmpPins;
+}
+
+/** Serializes every lane that drives the single attached Pixel. */
+export type PixelLease = <T>(owner: string, action: () => Promise<T>) => Promise<T>;
+
+export interface ExternalLaneContext {
+  readonly identity: ExternalLaneIdentity;
+  /** The last checkpoint of an attempt a crash left running, which the lane may resume; otherwise undefined. */
+  readonly progress: unknown;
+  /** Persists the complete progress object, replacing the previous one. */
+  readonly checkpoint: (progress: Record<string, unknown>) => Promise<void>;
+  readonly pixel: PixelLease;
+}
+
+export interface ExternalLanePreflightContext {
+  readonly environment: Readonly<Record<string, string | undefined>>;
+  /** The admitted Pixel; read-only probes only. */
+  readonly serial: string;
+  readonly omp: OmpPins;
+  /** The retained Mac's Tailscale Serve origin, where the candidate gateway will run. */
+  readonly macOrigin: string;
+}
+
+export interface RemoteCommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+/** Runs one bounded command on the retained Mac. Arguments are quoted, never interpreted locally. */
+export type RemoteExecutor = (
+  argv: readonly string[],
+  options?: { readonly stdin?: Uint8Array; readonly timeoutMs?: number },
+) => Promise<RemoteCommandResult>;
+
+export interface AndroidPushLaneContext {
+  /** The candidate gateway's Tailscale Serve origin on the retained Mac. */
+  readonly origin: string;
+  readonly mac: RemoteExecutor;
+}
+
+/**
+ * A lane that owns external resources (a billed VM, a phone's radios and permissions) and so has a
+ * cleanup lane of its own. Its progress carries a non-empty `epoch` from the first checkpoint, and
+ * cleanup is idempotent: it attempts every step and fails if anything it recorded remains.
+ */
+export interface ExternalLaneModule<Extra extends object = object> {
+  readonly preflight: (context: ExternalLanePreflightContext) => Promise<void>;
+  readonly run: (context: ExternalLaneContext & Extra) => Promise<Record<string, unknown>>;
+  readonly needsCleanup: (progress: unknown) => boolean;
+  readonly cleanup: (context: ExternalLaneContext & Extra) => Promise<Record<string, unknown>>;
+}
+
+export interface StableQualificationLaneModules {
+  readonly windows: ExternalLaneModule;
+  readonly androidPush: ExternalLaneModule<AndroidPushLaneContext>;
+  readonly createPixelLease: () => PixelLease;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -275,7 +365,7 @@ export function createStableQualificationReceipt(
 ): StableQualificationReceipt {
   const startedAt = now();
   return {
-    schemaVersion: 1,
+    schemaVersion: RECEIPT_SCHEMA_VERSION,
     tag,
     previousTag,
     status: "running",
@@ -294,8 +384,13 @@ export function validateStableQualificationReceipt(
 ): StableQualificationReceipt {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("qualification receipt is invalid");
   const receipt = value as Partial<StableQualificationReceipt>;
+  if (receipt.schemaVersion !== RECEIPT_SCHEMA_VERSION) {
+    throw new Error(
+      `qualification receipt schema ${String(receipt.schemaVersion)} predates the Windows and background Push lanes; ` +
+        "start a new campaign directory rather than resuming it",
+    );
+  }
   if (
-    receipt.schemaVersion !== 1 ||
     receipt.tag !== expectedTag ||
     receipt.previousTag !== expectedPreviousTag ||
     receipt.orchestratorCommit !== expectedCommit
@@ -397,6 +492,144 @@ export async function executeReceiptLane<T extends Record<string, unknown>>(
   }
 }
 
+/**
+ * One attached Pixel serves the core Android lane, background Push, and the Windows physical
+ * client. Push changes radios, Doze and notification permission, which would corrupt either other
+ * lane mid-run, so every Pixel action runs alone. In-process only: RELEASE.md allows one campaign
+ * at a time, and a second orchestrator process is not coordinated.
+ */
+export function createPixelLease(log: (line: string) => void = line => console.error(line)): PixelLease {
+  let tail: Promise<unknown> = Promise.resolve();
+  let holder: string | undefined;
+  return (owner, action) => {
+    if (holder !== undefined) log(`pixel lease: ${owner} waits for ${holder}`);
+    const turn = tail.then(async () => {
+      holder = owner;
+      try {
+        return await action();
+      } finally {
+        holder = undefined;
+      }
+    });
+    tail = turn.catch(() => {});
+    return turn;
+  };
+}
+
+type ExternalLaneName = keyof typeof CLEANUP_LANES;
+
+function laneProgress(lane: LaneReceipt): unknown {
+  return isRecord(lane.evidence) ? lane.evidence.progress : undefined;
+}
+
+function progressEpoch(progress: unknown): string | undefined {
+  return isRecord(progress) && typeof progress.epoch === "string" && progress.epoch !== "" ? progress.epoch : undefined;
+}
+
+/** True only when the cleanup lane passed for the attempt its primary lane last recorded. */
+export function externalCleanupCurrent(receipt: StableQualificationReceipt, name: ExternalLaneName): boolean {
+  const epoch = progressEpoch(laneProgress(receipt.lanes[name]));
+  const cleanup = receipt.lanes[CLEANUP_LANES[name]];
+  return epoch !== undefined && cleanup.status === "passed" && cleanup.evidence?.epoch === epoch;
+}
+
+type ExternalLaneRunContext<Extra extends object> = {
+  readonly identity: ExternalLaneIdentity;
+  readonly pixel: PixelLease;
+} & Extra;
+
+/** Replaces the whole progress object, so no phase can pair with a previous attempt's resources. */
+function externalCheckpoint(primary: LaneReceipt, persist: () => Promise<void>) {
+  return async (progress: Record<string, unknown>): Promise<void> => {
+    const result = primary.evidence?.result;
+    primary.evidence = result === undefined ? { progress } : { progress, result };
+    await persist();
+  };
+}
+
+/** Releases what the primary lane recorded and binds the cleanup lane to that attempt's epoch. */
+export async function cleanExternalLane<Extra extends object>(
+  receipt: StableQualificationReceipt,
+  name: ExternalLaneName,
+  persist: () => Promise<void>,
+  module: ExternalLaneModule<Extra>,
+  context: ExternalLaneRunContext<Extra>,
+): Promise<void> {
+  const primary = receipt.lanes[name];
+  await executeReceiptLane(receipt, CLEANUP_LANES[name], persist, async () => {
+    const epoch = progressEpoch(laneProgress(primary)) ?? null;
+    const evidence = await module.cleanup({
+      ...context,
+      progress: laneProgress(primary),
+      checkpoint: externalCheckpoint(primary, persist),
+    });
+    if (module.needsCleanup(laneProgress(primary))) {
+      throw new Error(`${name} cleanup returned while its progress still records resources`);
+    }
+    return { ...evidence, epoch };
+  }, true);
+}
+
+/**
+ * Runs one resource-owning lane, then always its cleanup lane.
+ *
+ * A crash leaves the lane `running`, and the module may resume that attempt from its last
+ * checkpoint. A caught failure is never resumed: its resources are released before a new attempt
+ * begins, and a failed release stops the lane there, because a second VM or a second device
+ * mutation on top of unreleased ones is exactly what cleanup exists to prevent.
+ */
+export async function runExternalLane<Extra extends object>(
+  receipt: StableQualificationReceipt,
+  name: ExternalLaneName,
+  persist: () => Promise<void>,
+  module: ExternalLaneModule<Extra>,
+  context: ExternalLaneRunContext<Extra>,
+): Promise<void> {
+  const primary = receipt.lanes[name];
+  const cleanUp = () => cleanExternalLane(receipt, name, persist, module, context);
+  const initial = primary.status;
+  if (initial === "passed") {
+    if (!externalCleanupCurrent(receipt, name) || module.needsCleanup(laneProgress(primary))) await cleanUp();
+    return;
+  }
+  if (initial === "failed" && (module.needsCleanup(laneProgress(primary)) || !externalCleanupCurrent(receipt, name))) {
+    await cleanUp();
+  }
+  const resumable = initial === "running" ? laneProgress(primary) : undefined;
+  if (resumable === undefined) delete primary.evidence;
+  let failure: unknown;
+  try {
+    await executeReceiptLane(receipt, name, persist, async () => {
+      const result = await module.run({ ...context, progress: resumable, checkpoint: externalCheckpoint(primary, persist) });
+      if (progressEpoch(laneProgress(primary)) === undefined) {
+        throw new Error(`${name} returned without checkpointing an attempt epoch`);
+      }
+      return { progress: laneProgress(primary), result };
+    });
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    await cleanUp();
+  } catch (cleanupError) {
+    failure = failure === undefined ? cleanupError : new AggregateError([failure, cleanupError], `${name} and its cleanup failed`);
+  }
+  if (failure !== undefined) throw failure;
+}
+
+/** The first reason the receipt cannot be a pass, or undefined when every lane holds. */
+export function incompleteQualification(receipt: StableQualificationReceipt): string | undefined {
+  const lane = LANE_NAMES.find(name => receipt.lanes[name].status !== "passed");
+  if (lane !== undefined) return `qualification lane ${lane} did not pass`;
+  for (const name of Object.keys(CLEANUP_LANES) as ExternalLaneName[]) {
+    if (!isRecord(receipt.lanes[name].evidence?.result)) return `qualification lane ${name} passed without a result`;
+    if (!externalCleanupCurrent(receipt, name)) {
+      return `${CLEANUP_LANES[name]} did not pass for the attempt that ${name} recorded`;
+    }
+  }
+  return undefined;
+}
+
 async function runCommand(command: readonly string[], options: CommandOptions = {}): Promise<CommandResult> {
   const environment = Object.fromEntries(
     Object.entries({ ...process.env, ...options.env }).filter((entry): entry is [string, string] => entry[1] !== undefined),
@@ -404,7 +637,7 @@ async function runCommand(command: readonly string[], options: CommandOptions = 
   const subprocess = Bun.spawn([...command], {
     cwd: options.cwd ?? repositoryRoot,
     env: environment,
-    stdin: "ignore",
+    stdin: options.stdin ?? "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -458,40 +691,65 @@ export async function assertProtectedFilesUnchanged(
   }
 }
 
-async function verifyCandidate(
-  options: StableQualificationOptions,
+function releaseVersion(tag: string): string {
+  const version = /^v([0-9]+\.[0-9]+\.[0-9]+)(?:-|$)/u.exec(tag)?.[1];
+  if (version === undefined) throw new Error(`release tag ${tag} does not name a version`);
+  return version;
+}
+
+function releaseArchivePath(assetDirectory: string, tag: string): string {
+  return join(assetDirectory, `omp-session-gateway-${releaseVersion(tag)}-bun.tar`);
+}
+
+function candidateAssetDirectory(options: StableQualificationOptions): string {
+  return join(options.receiptRoot, "assets");
+}
+
+function predecessorAssetDirectory(options: StableQualificationOptions): string {
+  return join(options.receiptRoot, "predecessor-assets");
+}
+
+/**
+ * Verifies one published release end to end: the signed tag, the exact asset set, GitHub release
+ * state, checksums, and every attestation and Sigstore bundle. The candidate is a prerelease; the
+ * predecessor must be the published stable that is GitHub Latest.
+ */
+async function verifyRelease(
+  tag: string,
+  assetDirectory: string,
+  stable: boolean,
   ghToken: string,
 ): Promise<CandidateVerification> {
-  const assetDirectory = join(options.receiptRoot, "assets");
-  await runCommand(["git", "fetch", "origin", `refs/tags/${options.tag}:refs/tags/${options.tag}`], { timeoutMs: 120_000 });
-  await runCommand(["git", "tag", "-v", options.tag], { timeoutMs: 120_000 });
-  const sourceCommit = await commandOutput(["git", "rev-list", "-n1", options.tag]);
-  if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("candidate tag did not resolve to a commit");
+  const version = releaseVersion(tag);
+  await runCommand(["git", "fetch", "origin", `refs/tags/${tag}:refs/tags/${tag}`], { timeoutMs: 120_000 });
+  await runCommand(["git", "tag", "-v", tag], { timeoutMs: 120_000 });
+  const sourceCommit = await commandOutput(["git", "rev-list", "-n1", tag]);
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error(`${tag} did not resolve to a commit`);
 
   await downloadReleaseAssets(assetDirectory, () =>
-    runCommand(["gh", "release", "download", options.tag, "--repo", REPOSITORY, "--dir", assetDirectory], {
+    runCommand(["gh", "release", "download", tag, "--repo", REPOSITORY, "--dir", assetDirectory], {
       timeoutMs: 300_000,
     }),
   );
   const downloaded = (await Array.fromAsync(new Bun.Glob("*").scan({ cwd: assetDirectory }))).sort();
-  if (JSON.stringify(downloaded) !== JSON.stringify([...ASSET_NAMES].sort())) {
-    throw new Error(`candidate release assets differ: ${downloaded.join(", ")}`);
+  if (JSON.stringify(downloaded) !== JSON.stringify([...releaseAssetNames(version)].sort())) {
+    throw new Error(`${tag} release assets differ: ${downloaded.join(", ")}`);
   }
   const ghEnvironment = { GH_TOKEN: ghToken };
-  await runCommand([process.execPath, "scripts/release-tag-state.ts", REPOSITORY, options.tag, sourceCommit], {
+  await runCommand([process.execPath, "scripts/release-tag-state.ts", REPOSITORY, tag, sourceCommit], {
     env: ghEnvironment,
   });
   await runCommand(
-    [process.execPath, "scripts/release-state.ts", REPOSITORY, options.tag, "false", "true", "false", assetDirectory],
+    [process.execPath, "scripts/release-state.ts", REPOSITORY, tag, "false", String(!stable), String(stable), assetDirectory],
     { env: ghEnvironment },
   );
   await runCommand(["shasum", "-a", "256", "-c", "SHA256SUMS"], { cwd: assetDirectory });
 
   const signerWorkflow = `${REPOSITORY}/.github/workflows/${SIGNED_WORKFLOW}`;
-  const certificateIdentity = `https://github.com/${REPOSITORY}/.github/workflows/${SIGNED_WORKFLOW}@refs/tags/${options.tag}`;
-  for (const asset of ATTESTED_ASSETS) {
+  const certificateIdentity = `https://github.com/${REPOSITORY}/.github/workflows/${SIGNED_WORKFLOW}@refs/tags/${tag}`;
+  for (const asset of attestedAssetNames(version)) {
     await runCommand(
-      ["gh", "attestation", "verify", join(assetDirectory, asset), "--repo", REPOSITORY, "--signer-workflow", signerWorkflow, "--source-ref", `refs/tags/${options.tag}`],
+      ["gh", "attestation", "verify", join(assetDirectory, asset), "--repo", REPOSITORY, "--signer-workflow", signerWorkflow, "--source-ref", `refs/tags/${tag}`],
       { timeoutMs: 300_000 },
     );
     await runCommand([
@@ -506,13 +764,71 @@ async function verifyCandidate(
       join(assetDirectory, asset),
     ]);
   }
-  const archivePath = join(assetDirectory, `omp-session-gateway-${VERSION}-bun.tar`);
-  const archiveSha256 = sha256(await readFile(archivePath));
+  const archiveSha256 = sha256(await readFile(releaseArchivePath(assetDirectory, tag)));
   const release = JSON.parse(
-    await commandOutput(["gh", "release", "view", options.tag, "--repo", REPOSITORY, "--json", "url"]),
+    await commandOutput(["gh", "release", "view", tag, "--repo", REPOSITORY, "--json", "url"]),
   ) as { url?: unknown };
-  if (typeof release.url !== "string") throw new Error("candidate release URL is missing");
-  return { tag: options.tag, sourceCommit, archiveSha256, assetDirectory, releaseUrl: release.url };
+  if (typeof release.url !== "string") throw new Error(`${tag} release URL is missing`);
+  return { tag, sourceCommit, archiveSha256, assetDirectory, releaseUrl: release.url };
+}
+
+function assertSameRelease(recorded: CandidateIdentity | undefined, verified: CandidateIdentity, role: string): void {
+  if (
+    recorded !== undefined &&
+    (recorded.tag !== verified.tag ||
+      recorded.sourceCommit !== verified.sourceCommit ||
+      recorded.archiveSha256 !== verified.archiveSha256)
+  ) {
+    throw new Error(`${role} identity changed since the resumable receipt was created`);
+  }
+}
+
+/** Built from the receipt alone, so recorded external effects stay cleanable without admission. */
+function externalLaneIdentity(
+  options: StableQualificationOptions,
+  receipt: StableQualificationReceipt,
+  orchestratorCommit: string,
+  omp: OmpPins,
+): ExternalLaneIdentity {
+  const { candidate, predecessor } = receipt;
+  if (candidate === undefined || predecessor === undefined) {
+    throw new Error("external lanes require verified candidate and predecessor identities");
+  }
+  return {
+    tag: options.tag,
+    previousTag: options.previousTag,
+    orchestratorCommit,
+    receiptRoot: options.receiptRoot,
+    candidate: { ...candidate, archivePath: releaseArchivePath(candidateAssetDirectory(options), candidate.tag) },
+    predecessor: {
+      ...predecessor,
+      archivePath: releaseArchivePath(predecessorAssetDirectory(options), predecessor.tag),
+    },
+    omp,
+  };
+}
+
+function remoteExecutor(target: MacTarget): RemoteExecutor {
+  return (argv, options = {}) =>
+    runCommand(
+      [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ConnectTimeout=15",
+        "-o",
+        "BatchMode=yes",
+        "-q",
+        target.sshDestination,
+        argv.map(shellQuote).join(" "),
+      ],
+      {
+        allowFailure: true,
+        timeoutMs: options.timeoutMs ?? 5 * 60 * 1_000,
+        ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+      },
+    );
 }
 
 async function gitQualificationRef(commit: string, output: StablePreflightRuntime["output"]): Promise<string> {
@@ -836,6 +1152,7 @@ async function prerequisite<T>(description: string, probe: () => Promise<T>): Pr
 export async function preflightStableQualification(
   options: StableQualificationOptions,
   runtime: StablePreflightRuntime = defaultPreflightRuntime,
+  lanes: StableQualificationLaneModules = defaultLaneModules,
 ) {
   if (runtime.platform !== "darwin" || runtime.arch !== "arm64") {
     throw new Error("stable qualification orchestration currently requires a Darwin-arm64 workstation");
@@ -895,7 +1212,7 @@ export async function preflightStableQualification(
   const target = await prerequisite("retained Mac lookup failed; check the private Scaleway credential and exactly one ready retained host", () =>
     runtime.recoverMac(options),
   );
-  await prerequisite("retained Mac SSH, Darwin-arm64, pinned Bun, required tools or user-owned TUN-mode Tailscale prerequisites are unavailable", async () => {
+  const macDnsName = await prerequisite("retained Mac SSH, Darwin-arm64, pinned Bun, required tools or user-owned TUN-mode Tailscale prerequisites are unavailable", async () => {
     // Match the qualifier's PATH; ~/qual is created later by artifact staging, not a prerequisite.
     const probe = [
       'set -eu',
@@ -903,16 +1220,27 @@ export async function preflightStableQualification(
       '[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]',
       '[ "$(bun --version)" = ' + shellQuote(ompPins.bunVersion) + ' ]',
       'for tool in bash python3 curl git shasum tar lsof launchctl sudo tailscale ifconfig; do command -v "$tool" >/dev/null; done',
-      'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip(".")'),
       'ifconfig | python3 -c ' + shellQuote('import sys; assert "inet6 fd7a:115c:a1e0:" in sys.stdin.read()'),
+      'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip("."); print(s["DNSName"].rstrip("."))'),
     ].join("; ");
-    await runtime.output([
+    const dnsName = (await runtime.output([
       "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
       "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
       "-o", "BatchMode=yes", "-q", target.sshDestination, "bash -c " + shellQuote(probe),
-    ]);
+    ])).trim();
+    if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) throw new Error("retained Mac has no tailnet DNS name");
+    return dnsName;
   });
-  return { ompPins, ghToken, orchestratorCommit, qualificationRef, target };
+  const macOrigin = `https://${macDnsName}`;
+  const laneContext: ExternalLanePreflightContext = { environment: runtime.environment, serial, omp: ompPins, macOrigin };
+  for (const [name, lane] of [["Windows", lanes.windows], ["background Push", lanes.androidPush]] as const) {
+    try {
+      await lane.preflight(laneContext);
+    } catch (error) {
+      throw new Error(`Stable preflight: ${name} lane admission failed`, { cause: error });
+    }
+  }
+  return { ompPins, ghToken, orchestratorCommit, qualificationRef, target, macOrigin };
 }
 
 function macEnvironment(
@@ -1412,7 +1740,7 @@ async function cleanupMac(
 
 export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boolean {
   if (receipt.lanes.cleanup.status === "passed") return false;
-  return (["macos", "ompPublication", "android", "relay", "cleanup"] as const).some(
+  return (["macos", "ompPublication", "android", "androidPush", "relay", "cleanup"] as const).some(
     name => receipt.lanes[name].attempts > 0,
   );
 }
@@ -1431,19 +1759,22 @@ export function markMacCleanupRequired(receipt: StableQualificationReceipt): boo
 export async function runStableQualification(
   argv: readonly string[],
   runtime: StablePreflightRuntime = defaultPreflightRuntime,
+  lanes: StableQualificationLaneModules = defaultLaneModules,
 ): Promise<Record<string, unknown>> {
   const options = parseStableQualificationArgs(argv, runtime.environment);
   if (options.preflight) {
-    await preflightStableQualification(options, runtime);
+    await preflightStableQualification(options, runtime, lanes);
     return {
       status: "preflight-passed",
       effects: "none; bounded read-only prerequisite probes only",
       notProven: [
-        "candidate signatures, checksums and attestations",
+        "candidate and predecessor signatures, checksums and attestations",
         "workflow dispatch authority and hosted credentials",
         "Debian and Mac lifecycle, migration, rollback and sudo authorization",
         "OMP publication/revocation and physical Android acceptance",
         "configured relay check, longer endurance coverage and cleanup",
+        "Windows VM provisioning, interactive logon, lifecycle, physical client and destruction",
+        "background Web Push delivery, notification taps, degraded device states and device restore",
       ],
     };
   }
@@ -1462,6 +1793,9 @@ export async function runStableQualification(
   const protectedFiles = await captureProtectedFiles();
   const persist = createReceiptPersister(receiptPath, receipt);
   let admitted = false;
+  let externalEffects = false;
+  const pixel = lanes.createPixelLease();
+  let windowsBranch: Promise<void> | undefined;
 
   let target: MacTarget | undefined;
   let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
@@ -1495,26 +1829,22 @@ export async function runStableQualification(
       throw error;
     }
 
-    const admission = await preflightStableQualification(options, runtime);
+    const admission = await preflightStableQualification(options, runtime, lanes);
     if (admission.orchestratorCommit !== orchestratorCommit) throw new Error("qualification source changed during preflight");
     const { ghToken, qualificationRef } = admission;
     target = admission.target;
     admitted = true;
     await persist();
     const candidate = await executeReceiptLane(receipt, "artifacts", persist, async checkpoint => {
-      const verified = await verifyCandidate(options, ghToken);
-      if (
-        receipt.candidate &&
-        (receipt.candidate.tag !== verified.tag ||
-          receipt.candidate.sourceCommit !== verified.sourceCommit ||
-          receipt.candidate.archiveSha256 !== verified.archiveSha256)
-      ) {
-        throw new Error("candidate identity changed since the resumable receipt was created");
-      }
-      receipt.candidate = {
-        tag: verified.tag,
-        sourceCommit: verified.sourceCommit,
-        archiveSha256: verified.archiveSha256,
+      const verified = await verifyRelease(options.tag, candidateAssetDirectory(options), false, ghToken);
+      const predecessor = await verifyRelease(options.previousTag, predecessorAssetDirectory(options), true, ghToken);
+      assertSameRelease(receipt.candidate, verified, "candidate");
+      assertSameRelease(receipt.predecessor, predecessor, "predecessor");
+      receipt.candidate = { tag: verified.tag, sourceCommit: verified.sourceCommit, archiveSha256: verified.archiveSha256 };
+      receipt.predecessor = {
+        tag: predecessor.tag,
+        sourceCommit: predecessor.sourceCommit,
+        archiveSha256: predecessor.archiveSha256,
       };
       const evidence = {
         sourceCommit: verified.sourceCommit,
@@ -1524,6 +1854,15 @@ export async function runStableQualification(
         checksums: "passed",
         githubAttestations: "3/3",
         sigstoreBundles: "3/3",
+        predecessor: {
+          tag: predecessor.tag,
+          sourceCommit: predecessor.sourceCommit,
+          archiveSha256: predecessor.archiveSha256,
+          signedTag: true,
+          checksums: "passed",
+          githubAttestations: "3/3",
+          sigstoreBundles: "3/3",
+        },
       };
       await checkpoint(evidence);
       return evidence;
@@ -1533,8 +1872,13 @@ export async function runStableQualification(
       sourceCommit: String(candidate.sourceCommit),
       archiveSha256: String(candidate.archiveSha256),
       releaseUrl: String(candidate.releaseUrl),
-      assetDirectory: join(options.receiptRoot, "assets"),
+      assetDirectory: candidateAssetDirectory(options),
     };
+    const identity = externalLaneIdentity(options, receipt, orchestratorCommit, ompPins);
+    // Windows owns a billed VM and waits for the Pixel only at its physical-client step, so it runs
+    // beside the Debian and Mac lanes and settles, with its own cleanup lane, before the verdict.
+    windowsBranch = runExternalLane(receipt, "windows", persist, lanes.windows, { identity, pixel });
+    windowsBranch.catch(() => {});
 
     await executeReceiptLane(receipt, "debian", persist, checkpoint =>
       qualifyDebian(options, receipt, checkpoint, qualificationRef),
@@ -1555,7 +1899,8 @@ export async function runStableQualification(
       };
     }
 
-    const liveEvidenceNeeded = (["ompPublication", "android", "relay"] as const).some(
+    const pushCurrent = receipt.lanes.androidPush.status === "passed" && externalCleanupCurrent(receipt, "androidPush");
+    const liveEvidenceNeeded = !pushCurrent || (["ompPublication", "android", "relay"] as const).some(
       name => receipt.lanes[name].status !== "passed",
     );
     if (liveEvidenceNeeded) {
@@ -1584,7 +1929,22 @@ export async function runStableQualification(
       tunnelProcess = await startTunnel(target, tunnelPort);
       const pending: Promise<unknown>[] = [];
       if (receipt.lanes.android.status !== "passed") {
-        pending.push(executeReceiptLane(receipt, "android", persist, async () => runAndroidAcceptance(options, macContext!)));
+        pending.push(
+          executeReceiptLane(receipt, "android", persist, async () =>
+            pixel("android", () => runAndroidAcceptance(options, macContext!)),
+          ),
+        );
+      }
+      if (!pushCurrent) {
+        // Push drives its own OMP fixture: replacing a generation on the shared one would break relay.
+        pending.push(
+          runExternalLane(receipt, "androidPush", persist, lanes.androidPush, {
+            identity,
+            pixel,
+            origin: macContext.publicOrigin,
+            mac: remoteExecutor(target),
+          }),
+        );
       }
       if (receipt.lanes.relay.status !== "passed") {
         pending.push(
@@ -1596,7 +1956,7 @@ export async function runStableQualification(
       const settled = await Promise.allSettled(pending);
       const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failures.length > 0) {
-        throw new AggregateError(failures.map(result => result.reason), "physical-client or relay qualification failed");
+        throw new AggregateError(failures.map(result => result.reason), "physical-client, background Push or relay qualification failed");
       }
       await stopSubprocess(tunnelProcess);
       tunnelProcess = undefined;
@@ -1623,6 +1983,29 @@ export async function runStableQualification(
           : new AggregateError([primaryError, cleanupError], "qualification and cleanup failed");
       }
     }
+    if (windowsBranch !== undefined) {
+      if (primaryError !== undefined) console.error("stable qualification: waiting for the Windows lane to finish and clean up");
+      try {
+        await windowsBranch;
+      } catch (windowsError) {
+        primaryError = primaryError === undefined
+          ? windowsError
+          : new AggregateError([primaryError, windowsError], "qualification and the Windows lane failed");
+      }
+    } else if (lanes.windows.needsCleanup(laneProgress(receipt.lanes.windows))) {
+      // Admission failed before the Windows lane could resume, but a recorded VM must never outlive it.
+      externalEffects = true;
+      try {
+        await cleanExternalLane(receipt, "windows", persist, lanes.windows, {
+          identity: externalLaneIdentity(options, receipt, orchestratorCommit, ompPins),
+          pixel,
+        });
+      } catch (cleanupError) {
+        primaryError = primaryError === undefined
+          ? cleanupError
+          : new AggregateError([primaryError, cleanupError], "qualification and Windows cleanup failed");
+      }
+    }
     try {
       await assertProtectedFilesUnchanged(protectedFiles);
     } catch (guardError) {
@@ -1633,11 +2016,11 @@ export async function runStableQualification(
   }
 
   if (primaryError === undefined) {
-    const incomplete = LANE_NAMES.find(name => receipt.lanes[name].status !== "passed");
-    if (incomplete !== undefined) primaryError = new Error(`qualification lane ${incomplete} did not pass`);
+    const incomplete = incompleteQualification(receipt);
+    if (incomplete !== undefined) primaryError = new Error(incomplete);
   }
   if (primaryError !== undefined) {
-    if (!admitted && !cleanupRequired) throw primaryError;
+    if (!admitted && !cleanupRequired && !externalEffects) throw primaryError;
     receipt.status = "failed";
     receipt.error = "qualification failed; inspect the qualification process output";
     await persist();
