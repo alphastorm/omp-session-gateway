@@ -1,0 +1,397 @@
+import { expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runAndroidPush, cleanupAndroidPush, parseAndroidPushProgress, androidPushNeedsCleanup,
+  type AndroidPushIdentity, type AndroidPushRuntime, type PushDeviceBaseline, type PushBrowserBaseline, type PushCleanupStep } from "./android-push-qualification.ts";
+import type { SessionMetadata } from "../packages/protocol/src/types.ts";
+import { observeNotificationDump, parseAndroidUi, NotificationOverlapError, findAndroidNotification, tapAndroidNotification, notificationTopicDigest, notificationMatchesDigest, trackUnchangedNotificationPost } from "./android-notification.ts";
+import { webApkTasks, closeWebApk, setupAndroidWebApk } from "./android-webapk.ts";
+import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
+import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
+import { runFixtureOperation } from "./push-qualification-fixture.ts";
+import { isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
+
+const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { tag: "v0.6.0-prealpha.1", sourceCommit: "a".repeat(40), archiveSha256: "b".repeat(64), archivePath: "synthetic.tar" },
+  omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
+const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
+const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"] }
+function fake(options: FakeOptions = {}) {
+  let overlaps = options.overlaps ?? 0;
+  let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
+  let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false;
+  let shown: "attention" | "activity_stop" | undefined;
+  const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
+  let browser = { ...initialBrowser }; let device = { ...baseline }; let pending = false;
+  const cleanup: PushCleanupStep[] = []; const checkpoints: Record<string, unknown>[] = [];
+  const show = () => { if (asking && browser.permission === "granted" && !offline && (!forced || options.forceDelivery) && (!asleep || options.dozeDelivery)) shown = "attention"; };
+  const effect = async (action: () => void) => { await runtime.beforeEffect(); effects++; action(); if (effects === options.failAfter) throw new Error("synthetic interruption"); };
+  const runtime: AndroidPushRuntime = {
+    now: () => time, pause: async milliseconds => { time += milliseconds; }, beforeEffect: async () => {},
+    preflight: async () => ({ android: "17", browser: "153.0.8010.52", webApk: true, dndOff: true }),
+    dndOff: async () => options.dndFlipAfter === undefined || effects < options.dndFlipAfter,
+    beginNotificationPhase: async () => {}, assertNotificationOwnership: async () => { if (overlaps > 0) { overlaps--; throw new NotificationOverlapError(); } },
+    device: async () => ({ ...device }), browser: async () => ({ ...browser }),
+    async fixture(operation) { await effect(() => {
+      if (operation === "start") started = true;
+      if (operation === "ask") { asking = true; request++; pending = true; show(); }
+      if (operation === "answer") { asking = false; pending = false; if (shown === "attention") shown = undefined; }
+      if (operation === "busy") { busy = true; stopped = false; }
+      if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; }
+      if (operation === "replace") generation++;
+      if (operation === "stop") started = false;
+    }); },
+    snapshot: async () => started ? { instanceId: "synthetic-instance", generation, title: "Synthetic fixture", cwdLabel: "synthetic-project", canView: true, canControl: true,
+      inputRequired: asking, busy, startedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: new Date(Date.UTC(2026, 0, 1) + (options.frozenHeartbeat ? 0 : Math.floor(time / 10_000) * 10_000)).toISOString(),
+      ...(asking ? { ask: { requestId: `synthetic-request-${request}`, since: "2026-01-01T00:00:00.000Z" } } : {}) } : undefined,
+    detail: async level => { await effect(() => { browser.detail = level; browser.subscribed = true; }); },
+    closePwa: async () => { await effect(() => { device.webApkTask = false; }); },
+    openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; show(); }); },
+    lock: async () => { await effect(() => { device.locked = true; device.awake = false; }); },
+    observe: async (_session, kind) => ({ count: shown === kind ? options.duplicate ? 2 : 1 : 0, titleMatches: shown === kind, bodyMatches: shown === kind, forbiddenFound: false }),
+    presentation: async () => device.locked && shown === "attention",
+    async tap(session, kind, stale) { await effect(() => { shown = undefined; device.webApkTask = true; });
+      const current = generation === session.generation;
+      return { launches: current ? 1 : 0, successful: current ? 1 : 0, currentGeneration: current, currentRequest: current,
+        scrubbedBeforeNetwork: true, writable: current && (kind === "attention" || options.wrongTap === true), readOnly: current && kind === "activity_stop", expired: stale && !current };
+    },
+    answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
+    forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
+    permission: async value => { await effect(() => { browser.permission = value; }); },
+    doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled) show(); }); },
+    network: async value => { await effect(() => { offline = value === "airplane"; device.airplane = offline; device.wifi = value === "wifi"; device.mobile = !offline; if (!offline && pending) show(); }); return value !== "cellular" || options.cellular !== false; },
+    sinks: async () => ({ clean: true, detectable: true, gatewayLogsDiscarded: true }),
+    async cleanup(step) { cleanup.push(step);
+      if (step === options.cleanupFail) throw new Error("synthetic cleanup failure");
+      if (step === "fixtureAsk") asking = false;
+      if (step === "notifications") shown = undefined;
+      if (step === "browser") browser = { ...initialBrowser };
+      if (step === "doze") { device.forcedDoze = false; device.batteryOverride = false; }
+      if (step === "network") { device.wifi = baseline.wifi; device.mobile = baseline.mobile; device.airplane = baseline.airplane; }
+      if (step === "task") { device.webApkTask = baseline.webApkTask; device.locked = baseline.locked; device.awake = baseline.awake; }
+      if (step === "fixture") started = false;
+    },
+  };
+  return { runtime, cleanup, checkpoints, state: () => ({ started, asking, browser, device, shown, effects, stopped }),
+    input: { identity, progress: undefined, runtime, checkpoint: async (p: Record<string, unknown>) => { checkpoints.push(structuredClone(p)); }, pixel: async <T>(_owner: string, action: () => Promise<T>) => action() } };
+}
+
+test("tap authorization rejects the wrong role, stale generation, missing request, and malformed body", () => {
+  const session = { generation: 2, ask: { requestId: "synthetic-current", since: "2026-01-01T00:00:00Z" } };
+  const body = { mode: "control", generation: 2, requestId: "synthetic-current" };
+  expect(observePushLaunch(session, "attention", JSON.stringify(body))).toEqual({ currentGeneration: true, currentRequest: true, modeMatches: true });
+  expect(observePushLaunch(session, "activity_stop", JSON.stringify(body)).modeMatches).toBe(false);
+  expect(observePushLaunch(session, "attention", JSON.stringify({ ...body, mode: "view" })).modeMatches).toBe(false);
+  expect(observePushLaunch(session, "attention", JSON.stringify({ ...body, generation: 1 })).currentGeneration).toBe(false);
+  expect(observePushLaunch({ generation: 2 }, "attention", JSON.stringify({ mode: "control", generation: 2 })).currentRequest).toBe(false);
+  expect(observePushLaunch(session, "attention", JSON.stringify({ ...body, requestId: "synthetic-stale" })).currentRequest).toBe(false);
+  for (const malformed of [undefined, "null", "[]", "{"]) expect(observePushLaunch(session, "attention", malformed)).toEqual({ currentGeneration: false, currentRequest: false, modeMatches: false });
+});
+
+test("notification denial survives returning to the caller and releases its browser connection", async () => {
+  let allowed = true, closed = false;
+  const release = await holdAndroidNotificationDenial("https://gateway.example.test", async run => {
+    try { await run({ browserSend: async (method, parameters) => {
+      if (method === "Browser.setPermission") allowed = parameters?.setting !== "denied";
+      return {};
+    } }); } finally { allowed = true; closed = true; }
+  });
+  expect(allowed).toBe(false); expect(closed).toBe(false);
+  await release(); expect(allowed).toBe(true); expect(closed).toBe(true);
+  await release(); expect(allowed).toBe(true);
+});
+
+test("orphan-forward cleanup admits only the reserved ports on the exact device and browser socket", () => {
+  const socket = "localabstract:chrome_devtools_remote";
+  expect(ownedPushForwards(`synthetic-device tcp:9237 ${socket}\nsynthetic-device tcp:9238 ${socket}\nother-device tcp:9999 unrelated`, "synthetic-device", socket)).toEqual(["tcp:9237", "tcp:9238"]);
+  expect(() => ownedPushForwards(`other-device tcp:9237 ${socket}`, "synthetic-device", socket)).toThrow("another connection");
+  expect(() => ownedPushForwards("synthetic-device tcp:9238 localabstract:foreign_browser", "synthetic-device", socket)).toThrow("another connection");
+});
+
+test("a lost denial connection fails the observation but still releases its resources", async () => {
+  let closed = false;
+  const release = await holdAndroidNotificationDenial("https://gateway.example.test", async run => {
+    try { await run({ browserSend: async method => { if (method === "Browser.getVersion") throw new Error("synthetic disconnected browser"); return {}; } }); }
+    finally { closed = true; }
+  });
+  await expect(release()).rejects.toThrow("synthetic disconnected browser"); expect(closed).toBe(true);
+});
+
+test("non-granted origin permission fails admission without starting a fixture or changing the preference", async () => {
+  for (const browserPermission of ["default", "denied"] as const) {
+    const state = fake({ browserPermission });
+    await expect(runAndroidPush(state.input)).rejects.toThrow("grant origin notification permission");
+    expect(state.state().effects).toBe(0); expect(state.state().started).toBe(false);
+    expect(state.state().browser.permission).toBe(browserPermission);
+    expect(state.checkpoints.at(-1)?.cleanupRequired).toBe(false);
+  }
+});
+
+test("delayed clears for distinct requests do not look like a duplicate unchanged ask", () => {
+  const posts = new Map<string, { key: string; postedAt: number }>();
+  const first = { generation: 1, inputRequired: true, ask: { requestId: "synthetic-first", since: "2026-01-01T00:00:00Z" } };
+  const second = { ...first, ask: { ...first.ask, requestId: "synthetic-second" } };
+  const resolved = { generation: 1, inputRequired: false };
+  const older = { key: "synthetic-key", postedAt: 1 }, newer = { key: "synthetic-key", postedAt: 2 };
+  trackUnchangedNotificationPost(posts, first, "attention", older);
+  trackUnchangedNotificationPost(posts, resolved, "attention", older);
+  trackUnchangedNotificationPost(posts, second, "attention", newer);
+  trackUnchangedNotificationPost(posts, resolved, "attention", newer);
+  trackUnchangedNotificationPost(posts, second, "attention", newer);
+  expect(() => trackUnchangedNotificationPost(posts, second, "attention", { ...newer, postedAt: 3 })).toThrow("posted again for unchanged authoritative state");
+});
+
+test("opaque notification ownership survives platform prefixes but never matches a different topic", () => {
+  const topic = "omp-attention-synthetic-omp-attention-fixture";
+  const digest = notificationTopicDigest(topic);
+  expect(notificationMatchesDigest(`platform#${topic}`, digest)).toBe(true);
+  expect(notificationMatchesDigest(topic, digest)).toBe(true);
+  expect(notificationMatchesDigest(`platform#${topic}-foreign`, digest)).toBe(false);
+  expect(notificationMatchesDigest("platform#omp-attention-unowned-fixture", digest)).toBe(false);
+  expect(notificationMatchesDigest("unrelated", digest)).toBe(false);
+});
+
+test("notification-route observation admits the query route but rejects prefix collisions and foreign origins", () => {
+  const origin = "https://gateway.example.test";
+  expect(isPushNotificationRoute(`${origin}/collab?generation=1`, origin)).toBe(true);
+  expect(isPushNotificationRoute(`${origin}/collab/attention?generation=1`, origin)).toBe(true);
+  for (const value of [`${origin}/collaborator`, "https://foreign.example.test/collab", "/collab", undefined]) expect(isPushNotificationRoute(value, origin)).toBe(false);
+});
+
+test("matrix records both force-stop and Doze variants without turning suppression into a delivery guarantee", async () => {
+  for (const delivered of [false, true]) {
+    const f = fake({ forceDelivery: delivered, dozeDelivery: delivered });
+    const result = await runAndroidPush(f.input);
+    expect(result.passed).toBe(true);
+    const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+    expect(final.results.force_stop_verified?.variant).toBe(delivered ? "delivered_while_force_stopped" : "suppressed_until_relaunch");
+    expect(final.results.doze_verified?.variant).toBe(delivered ? "delivered_during_doze" : "delivered_after_doze_exit");
+    expect(final.results.permission_verified?.suppressed).toBe(true);
+    expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+  }
+});
+
+test("every non-idempotent interruption restores every baseline and stops the owned fixture", async () => {
+  const successful = fake(); await runAndroidPush(successful.input);
+  for (let failAfter = 1; failAfter <= successful.state().effects; failAfter++) {
+    const f = fake({ failAfter });
+    await expect(runAndroidPush(f.input)).rejects.toThrow("synthetic interruption");
+    expect(f.cleanup).toEqual(["fixtureAsk", "doze", "network", "notifications", "browser", "task", "fixture"]);
+    expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+    expect(androidPushNeedsCleanup(f.checkpoints.at(-1))).toBe(false);
+  }
+});
+
+test("failed cleanup remains resumable and later cleanup attempts every step", async () => {
+  const options: FakeOptions = { cleanupFail: "browser" };
+  const f = fake(options);
+  await expect(runAndroidPush(f.input)).rejects.toMatchObject({ pixelUnrestored: true });
+  expect(f.cleanup.at(-1)).toBe("fixture");
+  const progress = f.checkpoints.at(-1);
+  expect(androidPushNeedsCleanup(progress)).toBe(true);
+  expect(f.state().browser).not.toEqual(browserBaseline);
+  await expect(cleanupAndroidPush({ ...f.input, progress })).rejects.toMatchObject({ pixelUnrestored: true });
+  delete options.cleanupFail;
+  const result = await cleanupAndroidPush({ ...f.input, progress });
+  expect(result.restored).toBe(true);
+  expect(f.state()).toMatchObject({ started: false, device: baseline, browser: browserBaseline, shown: undefined });
+});
+
+test("elapsed time without another host observation cannot qualify two known-busy polls", async () => {
+  const f = fake({ frozenHeartbeat: true });
+  await expect(runAndroidPush(f.input)).rejects.toThrow();
+  const progress = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(progress.results.activity_stop_verified).toBeUndefined();
+  expect(progress.cleanupRequired).toBe(false);
+  expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline });
+});
+
+test("a DND schedule reactivating during a phase stops it and still restores the baseline", async () => {
+  const f = fake({ dndFlipAfter: 3 });
+  await expect(runAndroidPush(f.input)).rejects.toThrow("turn Do Not Disturb off on the Pixel for the qualification window");
+  expect(f.state()).toMatchObject({ started: false, device: baseline, browser: browserBaseline });
+});
+
+test("Pixel lease retains an unrestored baseline and refuses live or foreign owners", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-push-lease-"));
+  const lock = join(directory, "lock");
+  try {
+    await expect(withDevelopmentPixelLease("PushLane test", async () => { throw new Error("interrupted"); }, () => false, lock)).rejects.toThrow("interrupted");
+    const marker = await readFile(join(lock, "owner"), "utf8");
+    await expect(withDevelopmentPixelLease("WindowsLane test", async () => {}, () => true, lock, true)).rejects.toThrow("not owned");
+    await expect(withDevelopmentPixelLease("PushLane test", async () => {}, () => true, lock, true)).rejects.toThrow("still running");
+    expect(await readFile(join(lock, "owner"), "utf8")).toBe(marker);
+    await rm(lock, { recursive: true });
+    await withDevelopmentPixelLease("PushLane test", async () => {}, () => true, lock);
+    await expect(readFile(join(lock, "owner"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await rm(directory, { recursive: true }); }
+});
+
+test("fixture cleanup removes an interrupted empty creation but refuses an unowned tree", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-push-fixture-"));
+  const root = join(directory, "owned");
+  const location = { root, epoch: randomUUID(), binary: "synthetic", scripts: directory, bun: process.execPath };
+  try {
+    await mkdir(root);
+    await runFixtureOperation(location, "stop");
+    await runFixtureOperation(location, "stop");
+    await mkdir(root);
+    await writeFile(join(root, "owner"), "another owner");
+    await expect(runFixtureOperation(location, "stop")).rejects.toThrow("ownership changed");
+    expect(await readFile(join(root, "owner"), "utf8")).toBe("another owner");
+  } finally { await rm(directory, { recursive: true }); }
+});
+
+test("multiple notifications and a stop tap that escalates to Control fail closed", async () => {
+  for (const options of [{ duplicate: true }, { wrongTap: true }]) {
+    const f = fake(options);
+    const failed = runAndroidPush(f.input);
+    await expect(failed).rejects.toThrow();
+    await expect(failed).rejects.not.toMatchObject({ pixelUnrestored: true });
+    expect(f.state().started).toBe(false);
+    expect(f.state().device).toEqual(baseline);
+  }
+});
+
+test("one foreign post re-arms its phase visibly; a second overlap fails rather than hiding it", async () => {
+  const once = fake({ overlaps: 1 });
+  expect((await runAndroidPush(once.input)).passed).toBe(true);
+  expect(parseAndroidPushProgress(once.checkpoints.at(-1)).results.private_verified).toMatchObject({ rearmCount: 1, rearmReason: "unowned_notification_overlap", delivered: true });
+  const twice = fake({ overlaps: 2 });
+  await expect(runAndroidPush(twice.input)).rejects.toThrow("unowned notification overlapped");
+  expect(parseAndroidPushProgress(twice.checkpoints.at(-1)).results.private_verified).toEqual({ rearmCount: 1, rearmReason: "unowned_notification_overlap" });
+  expect(twice.state()).toMatchObject({ started: false, device: baseline, browser: browserBaseline });
+});
+
+test("missing cellular path is a named blocked sub-phase, not a passed network matrix", async () => {
+  const f = fake({ cellular: false }); const result = await runAndroidPush(f.input);
+  expect(result.passed).toBe(false);
+  const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(final.results.network_verified?.blocked).toBe("cellular_path_unavailable");
+  expect(final.results.forbidden_sinks_verified?.clean).toBe(true);
+  expect(f.state().device).toEqual(baseline);
+});
+
+test("foreign, malformed, and secret-bearing checkpoints cannot drive cleanup", async () => {
+  const f = fake(); await runAndroidPush(f.input);
+  const valid = f.checkpoints.at(-1)!;
+  for (const change of [{ epoch: "not-an-epoch" }, { phase: "unknown" }, { lane: "windows" }, { extra: true }, { notificationTopicDigest: "not-a-digest" },
+    { device: { ...baseline, serial: "synthetic" } }, { results: { private_verified: { password: "SYNTHETIC-SECRET" } } }]) {
+    expect(() => parseAndroidPushProgress({ ...valid, ...change })).toThrow();
+  }
+  await expect(cleanupAndroidPush({ ...f.input, progress: valid, identity: { ...identity, origin: "https://other.example.test" } })).rejects.toThrow("different candidate or origin");
+  expect(JSON.stringify(valid)).not.toContain("gateway.example.test");
+  expect(JSON.stringify(valid)).not.toContain("synthetic-instance");
+});
+
+test("notification observation checks exact Private, Session and Preview-fallback presentation without returning content", () => {
+  const make = (body: string) => `Notification List:\n  NotificationRecord(1: pkg=org.chromium.webapk.synthetic user=0 tag=omp-attention-fixture)\n    key=synthetic-key\n    mUpdateTimeMs=1000000000000\n    android.title=String (OMP session needs attention)\n    android.text=String (${body})\nRanking Config:`;
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["SYNTHETIC-SECRET"] };
+  expect(observeNotificationDump("Current Notification Manager state:\nRanking Config:", expected).count).toBe(0);
+  expect(() => observeNotificationDump("DUMP TIMEOUT", expected)).toThrow("unavailable");
+  expect(observeNotificationDump(make(""), expected)).toEqual({ count: 1, titleMatches: true, bodyMatches: true, forbiddenFound: false });
+  expect(observeNotificationDump(make("Synthetic session · Synthetic project"), { ...expected, body: "Synthetic session · Synthetic project" }).bodyMatches).toBe(true);
+  const leaked = observeNotificationDump(make("SYNTHETIC-SECRET"), expected);
+  expect(leaked.forbiddenFound).toBe(true);
+  expect(JSON.stringify(leaked)).not.toContain("SYNTHETIC-SECRET");
+});
+
+test("notification ownership excludes another topic with the same visible title and an identifier prefix", () => {
+  const row = (tag: string, key: string, postedAt: number) => `\n  NotificationRecord(1: pkg=org.chromium.webapk.synthetic user=0 tag=${tag})\n    key=${key}\n    mUpdateTimeMs=${postedAt}\n    android.title=String (OMP session needs attention)\n    android.text=String ()`;
+  const own = row("origin#omp-attention-fixture", "synthetic-own-key", 1000000000000);
+  const other = row("origin#omp-attention-fixture-other", "synthetic-other-key", 1000000000001);
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: [] };
+  expect(observeNotificationDump(`Notification List:${own}${other}\nRanking Config:`, expected)).toMatchObject({ count: 1, titleMatches: true, bodyMatches: true });
+  expect(() => observeNotificationDump(`Notification List:${own.replace("mUpdateTimeMs=1000000000000", "mUpdateTimeMs=unknown")}\nRanking Config:`, expected)).toThrow("record identity unavailable");
+});
+
+test("notification selection expands its group and targets the child bound to the owned record", async () => {
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "Synthetic project", forbidden: [] };
+  const row = (tag: string, key: string) => `\n NotificationRecord(1: pkg=${expected.packageName} tag=${tag})\n key=${key}\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String (${tag === expected.tag ? expected.body : "Unowned project"})`;
+  let expanded = false; let reads = 0; let interfere = false;
+  const taps: string[][] = [];
+  const command = async (...args: string[]) => {
+    if (args.includes("dumpsys")) { reads++; return `Notification List:${row(expected.tag, "own-key")}${interfere && reads > 1 ? row("omp-attention-other", "other-key") : ""}\nRanking Config:`; }
+    if (args.includes("size")) return "Physical size: 400x800";
+    if (args.includes("tap")) { taps.push(args.slice(-2)); expanded = true; return ""; }
+    if (!args.includes("uiautomator")) return "";
+    return `<hierarchy><node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,0][400,400]">
+      <node text="OMP Sessions" bounds="[20,0][200,40]"/>
+      <node resource-id="android:id/expand_button" content-desc="${expanded ? "Collapse" : "Expand"}" bounds="[340,0][380,40]"/>
+      <node resource-id="com.android.systemui:id/notification_children_container" bounds="[0,40][400,400]">
+        <node resource-id="android:id/status_bar_latest_event_content" bounds="[0,40][400,300]">
+          <node resource-id="android:id/title" text="${expected.title}" bounds="[20,40][300,80]"/>
+          ${expanded ? `<node resource-id="android:id/text" text="${expected.body}" bounds="[20,80][300,120]"/>` : ""}
+        </node></node></node></hierarchy>`;
+  };
+  const found = await findAndroidNotification(command, expected, async () => {});
+  expect(taps).toEqual([["360", "20"]]);
+  expect(found.target).toMatchObject({ resource: "android:id/title", x: 160, y: 60 });
+  taps.length = 0; reads = 0; interfere = true;
+  await expect(tapAndroidNotification(command, expected, async () => {})).rejects.toBeInstanceOf(NotificationOverlapError);
+  expect(taps).toEqual([]);
+});
+
+test("private presentation excludes unowned shade content and refuses a missing child boundary", async () => {
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["Synthetic ask canary"] };
+  let boundary = true;
+  const command = async (...args: string[]) => {
+    if (args.includes("dumpsys")) return `Notification List:\n NotificationRecord(1: pkg=${expected.packageName} tag=${expected.tag})\n key=own-key\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String ()\nRanking Config:`;
+    if (args.includes("size")) return "Physical size: 400x800";
+    if (!args.includes("uiautomator")) return "";
+    return `<hierarchy><node bounds="[0,0][400,800]">
+      <node resource-id="${boundary ? "android:id/status_bar_latest_event_content" : "unknown"}" bounds="[0,0][400,300]">
+        <node text="${expected.title}" bounds="[20,40][300,80]"/><node text="" bounds="[20,80][300,120]"/>
+      </node>
+      <node resource-id="android:id/status_bar_latest_event_content" bounds="[0,300][400,600]">
+        <node text="Unowned message" bounds="[20,340][300,380]"/><node text="Synthetic ask canary" bounds="[20,380][300,420]"/>
+      </node></node></hierarchy>`;
+  };
+  const found = await findAndroidNotification(command, expected, async () => {});
+  expect(found.rowNodes.some(node => node.text === expected.title)).toBe(true);
+  expect(found.rowNodes.some(node => node.text === "Synthetic ask canary" || node.text === "Unowned message")).toBe(false);
+  boundary = false;
+  await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("content boundary unavailable");
+});
+
+test("task removal ignores retained focus references and waits for active task withdrawal", async () => {
+  const active = "  * Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
+  const stale = "  mLastFocusedRootTask=Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
+  expect(webApkTasks(stale, "org.chromium.webapk.synthetic")).toEqual([]);
+  let removed = false; let polls = 0;
+  await closeWebApk(async (...args) => {
+    if (args.includes("remove")) { removed = true; return ""; }
+    polls++; return !removed || polls < 3 ? active : stale;
+  }, "org.chromium.webapk.synthetic", async () => {});
+  expect(removed).toBe(true); expect(polls).toBe(3);
+});
+
+test("one-time WebAPK setup verifies installation and never uninstalls an existing app", async () => {
+  let installed = false; let taps = 0;
+  const commands: string[][] = [];
+  const node = (text: string, resource = "") => `<hierarchy><node text="${text}" resource-id="${resource}" bounds="[0,0][40,40]"/></hierarchy>`;
+  const command = async (...args: string[]) => {
+    commands.push(args);
+    if (args.includes("list")) return installed ? "package:org.chromium.webapk.synthetic" : "";
+    if (args.includes("package") && args.includes("dumpsys")) return 'Authority: "gateway.example.test"';
+    if (args.includes("uiautomator")) return taps === 0 ? node("", "com.android.chrome:id/menu_button") : taps === 1 ? node("Install app") : node("Install");
+    if (args.includes("tap")) { taps++; if (taps === 3) installed = true; }
+    return "";
+  };
+  expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => {}, pause: async () => {} })).toEqual({ alreadyInstalled: false, installed: true });
+  commands.length = 0;
+  expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => { throw new Error("must not navigate"); }, pause: async () => {} })).toEqual({ alreadyInstalled: true, installed: true });
+  expect(commands.some(argv => argv.includes("uninstall") || argv.includes("tap"))).toBe(false);
+  expect(parseAndroidUi(node("Install"))[0]).toMatchObject({ text: "Install", x: 20, y: 20 });
+});
+
+test("fixture commands are owned, bounded, and monotonically sequenced", () => {
+  const epoch = randomUUID();
+  expect(parseFixtureCommand({ epoch, sequence: 2, operation: "replace" }, epoch, 1)).toEqual({ sequence: 2, operation: "replace" });
+  for (const record of [{ epoch, sequence: 1, operation: "ask" }, { epoch: randomUUID(), sequence: 2, operation: "ask" },
+    { epoch, sequence: 2, operation: "shell" }, { epoch, sequence: 2, operation: "ask", data: "synthetic" }]) {
+    expect(() => parseFixtureCommand(record, epoch, 1)).toThrow("invalid fixture command");
+  }
+});

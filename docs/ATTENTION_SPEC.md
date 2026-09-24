@@ -212,3 +212,39 @@ not qualification of these specialized scenarios.
 - [x] Last-known metadata survives phone, tailnet, desktop, and relay failures with distinct copy.
 - [x] The measured 411×816 Pixel layout viewport and synthetic 390×844 browser checks remain overflow-free with targets at least 44px.
 - [x] Capability-leak scan and focused protocol, registry, HTTP, app, worker, and browser tests pass.
+
+### Physical background-Push acceptance
+
+Run the [dedicated Android Push procedure](ANDROID.md#physical-background-push-lane) against the
+candidate gateway's exact Serve origin. An ordinary Chrome tab and a WebAPK for another gateway
+do not satisfy admission. All observations below must be backed by the physical device; portable
+fake-runtime tests cover failure/cleanup behavior but cannot check these boxes.
+The operator turns DND off for the window; the lane only observes DND. Owned OS record keys and
+post times separate real-session alerts from the fixture. One unowned overlap permits one recorded
+phase re-arm, never an undisclosed retry; ambiguous ownership and repeated interference fail closed.
+Permission must be granted before admission. The negative phase holds its origin-scoped CDP denial
+connection open without a page, because disconnecting it removes Chrome's override. The driver
+rewarms Chrome before releasing that connection, then verifies the restored preference and fresh delivery.
+
+- [ ] Closed WebAPK task: Private, Session, and Preview delivery with exactly one owned notification.
+- [ ] Lock-screen UI matches the selected detail and does not contain ask/prompt/answer canaries.
+- [ ] Attention tap: scrubbed route, current request/generation validation, writable Control.
+- [ ] Known busy across two polls → idle: stop notification tap is read-only View.
+- [ ] Same instance N → N+1: old stop tap is scrubbed/expired with zero launch requests.
+- [ ] Authoritative clear removes the exact ask; a fresh request remains visible across repeated current samples.
+- [ ] Force-stop observed variant plus a fresh post-relaunch delivery.
+- [ ] Permission-denied suppression and a fresh delivery after restoration.
+- [ ] Lock/resume and forced-Doze observed variant, without asserting guaranteed delivery.
+- [ ] Actual Wi-Fi → cellular → Airplane → restored-tailnet behavior.
+- [ ] Seven browser sinks plus notification title/body/data, URL/history, DOM, and resource timings
+  are proven detectable and clean; macOS service streams are observed discarded.
+- [ ] Original subscription/detail/permission, radios, battery/Doze, task, and display/keyguard
+  state restored; owned fixture stopped. No screenshots, notification content, or XML persisted.
+
+The 2026-09-25 development probes against v0.5.3 prove the stock-18.3.0 fixture transitions,
+closed-task delivery and lock-screen detail at all three levels, full-sequence attention Control,
+known-busy-to-idle View, same-instance stale rejection, clear/fresh retention, force-stop observed
+delivery with fresh post-relaunch delivery, focused denied-permission suppression/restoration, and
+digest-bound orphan-notification cleanup. The entire matrix has not yet passed. These are
+**tested evidence**, not completion of
+this checklist and not qualification. See ANDROID.md for the exact observed platform combination.
