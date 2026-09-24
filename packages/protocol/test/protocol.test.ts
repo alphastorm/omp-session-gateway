@@ -148,21 +148,46 @@ describe("strict protocol validation", () => {
     ).toEqual({ ok: true, value: snapshot });
   });
 
-  test("rejects unknown versions, fields, duplicate keys, and invalid UTF-8", () => {
+  test("rejects unknown versions, malformed known fields, duplicate keys, and invalid UTF-8", () => {
     expect(() => parseOmpSnapshotReply({ ok: true, v: 2, snapshot: hostSnapshot() })).toThrow(ProtocolValidationError);
     expect(() => parseOmpLinkReply({ ok: true, v: 2, url: capability })).toThrow(ProtocolValidationError);
-    expect(() => parseOmpDiscoveryEntry(entryId, discoveryFile({ extra: true }))).toThrow(ProtocolValidationError);
     expect(() => parseOmpDiscoveryEntry(entryId, discoveryFile({ token: "short" }))).toThrow(ProtocolValidationError);
-    expect(() => parseOmpSnapshotReply({ ok: true, v: 1, snapshot: hostSnapshot(), extra: true })).toThrow(ProtocolValidationError);
-    expect(() => parseOmpLinkReply({ ok: true, v: 1, url: capability, extra: true })).toThrow(ProtocolValidationError);
+    expect(() => parseOmpHostSnapshot(hostSnapshot({ model: { provider: 7, id: "model" } }))).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(encoder.encode('{"v":1,"v":1}'))).toThrow(ProtocolValidationError);
     expect(() => parseJsonFrame(new Uint8Array([0xc3, 0x28]))).toThrow(ProtocolValidationError);
     for (const inputRequired of ["true", 1, {}, []]) {
       expect(() => parseOmpHostSnapshot(hostSnapshot({ inputRequired }))).toThrow(ProtocolValidationError);
     }
+    // Ask content is not additive metadata: a snapshot naming it is refused, not silently dropped.
     for (const forbiddenKey of ["prompt", "question", "options", "prefill", "answer", "requestId", "count"]) {
       expect(() => parseOmpHostSnapshot(hostSnapshot({ [forbiddenKey]: "CONTENT_CANARY" }))).toThrow(ProtocolValidationError);
     }
+  });
+
+  test("ignores additive upstream fields under v1 and never projects them", () => {
+    // Upstream adds optional fields without bumping v1, as it did for `busy`. One more key must not
+    // hide a healthy host, and nothing the gateway does not name may leave the parser.
+    expect(parseOmpDiscoveryEntry(entryId, discoveryFile({ futureHint: "FIELD_CANARY" }))).toEqual({
+      entryId,
+      ...discoveryFile(),
+    });
+    expect(parseOmpHostSnapshot(hostSnapshot({ futureField: { nested: "FIELD_CANARY" } }))).toEqual(hostSnapshot());
+    expect(
+      parseOmpHostSnapshot(hostSnapshot({ model: { provider: "provider", id: "model", family: "FIELD_CANARY" } })),
+    ).toEqual(hostSnapshot());
+    expect(parseOmpSnapshotReply({ ok: true, v: 1, snapshot: hostSnapshot(), traceId: "FIELD_CANARY" })).toEqual({
+      ok: true,
+      value: hostSnapshot(),
+    });
+    expect(parseOmpSnapshotReply({ ok: false, v: 1, error: "stale_generation", detail: "FIELD_CANARY" })).toEqual({
+      ok: false,
+      error: "stale_generation",
+    });
+    const link = parseOmpLinkReply({ ok: true, v: 1, url: capability, expiresAt: 1 });
+    expect(link.ok ? link.value.reveal() : undefined).toBe(capability);
+    expect(JSON.stringify([parseOmpHostSnapshot(hostSnapshot({ futureField: "FIELD_CANARY" }))])).not.toContain(
+      "FIELD_CANARY",
+    );
   });
 
   test("accepts additive busy metadata without guessing activity for legacy hosts", () => {

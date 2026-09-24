@@ -68,6 +68,18 @@ const DEFAULT_MAX_ENTRIES = 100;
 const MAX_CONCURRENT_HOST_QUERIES = 8;
 /** Upstream classifies exactly these two as a dead endpoint; everything else is transient. */
 const DEAD_ENDPOINT_CODES: Readonly<Record<string, true>> = { ENOENT: true, ECONNREFUSED: true };
+/**
+ * Proven-dead publications remembered per admitted-host slot. OMP prunes a killed host's discovery
+ * file only while listing, and the gateway must never delete it, so without this memory every
+ * leftover file costs a read, a query, and a share of each round's budget, until enough of them
+ * hide new sessions. Past the limit, further dead files are read again as before, still bounded.
+ */
+const DEAD_PUBLICATIONS_PER_ENTRY = 10;
+
+/** A dead publication stays dead only while its exact file is unchanged. */
+function fileIdentity(info: { readonly dev: number; readonly ino: number; readonly size: number; readonly mtimeMs: number }): string {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+}
 
 function errorCode(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
@@ -141,12 +153,20 @@ async function connectAndRequest(endpoint: string, timeoutMs: number, payload: s
   return promise;
 }
 
+/** The two directory-handle operations the scan uses; `opendir` supplies them in production. */
+export interface DiscoveryDirectoryHandle {
+  read(): Promise<{ readonly name: string } | null>;
+  close(): Promise<void>;
+}
+
 export interface OmpHostReaderOptions {
   readonly directory: string;
   readonly maxEntries?: number;
   readonly timeoutMs?: number;
   /** Test seam: replaces the socket round trip with a deterministic transport. */
   readonly request?: (endpoint: string, payload: string, timeoutMs: number) => Promise<string>;
+  /** Test seam: iterates names in a deterministic order after the privacy check has passed. */
+  readonly openDirectory?: (path: string) => Promise<DiscoveryDirectoryHandle>;
   readonly onFault?: (event: string, detail: Readonly<Record<string, number | boolean>>) => void;
 }
 
@@ -161,8 +181,11 @@ export class OmpHostReader {
   readonly #maxEntries: number;
   readonly #timeoutMs: number;
   readonly #request: (endpoint: string, payload: string, timeoutMs: number) => Promise<string>;
+  readonly #openDirectoryHandle: (path: string) => Promise<DiscoveryDirectoryHandle>;
   readonly #onFault: (event: string, detail: Readonly<Record<string, number | boolean>>) => void;
   #entries = new Map<string, OmpDiscoveryEntry>();
+  /** Entry ID -> file identity of publications whose endpoint proved dead (ENOENT/ECONNREFUSED). */
+  readonly #dead = new Map<string, string>();
 
   constructor(options: OmpHostReaderOptions) {
     this.#directory = options.directory;
@@ -172,6 +195,8 @@ export class OmpHostReader {
     }
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
     this.#request = options.request ?? ((endpoint, payload, timeoutMs) => connectAndRequest(endpoint, timeoutMs, payload));
+    // Do not let the directory API preallocate an attacker-sized name array.
+    this.#openDirectoryHandle = options.openDirectory ?? (path => opendir(path, { bufferSize: 1 }));
     this.#onFault = options.onFault ?? (() => undefined);
   }
 
@@ -198,10 +223,9 @@ export class OmpHostReader {
     }
   }
 
-  async #openDirectory() {
+  async #openDirectory(): Promise<DiscoveryDirectoryHandle> {
     await this.#assertPrivateDirectory(this.#directory);
-    // Do not let the directory API preallocate an attacker-sized name array.
-    return opendir(this.#directory, { bufferSize: 1 });
+    return this.#openDirectoryHandle(this.#directory);
   }
 
   /** Lists only bounded, private publications. This never establishes a launch binding. */
@@ -211,10 +235,12 @@ export class OmpHostReader {
 
   async #readEntries(): Promise<{
     entries: readonly OmpDiscoveryEntry[];
+    identities: ReadonlyMap<string, string>;
     retained: Set<string>;
     directoryHealthy: boolean;
   }> {
     const entries = new Map<string, OmpDiscoveryEntry>();
+    const identities = new Map<string, string>();
     const retained = new Set<string>();
     const ambiguous = new Set<string>();
     const knownFiles = new Map([...this.#entries.values()].map(entry => [entry.entryId, entry.instanceId]));
@@ -226,7 +252,8 @@ export class OmpHostReader {
         const readEntry = async (entryId: string): Promise<void> => {
           files++;
           try {
-            const entry = await this.#readEntry(entryId, buffer);
+            const { entry, identity } = await this.#readEntry(entryId, buffer);
+            identities.set(entryId, identity);
             const known = knownFiles.get(entryId);
             if (known !== undefined && known !== entry.instanceId) retained.add(known);
             if (ambiguous.has(entry.instanceId)) return;
@@ -247,26 +274,62 @@ export class OmpHostReader {
         // Revisit admitted publications first: an overfull prefix must neither evict a live host
         // nor preserve a vanished host forever. These reads consume the same per-round budget.
         for (const entryId of knownFiles.keys()) await readEntry(entryId);
-        // A normal publication has a JSON file and a socket. Alien names consume this budget too.
-        for (let scanned = 0; scanned < this.#maxEntries * 2 && files < this.#maxEntries; scanned++) {
+        // A normal publication has a JSON file and a socket. Alien names consume this budget too;
+        // a remembered dead publication costs only its names, and its unchanged file is not read.
+        const nameBudget = (this.#maxEntries + this.#dead.size) * 2;
+        const seenDead = new Set<string>();
+        let complete = false;
+        for (let scanned = 0; scanned < nameBudget && files < this.#maxEntries; scanned++) {
           const name = await directory.read();
-          if (name === null) break;
+          if (name === null) {
+            complete = true;
+            break;
+          }
           if (!name.name.endsWith(".json")) continue;
           const entryId = name.name.slice(0, -".json".length);
-          if (!knownFiles.has(entryId)) await readEntry(entryId);
+          if (knownFiles.has(entryId)) continue;
+          if (await this.#stillDead(entryId)) {
+            seenDead.add(entryId);
+            continue;
+          }
+          await readEntry(entryId);
+        }
+        // Only a finished scan proves which remembered files OMP has since pruned.
+        if (complete) {
+          for (const entryId of this.#dead.keys()) if (!seenDead.has(entryId)) this.#dead.delete(entryId);
         }
       } finally {
         await directory.close();
       }
     } catch (error) {
-      if (errorCode(error) === "ENOENT") return { entries: [], retained: new Set(), directoryHealthy: true };
+      if (errorCode(error) === "ENOENT") {
+        return { entries: [], identities: new Map(), retained: new Set(), directoryHealthy: true };
+      }
       this.#onFault("omp.discovery_unreadable", {});
-      return { entries: [], retained: new Set(this.#entries.keys()), directoryHealthy: false };
+      return { entries: [], identities: new Map(), retained: new Set(this.#entries.keys()), directoryHealthy: false };
     }
-    return { entries: [...entries.values()], retained, directoryHealthy: true };
+    return { entries: [...entries.values()], identities, retained, directoryHealthy: true };
   }
 
-  async #readEntry(entryId: string, buffer: Buffer): Promise<OmpDiscoveryEntry> {
+  /** True while a remembered dead publication's file is unchanged; otherwise the name is forgotten. */
+  async #stillDead(entryId: string): Promise<boolean> {
+    const remembered = this.#dead.get(entryId);
+    if (remembered === undefined) return false;
+    try {
+      if (fileIdentity(await lstat(join(this.#directory, entryId + ".json"))) === remembered) return true;
+    } catch {
+      // Missing or unreadable: forget it and let the normal read classify the name.
+    }
+    this.#dead.delete(entryId);
+    return false;
+  }
+
+  #rememberDead(entryId: string, identity: string | undefined): void {
+    if (identity === undefined || this.#dead.size >= this.#maxEntries * DEAD_PUBLICATIONS_PER_ENTRY) return;
+    this.#dead.set(entryId, identity);
+  }
+
+  async #readEntry(entryId: string, buffer: Buffer): Promise<{ entry: OmpDiscoveryEntry; identity: string }> {
     const path = join(this.#directory, entryId + ".json");
     const before = await lstat(path);
     if (!before.isFile() || before.isSymbolicLink()) throw new Error("unsafe discovery file");
@@ -288,7 +351,7 @@ export class OmpHostReader {
       if (length > MAX_OMP_REGISTRY_RESPONSE_BYTES) throw new Error("oversized discovery file");
       const entry = parseOmpDiscoveryEntry(entryId, parseJsonFrame(buffer.subarray(0, length)));
       if (entry.version !== OMP_REGISTRY_VERSION) throw new Error("foreign discovery version");
-      return entry;
+      return { entry, identity: fileIdentity(info) };
     } finally {
       await file.close();
     }
@@ -342,7 +405,7 @@ export class OmpHostReader {
 
   /** Queries a bounded set with a fixed concurrency ceiling, retaining only validated bindings. */
   async observe(): Promise<OmpDiscoveryObservation> {
-    const { entries, retained, directoryHealthy } = await this.#readEntries();
+    const { entries, identities, retained, directoryHealthy } = await this.#readEntries();
     const results = new Array<HostQueryResult<OmpHostSnapshot>>(entries.length);
     let cursor = 0;
     await Promise.all(Array.from({ length: Math.min(entries.length, MAX_CONCURRENT_HOST_QUERIES) }, async () => {
@@ -363,6 +426,7 @@ export class OmpHostReader {
       if (result.status === "gone") {
         retained.delete(entry.instanceId);
         nextEntries.delete(entry.instanceId);
+        this.#rememberDead(entry.entryId, identities.get(entry.entryId));
         continue;
       }
       if (result.status !== "ok" || (known !== undefined && known.pid !== entry.pid)) {

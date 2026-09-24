@@ -7,7 +7,7 @@
  * is a property of that wire rather than of the gateway's own code.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_LABEL_CODEPOINTS, OMP_REGISTRY_VERSION, type OmpHostSnapshot } from "@omp-session-gateway/protocol";
@@ -30,6 +30,9 @@ interface HostDoubleOptions {
   readonly busy?: boolean | null;
   readonly sessionName?: string | null;
   readonly cwd?: string;
+  /** Fields a later upstream adds under registry v1, merged into the snapshot and discovery file. */
+  readonly additiveSnapshot?: Record<string, unknown>;
+  readonly additiveDiscovery?: Record<string, unknown>;
   /** Replaces the whole reply, so a test can return any upstream wire error verbatim. */
   readonly reply?: (request: Record<string, unknown>) => unknown | undefined;
 }
@@ -83,6 +86,7 @@ async function hostDouble(directory: string, options: HostDoubleOptions = {}): P
     inputRequired: options.inputRequired ?? false,
     ...(options.busy === undefined ? {} : { busy: options.busy }),
     access,
+    ...options.additiveSnapshot,
   };
   const server = Bun.listen<undefined>({
     unix: endpoint,
@@ -131,7 +135,15 @@ async function hostDouble(directory: string, options: HostDoubleOptions = {}): P
   const metaPath = join(directory, `${entryId}.json`);
   await writeFile(
     metaPath,
-    JSON.stringify({ version: OMP_REGISTRY_VERSION, instanceId, pid: 4242, endpoint, createdAt: Date.now(), token }),
+    JSON.stringify({
+      version: OMP_REGISTRY_VERSION,
+      instanceId,
+      pid: 4242,
+      endpoint,
+      createdAt: Date.now(),
+      token,
+      ...options.additiveDiscovery,
+    }),
     { mode: 0o600 },
   );
   const stop = async (): Promise<void> => {
@@ -154,6 +166,16 @@ async function hostDouble(directory: string, options: HostDoubleOptions = {}): P
 
 function reader(directory: string): OmpHostReader {
   return new OmpHostReader({ directory, timeoutMs: 500 });
+}
+
+/** Iterates a real directory in a chosen order, so a budget case cannot pass on a lucky name order. */
+async function orderedDirectory(path: string, rank: (name: string) => number) {
+  const names = (await readdir(path)).sort((left, right) => rank(left) - rank(right) || left.localeCompare(right));
+  let index = 0;
+  return {
+    read: async () => (index < names.length ? { name: names[index++]! } : null),
+    close: async () => undefined,
+  };
 }
 
 describe("OMP discovery directory", () => {
@@ -252,6 +274,43 @@ describe("OMP discovery directory", () => {
     expect(observation.hosts).toHaveLength(2);
     expect(hosts.reduce((count, host) => count + host.requests.length, 0)).toBe(2);
     expect(await subject.listEntries()).toHaveLength(2);
+  });
+
+  test("publications proven dead stop consuming the discovery budget", async () => {
+    const directory = await discoveryDirectory();
+    // A killed OMP leaves its discovery file behind; only an OMP list operation ever prunes it.
+    for (let index = 0; index < 5; index++) {
+      const crashed = await hostDouble(directory, { instanceId: "dddd4444eeee555" + index });
+      await crashed.stop();
+    }
+    const live = await hostDouble(directory, { instanceId: "ffff6666aaaa7777" });
+    const subject = new OmpHostReader({
+      directory,
+      maxEntries: 2,
+      timeoutMs: 500,
+      openDirectory: path => orderedDirectory(path, name => (name.startsWith(live.entryId) ? 1 : 0)),
+    });
+    let admitted: string[] = [];
+    for (let round = 0; round < 4 && admitted.length === 0; round++) {
+      admitted = (await subject.observe()).hosts.map(host => host.session.instanceId);
+    }
+    expect(admitted).toEqual([live.instanceId]);
+    // Once every stale file is known dead, a later round queries only the live host.
+    const before = live.requests.length;
+    expect((await subject.observe()).hosts.map(host => host.session.instanceId)).toEqual([live.instanceId]);
+    expect(live.requests.length).toBe(before + 1);
+  });
+
+  test("a remembered dead publication is read again once its file is replaced", async () => {
+    const directory = await discoveryDirectory();
+    const crashed = await hostDouble(directory, { instanceId: "dddd4444eeee5550" });
+    await crashed.stop();
+    const subject = new OmpHostReader({ directory, maxEntries: 1, timeoutMs: 500 });
+    expect((await subject.observe()).hosts).toEqual([]);
+    // Upstream never reuses a publication name, so memory keys on the file itself, not the name.
+    const live = await hostDouble(directory, { instanceId: "ffff6666aaaa7777" });
+    await rename(join(directory, `${live.entryId}.json`), join(directory, `${crashed.entryId}.json`));
+    expect((await subject.observe()).hosts.map(host => host.session.instanceId)).toEqual([live.instanceId]);
   });
 
   test.skipIf(process.platform === "win32")("refuses non-private directories, symlinked files, and non-private publications", async () => {
@@ -445,6 +504,21 @@ describe("OMP host queries", () => {
       inputRequired: false,
     });
     expect(host.requests[0]).toEqual({ v: 1, token: host.token, op: "snapshot" });
+  });
+
+  test("a host stays visible when upstream adds fields under registry v1", async () => {
+    const directory = await discoveryDirectory();
+    const host = await hostDouble(directory, {
+      additiveSnapshot: { futureField: "FIELD_CANARY", model: { provider: "anthropic", id: "claude-sonnet-4-5", tier: "FIELD_CANARY" } },
+      additiveDiscovery: { futureHint: "FIELD_CANARY" },
+    });
+    const subject = reader(directory);
+    const observation = await subject.observe();
+    expect(observation.hosts.map(observed => observed.session.instanceId)).toEqual([host.instanceId]);
+    expect(JSON.stringify(observation.hosts.map(observed => [observed.snapshot, observed.session]))).not.toContain(
+      "FIELD_CANARY",
+    );
+    expect(subject.entryFor(host.instanceId)).not.toHaveProperty("futureHint");
   });
 
   test("asks each host on its own connection, never reusing one", async () => {

@@ -30,7 +30,8 @@ the same directory. Upstream [PR #12844](https://github.com/can1357/oh-my-pi/pul
 `1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9`, adds this optional field without changing registry v1.
 Its source is `session.isStreaming`: true while running a turn, false while idle, and unknown
 when omitted/null. It is not proof of successful completion or process exit. The parser validates
-this named extension; it does not admit arbitrary snapshot fields or expose prompt/answer data.
+this named extension. Other fields upstream adds under v1 are ignored rather than rejected and are
+never projected; a snapshot naming prompt/answer content is still refused (ADR-028).
 The exact engineering baseline, minimum host version, embedded client, and native pins above stay
 unchanged. Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
@@ -78,7 +79,9 @@ Every publication consists of a private discovery file and an owner-only query e
 `OmpHostReader` reads the file’s version, instance identity, PID, endpoint, creation time, and
 per-host query token. It uses the published endpoint verbatim: long socket paths may be relocated
 under `/tmp/omp-collab-<hash>`. Discovery files are written once, so file timestamps do not
-represent metadata freshness. The gateway only reads them and never repairs or removes them.
+represent metadata freshness. The gateway only reads them and never repairs or removes them. A
+killed host's file stays until an OMP listing (`omp collab list`) prunes it; the gateway skips
+unchanged files whose endpoint already proved dead, so leftovers cannot hide new sessions.
 
 Queries are newline-framed JSON, one request and response per connection. `snapshot` returns
 metadata, while `link` resolves one exact generation and role on an explicit launch. The complete

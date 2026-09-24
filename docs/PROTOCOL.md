@@ -17,7 +17,7 @@ explicit directory with `omp.discoveryDir`. It only reads this directory: it nev
 renames, or unlinks discovery entries or endpoints, including apparently stale ones.
 
 Each live publication has one `<entryId>.json` file, mode `0600`, written once and never rewritten
-for metadata changes. Its exact shape is:
+for metadata changes. Its required fields are:
 
 ```json
 {
@@ -35,6 +35,16 @@ View or Control capability and not a gateway installation credential. Discovery 
 contain collaboration capabilities. Verify private ownership and permissions and reject symlinks
 and malformed entries. Read `endpoint` from the file; do not derive it from `entryId` or PID. OMP
 relocates overlong socket paths to `/tmp/omp-collab-<hash>/<entryId>.sock`.
+
+OMP evolves registry v1 additively, without a version bump. Discovery files, snapshots, `model`,
+and replies may carry fields beyond those documented here: the gateway validates every documented
+field that is present, requires the non-optional ones, ignores the rest, and builds its records
+from named fields only. Any other `version` or `v` is refused.
+
+A killed host leaves its file behind until an OMP listing such as `omp collab list` prunes it; the
+gateway never deletes it. The gateway remembers, by file identity, each publication whose endpoint
+proved dead (`ENOENT`/`ECONNREFUSED`) and skips that unchanged file, so leftovers cannot exhaust
+the per-round discovery budget. A replaced file is read again; a pruned one is forgotten.
 
 ## 2. Per-host query transport
 
@@ -77,7 +87,9 @@ Success is `{ ok: true, v: 1, snapshot }`. The metadata snapshot contains:
 No snapshot contains a capability. The gateway derives bounded `SessionMetadata` plus its own
 opaque attention identity; neither full paths nor per-host query tokens enter list/SSE. Boolean
 `busy` projects into optional browser metadata; absent/null is omitted. A retained/unreadable host
-loses only that activity knowledge, without refreshing last-seen time or TTL.
+loses only that activity knowledge, without refreshing last-seen time or TTL. An unlisted snapshot
+field is ignored, except that a snapshot naming ask content (`prompt`, `question`, `options`,
+`prefill`, `answer`, `requestId`, or `count`) is refused as a privacy regression.
 
 ### `link`
 

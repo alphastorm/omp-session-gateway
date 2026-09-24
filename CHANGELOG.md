@@ -6,6 +6,17 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep sessions visible when OMP adds a field to its registry v1 discovery file, snapshot, or
+  replies. OMP added `busy` that way, and the next such field would have hidden every session again
+  (#219). The gateway still requires and validates every field it reads, never forwards an unknown
+  one, rejects other registry versions, and refuses a snapshot that names ask content.
+- Stop leftover discovery files from killed OMP processes hiding new sessions. OMP deletes them only
+  while listing and the gateway never does, so every round re-read and re-queried each one against
+  the 100-publication budget. The gateway now remembers publications whose socket proved dead and
+  skips their unchanged files; `omp collab list` still prunes them immediately.
+
 ## [v0.5.1] — 2026-09-23
 
 ### Fixed

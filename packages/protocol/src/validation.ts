@@ -52,6 +52,12 @@ const OMP_REGISTRY_ERROR_CODES: Readonly<Record<OmpRegistryErrorCode, true>> = {
   access_unavailable: true,
 };
 
+/**
+ * Keys that would carry ask content. Upstream's registry snapshot is metadata-only; a snapshot that
+ * names one of these is a privacy regression to review, not an additive field, so it is refused.
+ */
+const FORBIDDEN_OMP_SNAPSHOT_KEYS = ["prompt", "question", "options", "prefill", "answer", "requestId", "count"] as const;
+
 type JsonRecord = Record<string, unknown>;
 
 function requireRecord(value: unknown): JsonRecord {
@@ -68,6 +74,18 @@ function requireExactKeys(value: JsonRecord, required: readonly string[], option
   }
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new ProtocolValidationError();
+  }
+}
+
+/**
+ * OMP evolves its registry v1 wire additively: it added `busy` without a version bump because a
+ * bump would hide every host from differently versioned listers. OMP input therefore requires the
+ * fields the gateway reads and ignores the rest; each parser builds its result from named fields
+ * only, so an unknown key can never reach a projection. Gateway-owned protocols stay exact.
+ */
+function requireKeys(value: JsonRecord, required: readonly string[]): void {
+  for (const key of required) {
+    if (!Object.hasOwn(value, key)) throw new ProtocolValidationError();
   }
 }
 
@@ -219,11 +237,12 @@ export function parseJsonFrame(bytes: Uint8Array): unknown {
 
 /**
  * Parses one `<entryId>.json` discovery file. The file is written once per publication and never
- * rewritten, so an unparseable or foreign-shaped file is a stale or alien artifact, not a host.
+ * rewritten, so an unparseable file or one missing a required field is a stale or alien artifact,
+ * not a host. Fields a later upstream adds are ignored.
  */
 export function parseOmpDiscoveryEntry(entryId: string, value: unknown): OmpDiscoveryEntry {
   const record = requireRecord(value);
-  requireExactKeys(record, ["version", "instanceId", "pid", "endpoint", "createdAt", "token"]);
+  requireKeys(record, ["version", "instanceId", "pid", "endpoint", "createdAt", "token"]);
   if (typeof record.endpoint !== "string" || record.endpoint.length === 0 || record.endpoint.includes("\0")) {
     throw new ProtocolValidationError();
   }
@@ -244,7 +263,7 @@ export function parseOmpDiscoveryEntry(entryId: string, value: unknown): OmpDisc
 function parseOmpHostModel(value: unknown): { provider: string; id: string } | undefined {
   if (value === undefined || value === null) return undefined;
   const record = requireRecord(value);
-  requireExactKeys(record, ["provider", "id"]);
+  requireKeys(record, ["provider", "id"]);
   const provider = optionalLabel(record.provider);
   const id = optionalLabel(record.id);
   if (provider === undefined || id === undefined || provider === "" || id === "") return undefined;
@@ -254,21 +273,18 @@ function parseOmpHostModel(value: unknown): { provider: string; id: string } | u
 /** One host's `snapshot` payload. Upstream bounds every free-form string to 1024 characters. */
 export function parseOmpHostSnapshot(value: unknown): OmpHostSnapshot {
   const record = requireRecord(value);
-  requireExactKeys(
-    record,
-    [
-      "instanceId",
-      "generation",
-      "pid",
-      "sessionId",
-      "startedAt",
-      "participants",
-      "relayConnected",
-      "inputRequired",
-      "access",
-    ],
-    ["sessionName", "cwd", "model", "busy"],
-  );
+  requireKeys(record, [
+    "instanceId",
+    "generation",
+    "pid",
+    "sessionId",
+    "startedAt",
+    "participants",
+    "relayConnected",
+    "inputRequired",
+    "access",
+  ]);
+  if (FORBIDDEN_OMP_SNAPSHOT_KEYS.some(key => Object.hasOwn(record, key))) throw new ProtocolValidationError();
   if (typeof record.sessionId !== "string" || !SESSION_ID_PATTERN.test(record.sessionId)) {
     throw new ProtocolValidationError();
   }
@@ -307,11 +323,8 @@ export type OmpRegistryReply<T> =
 function parseOmpEnvelope(value: unknown): { record: JsonRecord; ok: boolean } {
   const record = requireRecord(value);
   if (record.v !== OMP_REGISTRY_VERSION || typeof record.ok !== "boolean") throw new ProtocolValidationError();
-  if (!record.ok) {
-    requireExactKeys(record, ["ok", "v", "error"]);
-    if (typeof record.error !== "string" || !Object.hasOwn(OMP_REGISTRY_ERROR_CODES, record.error)) {
-      throw new ProtocolValidationError();
-    }
+  if (!record.ok && (typeof record.error !== "string" || !Object.hasOwn(OMP_REGISTRY_ERROR_CODES, record.error))) {
+    throw new ProtocolValidationError();
   }
   return { record, ok: record.ok };
 }
@@ -319,7 +332,7 @@ function parseOmpEnvelope(value: unknown): { record: JsonRecord; ok: boolean } {
 export function parseOmpSnapshotReply(value: unknown): OmpRegistryReply<OmpHostSnapshot> {
   const { record, ok } = parseOmpEnvelope(value);
   if (!ok) return { ok: false, error: record.error as OmpRegistryErrorCode };
-  requireExactKeys(record, ["ok", "v", "snapshot"]);
+  requireKeys(record, ["snapshot"]);
   return { ok: true, value: parseOmpHostSnapshot(record.snapshot) };
 }
 
@@ -330,7 +343,7 @@ export function parseOmpSnapshotReply(value: unknown): OmpRegistryReply<OmpHostS
 export function parseOmpLinkReply(value: unknown): OmpRegistryReply<SecretCapability> {
   const { record, ok } = parseOmpEnvelope(value);
   if (!ok) return { ok: false, error: record.error as OmpRegistryErrorCode };
-  requireExactKeys(record, ["ok", "v", "url"]);
+  requireKeys(record, ["url"]);
   return { ok: true, value: SecretCapability.from(record.url) };
 }
 
