@@ -24,6 +24,7 @@ import {
   ANDROID_LEAK_SWEEP_STAGES,
   lastAndroidStage,
 } from "./android-stages.ts";
+import { downloadReleaseAssets } from "./release-download.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_REPOSITORY = "alphastorm/omp-session-gateway";
@@ -364,11 +365,12 @@ async function verifyPublishedRelease(
   const version = options.tag.slice(1);
   const names = releaseAssetNames(version);
   const downloadDirectory = join(staging, "release");
-  await mkdir(downloadDirectory, { mode: 0o700 });
-  await runCommand(
-    "release download",
-    ["gh", "release", "download", options.tag, "--repo", options.repository, "--dir", downloadDirectory],
-    { timeoutMs: 300_000, safeFailureOutput: true },
+  await downloadReleaseAssets(downloadDirectory, () =>
+    runCommand(
+      "release download",
+      ["gh", "release", "download", options.tag, "--repo", options.repository, "--dir", downloadDirectory],
+      { timeoutMs: 300_000, safeFailureOutput: true },
+    ),
   );
   assertExactNames(await readdir(downloadDirectory), names.all, "published release");
 

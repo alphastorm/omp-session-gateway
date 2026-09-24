@@ -31,6 +31,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   through the real gateway loader in script tests (qualification tooling only, outside the runtime archive).
 - Measure Android recovery from the first successful rendered-directory probe with 250 ms between
   attempts and unchanged scenario windows, rather than a multi-second initial sleep (qualification tooling only).
+- Retry a release-asset download up to three times into an emptied directory when GitHub answers
+  HTTP 5xx, for stable qualification and the post-release smoke. A transient 500 had failed a
+  qualification run before any lane started (qualification tooling only, outside the runtime archive).
 
 ## [v0.5.1] — 2026-09-23
 
