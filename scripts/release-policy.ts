@@ -25,6 +25,13 @@ const QUALIFICATION_KEYS = [
   "version",
 ] as const;
 const EVIDENCE_KEYS = ["android", "debian", "macos", "ompPublication", "provenance", "secretSinks"] as const;
+/** From 0.6.0 every stable campaign also qualifies a Windows host and Pixel background Web Push (ADR-031). */
+const CAMPAIGN_EVIDENCE_KEYS = ["android", "androidPush", "debian", "macos", "ompPublication", "provenance", "secretSinks", "windows"] as const;
+
+function requiredEvidence(version: string): readonly string[] {
+  const [major = 0, minor = 0] = version.split(".").map(Number);
+  return major > 0 || minor >= 6 ? CAMPAIGN_EVIDENCE_KEYS : EVIDENCE_KEYS;
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -72,8 +79,9 @@ export function assertStableReleaseQualification(value: unknown, tag: string, ve
     throw new Error("stable release candidate evidence is incomplete");
   }
   const evidence = record(qualification.evidence, "stable release evidence");
-  exactKeys(evidence, EVIDENCE_KEYS, "stable release evidence");
-  if (EVIDENCE_KEYS.some(key => evidence[key] !== "passed")) {
+  const required = requiredEvidence(version);
+  exactKeys(evidence, required, "stable release evidence");
+  if (required.some(key => evidence[key] !== "passed")) {
     throw new Error("stable release evidence is incomplete");
   }
   if (typeof qualification.approvedAt !== "string" || !Number.isFinite(Date.parse(qualification.approvedAt))) {

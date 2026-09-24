@@ -32,9 +32,9 @@ of `main` that matches `origin/main` (`qualify:stable` refuses detached or unpub
 pinned Bun `1.4.0` first on `PATH`.
 
 Three steps need an explicit maintainer decision: the release itself (scope, promotion, and
-publication), the live qualification run (a billed Debian droplet, the retained Mac, the attached
-Pixel, and the relay check), and the published-byte smoke (it upgrades the installed gateway and
-drives the Pixel).
+publication), the live qualification run (a billed Debian droplet, a disposable Windows VM, the
+retained Mac, the attached Pixel, and the relay check), and the published-byte smoke (it upgrades
+the installed gateway and drives the Pixel).
 
 1. **Prepare the candidate.** One `chore(release): prepare X.Y.Z` PR bumps the version in the five
    `package.json` files, `PRODUCT_VERSION` in `apps/gateway/src/diagnostics.ts` and
@@ -44,11 +44,12 @@ drives the Pixel).
    merges, push a signed annotated `vX.Y.Z-prealpha.1` tag on the merge commit and
    [verify the published candidate](#verify-a-published-build).
 2. **Qualify it.** Run `bun run qualify:stable --tag vX.Y.Z-prealpha.1 --preflight`, which checks
-   admission prerequisites without effects, then the same command without `--preflight` (about 45
-   minutes; see [Release gates](#release-gates)). The droplet workflow takes only an exact candidate
+   admission prerequisites without effects, then the same command without `--preflight` (about an
+   hour; see [Release gates](#release-gates)). The droplet workflow takes only an exact candidate
    tag. After a failure, fix the cause on `main`, keep the failed receipt unchanged, and archive it
    only as the release gates allow before rerunning. Afterwards confirm that no qualification
-   droplet or ephemeral SSH key remains in the DigitalOcean account.
+   droplet or ephemeral SSH key remains in the DigitalOcean account, and that no `omp-winqual-*`
+   instance, firewall group, or tailnet node remains.
 3. **Promote it.** One `chore(release): approve vX.Y.Z for stable promotion` PR sets
    `STABLE_RELEASE.lock.json` from the passed receipt, records every lane and any failed attempt in
    the ledger, moves the COMPATIBILITY release paragraph, the status page, and `site/llms.txt` to
@@ -130,8 +131,9 @@ Every advertised release requires:
 
 Stable publication additionally requires that the exact signed tag's tree contain a fully passed
 STABLE_RELEASE.lock.json candidate tag/source/archive digest, runtime-byte comparison, Debian,
-retained Mac14,3, physical Pixel, mainline OMP discovery/query and launch/revocation, provenance,
-and secret-sink evidence. No fork-era receipt can stand in for one of these new candidate lanes.
+retained Mac14,3, Windows host, physical Pixel, background Web Push, mainline OMP discovery/query
+and launch/revocation, provenance, and secret-sink evidence. No fork-era receipt can stand in for
+one of these new candidate lanes.
 The workflow asserts checked-out HEAD equals the event SHA, checks candidate ancestry and the
 published candidate digest, requires a GitHub-verified signed annotated tag, and rechecks tag state
 before public provenance, draft creation, and promotion. Issue #65 remains a browser-process
@@ -147,11 +149,20 @@ bun run qualify:stable --tag v0.2.1-prealpha.2
 ```
 
 For a selected mainline candidate, `bun run qualify:stable --tag "$TAG"` must re-verify signed
-assets and provenance, exercise Debian and retained-Mac lifecycle, the exact predecessor, real
-mainline discovery/launch/revocation, physical Pixel acceptance and secret sinks, bounded relay
-smoke, and cleanup. It writes a private receipt under
-`~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
+assets and provenance for the candidate and its predecessor, exercise Debian and retained-Mac
+lifecycle, the exact predecessor, real mainline discovery/launch/revocation, physical Pixel
+acceptance and secret sinks, bounded relay smoke, the [Windows host lane](WINDOWS_QUALIFICATION.md),
+the [background Web Push lane](ANDROID.md), and cleanup. It writes a private receipt (schema 2)
+under `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
 scripts are not qualification evidence until these lanes run against the exact candidate.
+
+The Windows and background Push lanes own external state, so each has a cleanup lane
+(`windowsCleanup`, `androidPushCleanup`) that runs after every attempt and passes only for the
+attempt epoch its lane recorded. A crash leaves a lane `running`, and a rerun may resume it; a
+caught failure is released before a new attempt begins, and a failed release stops the lane there.
+If admission fails while a recorded Windows VM exists, the command still destroys it. Windows runs
+beside the Debian and Mac lanes; the core Android lane, background Push, and the Windows physical
+client take turns on the Pixel, and a lane that cannot restore the phone blocks every later one.
 
 The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 
@@ -161,7 +172,7 @@ Missing, shorter, or stale proof fails overall qualification before admission or
 not automatically rerun the relay lane. Recorded pending Mac cleanup still runs, while completed
 cleanup remains completed. A historical 60-second pass cannot satisfy this campaign.
 
-Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked; concurrent invocations can dispatch two billed Debian runs and contend for the retained Mac.
+Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked, and the Pixel lease is in-process only; concurrent invocations can dispatch two billed Debian runs, create two Windows VMs, and contend for the retained Mac and the Pixel.
 
 If a persisted Debian dispatch UUID is not discoverable, do not start a second process or delete the receipt blindly. Search Actions for the exact `Stable qualification <uuid>` title and orchestrator commit. Resume when that run appears. Only after API evidence proves no matching run exists and every Mac-related lane has zero attempts may the operator archive the entire private qualification directory and restart; otherwise recover the recorded Mac cleanup state first. Automatic redispatch is intentionally refused because an accepted-but-delayed workflow cannot be distinguished safely from a rejected request.
 
@@ -172,7 +183,7 @@ from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree ass
 counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
 mainline output.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 
