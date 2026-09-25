@@ -338,11 +338,15 @@ export async function wakeAndroidDisplay(
   let keyguardShowing = true;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await command("shell", "input", "keyevent", "224");
-    await command("shell", "input", "keyevent", "82");
-    await command("shell", "wm", "dismiss-keyguard");
     await pause(1_200);
     wakefulness = parseWakefulness(await command("shell", "dumpsys", "power"));
     if (wakefulness !== "Awake") continue;
+    keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
+    if (!keyguardShowing) return wakefulness;
+    // MENU opens an application popup on an already unlocked phone. Use it only for keyguard.
+    await command("shell", "input", "keyevent", "82");
+    await command("shell", "wm", "dismiss-keyguard");
+    await pause(1_200);
     keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
     if (!keyguardShowing) return wakefulness;
     if (unlockKeyguard !== undefined) {

@@ -140,36 +140,28 @@ describe("Android display bootstrap", () => {
   };
 
   test("wakes a dreaming display before the blocking Chrome Activity launch", async () => {
-    const calls: string[][] = [];
-    const wakefulness = ["Dreaming", "Awake"];
+    let wakefulness = "Dreaming";
+    let wakes = 0;
+    let launchedAwake = false;
     await wakeAndroidChrome(
       "serial",
       target,
       async (...args) => {
-        calls.push(args);
+        if (args.join(" ") === "shell input keyevent 224" && ++wakes > 1) wakefulness = "Awake";
         if (args[1] === "dumpsys" && args[2] === "power") {
-          return `mWakefulness=${wakefulness.shift() ?? "Awake"}`;
+          return `mWakefulness=${wakefulness}`;
         }
         if (args[1] === "dumpsys" && args[2] === "window") return "isKeyguardShowing=false";
+        if (args[1] === "am" && args[2] === "start") {
+          if (wakefulness !== "Awake") throw new Error("Activity launch would block behind the sleeping display");
+          launchedAwake = true;
+        }
         return "";
       },
       async () => {},
     );
 
-    const launchIndex = calls.findIndex(args => args[1] === "am" && args[2] === "start");
-    const awakeIndex = calls.findIndex(args => args.join(" ") === "shell dumpsys power" && calls.indexOf(args) > 2);
-    expect(launchIndex).toBeGreaterThan(awakeIndex);
-    expect(calls.slice(0, launchIndex)).toEqual([
-      ["shell", "input", "keyevent", "224"],
-      ["shell", "input", "keyevent", "82"],
-      ["shell", "wm", "dismiss-keyguard"],
-      ["shell", "dumpsys", "power"],
-      ["shell", "input", "keyevent", "224"],
-      ["shell", "input", "keyevent", "82"],
-      ["shell", "wm", "dismiss-keyguard"],
-      ["shell", "dumpsys", "power"],
-      ["shell", "dumpsys", "window"],
-    ]);
+    expect(launchedAwake).toBe(true);
   });
   test("refuses to launch Chrome when the display never wakes", async () => {
     const calls: string[][] = [];
@@ -198,30 +190,51 @@ describe("Android display bootstrap", () => {
     );
   });
 
+  test("waking an unlocked phone preserves the page instead of opening its menu", async () => {
+    for (const initiallyLocked of [false, true]) {
+      let locked = initiallyLocked;
+      let surface = locked ? "keyguard" : "page";
+      const state = await wakeAndroidDisplay(async (...args) => {
+        const command = args.join(" ");
+        if (command === "shell dumpsys power") return "mWakefulness=Awake";
+        if (command === "shell dumpsys window") return "isKeyguardShowing=" + locked;
+        if (command === "shell input keyevent 82" && !locked) surface = "menu";
+        if (command === "shell wm dismiss-keyguard" && locked) { locked = false; surface = "page"; }
+        return "";
+      }, async () => {});
+      expect(state).toBe("Awake");
+      expect(surface).toBe("page");
+      expect(locked).toBe(false);
+    }
+  });
+
   test("reveals the PIN keypad and authenticates once before reporting the display awake", async () => {
-    const calls: string[][] = [];
-    let keyguardChecks = 0;
+    let locked = true;
+    let keypad = false;
+    let applicationMenuOpened = false;
     let unlocks = 0;
     const state = await wakeAndroidDisplay(
       async (...args) => {
-        calls.push(args);
+        if (["shell input keyevent 82", "shell wm dismiss-keyguard"].includes(args.join(" ")) && !locked) applicationMenuOpened = true;
+        if (args[1] === "input" && args[2] === "swipe") keypad = true;
         if (args.join(" ") === "shell dumpsys power") return "mWakefulness=Awake";
         if (args.join(" ") === "shell wm size") return "Physical size: 1080x2424";
         if (args.join(" ") === "shell dumpsys window") {
-          keyguardChecks += 1;
-          return `isKeyguardShowing=${keyguardChecks === 1}`;
+          return `isKeyguardShowing=${locked}`;
         }
         return "";
       },
       async () => {},
       async () => {
+        if (!keypad) throw new Error("authentication requires the keypad");
         unlocks += 1;
+        locked = false;
       },
     );
     expect(state).toBe("Awake");
     expect(unlocks).toBe(1);
-    expect(keyguardChecks).toBe(2);
-    expect(calls).toContainEqual(["shell", "input", "swipe", "540", "2205", "540", "606", "600"]);
+    expect(locked).toBe(false);
+    expect(applicationMenuOpened).toBe(false);
   });
 
   test("fails closed when one authentication attempt leaves the keyguard visible", async () => {

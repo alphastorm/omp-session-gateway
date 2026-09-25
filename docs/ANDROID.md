@@ -146,8 +146,9 @@ publishes known busy activity, and command-context `newSession()` replaces gener
 without replacing the instance. Preparation is aborted before provider transport: only a synthetic
 model key is used. Control files are owner-only, epoch-bound, monotonically sequenced, and outside
 OMP discovery. No terminal injection, private OMP import, or discovery-file editing is involved.
-The fixture host needs Python 3 with `os.forkpty`, checked through the host executor before
-admission. An owned, detached holder keeps the PTY open and reads/discards its output; it never
+The fixture host needs Python 3 with `os.forkpty`, checked with the exact Bun, OMP, and staged
+extension pins through the host executor before fixture creation. Device admission has no local
+fixture requirement. An owned, detached holder keeps the PTY open and reads/discards its output; it never
 writes terminal input. Graceful fixture stop is followed, when needed, by signals to the verified
 holder process group, with a final command-line check for surviving owned OMP processes. No tmux
 or Homebrew installation is needed. The local fixture was observed published idle and then absent
@@ -197,6 +198,9 @@ persistent qualification equipment: the lane never uninstalls apps or clears Chr
 Development device mutations acquire `/tmp/omp-gw-pixel.lock` atomically. A lease is released only
 after restoring its baseline; never remove another lane's lock. The PIN remains in Keychain and is
 read only by `android-device.ts`, never echoed or copied into configuration.
+Display wake checks keyguard state before sending MENU/dismiss events. On an unlocked Pixel those
+events open Chrome's application menu instead of unlocking anything, intercepting subsequent
+touches. The helper preserves the unlocked page and authenticates only a still-visible keyguard.
 
 ### Matrix and evidence
 
@@ -359,6 +363,18 @@ The pinned Chromium sources are the
 and [unsupported native synchronization](https://github.com/chromium/chromium/blob/153.0.8010.52/chrome/browser/notifications/notification_platform_bridge_android.cc#L444-L462).
 
 All final device baseline booleans matched, the original granted/subscribed Preview preference was
+restored after a later **10 warm + 5 cold** settled native-API run as well. All 15 pairs were valid
+and left **zero native orphans**. Each awaited a same-tag replacement, waited the remaining
+2,000 ms, re-queried the exact browser notice, closed it, and observed zero browser handles.
+Observed show-return-to-close times were 2.010–2.030 s; detached Android-only observation
+continued for 13.726–14.103 s after completion. That run took 412.195 s including restoration.
+The transient button/state were absent after reload, the Python-PTY fixture had published idle
+and was then absent, and the lease was released. Earlier settled-probe attempts produced no valid
+samples: an application-menu popup intercepted the touch. The shared wake helper now avoids
+sending MENU to an unlocked phone; its regression models real keyguard/authentication state.
+This native sample supports the measured mitigation but is not an uninterrupted Web Push matrix.
+
+The original granted/subscribed Preview preference was
 restored, the owned fixture was absent, and the development Pixel lease was independently observed
 released. The daily gateway, global OMP installations, and user OMP configuration were unchanged.
 The complete uninterrupted matrix remains **blocked at authoritative clear**. Forced Doze, the
