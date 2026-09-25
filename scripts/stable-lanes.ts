@@ -69,6 +69,23 @@ function pushIdentity(context: ExternalLaneContext & AndroidPushLaneContext): An
   return { tag, candidate, omp, origin: context.origin };
 }
 
+/**
+ * Whether the retained Mac's gateway service sends both standard streams to /dev/null. Each stream
+ * is read by its own command, so one missing key cannot hide behind the other's success.
+ */
+export async function gatewayStreamsDiscarded(mac: RemoteExecutor): Promise<boolean> {
+  for (const key of ["StandardOutPath", "StandardErrorPath"]) {
+    const path = await remoteText(
+      mac,
+      'plutil -extract "$0" raw -o - "$HOME/Library/LaunchAgents/omp-session-gateway.plist"',
+      "could not read the retained Mac gateway's service definition",
+      { args: [key] },
+    );
+    if (path.trim() !== "/dev/null") return false;
+  }
+  return true;
+}
+
 async function retainedMacPushRuntime(context: ExternalLaneContext & AndroidPushLaneContext) {
   const home = await remoteHome(context.mac);
   const scripts = `${home}/qual-tools/push/scripts`;
@@ -87,14 +104,7 @@ async function retainedMacPushRuntime(context: ExternalLaneContext & AndroidPush
     // The pinned stock OMP that the Mac lane's `omp-build` installs (qualify-macos-omp.sh).
     fixtureBinary: `${home}/.local/lib/omp-session-gateway/omp/v${omp.version}-${omp.sourceTree.slice(0, 8)}/omp`,
     fixtureScripts: scripts,
-    gatewayLogsDiscarded: async () => {
-      const paths = await remoteText(
-        context.mac,
-        'p="$HOME/Library/LaunchAgents/omp-session-gateway.plist"; plutil -extract StandardOutPath raw -o - "$p"; echo; plutil -extract StandardErrorPath raw -o - "$p"',
-        "could not read the retained Mac gateway's service definition",
-      );
-      return paths.split("\n").filter(line => line !== "").every(line => line === "/dev/null");
-    },
+    gatewayLogsDiscarded: () => gatewayStreamsDiscarded(context.mac),
   });
 }
 
