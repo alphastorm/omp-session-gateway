@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { OmpHostReader } from "../apps/gateway/src/omp-registry.ts";
 import type { OmpDiscoveryEntry } from "../packages/protocol/src/types.ts";
 import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
-import { isStockOmpBinary } from "./post-release-smoke.ts";
+import { isStockOmpBinary, parseJsonRecord } from "./post-release-smoke.ts";
 
 export const CANARY_STAGES = ["publish", "snapshot", "stale-generation", "view", "control", "unregister"] as const;
 export type CanaryStage = typeof CANARY_STAGES[number];
@@ -261,6 +261,11 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
     ompVersion = parseOmpVersion(ompCommand(binary, ["--version"], "OMP version query failed") ?? "") ?? "";
     if (!isSupportedOmpVersion(ompVersion)) throw new CanaryFailure("stock OMP >=18.1.20 is required");
     ompCommand(binary, ["config", "set", "collab.autoStart", "control"], "auto-start configuration failed");
+    // A settings write can exit 0 without persisting; the host's own read-back is the proof.
+    const readBack = ompCommand(binary, ["config", "get", "collab.autoStart", "--json"], "auto-start read-back failed") ?? "";
+    let autoStart: unknown;
+    try { autoStart = parseJsonRecord(readBack, "OMP auto-start").value; } catch { autoStart = undefined; }
+    if (autoStart !== "control") throw new CanaryFailure("collab.autoStart does not read back as control");
     const fixtureArgs = OMP_FIXTURE_ARGS.map((value, index) =>
       options.model !== undefined && OMP_FIXTURE_ARGS[index - 1] === "--model" ? options.model : value);
     if (windows) {

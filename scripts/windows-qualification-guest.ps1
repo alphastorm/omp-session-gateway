@@ -146,7 +146,13 @@ switch ($p.action) {
     $omp = "$root\source\packages\coding-agent\dist\omp.exe"
     if (-not (Test-Path $omp)) { $omp = "$root\source\packages\coding-agent\dist\omp" }
     if ((Run $omp @('--version') | Out-String).Trim() -ne ('omp/' + $p.pins.omp.version)) { throw 'built OMP version mismatch' }
-    Run $omp @('config', 'set', 'collab.autoStart', 'control') | Out-Null
+    # The compiled binary's `config set` can exit 0 without writing anything: over WinRM on a fresh
+    # profile it did so twice in one development run, the host then started with auto-start off, and
+    # it never published. Write OMP's settings contract directly; the host binary must read it back.
+    $settings = "$env:USERPROFILE\.omp\agent"
+    New-Item -ItemType Directory -Force -Path $settings | Out-Null
+    [IO.File]::WriteAllText("$settings\config.yml", "collab:`n  autoStart: control`n", (New-Object Text.UTF8Encoding($false)))
+    if (((Run $omp @('config', 'get', 'collab.autoStart', '--json') | Out-String) | ConvertFrom-Json).value -ne 'control') { throw 'collab.autoStart does not read back as control' }
     @{ ompPath = $omp; binarySha256 = Digest $omp } | ConvertTo-Json -Compress
   }
   'installPredecessor' {

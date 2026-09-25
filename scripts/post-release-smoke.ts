@@ -794,8 +794,14 @@ async function resolveOmp(
   return { installed, version: inspection.version, binary: inspection.binary, binarySha256: inspection.binarySha256 };
 }
 
-async function enableOmpAutoStart(binary: string): Promise<void> {
+/** A settings write can exit 0 without persisting, so the host's own read-back is the proof. */
+export async function enableOmpAutoStart(binary: string): Promise<void> {
   await runCommand("OMP auto-start setup", [binary, "config", "set", "collab.autoStart", "control"]);
+  const autoStart = parseJsonRecord(
+    await commandOutput("OMP auto-start", [binary, "config", "get", "collab.autoStart", "--json"]),
+    "OMP auto-start",
+  );
+  if (autoStart.value !== "control") throw new Error("OMP auto-start setup exited cleanly, but collab.autoStart does not read back as control");
 }
 
 function shellQuote(value: string): string {
