@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 
 const GLOBAL_NAMES = [
   "addEventListener",
@@ -72,11 +72,13 @@ const clients = {
 };
 const shownNotifications: Array<{
   readonly title: string;
+  readonly body: string;
   readonly options: NotificationOptions;
   readonly data: unknown;
   closed: boolean;
   close(): void;
 }> = [];
+let notificationRead: (() => void) | undefined;
 const registration = {
   async showNotification(title: string, options: NotificationOptions): Promise<void> {
     for (const notification of shownNotifications) {
@@ -84,15 +86,22 @@ const registration = {
     }
     shownNotifications.push({
       title,
+      body: options.body ?? "",
       options,
       data: options.data,
       closed: false,
       close(): void {
-        this.closed = true;
+        // Chrome's persistent notification identity is shared by replacements with this tag.
+        for (const notification of shownNotifications) {
+          if (notification.options.tag === this.options.tag) notification.closed = true;
+        }
       },
     });
   },
   async getNotifications(options: { readonly tag: string }): Promise<typeof shownNotifications> {
+    const observed = notificationRead;
+    notificationRead = undefined;
+    if (observed !== undefined) queueMicrotask(observed);
     return shownNotifications.filter(notification => notification.options.tag === options.tag && !notification.closed);
   },
 };
@@ -154,6 +163,32 @@ function listener(type: string): (event: unknown) => void {
   return registered[0]!;
 }
 
+let pendingPush: Promise<unknown> = Promise.resolve();
+function push(message: unknown): Promise<unknown> {
+  let completion: Promise<unknown> | undefined;
+  listener("push")({
+    data: { json: () => message },
+    waitUntil(promise: Promise<unknown>): void { completion = promise; },
+  });
+  pendingPush = Promise.resolve(completion);
+  return pendingPush;
+}
+
+function nextNotificationRead(): Promise<void> {
+  return new Promise(resolve => { notificationRead = resolve; });
+}
+
+beforeEach(() => { jest.useFakeTimers({ now: 0 }); });
+afterEach(async () => {
+  try {
+    jest.runAllTimers();
+    await pendingPush.catch(() => {});
+  } finally {
+    notificationRead = undefined;
+    jest.useRealTimers();
+  }
+});
+
 afterAll(() => {
   for (const name of GLOBAL_NAMES) {
     const descriptor = nativeGlobals[name];
@@ -187,7 +222,7 @@ describe("notification service worker", () => {
     shownNotifications.length = 0;
     badgeState.set.length = 0;
     badgeState.clears = 0;
-    const push = listener("push");
+    const receivePush = listener("push");
     const attention = {
       version: 2,
       type: "attention",
@@ -199,7 +234,7 @@ describe("notification service worker", () => {
       body: "Session name · project",
     };
     let attentionCompletion: Promise<unknown> | undefined;
-    push({
+    receivePush({
       data: { json(): unknown { return attention; } },
       waitUntil(promise: Promise<unknown>): void { attentionCompletion = promise; },
     });
@@ -223,14 +258,14 @@ describe("notification service worker", () => {
     expect(badgeState.set).toEqual([2]);
 
     let malformedWait = false;
-    push({
+    receivePush({
       data: { json(): unknown { return { ...attention, prompt: "PROMPT_CONTENT_CANARY" }; } },
       waitUntil(): void { malformedWait = true; },
     });
     expect(malformedWait).toBeFalse();
 
     let staleClearCompletion: Promise<unknown> | undefined;
-    push({
+    receivePush({
       data: {
         json(): unknown {
           return {
@@ -247,8 +282,9 @@ describe("notification service worker", () => {
     await staleClearCompletion;
     expect(shownNotifications[0]?.closed).toBeFalse();
 
+    jest.advanceTimersByTime(2_000);
     let clearCompletion: Promise<unknown> | undefined;
-    push({
+    receivePush({
       data: {
         json(): unknown {
           return {
@@ -266,6 +302,153 @@ describe("notification service worker", () => {
     expect(shownNotifications[0]?.closed).toBeTrue();
     expect(badgeState.set).toEqual([2, 1]);
     expect(badgeState.clears).toBe(1);
+  });
+
+  const attention = {
+    version: 2, type: "attention", instanceId: "push-timing-000001", generation: 3,
+    requestId: "push-request-timing-0001", pendingAskCount: 1,
+    title: "OMP session needs attention", body: "Session name · project",
+  };
+  const clearFor = (message: typeof attention) => ({
+    version: 2, type: "clear", instanceId: message.instanceId,
+    requestId: message.requestId, pendingAskCount: 0,
+  });
+
+  test("settles a clear 50 ms after display and closes only its exact request", async () => {
+    shownNotifications.length = 0;
+    await push(attention);
+    const current = shownNotifications.at(-1)!;
+    await push({ ...attention, instanceId: "push-other-timing-0001" });
+    const other = shownNotifications.at(-1)!;
+    jest.advanceTimersByTime(50);
+    await push({ ...clearFor(attention), requestId: "push-different-request-0001" });
+    expect(current.closed).toBeFalse();
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(attention));
+    await read;
+    expect(current.closed).toBeFalse();
+    jest.advanceTimersByTime(1_949);
+    expect(current.closed).toBeFalse();
+    jest.advanceTimersByTime(1);
+    await clearing;
+    expect(current.closed).toBeTrue();
+    expect(other.closed).toBeFalse();
+  });
+
+  test("clears an old display immediately", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-old-timing-000001" };
+    await push(message);
+    const current = shownNotifications.at(-1)!;
+    jest.advanceTimersByTime(2_050);
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(message));
+    await read;
+    expect(current.closed).toBeTrue();
+    await clearing;
+  });
+
+  test("a replacement push queued during settle remains displayed after the old clear", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-queued-timing-0001" };
+    await push(message);
+    jest.advanceTimersByTime(50);
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(message));
+    await read;
+    const replacement = { ...message, requestId: "push-replacement-request-0001" };
+    const replacing = push(replacement);
+    jest.advanceTimersByTime(1_950);
+    await Promise.all([clearing, replacing]);
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "attention", instanceId: message.instanceId, requestId: replacement.requestId }]);
+  });
+
+  test("re-queries after settle instead of closing a replacement made by another context", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-context-timing-0001" };
+    await push(message);
+    jest.advanceTimersByTime(50);
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(message));
+    await read;
+    const replacementData = {
+      version: 2, type: "attention", instanceId: message.instanceId,
+      requestId: "push-context-replacement-0001",
+    };
+    // The browser's persistent tag can change independently while this worker is suspended.
+    await registration.showNotification(message.title, {
+      tag: `omp-attention-${message.instanceId}`, body: message.body, data: replacementData,
+    });
+    const replacement = shownNotifications.at(-1)!;
+    jest.advanceTimersByTime(1_950);
+    await clearing;
+    expect(replacement.closed).toBeFalse();
+    expect(replacement.data).toEqual(replacementData);
+  });
+
+  test("identical attention replay updates the badge without re-showing or extending settle", async () => {
+    shownNotifications.length = 0;
+    badgeState.set.length = 0;
+    const message = { ...attention, instanceId: "push-replay-timing-0001" };
+    await push(message);
+    const current = shownNotifications.at(-1)!;
+    jest.advanceTimersByTime(1_000);
+    await push({ ...message, pendingAskCount: 3 });
+    expect(shownNotifications).toEqual([current]);
+    expect(current.closed).toBeFalse();
+    expect(badgeState.set).toEqual([1, 3]);
+    jest.advanceTimersByTime(1_000);
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(message));
+    await read;
+    expect(current.closed).toBeTrue();
+    await clearing;
+  });
+
+  test("changed attention title or body replaces the displayed content", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-content-timing-0001" };
+    await registration.showNotification("Older attention title", {
+      tag: `omp-attention-${message.instanceId}`, body: message.body,
+      data: { version: 2, type: "attention", instanceId: message.instanceId, requestId: message.requestId },
+    });
+    const first = shownNotifications.at(-1)!;
+    await push(message);
+    const second = shownNotifications.at(-1)!;
+    expect(first.closed).toBeTrue();
+    expect(second.title).toBe(message.title);
+    await push({ ...message, body: "Updated session detail" });
+    expect(second.closed).toBeTrue();
+    expect(shownNotifications.filter(notification => !notification.closed).map(({ title, body }) => ({ title, body })))
+      .toEqual([{ title: message.title, body: "Updated session detail" }]);
+  });
+
+  test("an identical replay re-shows a dismissed notification", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-dismissed-timing-0001" };
+    await push(message);
+    const dismissed = shownNotifications.at(-1)!;
+    dismissed.close();
+    await push(message);
+    expect(shownNotifications.at(-1)).not.toBe(dismissed);
+    expect(shownNotifications.filter(notification => !notification.closed).map(notification => notification.data))
+      .toEqual([{ version: 2, type: "attention", instanceId: message.instanceId, requestId: message.requestId }]);
+  });
+
+  test("a worker with no local display timestamp clears a persisted notification immediately", async () => {
+    shownNotifications.length = 0;
+    const message = { ...attention, instanceId: "push-prior-worker-000001" };
+    await registration.showNotification(message.title, {
+      tag: `omp-attention-${message.instanceId}`, body: message.body,
+      data: { version: 2, type: "attention", instanceId: message.instanceId, requestId: message.requestId },
+    });
+    const persisted = shownNotifications.at(-1)!;
+    const read = nextNotificationRead();
+    const clearing = push(clearFor(message));
+    await read;
+    expect(persisted.closed).toBeTrue();
+    await clearing;
   });
 
   test("routes a valid alert to same-origin Control bootstrap and never focuses a client page", async () => {
@@ -329,14 +512,6 @@ describe("notification service worker", () => {
 
   test("a notification API failure does not block later push delivery", async () => {
     shownNotifications.length = 0;
-    const push = async (message: unknown): Promise<void> => {
-      let completion: Promise<unknown> | undefined;
-      listener("push")({
-        data: { json: () => message },
-        waitUntil(promise: Promise<unknown>): void { completion = promise; },
-      });
-      await completion;
-    };
     const stop = {
       version: 2, type: "activity_stop", instanceId: "push-activity-000002",
       generation: 3, pendingAskCount: 0, title: "OMP session activity stopped",
@@ -357,14 +532,6 @@ describe("notification service worker", () => {
     shownNotifications.length = 0;
     badgeState.set.length = 0;
     badgeState.clears = 0;
-    const push = async (message: unknown): Promise<void> => {
-      let completion: Promise<unknown> | undefined;
-      listener("push")({
-        data: { json: () => message },
-        waitUntil(promise: Promise<unknown>): void { completion = promise; },
-      });
-      await completion;
-    };
     const stop = {
       version: 2,
       type: "activity_stop",
@@ -397,12 +564,11 @@ describe("notification service worker", () => {
     await push(attention);
     expect(displayedStop.closed).toBeTrue();
     expect(shownNotifications.at(-1)!.options).toMatchObject({ renotify: true });
-    await push(attention);
     const displayedAttention = shownNotifications.at(-1)!;
-    expect(displayedAttention.options).toMatchObject({ renotify: false });
     await push({ ...stop, pendingAskCount: 1 });
     expect(shownNotifications.filter(notification => !notification.closed)).toEqual([displayedAttention]);
     expect(badgeState.set.at(-1)).toBe(1);
+    jest.advanceTimersByTime(2_000);
     await push(clear);
     expect(displayedAttention.closed).toBeTrue();
     await push(stop);
