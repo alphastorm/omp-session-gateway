@@ -489,31 +489,41 @@ test("private presentation excludes unowned shade content and refuses a missing 
   await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("content boundary unavailable");
 });
 
-test("Private selection skips another OMP Sessions app's same-title row by its origin header", async () => {
-  // The operator's daily gateway app shows the same Private title; each row header names its origin.
+test("Private selection skips another OMP Sessions app's same-title rows by origin, grouped or not", async () => {
+  // The operator's daily gateway app shows the same Private title. A row header names its origin;
+  // a collapsed group of that app's alerts may show no origin at all.
   const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: [], originHost: "owned.example.test" };
   let ownedVisible = true;
+  let foreign: "headed" | "group" = "headed";
   const taps: string[][] = [];
+  const title = (top: number) => `<node resource-id="android:id/title" text="${expected.title}" bounds="[20,${top}][300,${top + 40}]"/>`;
   const row = (origin: string, top: number) => `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,${top}][400,${top + 200}]">
       <node resource-id="android:id/status_bar_latest_event_content" bounds="[0,${top}][400,${top + 200}]">
         <node resource-id="android:id/notification_header" bounds="[0,${top}][400,${top + 40}]">
           <node resource-id="android:id/app_name_text" text="OMP Sessions" bounds="[20,${top}][160,${top + 40}]"/>
           <node resource-id="android:id/header_text" text="${origin}" bounds="[170,${top}][300,${top + 40}]"/>
           <node resource-id="android:id/expand_button" content-desc="Expand" bounds="[340,${top}][380,${top + 40}]"/>
-        </node>
-        <node resource-id="android:id/title" text="${expected.title}" bounds="[20,${top + 40}][300,${top + 80}]"/>
+        </node>${title(top + 40)}
+      </node></node>`;
+  const group = `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,0][400,260]">
+      <node resource-id="com.android.systemui:id/notification_children_container" bounds="[0,40][400,260]">
+        <node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,40][400,140]">${title(60)}</node>
+        <node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,140][400,260]">${title(160)}</node>
       </node></node>`;
   const command = async (...args: string[]) => {
     if (args.includes("dumpsys")) return `Notification List:\n NotificationRecord(1: pkg=${expected.packageName} tag=${expected.tag})\n key=own-key\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String ()\nRanking Config:`;
     if (args.includes("size")) return "Physical size: 400x800";
     if (args.includes("tap")) { taps.push(args.slice(-2)); return ""; }
     if (!args.includes("uiautomator")) return "";
-    return `<hierarchy><node bounds="[0,0][400,800]">${row("daily.example.test", 0)}${ownedVisible ? row(expected.originHost, 300) : ""}</node></hierarchy>`;
+    return `<hierarchy><node bounds="[0,0][400,800]">${foreign === "headed" ? row("daily.example.test", 0) : group}${ownedVisible ? row(expected.originHost, 300) : ""}</node></hierarchy>`;
   };
-  const found = await findAndroidNotification(command, expected, async () => {});
-  expect(found.target).toMatchObject({ text: expected.title, y: 360 });
-  expect(found.rowNodes.some(node => node.text === "daily.example.test")).toBe(false);
-  ownedVisible = false;
+  for (const layout of ["headed", "group"] as const) {
+    foreign = layout;
+    const found = await findAndroidNotification(command, expected, async () => {});
+    expect(found.target).toMatchObject({ text: expected.title, y: 360 });
+    expect(found.rowNodes.some(node => node.text === "daily.example.test")).toBe(false);
+  }
+  foreign = "headed"; ownedVisible = false;
   await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("owned notification absent");
   expect(taps).toEqual([]);
 });

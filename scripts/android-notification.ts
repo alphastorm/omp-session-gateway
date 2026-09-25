@@ -156,16 +156,22 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
       return false;
     };
     // The operator's daily OMP Sessions app shows the same Private title. Android names each WebAPK
-    // notification's origin in its row header, so a row naming another origin is never the owned one.
-    const foreign = (nodeIndex: number) => {
+    // notification's origin in its row header, but a collapsed group may show none.
+    const origin = (nodeIndex: number): string | undefined => {
       for (let row: number | undefined = nodes[nodeIndex]!.parent; row !== undefined; row = nodes[row]!.parent) {
         if (!nodes[row]!.resource.endsWith(":id/expandableNotificationRow")) continue;
         const header = nodes.find((node, index) => node.resource === "android:id/header_text" && inside(index, row!));
-        if (header !== undefined) return header.text !== expected.originHost;
+        if (header !== undefined) return header.text;
       }
-      return false;
+      return undefined;
     };
-    const candidates = (test: (node: AndroidUiNode) => boolean) => nodes.filter((node, index) => test(node) && !foreign(index));
+    // Prefer the row naming the owned origin, never one naming another, and fall back to rows without
+    // a header only when no row names the owned origin.
+    const candidates = (test: (node: AndroidUiNode) => boolean) => {
+      const found = nodes.flatMap((node, index) => test(node) ? [{ node, origin: origin(index) }] : []);
+      const owned = found.filter(item => item.origin === expected.originHost);
+      return (owned.length > 0 ? owned : found.filter(item => item.origin === undefined)).map(item => item.node);
+    };
     const exact = candidates(node => node.text === text);
     const matches = exact.length > 0 ? exact : candidates(node => node.description.includes(text));
     if (matches.length > 1) throw new Error("notification UI locator is ambiguous for the owned record");
@@ -189,7 +195,8 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
         peers: new Map(records.filter(record => record.tag.includes("omp-attention-") && record.key !== owned[0]!.key).map(record => [record.key, record.postedAt])) };
     }
     const headers = nodes.filter(node => node.text.includes("OMP Sessions") || node.description.includes("OMP Sessions"));
-    const expand = nodes.filter((node, index) => node.resource.endsWith("/expand_button") && !foreign(index) && headers.some(header => Math.abs(header.y - node.y) < 100));
+    const expand = nodes.filter((node, index) => node.resource.endsWith("/expand_button") && (origin(index) ?? expected.originHost) === expected.originHost &&
+      headers.some(header => Math.abs(header.y - node.y) < 100));
     if (expand.length === 1) await command("shell", "input", "tap", String(expand[0]!.x), String(expand[0]!.y));
     else await command("shell", "input", "swipe", x, String(Math.floor(height * 0.8)), x, String(Math.floor(height * 0.3)), "400");
     await pause(500);
