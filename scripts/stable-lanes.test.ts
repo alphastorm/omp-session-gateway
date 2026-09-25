@@ -51,7 +51,7 @@ describe("retained-Mac Push fixture staging", () => {
     expect([...closure].sort()).toEqual([...PUSH_FIXTURE_FILES].sort());
   });
 
-  test("writes the exact bytes to a path the remote shell never interprets", async () => {
+  test.skipIf(process.platform === "win32")("writes the exact bytes to a path the remote shell never interprets", async () => {
     const root = await mkdtemp(join(tmpdir(), "stable-lanes-stage-"));
     try {
       const path = join(root, "nested $(touch pwned) dir", "file'; rm -rf ~ #.ts");
