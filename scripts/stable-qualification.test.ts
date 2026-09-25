@@ -964,3 +964,38 @@ describe("resource-owning lanes", () => {
     expect(incompleteQualification(receipt)).toContain("without a result");
   });
 });
+
+test("a resumed campaign that fails admission still destroys the Windows VM it recorded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "stable-windows-orphan-"));
+  try {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    receipt.status = "failed";
+    receipt.candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+    receipt.predecessor = { tag: PREVIOUS_TAG, sourceCommit: "c".repeat(40), archiveSha256: "d".repeat(64) };
+    // A crash left the lane running with a VM recorded and its cleanup never started.
+    receipt.lanes.windows = { status: "running", attempts: 1, evidence: { progress: { epoch: "w1", resources: 1 } } };
+    const path = join(root, "stable-qualification.json");
+    await writeFile(path, JSON.stringify(receipt));
+    const cleaned: unknown[] = [];
+    const lanes = admissionLanes();
+    const windows: ExternalLaneModule = {
+      ...lanes.windows,
+      needsCleanup: progress =>
+        typeof progress === "object" && progress !== null && "resources" in progress && progress.resources === 1,
+      cleanup: async ({ progress, checkpoint, identity }) => {
+        cleaned.push({ progress, predecessor: identity.predecessor.tag });
+        if (typeof progress === "object" && progress !== null) await checkpoint({ ...progress, resources: 0 });
+        return { released: true };
+      },
+    };
+    const runtime = await preflightFixture(root, "absent");
+    const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, { ...lanes, windows }));
+    expect(error).toContain("authorized Android");
+    expect(cleaned).toEqual([{ progress: { epoch: "w1", resources: 1 }, predecessor: PREVIOUS_TAG }]);
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    expect(persisted.status).toBe("failed");
+    expect(persisted.lanes.windowsCleanup).toMatchObject({ status: "passed", evidence: { released: true, epoch: "w1" } });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

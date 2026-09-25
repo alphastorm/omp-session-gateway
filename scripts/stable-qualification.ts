@@ -533,6 +533,15 @@ function laneProgress(lane: LaneReceipt): unknown {
   return isRecord(lane.evidence) ? lane.evidence.progress : undefined;
 }
 
+/** Whether a lane's receipt still records external effects. Unreadable progress counts as effects. */
+function recordedEffects(module: ExternalLaneModule<never>, lane: LaneReceipt): boolean {
+  try {
+    return module.needsCleanup(laneProgress(lane));
+  } catch {
+    return true;
+  }
+}
+
 function progressEpoch(progress: unknown): string | undefined {
   return isRecord(progress) && typeof progress.epoch === "string" && progress.epoch !== "" ? progress.epoch : undefined;
 }
@@ -1807,6 +1816,7 @@ export async function runStableQualification(
   let externalEffects = false;
   const pixel = lanes.createPixelLease();
   let windowsBranch: Promise<void> | undefined;
+  let pushDriven = false;
 
   let target: MacTarget | undefined;
   let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
@@ -1947,6 +1957,7 @@ export async function runStableQualification(
         );
       }
       if (!pushCurrent) {
+        pushDriven = true;
         // Push drives its own OMP fixture: replacing a generation on the shared one would break relay.
         pending.push(
           runExternalLane(receipt, "androidPush", persist, lanes.androidPush, {
@@ -1985,6 +1996,26 @@ export async function runStableQualification(
   } finally {
     await stopSubprocess(tunnelProcess).catch(() => {});
     await stopSubprocess(ompProcess).catch(() => {});
+    if (!pushDriven && recordedEffects(lanes.androidPush, receipt.lanes.androidPush)) {
+      // A resumed campaign stopped before the Push lane could release the Pixel it had changed. Push
+      // cleanup resolves its ask through the candidate gateway, so it runs before the Mac is torn down.
+      externalEffects = true;
+      try {
+        const mac = target ?? await prerequisite("retained Mac access for background Push cleanup is unavailable", () =>
+          runtime.recoverMac(options),
+        );
+        await cleanExternalLane(receipt, "androidPush", persist, lanes.androidPush, {
+          identity: externalLaneIdentity(options, receipt, orchestratorCommit, ompPins),
+          pixel,
+          origin: await readMacPublicOrigin(mac),
+          mac: remoteExecutor(mac),
+        });
+      } catch (cleanupError) {
+        primaryError = primaryError === undefined
+          ? cleanupError
+          : new AggregateError([primaryError, cleanupError], "qualification and background Push cleanup failed");
+      }
+    }
     if (cleanupRequired && macCleanupContext !== undefined) {
       try {
         await executeReceiptLane(receipt, "cleanup", persist, async () => cleanupMac(macCleanupContext!), true);
@@ -2003,7 +2034,7 @@ export async function runStableQualification(
           ? windowsError
           : new AggregateError([primaryError, windowsError], "qualification and the Windows lane failed");
       }
-    } else if (lanes.windows.needsCleanup(laneProgress(receipt.lanes.windows))) {
+    } else if (recordedEffects(lanes.windows, receipt.lanes.windows)) {
       // Admission failed before the Windows lane could resume, but a recorded VM must never outlive it.
       externalEffects = true;
       try {
