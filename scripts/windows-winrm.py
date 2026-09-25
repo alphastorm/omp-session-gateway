@@ -70,12 +70,19 @@ def main():
             raise ValueError('response exceeds bound')
         # No raw stderr: an external program can include its argv or other private data.
         diagnostic = re.search(rb'guest execution failed at line [0-9]+: [A-Za-z0-9]+(?:; native command failed: [A-Za-z0-9_.-]+ exit -?[0-9]+)?', stderr)
-        print(json.dumps({'exitCode': code, 'stdout': stdout.decode('utf-8-sig') if code == 0 else '',
-                          'diagnostic': diagnostic.group().decode('ascii') if diagnostic else ''}))
+        result = {'exitCode': code, 'stdout': stdout.decode('utf-8-sig') if code == 0 else '',
+                  'diagnostic': diagnostic.group().decode('ascii') if diagnostic else ''}
     finally:
-        if command is not None:
-            protocol.cleanup_command(shell, command)
-        protocol.close_shell(shell)
+        # A guest whose WinRM service is still settling can finish the command and then refuse the
+        # teardown. The response stays the only line on stdout, and the error that ended the command,
+        # if any, is the one reported; the service expires an abandoned shell on its own.
+        try:
+            if command is not None:
+                protocol.cleanup_command(shell, command)
+            protocol.close_shell(shell)
+        except Exception:
+            pass
+    print(json.dumps(result))
 
 
 if __name__ == '__main__':

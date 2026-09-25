@@ -109,6 +109,29 @@ class WinrmFramingTests(unittest.TestCase):
         result = self.run_request(script='synthetic')
         self.assertEqual(result, {'exitCode': 1, 'stdout': '', 'diagnostic': 'guest execution failed at line 42: RuntimeException'})
 
+    def test_teardown_failure_after_a_result_still_answers_exactly_once(self):
+        # A guest whose WinRM service is still settling can finish the command and then fail
+        # the shell teardown. The finished result used to be followed by a second transport-error
+        # object, and two JSON documents on stdout failed the lane with a parse error.
+        def refuse(*_args):
+            raise ConnectionError('synthetic teardown refusal')
+        output = io.StringIO()
+        request = {'host': '192.0.2.10', 'password': 'synthetic-transport-only', 'script': 'synthetic'}
+        module = types.ModuleType('winrm.protocol')
+        module.Protocol = Transport
+        code = 0
+        with patch.object(Transport, 'cleanup_command', refuse), patch.dict(sys.modules, {'winrm.protocol': module}), \
+                patch.object(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(request).encode()))), \
+                contextlib.redirect_stdout(output):
+            try:
+                runpy.run_path(str(Path(__file__).with_name('windows-winrm.py')), run_name='__main__')
+            except SystemExit as exited:
+                code = exited.code
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0]), {'exitCode': 0, 'stdout': '{"ready":true}', 'diagnostic': ''})
+        self.assertEqual(code, 0)
+
 
 if __name__ == '__main__':
     unittest.main()
