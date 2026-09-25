@@ -71,6 +71,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   candidate. Qualification scripts now derive a tag's package version in one place, and the
   repository check rejects slicing it from the tag (qualification tooling only, outside the
   runtime archive).
+- On Windows, the gateway could exit at logon without ever listening, and it then stayed down until
+  the next logon. A slow first logon makes the private-ACL helper (`powershell.exe`) miss its
+  10-second reply deadline. The gateway then stopped that helper and waited on its output with
+  nothing holding the process open, so it exited cleanly (status 0) before starting the second
+  helper that the retry exists for. That wait now keeps the process alive, so the retry runs.
 
 ## [v0.5.3] — 2026-09-24
 
