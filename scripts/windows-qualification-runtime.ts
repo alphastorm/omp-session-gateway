@@ -13,6 +13,7 @@ import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { assertReleaseTagState, assertReleaseTagReferenceStable } from "./release-tag-state.ts";
 import { assertReleaseArchiveIdentity, releaseAssetNames } from "./post-release-smoke.ts";
+import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -223,7 +224,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     try {
       return await winrm(context, guestScript, { origin: access.origin, configDigest: access.configDigest, credentialDigest: access.credentialDigest,
         ompPath: access.ompPath, ompPid: access.ompPid, ...extra, action, epoch: context.epoch, pins,
-        candidateVersion: context.identity.candidate.tag.slice(1), previousVersion: context.identity.predecessor.tag.slice(1),
+        candidateVersion: releaseVersion(context.identity.candidate.tag), previousVersion: releaseVersion(context.identity.predecessor.tag),
         login: environment.OMP_STABLE_WINDOWS_LOGIN ?? "alphastorm@github" }, timeoutMs, undefined, !["transport", "prelogin", "ready", "interactive", "publication"].includes(action));
     } catch (error) { throw new Error(`Windows ${action}: ${error instanceof Error ? error.message : "guest operation failed"}`); }
   };
@@ -451,7 +452,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
 
 async function verifiedDevelopmentArtifact(tag: string): Promise<WindowsArtifact> {
   if (!/^v\d+\.\d+\.\d+$/u.test(tag)) throw new Error("development tag must be a published stable version");
-  const version = tag.slice(1); const names = releaseAssetNames(version); const directory = join(devRoot, "assets", tag);
+  const version = releaseVersion(tag); const names = releaseAssetNames(version); const directory = join(devRoot, "assets", tag);
   await downloadReleaseAssets(directory, () => command(["gh", "release", "download", tag, "--repo", "alphastorm/omp-session-gateway", "--dir", directory], { timeoutMs: 300_000 }));
   await chmod(directory, 0o700);
   if (JSON.stringify((await readdir(directory)).sort()) !== JSON.stringify([...names.all].sort())) throw new Error("release asset inventory mismatch");

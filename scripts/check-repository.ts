@@ -79,6 +79,14 @@ for (const file of await walk(rootPath)) {
   if (/\.tsx?$/u.test(rel) && /import\.meta\.url\)\.pathname\b/u.test(text)) {
     errors.push(`${rel}: uses a file URL's pathname as a filesystem path; use fileURLToPath`);
   }
+  // A candidate tag keeps its prerelease suffix when only the "v" is removed: v0.6.0-prealpha.1
+  // installs as 0.6.0, and the Windows lane once compared against "0.6.0-prealpha.1".
+  if (/^scripts\/.+\.ts$/u.test(rel) && /[Tt]ag\.slice\(1\)/u.test(text)) {
+    errors.push(`${rel}: derives a package version by slicing a release tag; use releaseVersion`);
+  }
+  if (rel.endsWith(".md") && /\$\{[A-Z_]*TAG#v\}/u.test(text)) {
+    errors.push(`${rel}: derives a package version by stripping a release tag's "v"; a prerelease tag keeps its suffix`);
+  }
 }
 
 for (const rel of [

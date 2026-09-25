@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
-import { assertStableReleaseQualification, releasePolicy } from "./release-policy.ts";
+import { assertStableReleaseQualification, releasePolicy, releaseVersion } from "./release-policy.ts";
 
 const VERSION = "0.2.1";
 const qualifiedManifest = () => ({
@@ -72,6 +72,16 @@ describe("release tag policy", () => {
   test("rejects a package version whose dots could widen tag matching", () => {
     for (const version of ["0.1", "0.1.0-beta", "0x1x0", "", " 0.1.0"]) {
       expect(() => releasePolicy("v0.1.0", version)).toThrow(/^package version must be numeric major\.minor\.patch/);
+    }
+  });
+
+  test("a tag installs as its bare package version, whatever its channel", () => {
+    // The Windows lane once expected v0.6.0-prealpha.1 to install as "0.6.0-prealpha.1".
+    for (const tag of ["v0.2.1", "v0.2.1-prealpha.1", "v0.2.1-alpha", "v0.2.1-beta.7", "provenance-test-v0.2.1.12"]) {
+      expect(releaseVersion(tag)).toBe(VERSION);
+    }
+    for (const tag of ["", "0.2.1", "v0.2", "v0.2.1-rc.1", "v0.2.1-prealpha.0", "V0.2.1"]) {
+      expect(() => releaseVersion(tag)).toThrow();
     }
   });
 
