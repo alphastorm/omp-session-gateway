@@ -127,6 +127,26 @@ The stable-qualification suite also covers the 1,800-second relay floor, malform
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
 still clean recorded pending Mac effects and must not reopen already completed cleanup.
 
+It also covers the two resource-owning lanes (ADR-031), with injected lane modules so no test
+reaches a VM or a phone:
+
+- a lane passes only with a cleanup lane bound to the attempt epoch it recorded; a failed attempt is
+  released, and never converted into a pass, before a new one starts, and an unreleased one blocks it;
+- a crashed attempt resumes from its last checkpoint, and a cleanup that leaves recorded resources
+  fails;
+- a resumed campaign that fails admission still destroys the Windows VM it recorded;
+- the Pixel lease runs one device action at a time and refuses every later one after a lane reports
+  the phone unrestored;
+- from 0.6.0, stable approval requires passed Windows and background Push evidence;
+- the retained-Mac Push fixture stages exactly its import closure, as shell operands the remote shell
+  never interprets, and the gateway's two log streams are observed separately.
+
+The Windows lane (`scripts/windows-stable-qualification.test.ts`) and the background Push lane
+(`scripts/android-push-qualification.test.ts`) test their phase machines, ownership and
+protection rules, failure paths, and restoration against fake providers, transports, and devices;
+[WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md) and [ANDROID.md](ANDROID.md) list what each
+real run exercises.
+
 ## 2. Secret-leak test harness
 
 Generate distinct per-host query tokens, readiness tokens, and capability canaries in test memory.
@@ -304,8 +324,8 @@ accepted, and bounded memory growth is not established. See the [release ledger]
   title), revocation, and owned-fixture cleanup evidence;
 - documentation tells users how to revoke a lost phone and rotate the gateway-only readiness token;
 - record the exact signed-candidate matrix and limitations in the [release ledger](RELEASE_STATUS.md).
-  Mainline v0.4.0 core qualification passed; Windows, background Web Push, specialized attention,
-  and branch/resume remain unqualified. No fork-era qualification result transfers.
+  From 0.6.0 the matrix includes the Windows host and background Web Push lanes. Specialized
+  attention and branch/resume remain unqualified. No fork-era qualification result transfers.
 
 Android recovery milliseconds measure elapsed time from the disruption ending to the first
 completed same-page, ready-directory probe, probing immediately and then waiting 250 ms between

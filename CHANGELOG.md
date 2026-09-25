@@ -22,6 +22,18 @@ The format is based on Keep a Changelog and Semantic Versioning.
   60-second bound, because a fresh profile's first command also unpacks OMP's native addon.
 - Windows install and checksum steps in PowerShell, rehearsed against the published v0.5.3 archive
   on a Windows runner.
+- Stable qualification (`qualify:stable`) also qualifies a Windows host and background Web Push
+  (ADR-031). The Windows lane creates a disposable Windows Server 2025 VM firewalled to the
+  operator's address. On it, the exact signed candidate and predecessor run with stock OMP through
+  install, a real reboot, automatic start at interactive logon, the physical Pixel, rotation,
+  rollback, and uninstall; the VM, its firewall, and its tailnet node are destroyed afterwards. The
+  background Push lane drives the Pixel's installed OMP Sessions app against the candidate gateway:
+  - delivery with the app closed, at each detail level and on the lock screen;
+  - taps to current Control and View, stale-generation refusal, and authoritative clear;
+  - force-stop, permission revocation, Doze, network changes, and the capability sinks;
+  - restoring the phone afterwards.
+
+  Each lane has a cleanup lane bound to the attempt it released, and the Pixel's lanes take turns.
 
 ### Changed
 
@@ -40,6 +52,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   `pathname` as a filesystem path (`/D:/...`), and the scanners compared backslash-separated paths
   against forward-slash exemptions; the repository check now rejects the `pathname` pattern.
   Tracked text also checks out with LF line endings on every OS.
+- On Android, an OMP Sessions alert cleared moments after it was shown could stay on screen for good,
+  with a tap reporting it expired. This happened after a burst of queued pushes on reconnect, a
+  duplicate delivery, or a replay just before the clear. Chrome can apply a notification's close
+  before its own display, which leaves the display in place with nothing left to close it. The
+  service worker now waits until two seconds after a display before closing it, and no longer
+  re-shows an alert whose request and text are unchanged.
 
 ## [v0.5.3] — 2026-09-24
 
