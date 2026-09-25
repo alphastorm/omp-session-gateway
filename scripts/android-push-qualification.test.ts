@@ -17,11 +17,11 @@ const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { t
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
 const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
 const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
-interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; deferredAfterDoze?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
 function fake(options: FakeOptions = {}) {
   let overlaps = options.overlaps ?? 0;
   let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
-  let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false;
+  let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false; let dozed = false; let deferredClear = false;
   let shown: "attention" | "activity_stop" | undefined;
   const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
   let browser = { ...initialBrowser }; let device = { ...baseline }; let pending = false;
@@ -37,7 +37,7 @@ function fake(options: FakeOptions = {}) {
     async fixture(operation) { await effect(() => {
       if (operation === "start") started = true;
       if (operation === "ask") { asking = true; request++; pending = true; show(); }
-      if (operation === "answer") { asking = false; pending = false; if (shown === "attention") shown = undefined; }
+      if (operation === "answer") { asking = false; pending = false; if (shown === "attention") { if (options.deferredAfterDoze && dozed) deferredClear = true; else shown = undefined; } }
       if (operation === "busy") { busy = true; stopped = false; }
       if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; }
       if (operation === "replace") generation++;
@@ -48,7 +48,7 @@ function fake(options: FakeOptions = {}) {
       ...(asking ? { ask: { requestId: `synthetic-request-${request}`, since: "2026-01-01T00:00:00.000Z" } } : {}) } : undefined,
     detail: async level => { await effect(() => { browser.detail = level; browser.subscribed = true; }); },
     closePwa: async () => { await effect(() => { device.webApkTask = false; }); },
-    openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; show(); }); },
+    openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; if (deferredClear) { shown = undefined; deferredClear = false; } show(); }); },
     lock: async () => { await effect(() => { device.locked = true; device.awake = false; }); },
     observe: async (_session, kind) => ({ count: shown === kind ? options.duplicate ? 2 : 1 : 0, titleMatches: shown === kind, bodyMatches: shown === kind, forbiddenFound: false }),
     presentation: async () => device.locked && shown === "attention",
@@ -60,7 +60,7 @@ function fake(options: FakeOptions = {}) {
     answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
     permission: async value => { await effect(() => { browser.permission = value; }); },
-    doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled && !options.dozeHeld) show(); }); },
+    doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled) dozed = true; if (!enabled && !options.dozeHeld) show(); }); },
     network: async value => { await effect(() => { offline = value === "airplane"; device.airplane = offline; device.wifi = value === "wifi"; device.mobile = !offline; if (!offline && pending) show(); }); return value !== "cellular" || options.cellular !== false; },
     sinks: async () => ({ clean: true, detectable: true, gatewayLogsDiscarded: true }),
     async cleanup(step) { cleanup.push(step);
@@ -260,6 +260,19 @@ test("a push that forced Doze still holds after exit is recorded as undelivered,
   const final = parseAndroidPushProgress(f.checkpoints.at(-1));
   expect(final.results.doze_verified?.variant).toBe("undelivered_after_doze_exit");
   expect(final.results.network_verified?.wifiDelivery).toBe(true);
+  expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+});
+
+// In both prealpha.3 campaigns the Pixel's Chrome, frozen after forced Doze, processed a push only once
+// another lane opened Chrome: a clear waited minutes. So no delivery phase follows Doze, and the Doze
+// phase resumes the app once, letting a deferred ask or clear run before the lane moves on.
+test("a clear deferred after forced Doze is flushed by resuming the app, and no delivery phase follows Doze", async () => {
+  const f = fake({ deferredAfterDoze: true });
+  const result = await runAndroidPush(f.input);
+  expect(result.passed).toBe(true);
+  const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(final.results.doze_verified?.variant).toBe("delivered_after_doze_exit");
+  expect(final.results.network_verified).toMatchObject({ wifiDelivery: true, recovered: true });
   expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
 });
 

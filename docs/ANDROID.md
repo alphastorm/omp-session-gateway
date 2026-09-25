@@ -228,7 +228,10 @@ destination page. A missing or ambiguous credential surface still fails while th
 - Origin-permission denial suppresses notifications; restoring permission must permit a fresh
   delivery. Lock/resume and forced Doze record observed behavior, not a delivery guarantee: forced
   Doze records delivery during Doze, delivery within a minute of exit, or a push the push service
-  still holds (`undelivered_after_doze_exit`); privacy checks apply to anything that arrives.
+  still holds (`undelivered_after_doze_exit`); privacy checks apply to anything that arrives. Doze
+  is the last delivery phase, after the network transitions: afterwards the phone's frozen browser
+  can defer pushes until it runs again, so the lane then resumes the app once and requires the
+  settled ask's notification to clear.
 - Real Wi-Fi and cellular tailnet delivery, Airplane suppression, and bounded recovery. Missing
   working cellular data is a named blocked sub-phase, never substituted with Wi-Fi. Airplane
   suppression and Wi-Fi recovery are still exercised; the missing cellular result prevents a pass.
