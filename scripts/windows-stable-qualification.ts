@@ -174,10 +174,12 @@ function assertInstance(item: WindowsInstance, label: string, runtime: WindowsRu
 function assertFirewall(item: WindowsFirewall, label: string, runtime: WindowsRuntime): void {
   requireFact(firewallEligibility(item.id, item.description, runtime.environment).eligible && item.description === label, "refusing foreign or protected Windows firewall");
 }
-async function waitFor(runtime: WindowsRuntime, action: () => Promise<boolean>, timeout: number, name: string): Promise<void> {
+async function waitFor(runtime: WindowsRuntime, action: () => Promise<boolean>, timeout: number, name: string, observed?: () => Record<string, unknown>): Promise<void> {
   const start = runtime.now();
   do { if (await action()) return; await runtime.sleep(5_000); } while (runtime.now() - start < timeout);
-  throw new Error(`${name} timed out`);
+  // Name which predicate held out through the last observation's booleans and counts, never guest strings.
+  const last = observed === undefined ? "" : `; last ${JSON.stringify(Object.fromEntries(Object.entries(observed()).filter(([, value]) => typeof value === "boolean" || typeof value === "number")))}`;
+  throw new Error(`${name} timed out${last}`);
 }
 function evidence(progress: Progress, identity: WindowsIdentity): Record<string, unknown> {
   const artifact = ({ tag, sourceCommit, archiveSha256 }: WindowsArtifact) => ({ tag, sourceCommit, archiveSha256 });
@@ -275,7 +277,8 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
     });
     await step("postlogin_ready", async () => {
       const start = runtime.now(); await runtime.rdp(context);
-      await waitFor(runtime, async () => (await guest("ready")).ready === true, 180_000, "automatic LogonTrigger startup");
+      let last: Record<string, unknown> = {};
+      await waitFor(runtime, async () => (last = await guest("ready")).ready === true, 180_000, "automatic LogonTrigger startup", () => last);
       facts({ automaticStartMs: runtime.now() - start });
     });
     await step("doctor_passed", async () => { facts(verifyWindowsDoctor(await guest("doctor"))); });
