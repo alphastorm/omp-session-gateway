@@ -1,6 +1,16 @@
 # Release status
 
-## v0.6.0 preparation — not yet qualified or published
+## Mainline v0.6.0 — qualified; stable publication pending
+
+**Updated:** 2026-09-25. The exact candidate below is approved for stable promotion. Published
+v0.5.3 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.6.0-prealpha.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0-prealpha.4).<br>
+**Source:** `25032f076b2df3acdb570612e0083b013f361110`.<br>
+**Archive SHA-256:** `56e0445935d37540a7deb97a4ab62145c850e91461b83cdff9ee6608f7a5ff92`.<br>
+**Predecessor:** published `v0.5.3`. Rollback does not change OMP; see
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v060-predecessor-compatibility).
 
 The candidate is the first whose campaign includes the Windows host lane and the Pixel
 background-Push lane (ADR-031, #253, #257). Its shipped bytes change in four places:
@@ -15,20 +25,56 @@ background-Push lane (ADR-031, #253, #257). Its shipped bytes change in four pla
   while a failed private-ACL helper is cleared (#263), and a fresh helper's first reply may take
   45 s to cover PowerShell's cold start after install (#265).
 
-#248–#250, #252, #253, #257, #259–#262, and #264 change CI, documentation, and qualification
-tooling only; they are not in the candidate archive.
+#248–#250, #252, #253, #257, #259–#262, #264, and #266–#273 change CI, documentation, tests, and
+qualification tooling only; they are not in the candidate archive.
 
-Before preparation, the background-Push lane passed one uninterrupted development run against the
-retained Mac's no-Topic build, whose product source equals this candidate's. The Windows lane
-passed on a real VM (#253). Both are tested evidence.
+### Candidate evidence — 2026-09-25
 
-The published v0.6.0-prealpha.1 cannot qualify. Its two campaigns failed on qualification-tooling
-defects (#259, #260, #262) and on the Windows logon exit that #263 and #265 fix in the runtime. Both
-receipts are archived unchanged. v0.6.0-prealpha.2 carries #263 but not #265; it failed the same
-logon step in a development run and is superseded as well.
+The orchestrator ran from `7fbf432df3b89331e658c410369baf9ca7524768`, 20:26:06Z–21:13:21Z; its
+private receipt records `passed`, and every lane passed on its first attempt.
 
-Published v0.5.3 remains the predecessor and current stable. No v0.6.0 qualification or
-publication is claimed, and the stable lock remains unchanged until approval.
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [36183296837](https://github.com/alphastorm/omp-session-gateway/actions/runs/36183296837) |
+| Debian | [36185868729](https://github.com/alphastorm/omp-session-gateway/actions/runs/36185868729) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; stock OMP v18.3.0 built from source; 83/83 migration/recovery invariants |
+| Mac | Mac14,3, macOS 26.6.1 arm64; stock OMP v18.3.0 built from source with native addon `ed9ddcee7338`; doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence |
+| Windows | Windows Server 2025 build 26100 on a disposable 2-vCPU/4-GiB VM; the candidate installed over published v0.5.3 with stock OMP v18.3.0, survived a real reboot, and started automatically 103.5 s after interactive logon; doctor 15/18 with only the tagged node's `identityAllowed`, `pwa`, and `sessionHealth` false; named-pipe publication at generation 1, View and Control `200`, stale generations `409`, `no-store`; the Pixel accepted the user identity with View read-only, Control writable, and the prompt accepted; revocation, readiness rotation, history-selected rollback, restoration, and uninstall preserved configuration and the readiness credential |
+| OMP publication | stock v18.3.0 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP3A.260905.009, Chrome 153.0.8010.53; View read-only, Control writable, prompt accepted, return to directory; at a 250 ms probe cadence, same-page unlock 6,836 ms (including device wake), Airplane 5,196 ms, Doze 286 ms |
+| Background Push | the installed app closed: Private, Session, and Preview delivery on the lock screen in 3.6–4.3 s, each a single notification with matching detail; tap to current Control, stop tap to View only, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery; force-stop `delivered_while_force_stopped` and Doze `delivered_after_doze_exit` as observed variants; ten forbidden sinks detectable and clean; device, browser, and fixture restored |
+| Secret sinks | all seven sinks detectable and clean |
+| Relay | 1,800 seconds, 2026-09-25T20:42:40.785Z–21:12:40.785Z; four transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; the Mac's OMP binary and source removed; the Windows VM, its firewall, and its tailnet node destroyed, and its access vault removed |
+
+**Attempts:** every lane passed on its first attempt. Earlier v0.6.0 candidates did not qualify,
+and their receipts are archived unchanged:
+
+- v0.6.0-prealpha.1: two campaigns failed on qualification-tooling defects (#259, #260, #262) and
+  on the Windows first-logon exit that #263 and #265 fix in the runtime.
+- v0.6.0-prealpha.2 carries #263 but not #265; it failed the same logon step in a development run.
+- v0.6.0-prealpha.3 has this candidate's runtime bytes. Its two campaigns passed every lane except
+  background Push, including Windows on fresh VMs. Push failed after forced Doze: first
+  `doze_verified` enforced a delivery that ADR-031 records only as an observed variant (#271), then
+  `network_verified` inherited Chrome's post-Doze push deferral (#272). Those campaigns used all
+  four Windows VM creations the campaign allows per candidate, so v0.6.0-prealpha.4 was tagged on
+  #272's merge. Its archive matches v0.6.0-prealpha.3's 50 members except `release-info.json` and
+  `SBOM.spdx.json`.
+
+Before this campaign, the Windows lane passed development runs against v0.6.0-prealpha.3 on two
+fresh VMs (automatic start 82.0 s and 98.6 s after the first logon), and the fixed Push lane passed
+one development run on the retained Mac. Both are tested evidence.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files**, paths and modes, after re-verifying the candidate digest.
+Only the existing workflow exclusions apply: release-info.json, SBOM.spdx.json,
+STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
+gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
+claimed. Windows is qualified only as Windows Server 2025 x86-64 started at interactive logon, and
+background Web Push only on the Pixel, with force-stop and Doze outcomes as observed variants.
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.5.3 — published stable
 

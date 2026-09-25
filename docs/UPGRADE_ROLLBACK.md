@@ -1,13 +1,15 @@
 # Upgrade and rollback lane
 
-## v0.5.3 predecessor compatibility
+## v0.6.0 predecessor compatibility
 
-The selected predecessor is published v0.5.2. Gateway rollback does not change the separately
-running OMP process. v0.5.2 renders OMP 18.3.0's `wait` tool calls as generic tool cards; that is
-display-only, and sessions, View, Control, and Ask behave the same. After a v0.5.3 install,
-`rollback --to` can select only the runtimes pruning retained. v0.5.1, one step further back, also
-rejects OMP registry fields it does not know and rereads leftover discovery files from killed OMP
-processes every round.
+The selected predecessor is published v0.5.3. Gateway rollback does not change the separately
+running OMP process. v0.5.3 sends every push with a per-session Web Push `Topic`, which FCM limits
+to a burst of about 20 messages per device, so background alerts can lag for minutes after busy
+activity; an Android alert cleared moments after it appeared can also stay on screen. On Windows,
+v0.5.3 can exit at logon without listening when its private-ACL helper starts slowly, as right
+after install, and it then stays down until the next logon. After a v0.6.0 install,
+`rollback --to` can select only the runtimes pruning retained. v0.5.2, one step further back, also
+renders OMP 18.3.0's `wait` tool calls as generic tool cards.
 
 ## Staged-runtime retention from v0.5.2
 

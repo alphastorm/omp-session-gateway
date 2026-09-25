@@ -267,7 +267,7 @@ minimum OMP version does not qualify every host, browser, or future OMP release.
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | Supported platforms | Linux, macOS, and Windows hosts; Chromium-based browsers including Edge, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser. Each is tested in CI ([matrix](docs/COMPATIBILITY.md#platforms-and-browsers)) |
-| Qualified on hardware | Debian 13 x86-64 and macOS arm64 hosts with a Pixel/Android/Chrome client; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
+| Qualified on hardware | Debian 13 x86-64, macOS arm64, and Windows Server 2025 x86-64 (started at interactive logon) hosts with a Pixel/Android/Chrome client, including background Web Push; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP
@@ -301,16 +301,16 @@ Known limits are part of the claim — read them before installing:
   claim follows from this check.
 - **Specialized attention, branch/resume, and new media qualification are not claimed.** The
   current physical checks qualify the core directory/View/Control path, not these separate lanes.
-- **Background Web Push is outside the stable core claim.** Repository and desktop Chromium
-  coverage exists, but the exact physical closed-PWA, lock-screen, tap-to-Control,
-  stale-generation, force-stop, network-change, and forbidden-sink matrix has not passed. On iPhone
-  and iPad, background alerts need OMP Sessions added to the Home Screen.
+- **Background Web Push is qualified on the Pixel only.** Closed-app delivery at each detail
+  level, lock-screen presentation, taps to current Control and View, stale-generation refusal,
+  authoritative clear, permission revocation, and network changes pass on the qualified Pixel.
+  Force-stop and forced Doze outcomes are recorded as observed variants, never as guaranteed
+  delivery. On iPhone and iPad, background alerts need OMP Sessions added to the Home Screen.
 - **Preview notification detail currently falls back to Session detail** — the OMP snapshot
   carries no bounded preview field.
-- **Windows hosts are supported but not yet release-qualified.** CI tests the gateway's install and
-  service lifecycle on every change and a stock-OMP canary daily; the persistent reboot-and-login
-  lane for a signed release is still open ([delta](docs/WINDOWS_QUALIFICATION.md)). The gateway
-  starts at logon, not at boot.
+- **Windows is qualified as Windows Server 2025 x86-64, started at interactive logon.** The gateway
+  starts at logon, not at boot. Other Windows versions are supported and tested in CI on every
+  change, with a daily stock-OMP canary, but not qualified.
 - **Untrusted local accounts are out of scope.** V1 assumes a user-controlled workstation: a direct
   loopback caller can forge non-cryptographic Tailscale identity headers. Do not deploy on a shared
   shell host.
