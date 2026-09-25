@@ -109,7 +109,7 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
   };
   // Installation readiness is not the automatic post-reboot readiness sample.
   const originalGuest = runtime.guest;
-  if (options.neverStarts) runtime.guest = async (context, action) => ({ ...await originalGuest(context, action), ready: action !== "ready" });
+  if (options.neverStarts) runtime.guest = async (context, action) => ({ ...await originalGuest(context, action), ready: action !== "ready", note: "synthetic-guest-string" });
   const checkpoint = async (next: Record<string, unknown>) => { progress = structuredClone(next); events.push(`checkpoint:${String(next.phase)}`); };
   const pixel = async <T>(_owner: string, action: () => Promise<T>) => { events.push("pixelLease"); return action(); };
   return { runtime, events, checkpoint, pixel, get progress() { return progress; }, get instances() { return instances; }, get firewalls() { return firewalls; },
@@ -189,8 +189,11 @@ describe("Windows qualification ownership and failure paths", () => {
     const f = fixture({ listener: true }); await expect(f.run()).rejects.toThrow("pre-login");
     expect(f.events.filter(item => item === "rdp")).toHaveLength(1); expect(f.instances).toEqual([]);
   });
-  test("missing automatic LogonTrigger startup times out without manual start", async () => {
-    const f = fixture({ neverStarts: true }); await expect(f.run()).rejects.toThrow("automatic LogonTrigger startup timed out");
+  test("missing automatic LogonTrigger startup times out without manual start, naming only its booleans and counts", async () => {
+    const f = fixture({ neverStarts: true });
+    const failure = await f.run().then(() => undefined, (error: Error) => error);
+    expect(failure?.message).toMatch(/^automatic LogonTrigger startup timed out; last \{.*"ready":false/u);
+    expect(failure?.message).not.toContain("synthetic-guest-string");
     expect(f.events).not.toContain("publish"); expect(f.instances).toEqual([]);
   });
   test("stale generation must be 409, not another failure status", async () => {

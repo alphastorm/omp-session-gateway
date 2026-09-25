@@ -167,12 +167,19 @@ switch ($p.action) {
   'reboot' { Run shutdown.exe @('/r', '/t', '3', '/f') | Out-Null; '{"requested":true}' }
   'prelogin' { State | ConvertTo-Json -Compress }
   'ready' {
-    $state = Status
-    if (-not $state.ready) { '{"ready":false}'; break }
-    # HMAC readiness can precede the Windows TUN adapter after logon. Reuse the
-    # artifact's real doctor rather than inventing a weaker network predicate.
-    $doctor = DoctorReport
-    @{ ready = $doctor.checks.tailscaleConnected -and $doctor.checks.loopbackTrustSound; tunMode = $doctor.checks.loopbackTrustSound } | ConvertTo-Json -Compress
+    $status = Status
+    $task = State
+    $observed = @{ statusReady = [bool]$status.ready; taskRunning = [bool]$task.taskRunning; gatewayProcesses = $task.gatewayProcesses; listeners = $task.listeners;
+      tailscaleConnected = $false; loopbackTrustSound = $false }
+    if ($status.ready) {
+      # HMAC readiness can precede the Windows TUN adapter after logon. Reuse the
+      # artifact's real doctor rather than inventing a weaker network predicate.
+      $doctor = DoctorReport
+      $observed.tailscaleConnected = [bool]$doctor.checks.tailscaleConnected; $observed.loopbackTrustSound = [bool]$doctor.checks.loopbackTrustSound
+    }
+    $observed.ready = $observed.statusReady -and $observed.tailscaleConnected -and $observed.loopbackTrustSound
+    $observed.tunMode = $observed.loopbackTrustSound
+    $observed | ConvertTo-Json -Compress
   }
   'startOmp' {
     # WinRS closes its process job at disconnect. An owned Interactive task places the
