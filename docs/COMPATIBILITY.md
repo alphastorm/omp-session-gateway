@@ -9,7 +9,7 @@ web-app installation. The gateway runs on the computer that runs OMP.
 |---|---|---|---|
 | Linux host | Supported | `portable-source (ubuntu-24.04)`, `implementation-checks`, `linux-arm64-source-checkout` (aarch64), daily `canary` against stock OMP | Debian 13 (trixie) x86-64 |
 | macOS host | Supported | `portable-source (macos-latest)` | macOS 26.6.1 arm64 (`Mac14,3`) |
-| Windows host | Supported | `portable-source (windows-latest)`, `windows-service-lifecycle`, daily `canary-windows` against stock OMP | Not yet; see the [Windows delta](WINDOWS_QUALIFICATION.md) |
+| Windows host | Supported | `portable-source (windows-latest)`, `windows-service-lifecycle`, daily `canary-windows` against stock OMP | Windows Server 2025 x86-64, started at interactive logon |
 | Chrome and Chromium | Supported | `browser-core` desktop Chromium; `browser-notifications` full suite at Pixel sizes | Chrome on Android 17, Pixel 10 Pro |
 | Edge and other Chromium-based browsers | Supported through Chromium | `browser-core` desktop Chromium; the client has no Edge-specific code path | None |
 | Firefox | Supported | `browser-core` desktop Firefox | None |
@@ -26,9 +26,11 @@ see the [status vocabulary](#status-vocabulary).
 - **Installing as a PWA.** Chromium browsers install from the browser menu on desktop and Android.
   Safari installs with Add to Home Screen on iPhone and iPad, and Add to Dock on macOS. Desktop
   Firefox has no web-app install; it works in a tab.
-- **Background alerts** (Web Push) are outside every qualification. iPhone and iPad offer them only
-  to a Home Screen app (iOS and iPadOS 16.4+). Playwright's WebKit has no push service, so the
-  compatibility lane runs desktop WebKit without service workers and does not test WebKit push.
+- **Background alerts** (Web Push) are qualified only on the Pixel with Chrome on Android, where
+  force-stop and forced Doze outcomes are observed variants, never guaranteed delivery. iPhone and
+  iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+). Playwright's WebKit has no push
+  service, so the compatibility lane runs desktop WebKit without service workers and does not test
+  WebKit push.
 - **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
   browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.
 - **Windows** starts the gateway at interactive logon, not at unattended boot.
@@ -60,13 +62,12 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Published stable:** [v0.5.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.5.3),
-GitHub Latest, promoted from v0.5.3-prealpha.1 with identical runtime bytes. Its published-byte
-local/Pixel smoke passed on the first attempt against stock OMP 18.3.0. The rollback predecessor
-is v0.5.2; it renders OMP 18.3.0's `wait` tool calls as generic tool cards. The
-[release ledger](RELEASE_STATUS.md) records the seven passed candidate lanes and exact
-source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback
-predecessor.
+**Qualified for stable promotion:** [v0.6.0-prealpha.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0-prealpha.4),
+for [v0.6.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0). Publication
+and the separate published-byte local/Pixel smoke are pending; published v0.5.3 remains GitHub
+Latest until promotion. The [release ledger](RELEASE_STATUS.md) records the qualification lanes,
+the earlier candidates' failed attempts, and exact source/archive bindings;
+[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.5.3.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
@@ -75,9 +76,11 @@ predecessor.
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
-| Physical client | Pixel 10 Pro, Android 17 build `CP2A.260805.005`, Chrome `153.0.8010.52` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
+| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon | Upgrade from v0.5.3, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM |
+| Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `153.0.8010.53` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
+| Background Web Push | Pixel 10 Pro, the installed OMP Sessions app closed | Delivery at each detail level on the lock screen, taps to current Control and View, stale-generation refusal, authoritative clear, permission revocation, and network changes passed; force-stop and Doze recorded as observed variants |
 | Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Mac/Pixel allowed-user access, Debian tagged-user denial, direct backend refusal |
-| Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
+| Default OMP relay | Fresh 1,800-second check, four transitions, final phase live | Eight-hour endurance not rerun or claimed |
 
 The gateway only reads OMP discovery, polls metadata, and fetches capabilities per launch without
 storing them. The minimum version is an integration contract, not proof that every later release
@@ -98,9 +101,9 @@ collaboration suites or full repository checks. The required Windows job gates g
 ACLs, and service lifecycle only. In [run 34818847249](https://github.com/alphastorm/omp-session-gateway/actions/runs/34818847249),
 native staging succeeded, but upstream's graceful SIGTERM fixture received exit 143 rather than
 0, followed by a Bun 1.4.0 crash during registry tests. Real OMP-to-gateway discovery on Windows
-is exercised instead by the `canary-windows` lane, which drives stock OMP's named pipe through the
-unchanged reader ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)); Windows is supported and
-tested, not qualified.
+is exercised by the `canary-windows` lane, which drives stock OMP's named pipe through the
+unchanged reader, and each stable campaign's signed-artifact Windows lane qualifies Windows Server
+2025 x86-64 at interactive logon ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md), ADR-031).
 
 ## Fork-era published-release history
 
@@ -326,12 +329,11 @@ unchanged browser or relay behavior does not inherit these passes.
 | Tailscale Funnel or public reverse tunnel | Unsupported | Must not be enabled or documented as a normal deployment path. |
 
 WebAuthn control gating, a Trusted Web Activity, native Android applications, and multi-host
-federation remain deferred. Background Web Push delivery is implemented with repository tests and
-a desktop Chromium closed-page smoke, and its core explicit-enable, closed-PWA notification, and
-tap-to-current-Control flow has one user-reported physical Android success on `v0.1.0-prealpha.7`.
-That report predates the current device baseline and every candidate in the table above. No
-compatibility promise exists until the exact-version physical lock-screen, stale-generation,
-force-stop, network-change, and forbidden-sink matrix passes with a named evidence artifact.
+federation remain deferred. Background Web Push is qualified on the Pixel by each stable
+campaign's background-Push lane (ADR-031): the exact-version closed-app, lock-screen,
+tap-to-current-Control, stale-generation, force-stop, network-change, Doze, and forbidden-sink
+matrix, with force-stop and Doze recorded as observed variants. Other browsers and devices remain
+unqualified for background alerts.
 
 ## Upstream refresh procedure
 
