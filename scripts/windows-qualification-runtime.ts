@@ -32,7 +32,23 @@ interface Access extends Record<string, unknown> {
   ompPid?: number;
   pixelState?: { serial: string; component: string; launcherPackage: string; launcherCategory: string; wakefulness: string; keyguard: boolean };
 }
-/** What restoration relaunches: the app that owns the resumed task, or the home app when the Pixel sat at home. */
+/**
+ * The foreground restoration returns to. An idle charging Pixel shows its screensaver, a dream task
+ * over whatever it covers. The dream stands for the topmost task beneath it: restoration relaunches
+ * that task and turns the display off, as it does for a sleeping Pixel.
+ */
+export function windowsPixelForeground(activities: string): string | undefined {
+  const resumed = /(?:topResumedActivity|mResumedActivity|ResumedActivity).*?\bu\d+\s+([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)(?:\s+t(\d+)\b)?/u.exec(activities);
+  const types = new Map<string, string>();
+  for (const [, task, type] of activities.matchAll(/Task\{[^}]*?#(\d+) type=(\w+)/gu)) if (task && type) types.set(task, type);
+  if (!resumed?.[2] || types.get(resumed[2]) !== "dream") return resumed?.[1];
+  // Tasks are listed top to bottom, and each task's history from its top activity down.
+  for (const [, component, task] of activities.matchAll(/\* Hist\s+#\d+: ActivityRecord\{[^}]*?\bu\d+\s+([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)\s+t(\d+)\b/gu)) {
+    if (task && types.get(task) !== "dream") return component;
+  }
+  return undefined;
+}
+/** What restoration relaunches: the app that owns the foreground task, or the home app when the Pixel sat at home. */
 export function windowsPixelLauncher(activities: string, component: string): { packageName: string; category: string } {
   const lines = activities.split(/\r?\n/u);
   const tasks = new Set(lines.filter(line => line.includes(` ${component} `)).flatMap(line => /\bt(\d+)\b/u.exec(line)?.[1] ?? []));
@@ -277,7 +293,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     const awake = /mWakefulness=Awake/u.test(power);
     if (restoredKeyguard !== baseline.keyguard || awake !== (baseline.wakefulness === "Awake")) throw new Error("Pixel display baseline restoration failed");
     const activities = await command(["adb", "-s", serial, "shell", "dumpsys", "activity", "activities"]);
-    const component = /(?:topResumedActivity|mResumedActivity|ResumedActivity).*?\bu\d+\s+([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)/u.exec(activities)?.[1];
+    const component = windowsPixelForeground(activities);
     if (component !== baseline.component) throw new Error("Pixel foreground baseline restoration failed");
     delete access.pixelState; await atomicPrivate(vaultPath(context.epoch), access);
     } catch (error) {
@@ -411,7 +427,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       const access = await loadAccess(context.epoch);
       const serial = await requireSingleDevice();
       const activities = await command(["adb", "-s", serial, "shell", "dumpsys", "activity", "activities"]);
-      const component = /(?:topResumedActivity|mResumedActivity|ResumedActivity).*?\bu\d+\s+([A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+)/u.exec(activities)?.[1];
+      const component = windowsPixelForeground(activities);
       const power = await command(["adb", "-s", serial, "shell", "dumpsys", "power"]);
       const wakefulness = /mWakefulness=(Awake|Asleep|Dozing|Dreaming)/u.exec(power)?.[1];
       const keyguard = parseKeyguardShowing(await command(["adb", "-s", serial, "shell", "dumpsys", "window"]));
