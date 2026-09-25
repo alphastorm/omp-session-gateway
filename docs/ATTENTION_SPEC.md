@@ -249,6 +249,19 @@ digest-bound notification cleanup. The full sequence repeatedly timed out on loc
 The smallest observed failing combined prefix was stale-generation → clear/fresh → force-stop,
 failing its first post-relaunch clear. Instrumented repetitions received the exact current clear
 and removed both browser and OS records; they did not establish the uninstrumented failure's cause.
+Three repetitions with both page and worker DevTools detached through force-stop/relaunch/clear
+also passed (0 failures in 3), with native enqueue-before-cancel ordering and unchanged delivery
+targets. The absence of FCM receipt logs does not establish receipt ordering. On this Chrome
+version, browser notification handles do not acknowledge native Android display; a silent
+replacement followed immediately by close is therefore not a proven orphan repair.
+An independent same-tag native-API probe then left orphans in 5/5 warm pairs and 0/5 cold-relaunch
+pairs, despite zero browser handles after every close. Every warm replacement was enqueued after
+native cancellation and remained visible to the OS observer about 15.8 seconds later. This proves
+an API/native ordering failure, not its causal connection to the earlier full-sequence failure;
+the worker now mitigates recent show/clear races with a 2,000 ms in-memory settle window,
+an exact-request re-query before close, and duplicate-content replay suppression. This measured
+budget is not an Android display fence or a qualification pass; old notices and notices
+inherited by a fresh worker close immediately.
 Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
 experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
 matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,

@@ -66,12 +66,39 @@ async function control(root: string, epoch: string, operation: PushFixtureComman
   await waitForAcknowledgement(root, epoch, sequence);
 }
 
-export async function runFixtureOperation(location: PushFixtureLocation, operation: "start" | PushFixtureCommand): Promise<void> {
+const PTY_HOLDER = `import errno, os, signal, sys
+os.setsid()
+with open(os.path.join(os.path.dirname(sys.argv[1]), 'pid'), 'x') as pid_file:
+    os.chmod(pid_file.name, 0o600)
+    pid_file.write(str(os.getpid()))
+child, master = os.forkpty()
+if child == 0:
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    os.execv(sys.argv[1], [sys.argv[1]])
+def terminate(signum, frame):
+    try:
+        os.killpg(child, signum)
+    except ProcessLookupError:
+        pass
+signal.signal(signal.SIGTERM, terminate)
+while True:
+    try:
+        if not os.read(master, 65536):
+            break
+    except OSError as error:
+        if error.errno != errno.EIO:
+            raise
+        break
+_, status = os.waitpid(child, 0)
+sys.exit(os.waitstatus_to_exitcode(status))
+`;
+
+export async function runFixtureOperation(location: PushFixtureLocation, operation: "start" | PushFixtureCommand, execute: FixtureExecutor = executeFixture): Promise<void> {
   const { root, epoch, binary, scripts } = location;
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/u.test(epoch) || root !== resolve(root) || root.includes("collab-hosts")) {
     throw new Error("invalid fixture location");
   }
-  const label = `omp-push-${epoch}`;
+  const holder = join(root, "hold.py");
   if (operation === "start") {
     await mkdir(dirname(root), { recursive: true, mode: 0o700 });
     await mkdir(root, { mode: 0o700 });
@@ -84,12 +111,10 @@ export async function runFixtureOperation(location: PushFixtureLocation, operati
     await writeFile(join(root, "launch.sh"), ["#!/bin/sh",
       ...Object.entries({ ...OMP_FIXTURE_ENV, PI_CODING_AGENT_DIR: join(root, "agent"), OMP_PUSH_FIXTURE_ROOT: root, OMP_PUSH_FIXTURE_EPOCH: epoch })
         .map(([key, value]) => `export ${key}=${shellQuote(value)}`),
-      `exec ${argv.map(shellQuote).join(" ")} >/dev/null 2>&1`, ""].join("\n"), { mode: 0o700, flag: "wx" });
-    const launched = await executeFixture(["tmux", "new-session", "-d", "-s", label, "-c", root, `exec ${shellQuote(join(root, "launch.sh"))}`]);
+      `exec ${argv.map(shellQuote).join(" ")}`, ""].join("\n"), { mode: 0o700, flag: "wx" });
+    await writeFile(holder, PTY_HOLDER, { mode: 0o600, flag: "wx" });
+    const launched = await execute(["sh", "-c", `cd ${shellQuote(root)} && { nohup python3 ${shellQuote(holder)} ${shellQuote(join(root, "launch.sh"))} </dev/null >/dev/null 2>&1 & }`]);
     if (launched.exitCode !== 0) throw new Error("fixture launch failed");
-    const pane = await executeFixture(["tmux", "display-message", "-p", "-t", label, "#{pane_pid}"]);
-    if (pane.exitCode !== 0 || !/^\d+\s*$/u.test(pane.stdout)) throw new Error("fixture process identity unavailable");
-    await writeFile(join(root, "pid"), pane.stdout.trim(), { mode: 0o600, flag: "wx" });
     await waitForAcknowledgement(root, epoch, 0);
   } else if (operation === "stop") {
     const owner = await readFile(join(root, "owner"), "utf8").catch(error => {
@@ -103,29 +128,34 @@ export async function runFixtureOperation(location: PushFixtureLocation, operati
       return;
     }
     if (owner !== epoch) throw new Error("fixture ownership changed");
-    const alive = await executeFixture(["tmux", "has-session", "-t", label]);
-    if (alive.exitCode === 0) {
-      await control(root, epoch, "stop").catch(() => undefined);
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline && (await executeFixture(["tmux", "has-session", "-t", label])).exitCode === 0) await Bun.sleep(100);
-      if ((await executeFixture(["tmux", "has-session", "-t", label])).exitCode === 0) {
-        await executeFixture(["tmux", "kill-session", "-t", label]);
-      }
-      if ((await executeFixture(["tmux", "has-session", "-t", label])).exitCode === 0) throw new Error("fixture remained active");
-    }
     const pid = await readFile(join(root, "pid"), "utf8").catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
     if (pid !== undefined) {
-      if (!/^\d+$/u.test(pid)) throw new Error("invalid fixture process identity");
-      const deadline = Date.now() + 10_000;
-      let ownedAlive = true;
-      while (Date.now() < deadline) {
-        const process = await executeFixture(["ps", "-p", pid, "-o", "command="]);
-        ownedAlive = process.exitCode === 0 && process.stdout.includes(join(root, "fixture.yml"));
-        if (!ownedAlive) break;
-        await Bun.sleep(100);
+      if (!/^[1-9]\d*$/u.test(pid) || !Number.isSafeInteger(Number(pid)) || Number(pid) < 2) throw new Error("invalid fixture process identity");
+      const alive = async () => {
+        const process = await execute(["ps", "-ww", "-p", pid, "-o", "pgid=,stat=,command="]);
+        if (process.exitCode !== 0 || !process.stdout.includes(holder)) return false;
+        const fields = process.stdout.trim().split(/\s+/u);
+        if (fields[1]?.startsWith("Z")) return false;
+        if (fields[0] !== pid) throw new Error("fixture holder process group changed");
+        return true;
+      };
+      const waitForExit = async () => {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline && await alive()) await Bun.sleep(100);
+      };
+      if (await alive()) {
+        await control(root, epoch, "stop").catch(() => undefined);
+        await waitForExit();
+        for (const signal of ["SIGTERM", "SIGKILL"]) {
+          if (!await alive()) break;
+          await execute(["python3", "-c", `import os, signal, sys; os.killpg(int(sys.argv[1]), signal.${signal})`, pid]);
+          await waitForExit();
+        }
+        if (await alive()) throw new Error("fixture holder remained active");
       }
-      if (ownedAlive) throw new Error("owned OMP process remained active");
     }
+    const processes = await execute(["ps", "-ww", "-axo", "command="]);
+    if (processes.exitCode !== 0 || processes.stdout.includes(join(root, "fixture.yml")) || processes.stdout.includes(holder)) throw new Error("owned fixture process remained active");
     await rm(root, { recursive: true });
   } else {
     await control(root, epoch, operation);

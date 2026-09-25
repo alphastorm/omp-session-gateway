@@ -19,7 +19,7 @@ export interface AndroidPushIdentity {
   readonly omp: OmpPins;
   readonly origin: string;
 }
-export interface AndroidPushPreflightInput { readonly identity: AndroidPushIdentity }
+export interface AndroidPushPreflightInput { readonly origin: string }
 export interface AndroidPushAdmission { readonly android: string; readonly browser: string; readonly webApk: true; readonly dndOff: true }
 export interface PushDeviceBaseline {
   readonly wifi: boolean; readonly mobile: boolean; readonly airplane: boolean;
@@ -95,9 +95,14 @@ const RESULT_FIELDS: Partial<Record<AndroidPushPhase, readonly string[]>> = {
   forbidden_sinks_verified: ["clean", "detectable", "sinks", "findings", "gatewayLogsDiscarded"], evidence_complete: ["passed"],
 };
 
+function validateOrigin(origin: string): void {
+  const url = new URL(origin);
+  if (url.origin !== origin || url.protocol !== "https:" || url.port !== "") throw new Error("invalid Android Push origin");
+}
+
 function binding(identity: AndroidPushIdentity): string {
-  const url = new URL(identity.origin);
-  if (url.origin !== identity.origin || url.protocol !== "https:" || url.port !== "" || identity.tag !== identity.candidate.tag ||
+  validateOrigin(identity.origin);
+  if (identity.tag !== identity.candidate.tag ||
     !/^[a-f0-9]{64}$/u.test(identity.candidate.archiveSha256) || !/^[a-f0-9]{40}$/u.test(identity.candidate.sourceCommit) ||
     !/^[a-f0-9]{40}$/u.test(identity.omp.sourceCommit) || !/^[a-f0-9]{40}$/u.test(identity.omp.sourceTree)) throw new Error("invalid Android Push identity");
   return createHash("sha256").update(JSON.stringify([identity.tag, identity.candidate.sourceCommit, identity.candidate.archiveSha256,
@@ -144,8 +149,10 @@ export function androidPushNeedsCleanup(progress: unknown): boolean {
 }
 
 export async function preflightAndroidPush(input: AndroidPushPreflightInput, runtime?: AndroidPushRuntime): Promise<AndroidPushAdmission> {
-  binding(input.identity);
-  return (runtime ?? createAndroidPushRuntime(input.identity)).preflight(input);
+  validateOrigin(input.origin);
+  const host = runtime ?? createAndroidPushRuntime({ origin: input.origin,
+    omp: parseQualificationPins(await readFile(join(import.meta.dir, "../UPSTREAM.lock.json"), "utf8")) });
+  return host.preflight(input);
 }
 
 async function restore(input: LaneInput, runtime: AndroidPushRuntime, progress: AndroidPushProgress): Promise<Record<string, unknown>> {
@@ -177,7 +184,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
     if (previous.cleanupRequired) throw new Error("Android Push attempt requires cleanup before a fresh run");
   }
   const runtime = input.runtime ?? createAndroidPushRuntime(input.identity);
-  const admission = await preflightAndroidPush({ identity: input.identity }, runtime);
+  const admission = await preflightAndroidPush({ origin: input.identity.origin }, runtime);
   return input.pixel("androidPush", async () => {
     const progress: AndroidPushProgress = { lane: "androidPush", epoch: randomUUID(), binding: bind, phase: "baseline_captured", cleanupRequired: true,
       device: await runtime.device(), browser: null, notificationTopicDigest: null, results: {} };

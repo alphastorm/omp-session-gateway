@@ -19,7 +19,7 @@ export interface AndroidPushRuntimeOptions {
   readonly fixtureBun?: string;
   readonly fixtureScripts?: string;
   readonly execute?: FixtureExecutor;
-  readonly gatewayServicePlist?: string;
+  readonly gatewayLogsDiscarded?: () => Promise<boolean>;
 }
 
 export function isPushNotificationRoute(value: unknown, origin: string): boolean {
@@ -74,7 +74,7 @@ export async function holdAndroidNotificationDenial(origin: string, connect: Per
   return ready.promise;
 }
 
-export function createAndroidPushRuntime(identity: AndroidPushIdentity, options: AndroidPushRuntimeOptions = {}): AndroidPushRuntime {
+export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "origin" | "omp">, options: AndroidPushRuntimeOptions = {}): AndroidPushRuntime {
   const base = options.fixtureBase ?? join(homedir(), ".local/share/omp-session-gateway/qualification/dev/androidPush/fixtures");
   let serial: string | undefined;
   let packageName: string | undefined;
@@ -174,7 +174,8 @@ export function createAndroidPushRuntime(identity: AndroidPushIdentity, options:
     now: Date.now,
     pause: milliseconds => Bun.sleep(milliseconds),
     beforeEffect: async () => { throw new Error("Push runtime has no checkpoint owner"); },
-    async preflight() {
+    async preflight(input) {
+      if (input.origin !== identity.origin) throw new Error("Push preflight origin differs from its runtime");
       const selected = resolveAndroidBrowserTarget(), stock = resolveAndroidBrowserTarget({});
       if (selected.packageName !== stock.packageName || selected.activity !== stock.activity || selected.devtoolsSocket !== stock.devtoolsSocket) throw new Error("Android Push requires the stock Chrome browser target");
       serial = await requireSingleDevice();
@@ -192,6 +193,7 @@ export function createAndroidPushRuntime(identity: AndroidPushIdentity, options:
       if (Bun.version !== identity.omp.bunVersion) throw new Error("Push driver Bun does not match the pin");
       const bun = await execute([host.bun, "--version"]);
       if (bun.exitCode !== 0 || bun.stdout.trim() !== identity.omp.bunVersion) throw new Error("Push fixture Bun does not match the pin");
+      if ((await execute(["python3", "-c", "import os; os.forkpty"])).exitCode !== 0) throw new Error("Push fixture host requires Python 3 with forkpty");
       const extension = "fixtures/push-qualification-extension.ts";
       const expected = createHash("sha256").update(await readFile(join(import.meta.dir, extension))).digest("hex");
       const staged = await execute(["shasum", "-a", "256", join(host.scripts, extension)]);
@@ -574,11 +576,13 @@ export function createAndroidPushRuntime(identity: AndroidPushIdentity, options:
         await scanSinks(value=>typeof value==='string'&&needles.some(needle=>value.includes(needle)),sink=>hits.push(sink));
         return {detectable:required.every(sink=>found.has(sink)),clean:hits.length===0&&residual.length===0,sinks:required.length,findings:hits.length};
       })()`), true);
-      const plist = options.gatewayServicePlist ?? join(homedir(), "Library/LaunchAgents/omp-session-gateway.plist");
-      const stdout = await execute(["plutil", "-extract", "StandardOutPath", "raw", "-o", "-", plist]);
-      const stderr = await execute(["plutil", "-extract", "StandardErrorPath", "raw", "-o", "-", plist]);
-      return { ...result, gatewayLogsDiscarded: stdout.exitCode === 0 && stderr.exitCode === 0 &&
-        stdout.stdout.trim() === "/dev/null" && stderr.stdout.trim() === "/dev/null" };
+      const gatewayLogsDiscarded = options.gatewayLogsDiscarded ?? (async () => {
+        const plist = join(homedir(), "Library/LaunchAgents/omp-session-gateway.plist");
+        const stdout = await executeFixture(["plutil", "-extract", "StandardOutPath", "raw", "-o", "-", plist]);
+        const stderr = await executeFixture(["plutil", "-extract", "StandardErrorPath", "raw", "-o", "-", plist]);
+        return stdout.exitCode === 0 && stderr.exitCode === 0 && stdout.stdout.trim() === "/dev/null" && stderr.stdout.trim() === "/dev/null";
+      });
+      return { ...result, gatewayLogsDiscarded: await gatewayLogsDiscarded() };
     },
     async cleanup(step, progress) {
       currentEpoch = progress.epoch;
