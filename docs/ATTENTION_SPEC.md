@@ -295,3 +295,9 @@ stayed prompt with the `Topic`, and transitions 22 and 23 took 150.8 s and 172.4
 immediately afterwards, 28 of 28 arrived within 3.1 s. #255 sends pushes without a `Topic`
 (ADR-017 amendment). [ANDROID.md](ANDROID.md) records the builds and a separate keyguard race
 fixed in the lane's notification-tap helper.
+
+With the no-Topic gateway, one uninterrupted development run on 2026-09-25 then completed every
+phase above, including lock/resume, Doze, the Wi-Fi/cellular/Airplane matrix, and the ten-sink
+sweep, and its cleanup restored the phone. It first needed a lane fix for the Pixel's September
+keyguard; [ANDROID.md](ANDROID.md) records both attempts. That run is tested evidence; the boxes
+above stay for the stable campaign's qualification.

@@ -471,6 +471,49 @@ dismisses during observation; its regression tests failed before the fix. Cleanu
 lease was released. That attempt never reached lock/resume, so it neither confirmed nor refuted the
 throttle.
 
+### Full no-Topic run after the Pixel's September update
+
+Before the run, the Pixel installed system update `CP3A.260905.009` (from `CP2A.260805.005`) and
+rebooted. The first attempt, 2026-09-25 08:43:34Z at orchestrator `0f5c7d0`, passed Subscription
+and Locked Private, then failed Locked Session before arming its ask. The lane's own cleanup and
+the cleanup lane both failed: the fixture was stopped, but the phone stayed locked and the lease
+stayed held. The development tracer printed only the aggregate failure, so the exact error lines
+were not captured.
+
+On the device, the Compose keyguard of that build answers the helper's MENU key with SystemUI's
+standalone fingerprint bouncer window, `AlternateBouncerView`. That window carries no
+`alternate_bouncer` resource and ignores the PIN swipe, so the helper typed its PIN into no field.
+A tap on its scrim shows the PIN bouncer; a swipe from the plain lock screen still does.
+`8a9a497` detects the window by its focus and taps the scrim well above the sensor; its two
+regression tests failed before the fix. The fixed path then unlocked the phone from a locked
+screen, and a second cleanup-lane attempt for the failed epoch passed and restored the baseline.
+
+One uninterrupted attempt at orchestrator `8a9a497` then passed every phase, 09:02:52Z–09:20:40Z
+(runner 1,055.873 s including cleanup), against the retained Mac's no-Topic development gateway
+(source `e8bfd5b`, archive SHA-256 `a819df96…`), stock OMP 18.3.0, and Bun 1.4.0, on the Pixel 10
+Pro (Android 17 `CP3A.260905.009`, Chrome 153.0.8010.53, retained-origin WebAPK version 1):
+
+| Completed phase | Phase duration | Observation |
+| --- | --- | --- |
+| Subscription | 24.270 s | Enabled |
+| Locked Private | 55.978 s | One owned notification; matching detail; delivered in 2.483 s |
+| Locked Session | 60.221 s | One owned notification; matching detail; delivered in 3.253 s |
+| Locked Preview | 59.863 s | One owned notification; matching detail; delivered in 1.419 s |
+| Attention tap | 52.504 s | Revalidated, scrubbed Control |
+| Activity stop | 67.057 s | Two known-busy polls; View only |
+| Stale generation | 64.998 s | Same instance, generation +1, zero launches |
+| Clear/fresh | 75.346 s | Authoritative clear; fresh request retained |
+| Force-stop | 110.493 s | Delivered while force-stopped; fresh delivery afterward |
+| Permission | 119.281 s | Suppressed while denied; fresh delivery after restoration |
+| Lock/resume | 40.216 s | Locked delivery; resumed |
+| Doze | 79.827 s | Delivered after Doze exit |
+| Network | 169.895 s | Wi-Fi and cellular delivery; Airplane suppressed; recovered |
+| Forbidden sinks | 18.483 s | Ten sinks detectable and clean; gateway streams discarded |
+
+Cleanup passed for the same epoch with device, browser, and fixture restored, and the lease was
+released. The passive trace kept 1,298 rows with zero drops. This is **development-tested**
+evidence for the lane and the no-Topic gateway, not stable qualification.
+
 ## Optional passkey/biometric gate
 
 WebAuthn Control protection is proposed in ADR-008, not implemented in v0.4.0. There is no
