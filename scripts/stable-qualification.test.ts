@@ -949,6 +949,25 @@ describe("resource-owning lanes", () => {
     expect(receipt.lanes.windows.status).toBe("failed");
   });
 
+  test("a lane that finishes with a blocked phase fails, keeps its progress, and is still released", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const log = newLog();
+    const blocked: ExternalLaneModule = {
+      ...resourceLane(log),
+      run: async ({ checkpoint }) => {
+        log.calls.push("run");
+        await checkpoint({ epoch: "epoch-new", phase: "network_verified", resources: 1, network: "cellular_path_unavailable" });
+        return { passed: false, network: "cellular_path_unavailable" };
+      },
+    };
+    const message = await rejectionMessage(runExternalLane(receipt, "androidPush", persist, blocked, await laneContext()));
+    expect(message).toContain("without passing every phase");
+    expect(log.calls).toEqual(["run", "cleanup"]);
+    expect(receipt.lanes.androidPush.status).toBe("failed");
+    expect(receipt.lanes.androidPush.evidence).toMatchObject({ progress: { network: "cellular_path_unavailable" } });
+    expect(receipt.lanes.androidPushCleanup).toMatchObject({ status: "passed", evidence: { epoch: "epoch-new" } });
+  });
+
   test("a campaign passes only when each cleanup covers the attempt its lane recorded", () => {
     const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
     for (const lane of Object.values(receipt.lanes)) Object.assign(lane, { status: "passed", attempts: 1 });
@@ -962,6 +981,16 @@ describe("resource-owning lanes", () => {
     receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
     receipt.lanes.windows.evidence = { progress: { epoch: "w1" } };
     expect(incompleteQualification(receipt)).toContain("without a result");
+  });
+
+  test("a recorded result that did not pass can never complete a campaign", () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    for (const lane of Object.values(receipt.lanes)) Object.assign(lane, { status: "passed", attempts: 1 });
+    receipt.lanes.windows.evidence = { progress: { epoch: "w1" }, result: { verified: true } };
+    receipt.lanes.windowsCleanup.evidence = { epoch: "w1" };
+    receipt.lanes.androidPush.evidence = { progress: { epoch: "p1" }, result: { passed: false } };
+    receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
+    expect(incompleteQualification(receipt)).toContain("did not pass");
   });
 });
 

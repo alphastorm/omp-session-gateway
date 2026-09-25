@@ -625,6 +625,9 @@ export async function runExternalLane<Extra extends object>(
       if (progressEpoch(laneProgress(primary)) === undefined) {
         throw new Error(`${name} returned without checkpointing an attempt epoch`);
       }
+      // A lane may finish its sequence and still report a blocked phase; that is evidence, not a pass.
+      // Its checkpointed progress keeps the per-phase results.
+      if (result.passed === false) throw new Error(`${name} completed without passing every phase`);
       return { progress: laneProgress(primary), result };
     });
   } catch (error) {
@@ -643,7 +646,9 @@ export function incompleteQualification(receipt: StableQualificationReceipt): st
   const lane = LANE_NAMES.find(name => receipt.lanes[name].status !== "passed");
   if (lane !== undefined) return `qualification lane ${lane} did not pass`;
   for (const name of Object.keys(CLEANUP_LANES) as ExternalLaneName[]) {
-    if (!isRecord(receipt.lanes[name].evidence?.result)) return `qualification lane ${name} passed without a result`;
+    const result = receipt.lanes[name].evidence?.result;
+    if (!isRecord(result)) return `qualification lane ${name} passed without a result`;
+    if (result.passed === false) return `qualification lane ${name} recorded a result that did not pass`;
     if (!externalCleanupCurrent(receipt, name)) {
       return `${CLEANUP_LANES[name]} did not pass for the attempt that ${name} recorded`;
     }
