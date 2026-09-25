@@ -486,7 +486,7 @@ test("private presentation excludes unowned shade content and refuses a missing 
   expect(found.rowNodes.some(node => node.text === expected.title)).toBe(true);
   expect(found.rowNodes.some(node => node.text === "Synthetic ask canary" || node.text === "Unowned message")).toBe(false);
   boundary = false;
-  await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("content boundary unavailable");
+  await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("owned notification absent");
 });
 
 test("Private selection skips another OMP Sessions app's same-title rows by origin, grouped or not", async () => {
@@ -526,6 +526,78 @@ test("Private selection skips another OMP Sessions app's same-title rows by orig
   foreign = "headed"; ownedVisible = false;
   await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("owned notification absent");
   expect(taps).toEqual([]);
+});
+
+test("a collapsed group hides each child's template and origin, so selection expands only groups holding the owned text", async () => {
+  // Observed on the Pixel (Android 17 CP3A.260905.009): an app with two notifications is grouped.
+  // Collapsed, each child is one line with neither a template boundary nor its origin; expanded, each
+  // child shows its own headerless template naming its origin. The lane's own app groups whenever
+  // Chrome's generic background-update notification sits beside the owned alert.
+  interface Child { readonly title: string; readonly body: string; readonly origin: string }
+  interface Group { readonly top: number; expanded: boolean; readonly children: readonly Child[] }
+  const owned = "owned.example.test";
+  const generic = { title: "OMP Sessions", body: "This site has been updated in the background", origin: owned };
+  let groups: Group[] = [];
+  let record = { title: "", body: "" };
+  const taps: string[][] = [];
+  const child = (item: Child, top: number, expanded: boolean) => expanded
+    ? `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,${top}][400,${top + 100}]"><node resource-id="com.android.systemui:id/expanded" bounds="[0,${top}][400,${top + 100}]">
+        <node resource-id="android:id/status_bar_latest_event_content" bounds="[0,${top}][400,${top + 100}]">
+          <node resource-id="android:id/notification_top_line" bounds="[20,${top}][380,${top + 40}]">
+            <node resource-id="android:id/title" text="${item.title}" bounds="[20,${top}][200,${top + 40}]"/>
+            <node resource-id="android:id/header_text" text="${item.origin}" bounds="[210,${top}][380,${top + 40}]"/></node>
+          <node resource-id="android:id/text" text="${item.body}" bounds="[20,${top + 40}][380,${top + 80}]"/>
+        </node></node></node>`
+    : `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,${top}][400,${top + 40}]"><node resource-id="com.android.systemui:id/expanded" bounds="[0,${top}][400,${top + 40}]"><node bounds="[20,${top}][380,${top + 40}]">
+        <node resource-id="com.android.systemui:id/notification_title" text="${item.title}" bounds="[20,${top}][200,${top + 40}]"/>
+        <node resource-id="com.android.systemui:id/notification_text" text="${item.body}" bounds="[210,${top}][380,${top + 40}]"/></node></node></node>`;
+  const group = (item: Group) => `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,${item.top}][400,${item.top + 300}]">
+      <node resource-id="com.android.systemui:id/notification_children_container" bounds="[0,${item.top}][400,${item.top + 300}]">
+        <node resource-id="android:id/notification_header" bounds="[0,${item.top}][400,${item.top + 40}]">
+          <node resource-id="android:id/app_name_text" text="OMP Sessions" bounds="[20,${item.top}][160,${item.top + 40}]"/>
+          <node resource-id="android:id/expand_button" content-desc="Expand" bounds="[340,${item.top}][380,${item.top + 40}]">
+            <node resource-id="android:id/expand_button_number" text="${item.children.length}" bounds="[340,${item.top}][360,${item.top + 40}]"/></node>
+        </node>${item.children.map((entry, index) => child(entry, item.top + 40 + index * (item.expanded ? 100 : 40), item.expanded)).join("")}
+      </node></node>`;
+  const command = async (...args: string[]) => {
+    if (args.includes("dumpsys")) return `Notification List:\n NotificationRecord(1: pkg=org.chromium.webapk.synthetic tag=omp-attention-fixture)\n key=own-key\n mUpdateTimeMs=1000000000000\n android.title=String (${record.title})\n android.text=String (${record.body})\nRanking Config:`;
+    if (args.includes("size")) return "Physical size: 400x800";
+    if (args.includes("tap")) {
+      taps.push(args.slice(-2));
+      const [x, y] = args.slice(-2).map(Number) as [number, number];
+      const hit = groups.find(item => x >= 340 && x < 380 && y >= item.top && y < item.top + 40);
+      if (hit !== undefined) hit.expanded = !hit.expanded;
+      return "";
+    }
+    if (!args.includes("uiautomator")) return "";
+    return `<hierarchy><node bounds="[0,0][400,800]">${groups.map(group).join("")}</node></hierarchy>`;
+  };
+
+  // The stale activity-stop tap: the owned alert is one line of a collapsed group of the lane's app.
+  const stopped = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session activity stopped", body: "Synthetic session · Synthetic project", forbidden: [], originHost: owned };
+  record = { title: stopped.title, body: stopped.body };
+  groups = [{ top: 400, expanded: false, children: [{ title: stopped.title, body: stopped.body, origin: owned }, generic] }];
+  const found = await findAndroidNotification(command, stopped, async () => {});
+  expect(taps).toEqual([["360", "420"]]);
+  expect(found.target).toMatchObject({ resource: "android:id/title", text: stopped.title });
+  expect(found.rowNodes.some(node => node.text === stopped.body)).toBe(true);
+  expect(found.rowNodes.some(node => node.text === generic.body)).toBe(false);
+
+  // Private: the daily app's collapsed group shows the same title. Expanding it reveals its origin, so
+  // only the owned group's child is ever selected, and every tap lands on a group's expand button.
+  const privately = { ...stopped, title: "OMP session needs attention", body: "" };
+  record = { title: privately.title, body: "" };
+  taps.length = 0;
+  groups = [
+    { top: 0, expanded: false, children: [{ title: privately.title, body: "", origin: "daily.example.test" }, { title: privately.title, body: "", origin: "daily.example.test" }] },
+    { top: 400, expanded: false, children: [{ title: privately.title, body: "", origin: owned }, generic] },
+  ];
+  const selected = await findAndroidNotification(command, privately, async () => {});
+  expect(taps).toEqual([["360", "20"], ["360", "420"]]);
+  expect(selected.target).toMatchObject({ resource: "android:id/title", text: privately.title });
+  expect(selected.target.y).toBeGreaterThan(400);
+  expect(selected.rowNodes.some(node => node.text === owned)).toBe(true);
+  expect(selected.rowNodes.some(node => node.text === "daily.example.test" || node.text === generic.body)).toBe(false);
 });
 
 test("task removal ignores retained focus references and waits for active task withdrawal", async () => {
