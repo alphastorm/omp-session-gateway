@@ -188,18 +188,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       const android = (await command("shell", "getprop", "ro.build.version.release")).trim();
       const browser = parseAndroidPackageVersion(await command("shell", "dumpsys", "package", "com.android.chrome"));
       if (model !== "Pixel 10 Pro" || Number(android) < 13) throw new Error("Android Push requires the physical Pixel and runtime notification permissions");
-      if (location("preflight").binary === "") throw new Error("OMP_PUSH_FIXTURE_BINARY must name the pinned OMP entrypoint");
-      const host = location("preflight");
       if (Bun.version !== identity.omp.bunVersion) throw new Error("Push driver Bun does not match the pin");
-      const bun = await execute([host.bun, "--version"]);
-      if (bun.exitCode !== 0 || bun.stdout.trim() !== identity.omp.bunVersion) throw new Error("Push fixture Bun does not match the pin");
-      if ((await execute(["python3", "-c", "import os; os.forkpty"])).exitCode !== 0) throw new Error("Push fixture host requires Python 3 with forkpty");
-      const extension = "fixtures/push-qualification-extension.ts";
-      const expected = createHash("sha256").update(await readFile(join(import.meta.dir, extension))).digest("hex");
-      const staged = await execute(["shasum", "-a", "256", join(host.scripts, extension)]);
-      if (staged.exitCode !== 0 || staged.stdout.trim().split(/\s+/u)[0] !== expected) throw new Error("staged Push extension differs from lane source");
-      const version = await execute([...( /\.[cm]?[jt]s$/u.test(host.binary) ? [host.bun, host.binary] : [host.binary]), "--version"]);
-      if (version.exitCode !== 0 || version.stdout.trim() !== `omp/${identity.omp.version}`) throw new Error("Push fixture OMP does not match the exact pin");
       const device = await runtime.device();
       if (device.forcedDoze || device.batteryOverride) throw new Error("Push qualification requires no pre-existing battery/Doze override");
       return { android, browser, webApk: true, dndOff: true };
@@ -221,6 +210,19 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     browser: () => page(browserState, true),
     async fixture(operation, epoch) {
       currentEpoch = epoch;
+      if (operation === "start") {
+        const host = location(epoch);
+        if (host.binary === "") throw new Error("OMP_PUSH_FIXTURE_BINARY must name the pinned OMP entrypoint");
+        const bun = await execute([host.bun, "--version"]);
+        if (bun.exitCode !== 0 || bun.stdout.trim() !== identity.omp.bunVersion) throw new Error("Push fixture Bun does not match the pin");
+        if ((await execute(["python3", "-c", "import os; os.forkpty"])).exitCode !== 0) throw new Error("Push fixture host requires Python 3 with forkpty");
+        const extension = "fixtures/push-qualification-extension.ts";
+        const expected = createHash("sha256").update(await readFile(join(import.meta.dir, extension))).digest("hex");
+        const staged = await execute(["shasum", "-a", "256", join(host.scripts, extension)]);
+        if (staged.exitCode !== 0 || staged.stdout.trim().split(/\s+/u)[0] !== expected) throw new Error("staged Push extension differs from lane source");
+        const version = await execute([...( /\.[cm]?[jt]s$/u.test(host.binary) ? [host.bun, host.binary] : [host.binary]), "--version"]);
+        if (version.exitCode !== 0 || version.stdout.trim() !== `omp/${identity.omp.version}`) throw new Error("Push fixture OMP does not match the exact pin");
+      }
       await runtime.beforeEffect();
       await commandPushFixture(location(epoch), operation, execute);
     },

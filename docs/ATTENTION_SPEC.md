@@ -262,6 +262,10 @@ the worker now mitigates recent show/clear races with a 2,000 ms in-memory settl
 an exact-request re-query before close, and duplicate-content replay suppression. This measured
 budget is not an Android display fence or a qualification pass; old notices and notices
 inherited by a fresh worker close immediately.
+A detached native-API probe with that settle/re-query ordering then completed 10 warm and 5 cold
+pairs with zero orphans. All pairs returned zero browser handles and remained natively absent
+for at least 13.726 s after completion; fixture, transient UI, and device baseline were restored.
+That controlled result does not substitute for the full Web Push matrix below.
 Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
 experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
 matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,
