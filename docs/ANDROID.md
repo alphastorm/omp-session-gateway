@@ -146,6 +146,18 @@ publishes known busy activity, and command-context `newSession()` replaces gener
 without replacing the instance. Preparation is aborted before provider transport: only a synthetic
 model key is used. Control files are owner-only, epoch-bound, monotonically sequenced, and outside
 OMP discovery. No terminal injection, private OMP import, or discovery-file editing is involved.
+The fixture host needs Python 3 with `os.forkpty`, checked through the host executor before
+admission. An owned, detached holder keeps the PTY open and reads/discards its output; it never
+writes terminal input. Graceful fixture stop is followed, when needed, by signals to the verified
+holder process group, with a final command-line check for surviving owned OMP processes. No tmux
+or Homebrew installation is needed. The local fixture was observed published idle and then absent
+after cleanup with this holder.
+
+Read-only preflight accepts only the origin; candidate identity is bound at run and cleanup.
+The retained-Mac adapter injects the fixture executor, base, Bun, OMP binary, and staged scripts
+directory. Its `gatewayLogsDiscarded` callback probes that host through SSH; the default probe
+remains the local LaunchAgent. Pixel adb/CDP, Keychain access, the driver Bun pin, and the expected
+extension-source hash remain local to the controller.
 
 ### Device admission and one-time WebAPK setup
 
@@ -280,7 +292,7 @@ authoritative resolution; subsequent lock/resume clear took 0.584 s; restoration
 clear, the gateway held the browser's current endpoint, and both browser and OS records disappeared.
 The permission probe also observed a changed endpoint correctly retained by the gateway. These
 passing traces do not establish why the uninstrumented failure occurred; attaching CDP changes the
-observation conditions. No gateway or worker product fix is claimed.
+observation conditions. Those traces alone did not establish a gateway or worker product defect.
 
 The failed combined prefix left one owned active OS notification with no corresponding browser
 notification handle. Ordinary cleanup failed closed and retained the Pixel lease. A separate
@@ -289,6 +301,62 @@ its late native OS post. Waiting for that replacement's actual OS post (observed
 closing its browser handle removed the owned row for a 7.588-second observation window while
 preserving unrelated notifications. This was explicit cleanup, not a successful authoritative clear
 or a retry of the failed phase; its connection to the original clear failure remains unestablished.
+
+Three later repetitions kept both page and worker DevTools detached throughout force-stop,
+Android-only relaunch, and the first clear. All three cleared: **0 failures in 3 trials**, with
+restoration observed at 313.076, 323.434, and 327.261 seconds. Passive Android notification-service
+traces placed the second enqueue for the owned tag before its cancellation by 1.171, 1.288, and
+2.239 seconds respectively; no later enqueue appeared in those windows. The last two trials also
+observed five additional seconds without a native repost. Browser endpoint/key digests were
+unchanged and matched the gateway target throughout. This does not explain the earlier failure.
+The release build emitted no selected FCM receipt diagnostics; their absence is a visibility gap,
+not proof of non-delivery or receipt ordering. Native content hashes, timestamps, process roles,
+and request hashes were retained; raw logcat, notification content, and XML were not.
+
+A subsequent controlled native-API probe reproduced the orphan independently of Web Push. Each
+pair started with a posted, silent synthetic notice, then an in-memory button in the existing PWA
+replaced it with a different synthetic title and the same tag. After awaiting `showNotification()`,
+the button found exactly one notification, closed it, and observed zero browser handles. The
+button was activated by an Android touch event; page and worker DevTools were detached throughout
+each observation window. Neither the gateway nor the installed worker was modified.
+
+| Controlled condition | Valid pairs | Native orphans | Native notification-service ordering |
+| --- | --- | --- | --- |
+| Warm browser | 5 | 5 | Replacement enqueued 48, 63, 68, 78, and 66 ms after cancellation |
+| Chrome force-stop and cold relaunch before each pair | 5 | 0 | Replacement enqueued 18, 15, 15, 3, and 20 ms before cancellation |
+
+Every warm orphan had the canceled record's key and the replacement's content hash, not the
+seed's. Its native post timestamp was also after cancellation, and it remained about 15.8 seconds
+after the browser reported zero handles. No Chrome process lifecycle event occurred inside any
+pair; each cold setup recorded its preceding process kill and restart. The experiment completed
+in 308.214 seconds including restoration. The transient button and its in-memory state were
+verified absent after reload. Each orphan was removed outside its outcome window by the explicit
+native-post-observed restoration procedure. These small controlled samples demonstrate a native
+ordering failure, not a production failure-rate estimate or proof of the earlier sequence's cause.
+
+Source analysis of the exact Chrome **153.0.8010.52** implementation also limits possible repairs.
+Notification resources load before the browser display acknowledgement, but the Android display
+path subsequently awaits WebAPK/channel work independently of close. Android reports no native
+display synchronization support; `getNotifications()` reads the browser notification database.
+Consequently, neither a resolved `showNotification()` nor a returned notification handle is an
+acknowledgement that Android has posted the notification. Reasserting a silent same-tag placeholder
+and closing it as soon as `getNotifications()` finds it is not a native-display fence. A bounded
+delay is a heuristic rather than a native-display acknowledgement. The worker now retains a
+monotonic display timestamp in memory and holds an exact current-request clear until 2,000 ms
+after a recent show resolves, then re-queries the browser handles before closing. The budget is
+about 25 times the largest observed 78 ms late enqueue, not a delivery guarantee. Old notices
+and notices inherited by a fresh worker close immediately. The existing serial push queue
+preserves clear/replacement ordering; an independently replaced request is not closed.
+An identical current attention replay with the same title and body updates the badge without
+re-showing or extending that timestamp. Changed content and dismissed notices still show.
+This reduces needless native replacements but cannot recover an already native-only orphan.
+Fake-timer regressions cover the timing boundary, exact-request re-query, queued replacement,
+duplicate content, changed content, dismissal, and worker restart. Physical qualification is
+still required; no full-matrix pass is inferred from those tests.
+The pinned Chromium sources are the
+[display acknowledgement](https://github.com/chromium/chromium/blob/153.0.8010.52/content/browser/notifications/platform_notification_service_proxy.cc#L40-L53),
+[asynchronous Android display](https://github.com/chromium/chromium/blob/153.0.8010.52/chrome/android/java/src/org/chromium/chrome/browser/notifications/NotificationPlatformBridge.java#L724-L784),
+and [unsupported native synchronization](https://github.com/chromium/chromium/blob/153.0.8010.52/chrome/browser/notifications/notification_platform_bridge_android.cc#L444-L462).
 
 All final device baseline booleans matched, the original granted/subscribed Preview preference was
 restored, the owned fixture was absent, and the development Pixel lease was independently observed

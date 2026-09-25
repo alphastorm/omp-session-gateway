@@ -10,7 +10,7 @@ import { observeNotificationDump, parseAndroidUi, NotificationOverlapError, find
 import { webApkTasks, closeWebApk, setupAndroidWebApk } from "./android-webapk.ts";
 import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
-import { runFixtureOperation } from "./push-qualification-fixture.ts";
+import { runFixtureOperation, type FixtureExecutor } from "./push-qualification-fixture.ts";
 import { isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
 
 const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { tag: "v0.6.0-prealpha.1", sourceCommit: "a".repeat(40), archiveSha256: "b".repeat(64), archivePath: "synthetic.tar" },
@@ -248,6 +248,53 @@ test("fixture cleanup removes an interrupted empty creation but refuses an unown
     await expect(runFixtureOperation(location, "stop")).rejects.toThrow("ownership changed");
     expect(await readFile(join(root, "owner"), "utf8")).toBe("another owner");
   } finally { await rm(directory, { recursive: true }); }
+});
+
+test("fixture cleanup preserves ownership while a child outlives its holder", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-push-fixture-process-"));
+  const root = join(directory, "owned");
+  const location = { root, epoch: randomUUID(), binary: "synthetic", scripts: directory, bun: process.execPath };
+  let childAlive = true;
+  const execute: FixtureExecutor = async argv => {
+    if (argv[0] === "sh") {
+      await writeFile(join(root, "pid"), "4242");
+      await writeFile(join(root, "ack.json"), JSON.stringify({ epoch: location.epoch, sequence: 0, phase: "ready" }));
+      return { exitCode: 0, stdout: "" };
+    }
+    if (argv[0] === "ps" && argv.includes("-p")) return { exitCode: 1, stdout: "" };
+    if (argv[0] === "ps" && argv.includes("-axo")) return { exitCode: 0, stdout: childAlive ? "synthetic-omp --config " + join(root, "fixture.yml") : "" };
+    throw Error("unexpected host mutation");
+  };
+  try {
+    await runFixtureOperation(location, "start", execute);
+    await expect(runFixtureOperation(location, "stop", execute)).rejects.toThrow("remained active");
+    expect(await readFile(join(root, "owner"), "utf8")).toBe(location.epoch);
+    childAlive = false;
+    await runFixtureOperation(location, "stop", execute);
+    await expect(readFile(join(root, "owner"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await rm(directory, { recursive: true }); }
+});
+
+test("fixture cleanup never signals a reused PID or a foreign process group", async () => {
+  for (const ownHolder of [false, true]) {
+    const directory = await mkdtemp(join(tmpdir(), "omp-push-fixture-identity-"));
+    const root = join(directory, "owned");
+    const location = { root, epoch: randomUUID(), binary: "synthetic", scripts: directory, bun: process.execPath };
+    const execute: FixtureExecutor = async argv => {
+      if (argv[0] !== "ps") throw Error("unexpected signal");
+      return { exitCode: 0, stdout: argv.includes("-p") ? "9999 S " + (ownHolder ? join(root, "hold.py") : "unrelated-process") : "" };
+    };
+    try {
+      await mkdir(root); await writeFile(join(root, "owner"), location.epoch); await writeFile(join(root, "pid"), "4242");
+      if (ownHolder) {
+        await expect(runFixtureOperation(location, "stop", execute)).rejects.toThrow("process group changed");
+        expect(await readFile(join(root, "owner"), "utf8")).toBe(location.epoch);
+      } else {
+        await runFixtureOperation(location, "stop", execute);
+        await expect(readFile(join(root, "owner"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    } finally { await rm(directory, { recursive: true }); }
+  }
 });
 
 test("multiple notifications and a stop tap that escalates to Control fail closed", async () => {
