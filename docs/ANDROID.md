@@ -193,7 +193,9 @@ bun scripts/android-webapk.ts setup "$ORIGIN"
 ```
 
 Setup uses the browser's Install app UI and verifies Android package ownership; it is bounded and
-idempotent. Obtain authorization before installing for another origin. The installed app is
+idempotent. Chrome's native `universal_install` action identifies the install entry; its visible
+caption can include the application name and is not a fixed "Install app" label. Obtain
+authorization before installing for another origin. The installed app is
 persistent qualification equipment: the lane never uninstalls apps or clears Chrome/WebAPK data.
 Development device mutations acquire `/tmp/omp-gw-pixel.lock` atomically. A lease is released only
 after restoring its baseline; never remove another lane's lock. The PIN remains in Keychain and is
