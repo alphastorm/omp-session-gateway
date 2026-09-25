@@ -23,8 +23,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 - Session aliases, favorites, and per-session control policy.
 - More granular tailnet/device posture guidance.
 - A separately threat-modeled signed update mechanism.
-- Physical Android qualification for closed-PWA, force-stop, lock-screen, stale-notification tap,
-  and network-change Push behavior.
 
 ## Later or optional
 
