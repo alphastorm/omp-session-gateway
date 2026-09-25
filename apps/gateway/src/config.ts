@@ -190,10 +190,13 @@ function startWindowsAclHelper(): WindowsAclHelper {
     // open-ended read of this pipe is not free: a pending read keeps the process alive even though
     // the child is unref'd, which hung `bun test` on Windows for 23 minutes until CI cancelled it.
     // Killing first makes the pipe EOF, so this returns promptly; the race is a backstop only.
+    // Its timer stays referenced: the helper is killed and released by now, so nothing else may hold
+    // the event loop, and without it `serve` exited 0 mid-drain before starting the next helper. At
+    // Windows logon the first helper missed its reply deadline and the gateway never listened.
     drainStderr: async () => {
       const collected = await Promise.race([
         new Response(stderr).text().catch(() => ""),
-        new Promise<string>(resolve => setTimeout(() => resolve(""), 250).unref?.()),
+        new Promise<string>(resolve => setTimeout(() => resolve(""), 250)),
       ]);
       return collected.trim().slice(0, 500);
     },

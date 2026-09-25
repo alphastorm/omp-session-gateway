@@ -1427,4 +1427,31 @@ describe("Windows private-path ACL enforcement", () => {
       restore();
     }
   });
+
+  // A real daemon process, not the test runner: while it clears away a failed helper, nothing else
+  // holds its event loop, so the retry must hold it. At Windows logon the first helper missed its reply
+  // deadline and was killed, and the gateway exited 0 while draining that helper's stderr, before it
+  // ever started the second helper. The stand-in reproduces that wait: a helper that has died without
+  // replying, with a stderr that has not reached EOF and holds nothing open. Like `serve`, the driver
+  // does not await at top level, which would keep Bun alive on its own.
+  test("a daemon stays alive through a failed helper to start the next one", async () => {
+    const root = await privateRoot();
+    const driver = join(root, "driver.ts");
+    await writeFile(driver, [
+      "const realSpawn = Bun.spawn;",
+      "Bun.spawn = ((command, options) => command[0] !== \"powershell.exe\" ? realSpawn(command, options) : {",
+      "  stdin: { write: chunk => chunk.length, flush: () => 0 },",
+      "  stdout: { getReader: () => ({ read: async () => ({ done: true }) }) },",
+      "  stderr: new ReadableStream(),",
+      "  ref() {}, unref() {}, kill() {},",
+      "});",
+      "Object.defineProperty(process, \"platform\", { value: \"win32\" });",
+      `import(${JSON.stringify(new URL("../src/config.ts", import.meta.url).href)}).then(({ writePrivateTextFile }) =>`,
+      `  writePrivateTextFile(${JSON.stringify(join(root, "target"))}, "x")).then(() => console.log("resolved"), () => console.log("rejected"));`,
+    ].join("\n"));
+    const child = Bun.spawn([process.execPath, driver], { stdout: "pipe", stderr: "ignore" });
+    const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+    // Both helpers die, so the request fails; the daemon can only report that if it outlived the first.
+    expect(stdout.trim()).toBe("rejected");
+  });
 });
