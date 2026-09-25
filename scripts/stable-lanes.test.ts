@@ -67,8 +67,8 @@ describe("retained-Mac Push fixture staging", () => {
 
   test("accepts only a plain absolute home directory", async () => {
     const reporting = (home: string): RemoteExecutor => async () => ({ exitCode: 0, stdout: home, stderr: "" });
-    expect(await remoteHome(reporting("/Users/m1"))).toBe("/Users/m1");
-    for (const home of ["", "Users/m1", "/Users/m 1", "/Users/../root", "/Users/m1\n/etc"]) {
+    expect(await remoteHome(reporting("/Users/ompqual"))).toBe("/Users/ompqual");
+    for (const home of ["", "Users/ompqual", "/Users/ompqual 1", "/Users/../root", "/Users/ompqual\n/etc"]) {
       await expect(remoteHome(reporting(home))).rejects.toThrow("home directory");
     }
   });
