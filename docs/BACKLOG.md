@@ -8,8 +8,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify and publish v0.6.0, the first campaign with the Windows host and Pixel background-Push
-  lanes (ADR-031).
 - Decide notification-click window reuse: the worker picks a "dashboard" window by `client.url`,
   which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
   notification route. Settle the Android WebAPK single-window behavior before changing it.
@@ -25,8 +23,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 - Session aliases, favorites, and per-session control policy.
 - More granular tailnet/device posture guidance.
 - A separately threat-modeled signed update mechanism.
-- Physical Android qualification for closed-PWA, force-stop, lock-screen, stale-notification tap,
-  and network-change Push behavior.
 
 ## Later or optional
 

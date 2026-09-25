@@ -62,12 +62,12 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Qualified for stable promotion:** [v0.6.0-prealpha.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0-prealpha.4),
-for [v0.6.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0). Publication
-and the separate published-byte local/Pixel smoke are pending; published v0.5.3 remains GitHub
-Latest until promotion. The [release ledger](RELEASE_STATUS.md) records the qualification lanes,
-the earlier candidates' failed attempts, and exact source/archive bindings;
-[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.5.3.
+**Published stable:** [v0.6.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0),
+GitHub Latest, promoted from v0.6.0-prealpha.4 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. The
+[release ledger](RELEASE_STATUS.md) records the qualification lanes, the earlier candidates' failed
+attempts, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the
+rollback predecessor, v0.5.3.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
