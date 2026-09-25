@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { cleanupWindows, runWindows, verifyWindowsDoctor, windowsCampaignLabel, windowsNeedsCleanup, assertWindowsPins } from "./windows-stable-qualification.ts";
 import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsRuntime } from "./windows-stable-qualification.ts";
-import { verifyWindowsStaleLaunch, windowsPixelLauncherPackage, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
+import { verifyWindowsStaleLaunch, windowsPixelLauncher, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
 import { firewallEligibility } from "./vultr-target.ts";
 import { parseQualificationPins } from "./stable-qualification.ts";
 
@@ -59,8 +59,20 @@ test("Pixel restoration selects the installed app behind a non-exported Chrome a
     "* Task{b #20 type=standard A=102:org.chromium.webapk.fixture}",
     `ActivityRecord{b u0 ${component} t20}`,
   ].join("\n");
-  expect(windowsPixelLauncherPackage(activities, component)).toBe("org.chromium.webapk.fixture");
-  expect(() => windowsPixelLauncherPackage(activities + `\n* Task{c #21 A=103:org.chromium.webapk.other}\nActivityRecord{c u0 ${component} t21}`, component)).toThrow("ambiguous");
+  expect(windowsPixelLauncher(activities, component)).toEqual({ packageName: "org.chromium.webapk.fixture", category: "android.intent.category.LAUNCHER" });
+  expect(() => windowsPixelLauncher(activities + `\n* Task{c #21 A=103:org.chromium.webapk.other}\nActivityRecord{c u0 ${component} t21}`, component)).toThrow("ambiguous");
+});
+test("Pixel restoration returns to the home screen the Pixel started on", () => {
+  // A home task has no affinity, so Android prints its intent component; its app answers HOME, not LAUNCHER.
+  const component = "com.google.android.apps.nexuslauncher/.NexusLauncherActivity";
+  const activities = [
+    "* Task{d #2 type=home I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 rootTaskId=1 visible=true mode=fullscreen sz=2}",
+    `ActivityRecord{d u0 ${component} t2}`,
+    "rootOfTask=true task=Task{d #2 type=home I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity}",
+    "* Task{e #30 type=standard A=101:com.android.chrome}",
+    "ActivityRecord{e u0 com.android.chrome/com.google.android.apps.chrome.Main t30}",
+  ].join("\n");
+  expect(windowsPixelLauncher(activities, component)).toEqual({ packageName: "com.google.android.apps.nexuslauncher", category: "android.intent.category.HOME" });
 });
 function fixture(options: { development?: boolean; fail?: WindowsGuestAction; listener?: boolean; neverStarts?: boolean; vaultFails?: boolean; lostCreate?: boolean; protected?: boolean; unlabelled?: boolean; stale?: number } = {}) {
   let now = 1_800_000_000_000;
