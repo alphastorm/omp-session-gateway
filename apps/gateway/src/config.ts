@@ -136,6 +136,8 @@ interface WindowsAclHelper {
   readonly decoder: TextDecoder;
   buffer: string;
   nextRequestId: number;
+  /** Whether this process has answered once, which proves PowerShell's start-up is behind it. */
+  answered: boolean;
 }
 
 let windowsAclHelper: WindowsAclHelper | undefined;
@@ -157,9 +159,13 @@ function asciiJson(value: unknown): string {
 // `install` the readiness budget bounds that, but a directly-run `serve` has no such bound, so the
 // wait is capped here and reported as a timeout rather than as a hang with no diagnostic.
 //
-// Halved from the original single-attempt bound because a request now gets a second helper: two
-// attempts cost what one used to, so no caller's budget moves. A healthy cold start on the slowest
-// host measured for this design is well inside one attempt.
+// A fresh helper's first reply includes PowerShell's own cold start, which a warm helper never pays
+// again. At the first logon after install on the 2-vCPU Server 2025 qualification host, that start
+// outlasted a 10 s deadline twice in a row: each replacement began just as cold, both were killed,
+// and the logon-started gateway never listened. Hosted CI has recorded cold spawns over 30 s. So a
+// helper's first reply may take 45 s, which still fits the 60 s Windows install readiness budget,
+// and every later reply keeps the 10 s cap that bounds a helper wedged mid-request.
+const WINDOWS_ACL_FIRST_REPLY_TIMEOUT_MS = 45_000;
 const WINDOWS_ACL_REPLY_TIMEOUT_MS = 10_000;
 const WINDOWS_ACL_ATTEMPTS = 2;
 
@@ -203,6 +209,7 @@ function startWindowsAclHelper(): WindowsAclHelper {
     decoder: new TextDecoder(),
     buffer: "",
     nextRequestId: 1,
+    answered: false,
   };
 }
 
@@ -223,7 +230,7 @@ export function stopWindowsAclHelper(): void {
 }
 
 async function readWindowsAclReply(helper: WindowsAclHelper): Promise<string> {
-  const deadline = Date.now() + WINDOWS_ACL_REPLY_TIMEOUT_MS;
+  const deadline = Date.now() + (helper.answered ? WINDOWS_ACL_REPLY_TIMEOUT_MS : WINDOWS_ACL_FIRST_REPLY_TIMEOUT_MS);
   for (;;) {
     const newline = helper.buffer.indexOf("\n");
     if (newline >= 0) {
@@ -265,7 +272,9 @@ async function exchangeWindowsAcl(
     helper.hold();
     try {
       await helper.send(`${asciiJson({ i: requestId, op: operation, p: path, dir: directory ? 1 : 0 })}\n`);
-      return { reply: JSON.parse(await readWindowsAclReply(helper)), requestId };
+      const reply: unknown = JSON.parse(await readWindowsAclReply(helper));
+      helper.answered = true;
+      return { reply, requestId };
     } finally {
       helper.release();
     }

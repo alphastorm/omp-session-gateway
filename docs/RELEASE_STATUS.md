@@ -11,19 +11,21 @@ background-Push lane (ADR-031, #253, #257). Its shipped bytes change in four pla
   skips unchanged re-shows (#256);
 - the PWA's outage and troubleshooting text speaks of "this device" across Android, iPhone and
   iPad, and computers (#251);
-- on Windows, the gateway stays alive while a failed private-ACL helper is cleared, so a slow logon
-  retries the helper instead of exiting before it listens (#263).
+- on Windows, a slow first logon no longer stops the gateway before it listens: it stays alive
+  while a failed private-ACL helper is cleared (#263), and a fresh helper's first reply may take
+  45 s to cover PowerShell's cold start after install (#265).
 
-#248–#250, #252, #253, #257, and #259–#262 change CI, documentation, and qualification tooling
-only; they are not in the candidate archive.
+#248–#250, #252, #253, #257, #259–#262, and #264 change CI, documentation, and qualification
+tooling only; they are not in the candidate archive.
 
 Before preparation, the background-Push lane passed one uninterrupted development run against the
 retained Mac's no-Topic build, whose product source equals this candidate's. The Windows lane
 passed on a real VM (#253). Both are tested evidence.
 
 The published v0.6.0-prealpha.1 cannot qualify. Its two campaigns failed on qualification-tooling
-defects (#259, #260, #262) and on the Windows logon exit that #263 fixes in the runtime. Both
-receipts are archived unchanged.
+defects (#259, #260, #262) and on the Windows logon exit that #263 and #265 fix in the runtime. Both
+receipts are archived unchanged. v0.6.0-prealpha.2 carries #263 but not #265; it failed the same
+logon step in a development run and is superseded as well.
 
 Published v0.5.3 remains the predecessor and current stable. No v0.6.0 qualification or
 publication is claimed, and the stable lock remains unchanged until approval.

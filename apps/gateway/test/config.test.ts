@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "bun:test";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -138,6 +138,10 @@ const fakeAcl = {
   exitBeforeReply: false,
   /** Dies on the next request only, so a retry meets a working helper. */
   exitBeforeReplyOnce: false,
+  /** Delays each process's first reply, as PowerShell's cold start does. */
+  firstReplyDelayMs: 0,
+  /** Called as each request reaches the helper, so a test can act at that moment. */
+  onRequest: undefined as (() => void) | undefined,
 };
 
 function answerFakeAclRequest(line: string): string {
@@ -189,6 +193,13 @@ function installFakePowerShell(): () => void {
     // next spawn is a live one. A one-shot flag consumed globally would instead leave the reader
     // waiting on a process nobody marked dead.
     let dead = false;
+    let replied = false;
+    const deliver = (reply: Uint8Array): void => {
+      const resolve = waiting;
+      waiting = undefined;
+      if (resolve === undefined) pending.push(reply);
+      else resolve({ value: reply, done: false });
+    };
     return {
       stdin: {
         write: (chunk: string): number => {
@@ -213,10 +224,11 @@ function installFakePowerShell(): () => void {
               continue;
             }
             const reply = encoder.encode(`${answerFakeAclRequest(line)}\n`);
-            const resolve = waiting;
-            waiting = undefined;
-            if (resolve === undefined) pending.push(reply);
-            else resolve({ value: reply, done: false });
+            fakeAcl.onRequest?.();
+            const delay = replied ? 0 : fakeAcl.firstReplyDelayMs;
+            replied = true;
+            if (delay > 0) setTimeout(() => deliver(reply), delay);
+            else deliver(reply);
           }
         },
       },
@@ -262,6 +274,8 @@ function installFakePowerShell(): () => void {
     fakeAcl.stderr = "";
     fakeAcl.exitBeforeReply = false;
     fakeAcl.exitBeforeReplyOnce = false;
+    fakeAcl.firstReplyDelayMs = 0;
+    fakeAcl.onRequest = undefined;
   };
 }
 
@@ -1424,6 +1438,33 @@ describe("Windows private-path ACL enforcement", () => {
       // rejection reaches the caller and nothing spawns again.
       expect(fakeAcl.spawns - spawnsBefore).toBe(2);
     } finally {
+      restore();
+    }
+  });
+
+  test("waits out a fresh helper's slow first reply instead of replacing it", async () => {
+    const root = await privateRoot();
+    const config = configForRoot(root);
+    const restore = installFakePowerShell();
+    try {
+      // PowerShell's cold start sits inside a fresh helper's first reply. At the first logon after
+      // install it outlasted a 10 s deadline twice in a row: each replacement began just as cold, and
+      // the gateway never listened. Fake timers stand in for the 11 s start; file I/O stays real.
+      await dropCachedAclHelper(config);
+      const spawnsBefore = fakeAcl.spawns;
+      vi.useFakeTimers();
+      fakeAcl.firstReplyDelayMs = 11_000;
+      const requested = Promise.withResolvers<void>();
+      fakeAcl.onRequest = requested.resolve;
+      const outcome = loadOrCreateReadinessToken(config).then(() => "resolved", () => "rejected");
+      await requested.promise;
+      // One loop turn lets the request reach its reply race and schedule the deadline.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      vi.advanceTimersByTime(11_000);
+      expect(await outcome).toBe("resolved");
+      expect(fakeAcl.spawns - spawnsBefore).toBe(1);
+    } finally {
+      vi.useRealTimers();
       restore();
     }
   });
