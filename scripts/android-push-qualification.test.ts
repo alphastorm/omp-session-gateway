@@ -17,7 +17,7 @@ const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { t
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
 const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
 const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
-interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
 function fake(options: FakeOptions = {}) {
   let overlaps = options.overlaps ?? 0;
   let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
@@ -60,7 +60,7 @@ function fake(options: FakeOptions = {}) {
     answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
     permission: async value => { await effect(() => { browser.permission = value; }); },
-    doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled) show(); }); },
+    doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled && !options.dozeHeld) show(); }); },
     network: async value => { await effect(() => { offline = value === "airplane"; device.airplane = offline; device.wifi = value === "wifi"; device.mobile = !offline; if (!offline && pending) show(); }); return value !== "cellular" || options.cellular !== false; },
     sinks: async () => ({ clean: true, detectable: true, gatewayLogsDiscarded: true }),
     async cleanup(step) { cleanup.push(step);
@@ -249,6 +249,18 @@ test("matrix records both force-stop and Doze variants without turning suppressi
     expect(final.results.permission_verified?.suppressed).toBe(true);
     expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
   }
+});
+
+// A campaign's push arrived minutes after forced Doze ended: FCM still held it. ADR-031 records Doze
+// behavior as an observed variant, never a delivery guarantee, so a held push is an outcome, not a failure.
+test("a push that forced Doze still holds after exit is recorded as undelivered, not a failure", async () => {
+  const f = fake({ dozeHeld: true });
+  const result = await runAndroidPush(f.input);
+  expect(result.passed).toBe(true);
+  const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(final.results.doze_verified?.variant).toBe("undelivered_after_doze_exit");
+  expect(final.results.network_verified?.wifiDelivery).toBe(true);
+  expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
 });
 
 test("every non-idempotent interruption restores every baseline and stops the owned fixture", async () => {

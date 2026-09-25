@@ -135,7 +135,7 @@ export function parseAndroidPushProgress(value: unknown): AndroidPushProgress {
         (key === "rearmReason" && item !== "unowned_notification_overlap") || (key === "phaseElapsedMs" && typeof item !== "number")) throw new Error("invalid Android Push phase observation");
       if ((!["dndOff", "phaseElapsedMs", "rearmCount", "rearmReason"].includes(key) && !RESULT_FIELDS[phase as AndroidPushPhase]?.includes(key)) || !/^[a-z][A-Za-z]{0,47}$/u.test(key) || /(capability|password|secret|authKey|token|bearer)/iu.test(key) ||
         (typeof item !== "boolean" && !(typeof item === "number" && Number.isFinite(item) && item >= 0) &&
-          ["delivered_while_force_stopped", "suppressed_until_relaunch", "delivered_during_doze", "delivered_after_doze_exit", "cellular_path_unavailable", "unowned_notification_overlap"].includes(String(item)) === false)) throw new Error("unsafe Android Push evidence");
+          ["delivered_while_force_stopped", "suppressed_until_relaunch", "delivered_during_doze", "delivered_after_doze_exit", "undelivered_after_doze_exit", "cellular_path_unavailable", "unowned_notification_overlap"].includes(String(item)) === false)) throw new Error("unsafe Android Push evidence");
     }
     const recorded = result as Record<string, unknown>;
     if ((recorded.rearmCount === undefined) !== (recorded.rearmReason === undefined)) throw new Error("incomplete Android Push re-arm observation");
@@ -358,13 +358,18 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
           duringDoze ||= observation.count === 1; await runtime.pause(500);
         }
         await runtime.doze(false);
-        if (!duringDoze) await wait("delivery after Doze", async () => {
+        // Forced Doze is an observed variant, never a delivery guarantee (ADR-031): FCM has held a push
+        // for minutes after Doze ended. Privacy holds for anything that arrives; the ask is settled either way.
+        let afterExit = false;
+        const deadline = runtime.now() + 60_000;
+        while (!duringDoze && !afterExit && runtime.now() < deadline) {
           const observed = await runtime.observe(sleeping, "attention", "private");
           if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Doze recovery privacy failure");
-          return observed.count === 1 ? true : undefined;
-        });
+          afterExit = observed.count === 1;
+          if (!afterExit) await runtime.pause(500);
+        }
         await clear();
-        await finish("doze_verified", { variant: duringDoze ? "delivered_during_doze" : "delivered_after_doze_exit" });
+        await finish("doze_verified", { variant: duringDoze ? "delivered_during_doze" : afterExit ? "delivered_after_doze_exit" : "undelivered_after_doze_exit" });
       });
       await attempt("network_verified", async () => {
         if (!await runtime.network("wifi")) throw new Error("Android Push Wi-Fi tailnet path unavailable");
