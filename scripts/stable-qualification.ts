@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
+import { readProvider } from "./provider-read.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
@@ -1116,10 +1117,10 @@ export async function recoverRetainedMac(options: StableQualificationOptions): P
   const projectId = credentials.SCW_DEFAULT_PROJECT_ID;
   if (!secretKey || !projectId) throw new Error("Scaleway credential file is missing required entries");
   const endpoint = `https://api.scaleway.com/apple-silicon/v1alpha1/zones/${encodeURIComponent(options.macZone)}/servers`;
-  const listResponse = await fetch(`${endpoint}?project_id=${encodeURIComponent(projectId)}`, {
+  const listResponse = await readProvider(() => fetch(`${endpoint}?project_id=${encodeURIComponent(projectId)}`, {
     headers: { "X-Auth-Token": secretKey },
     signal: AbortSignal.timeout(15_000),
-  });
+  }));
   if (!listResponse.ok) throw new Error(`Scaleway server list failed with status ${listResponse.status}`);
   const list = (await listResponse.json()) as { servers?: unknown[] };
   const matches = (list.servers ?? []).filter(
@@ -1128,10 +1129,11 @@ export async function recoverRetainedMac(options: StableQualificationOptions): P
   if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
     throw new Error("expected exactly one retained Scaleway Mac");
   }
-  const detailResponse = await fetch(`${endpoint}/${encodeURIComponent(matches[0].id)}`, {
+  const serverId = matches[0].id;
+  const detailResponse = await readProvider(() => fetch(`${endpoint}/${encodeURIComponent(serverId)}`, {
     headers: { "X-Auth-Token": secretKey },
     signal: AbortSignal.timeout(15_000),
-  });
+  }));
   if (!detailResponse.ok) throw new Error(`Scaleway server detail failed with status ${detailResponse.status}`);
   const detail = (await detailResponse.json()) as { server?: Record<string, unknown> } & Record<string, unknown>;
   const server = detail.server ?? detail;

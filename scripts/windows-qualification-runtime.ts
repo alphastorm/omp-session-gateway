@@ -12,6 +12,7 @@ import { parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./
 import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
+import { readProvider } from "./provider-read.ts";
 
 const root = resolve(import.meta.dir, "..");
 const privateRoot = join(homedir(), ".local/share/omp-session-gateway/qualification");
@@ -79,7 +80,8 @@ async function loadAccess(epoch: string): Promise<Access> {
 
 /** Failure text is independent of HTTP bodies, which can contain credentials and identifiers. */
 async function request<T>(url: string, headers: Record<string, string>, method = "GET", body?: unknown): Promise<T | undefined> {
-  const response = await fetch(url, { method, headers: { ...headers, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(60_000) });
+  const send = () => fetch(url, { method, headers: { ...headers, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(60_000) });
+  const response = method === "GET" ? await readProvider(send) : await send();
   if (response.status === 404) return undefined;
   if (!response.ok) throw new Error(`qualification provider ${method} HTTP ${response.status}`);
   const text = response.status === 204 ? "" : await response.text();
