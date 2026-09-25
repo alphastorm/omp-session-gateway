@@ -67,7 +67,7 @@ export interface AndroidPushRuntime {
 
 export const ANDROID_PUSH_PHASES = ["baseline_captured", "subscription_ready", "private_verified", "session_verified", "preview_verified",
   "attention_tap_verified", "activity_stop_verified", "stale_generation_verified", "clear_verified", "force_stop_verified",
-  "permission_verified", "lock_resume_verified", "doze_verified", "network_verified", "forbidden_sinks_verified", "evidence_complete", "restored"] as const;
+  "permission_verified", "lock_resume_verified", "network_verified", "doze_verified", "forbidden_sinks_verified", "evidence_complete", "restored"] as const;
 export type AndroidPushPhase = (typeof ANDROID_PUSH_PHASES)[number];
 export interface AndroidPushProgress extends Record<string, unknown> {
   lane: "androidPush"; epoch: string; binding: string; phase: AndroidPushPhase; cleanupRequired: boolean;
@@ -348,29 +348,6 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         await runtime.lock(); await delivery("private"); await runtime.openPwa(); await clear();
         await finish("lock_resume_verified", { lockedDelivery: true, resumed: true });
       });
-      await attempt("doze_verified", async () => {
-        await runtime.closePwa(); await runtime.doze(true); await fixture("ask");
-        const sleeping = await snapshot(s => s.inputRequired);
-        let duringDoze = false;
-        for (let elapsed = 0; elapsed < 30_000; elapsed += 500) {
-          const observation = await runtime.observe(sleeping, "attention", "private");
-          if (observation.count > 1 || observation.forbiddenFound || (observation.count === 1 && (!observation.titleMatches || !observation.bodyMatches))) throw new Error("Android Push Doze privacy failure");
-          duringDoze ||= observation.count === 1; await runtime.pause(500);
-        }
-        await runtime.doze(false);
-        // Forced Doze is an observed variant, never a delivery guarantee (ADR-031): FCM has held a push
-        // for minutes after Doze ended. Privacy holds for anything that arrives; the ask is settled either way.
-        let afterExit = false;
-        const deadline = runtime.now() + 60_000;
-        while (!duringDoze && !afterExit && runtime.now() < deadline) {
-          const observed = await runtime.observe(sleeping, "attention", "private");
-          if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Doze recovery privacy failure");
-          afterExit = observed.count === 1;
-          if (!afterExit) await runtime.pause(500);
-        }
-        await clear();
-        await finish("doze_verified", { variant: duringDoze ? "delivered_during_doze" : afterExit ? "delivered_after_doze_exit" : "undelivered_after_doze_exit" });
-      });
       await attempt("network_verified", async () => {
         if (!await runtime.network("wifi")) throw new Error("Android Push Wi-Fi tailnet path unavailable");
         await delivery("private"); await clear();
@@ -394,6 +371,37 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         }, 160_000);
         await clear();
         await finish("network_verified", { wifiDelivery: true, ...(cellular ? { cellularDelivery: true } : { blocked: "cellular_path_unavailable" }), airplaneSuppressed: true, recovered: true });
+      });
+      await attempt("doze_verified", async () => {
+        await runtime.closePwa(); await runtime.doze(true); await fixture("ask");
+        const sleeping = await snapshot(s => s.inputRequired);
+        let duringDoze = false;
+        for (let elapsed = 0; elapsed < 30_000; elapsed += 500) {
+          const observation = await runtime.observe(sleeping, "attention", "private");
+          if (observation.count > 1 || observation.forbiddenFound || (observation.count === 1 && (!observation.titleMatches || !observation.bodyMatches))) throw new Error("Android Push Doze privacy failure");
+          duringDoze ||= observation.count === 1; await runtime.pause(500);
+        }
+        await runtime.doze(false);
+        // Forced Doze is an observed variant, never a delivery guarantee (ADR-031): FCM has held a push
+        // for minutes after Doze ended. Privacy holds for anything that arrives; the ask is settled either way.
+        let afterExit = false;
+        const deadline = runtime.now() + 60_000;
+        while (!duringDoze && !afterExit && runtime.now() < deadline) {
+          const observed = await runtime.observe(sleeping, "attention", "private");
+          if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Doze recovery privacy failure");
+          afterExit = observed.count === 1;
+          if (!afterExit) await runtime.pause(500);
+        }
+        // After forced Doze the phone's frozen browser can defer pushes until it runs again: in both
+        // prealpha.3 campaigns an ask or clear waited minutes, until another lane opened Chrome. The
+        // variant above is observed with the app closed; resuming it once lets a deferred ask or clear
+        // run here rather than on the owner's phone after the lane. Doze is therefore the last delivery phase.
+        await fixture("answer");
+        const settled = await snapshot(s => !s.inputRequired);
+        await runtime.openPwa();
+        await wait("authoritative clear after Doze", async () => (await runtime.observe(settled, "attention", "private")).count === 0 ? true : undefined);
+        await runtime.closePwa();
+        await finish("doze_verified", { variant: duringDoze ? "delivered_during_doze" : afterExit ? "delivered_after_doze_exit" : "undelivered_after_doze_exit" });
       });
       await attempt("forbidden_sinks_verified", async () => {
         await runtime.network("wifi");
