@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import webPush from "web-push";
 import {
   PUSH_API_VERSION,
   type BrowserPushSubscription,
@@ -12,7 +13,7 @@ import {
 } from "@omp-session-gateway/protocol";
 import type { GatewayConfig } from "../src/config.ts";
 import { SafeLogger } from "../src/logger.ts";
-import { PushService, type PushTransport } from "../src/push.ts";
+import { PushService, type PushSendOptions, type PushTransport, webPushOptions } from "../src/push.ts";
 import { SessionRegistry } from "../src/registry.ts";
 
 const endpoint = "https://push.example.test/send/device-subscription";
@@ -74,13 +75,7 @@ class RecordingTransport implements PushTransport {
   readonly calls: Array<{
     readonly subscription: BrowserPushSubscription;
     readonly payload: string;
-    readonly options: {
-      readonly subject: string;
-      readonly publicKey: string;
-      readonly privateKey: string;
-      readonly ttlSeconds: number;
-      readonly topic: string;
-    };
+    readonly options: PushSendOptions;
   }> = [];
   statusCode: number | undefined;
   blockWhen: ((subscription: BrowserPushSubscription) => boolean) | undefined;
@@ -96,17 +91,7 @@ class RecordingTransport implements PushTransport {
     return promise;
   }
 
-  async send(
-    pushSubscription: BrowserPushSubscription,
-    payload: string,
-    options: {
-      readonly subject: string;
-      readonly publicKey: string;
-      readonly privateKey: string;
-      readonly ttlSeconds: number;
-      readonly topic: string;
-    },
-  ): Promise<void> {
+  async send(pushSubscription: BrowserPushSubscription, payload: string, options: PushSendOptions): Promise<void> {
     this.calls.push({ subscription: pushSubscription, payload, options });
     if (this.blockWhen?.(pushSubscription) === true) {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -224,7 +209,6 @@ describe("Web Push service", () => {
         ...(request.detailLevel === "private" ? {} : { body: "PROMPT_CONTENT_CANARY · OPTION_CONTENT_CANARY" }),
       })));
     }
-    expect(new Set(transport.calls.map(call => call.options.topic)).size).toBe(1);
     expect(transport.calls.every(call => call.options.ttlSeconds === 300)).toBe(true);
     expect(await readFile(statePath, "utf8")).toBe(stateBeforeActivity);
     await service.stop();
@@ -384,7 +368,6 @@ describe("Web Push service", () => {
       "push-request-2-identity", "push-request-2-identity", "push-request-3-identity",
     ]);
     expect(messages.map(message => message.pendingAskCount)).toEqual([1, 0, 1]);
-    expect(new Set(transport.calls.map(call => call.options.topic)).size).toBe(1);
     await service.stop();
   });
 
@@ -402,7 +385,7 @@ describe("Web Push service", () => {
     await service.stop();
   });
 
-  test("uses the latest badge count and the same FIFO topic for stops and asks", async () => {
+  test("uses the latest badge count and FIFO order for stops and asks", async () => {
     const root = await createRoot();
     const registry = new SessionRegistry({ ttlSeconds: 35, maxSessions: 10 });
     const transport = new RecordingTransport();
@@ -428,7 +411,6 @@ describe("Web Push service", () => {
       "activity_stop", "activity_stop", "attention",
     ]);
     expect(messages.map(message => message.pendingAskCount)).toEqual([0, 1, 2]);
-    expect(new Set(calls.map(call => call.options.topic)).size).toBe(1);
     await service.stop();
   });
 
@@ -529,11 +511,27 @@ describe("Web Push service", () => {
       }
       for (const call of transport.calls.filter(call => call.subscription.endpoint === entry.subscription.endpoint)) {
         expect(call.options.ttlSeconds).toBe(300);
-        expect(call.options.topic).toHaveLength(32);
         expect(call.options.privateKey).not.toBe(call.options.publicKey);
       }
     }
     await service.stop();
+  });
+
+  test("sends every message without a Topic, so FCM never throttles it as collapsible", () => {
+    const vapid = webPush.generateVAPIDKeys();
+    const request = webPush.generateRequestDetails(
+      { endpoint: "https://fcm.googleapis.com/fcm/send/synthetic-device-0001", keys: previousKeys },
+      null,
+      webPushOptions({
+        subject: "https://github.com/alphastorm/omp-session-gateway",
+        publicKey: vapid.publicKey,
+        privateKey: vapid.privateKey,
+        ttlSeconds: 300,
+      }),
+    );
+    expect(request.headers.Topic).toBeUndefined();
+    expect(String(request.headers.TTL)).toBe("300");
+    expect(request.headers.Urgency).toBe("high");
   });
 
   test("removes expired push endpoints without logging endpoint or payload data", async () => {

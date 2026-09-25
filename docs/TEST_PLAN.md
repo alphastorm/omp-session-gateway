@@ -14,7 +14,7 @@ qualify the mainline integration.
   expiry, or restart; activity knowledge changes never extend TTL.
 - Ordered internal delivery and reentrancy; queued stop ABA invalidation; no internal event in SSE.
 - View-only stop eligibility; no history replay on subscribe/renew; all three server privacy levels.
-- Shared topic/tag, displayed ask priority, and request-specific clear cannot close a stop.
+- Shared tag, no Web Push `Topic`, displayed ask priority, and request-specific clear cannot close a stop.
 - Strict scrubbed routes, same-generation View-only launch, changed/gone targets, and no new secret sinks.
 - Real built browser activity labels, notification navigation, and existing supported viewport layouts.
 

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import webPush from "web-push";
 import {
@@ -61,34 +60,41 @@ interface AttentionState {
   readonly active: boolean;
 }
 
+export interface PushSendOptions {
+  readonly subject: string;
+  readonly publicKey: string;
+  readonly privateKey: string;
+  readonly ttlSeconds: number;
+}
+
 export interface PushTransport {
-  send(
-    subscription: BrowserPushSubscription,
-    payload: string,
-    options: {
-      readonly subject: string;
-      readonly publicKey: string;
-      readonly privateKey: string;
-      readonly ttlSeconds: number;
-      readonly topic: string;
+  send(subscription: BrowserPushSubscription, payload: string, options: PushSendOptions): Promise<void>;
+}
+
+/**
+ * Web Push request options for one message. There is deliberately no `Topic`: FCM treats a topic as
+ * a collapse key and throttles collapsible messages to a burst of 20 per app per device, refilling
+ * one every three minutes. Ordinary ask, clear, and stop traffic exceeds that, and a throttled clear
+ * left an answered ask's notification up for minutes. Every message is non-collapsible; the
+ * request-specific clear keeps redelivery and reordering from closing a newer ask.
+ */
+export function webPushOptions(options: PushSendOptions): webPush.RequestOptions {
+  return {
+    TTL: options.ttlSeconds,
+    urgency: "high",
+    timeout: PUSH_TIMEOUT_MS,
+    contentEncoding: "aes128gcm",
+    vapidDetails: {
+      subject: options.subject,
+      publicKey: options.publicKey,
+      privateKey: options.privateKey,
     },
-  ): Promise<void>;
+  };
 }
 
 const defaultTransport: PushTransport = {
   async send(subscription, payload, options) {
-    await webPush.sendNotification(subscription, payload, {
-      TTL: options.ttlSeconds,
-      urgency: "high",
-      topic: options.topic,
-      timeout: PUSH_TIMEOUT_MS,
-      contentEncoding: "aes128gcm",
-      vapidDetails: {
-        subject: options.subject,
-        publicKey: options.publicKey,
-        privateKey: options.privateKey,
-      },
-    });
+    await webPush.sendNotification(subscription, payload, webPushOptions(options));
   },
 };
 
@@ -471,7 +477,6 @@ export class PushService {
       this.#identityAllowed(subscription.identityKey),
     );
     if (subscriptions.length === 0) return;
-    const topic = createHash("sha256").update(instanceId).digest("base64url").slice(0, 32);
     const stale: StoredPushSubscription[] = [];
     await Promise.all(
       subscriptions.map(async subscription => {
@@ -481,7 +486,6 @@ export class PushService {
             publicKey: this.#vapid.publicKey,
             privateKey: this.#vapid.privateKey,
             ttlSeconds: PUSH_TTL_SECONDS,
-            topic,
           });
         } catch (error) {
           const code = statusCode(error);

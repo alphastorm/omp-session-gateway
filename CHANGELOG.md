@@ -52,6 +52,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   `pathname` as a filesystem path (`/D:/...`), and the scanners compared backslash-separated paths
   against forward-slash exemptions; the repository check now rejects the `pathname` pattern.
   Tracked text also checks out with LF line endings on every OS.
+- Background notifications no longer stall after a burst of activity. Every push carried a
+  per-session Web Push `Topic`, which FCM treats as a collapse key and limits to a burst of 20
+  messages per device, then one every three minutes. On a Pixel, the 22nd and 23rd messages of a
+  burst took 151 and 172 seconds, so an answered ask's notification stayed up for minutes. Pushes
+  now carry no `Topic`; in the same test all 28 arrived within about 3 seconds. The push service
+  also no longer sees a per-session identifier.
 - On Android, an OMP Sessions alert cleared moments after it was shown could stay on screen for good,
   with a tap reporting it expired. This happened after a burst of queued pushes on reconnect, a
   duplicate delivery, or a replay just before the clear. Chrome can apply a notification's close

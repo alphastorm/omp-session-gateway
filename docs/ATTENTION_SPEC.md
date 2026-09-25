@@ -115,8 +115,11 @@ Resolution, removal, or replacement queues a strict clear payload before any rep
 ```
 
 A clear closes the notification only when its stored request ID matches, so a delayed clear cannot
-close a rearmed ask. Push delivery uses high urgency, a five-minute TTL, one coalescing topic per
-instance, and remains best effort.
+close a rearmed ask. Push delivery uses high urgency and a five-minute TTL, and remains best effort.
+Messages carry no Web Push `Topic`: FCM treats a topic as a collapse key and throttles collapsible
+messages to a burst of 20 per app per device, refilling one every three minutes, so ordinary ask,
+clear, and stop traffic would be delayed by minutes. Without a topic, a push service holding
+messages for an offline device delivers every unexpired one on reconnect, not only the newest.
 
 ## Activity-stop notifications
 
@@ -155,15 +158,17 @@ Private omits the body. Session uses existing bounded labels; Preview falls back
 because a stop has no ask preview. View-only sessions are eligible. Opening the gateway or
 creating/renewing a subscription does not replay historical stops.
 
-Stop and attention share the instance-derived coalescing topic, notification tag, five-minute TTL,
-and ordered delivery queue. A displayed valid attention notification wins over an incoming stop;
+Stop and attention share the notification tag, five-minute TTL, and ordered delivery queue. A
+displayed valid attention notification wins over an incoming stop;
 attention replacing a stop requests a fresh alert (`renotify: true`), while duplicate attention
 delivery does not re-alert. A delayed request-specific clear cannot close a stop, whose
 notification data has no request ID. The badge still counts pending controllable asks, not stops.
 Delivery is best effort: brief turns between polls can be missed, and attention priority may
-suppress a stop while an earlier attention notification remains displayed. An offline provider
-may coalesce away a queued clear in favor of a later same-topic stop, leaving that stale
-attention displayed. Taps still revalidate the exact current request before acquiring Control.
+suppress a stop while an earlier attention notification remains displayed. After an offline
+period, an ask resolved meanwhile can alert briefly before its queued clear closes it. Push services
+do not guarantee order, so a clear that overtakes its attention leaves that attention displayed
+until the next ask replaces it or the user dismisses it. Taps still revalidate the exact current
+request before acquiring Control.
 
 Older Push v2 workers cannot interpret the new variant and continue to handle attention/clear.
 Ignoring an unsupported push is not guaranteed silent: browsers enforcing `userVisibleOnly`
