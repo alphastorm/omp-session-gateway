@@ -49,6 +49,15 @@ async function updateAppBadge(pendingAskCount: number): Promise<void> {
 
 // Serialize notification read/replace and badge updates across overlapping push events.
 let pushTail: Promise<void> = Promise.resolve();
+// Chrome 153 posted warm replacements 48–78 ms after cancellation. Allow ~25× that observed lag.
+const CLOSE_SETTLE_MS = 2_000;
+const shownAtByTag = new Map<string, number>();
+
+function matchesRequest(notification: Notification, instanceId: string, requestId: string): boolean {
+  const intent = parseNotificationData(notification.data);
+  return intent?.kind === "attention" && intent.instanceId === instanceId && intent.requestId === requestId;
+}
+
 worker.addEventListener("push", event => {
   let message: AttentionPushMessage;
   try {
@@ -60,15 +69,30 @@ worker.addEventListener("push", event => {
   const tag = `omp-attention-${message.instanceId}`;
   const delivery = pushTail.then(async () => {
     if (message.type === "clear") {
-      const notifications = await worker.registration.getNotifications({ tag });
+      let notifications = await worker.registration.getNotifications({ tag });
+      const shownAt = shownAtByTag.get(tag);
+      if (shownAt !== undefined && notifications.some(notification => matchesRequest(notification, message.instanceId, message.requestId))) {
+        const remaining = CLOSE_SETTLE_MS - (performance.now() - shownAt);
+        if (remaining > 0) {
+          await new Promise<void>(resolve => setTimeout(resolve, remaining));
+          notifications = await worker.registration.getNotifications({ tag });
+        }
+      }
       for (const notification of notifications) {
-        const intent = parseNotificationData(notification.data);
-        if (intent?.kind === "attention" && intent.instanceId === message.instanceId && intent.requestId === message.requestId) {
+        if (matchesRequest(notification, message.instanceId, message.requestId)) {
           notification.close();
+          shownAtByTag.delete(tag);
         }
       }
     } else {
       const notifications = await worker.registration.getNotifications({ tag });
+      if (message.type === "attention" && notifications.some(notification =>
+        matchesRequest(notification, message.instanceId, message.requestId) &&
+        notification.title === message.title && notification.body === (message.body ?? ""),
+      )) {
+        await updateAppBadge(message.pendingAskCount);
+        return;
+      }
       if (message.type === "activity_stop") {
         if (notifications.some(notification => {
           const intent = parseNotificationData(notification.data);
@@ -95,6 +119,7 @@ worker.addEventListener("push", event => {
         },
       } satisfies NotificationOptions & { readonly renotify: boolean };
       await worker.registration.showNotification(message.title, options);
+      shownAtByTag.set(tag, performance.now());
     }
     await updateAppBadge(message.pendingAskCount);
   });

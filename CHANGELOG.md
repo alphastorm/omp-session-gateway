@@ -46,6 +46,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   burst took 151 and 172 seconds, so an answered ask's notification stayed up for minutes. Pushes
   now carry no `Topic`; in the same test all 28 arrived within about 3 seconds. The push service
   also no longer sees a per-session identifier.
+- On Android, an OMP Sessions alert cleared moments after it was shown could stay on screen for good,
+  with a tap reporting it expired. This happened after a burst of queued pushes on reconnect, a
+  duplicate delivery, or a replay just before the clear. Chrome can apply a notification's close
+  before its own display, which leaves the display in place with nothing left to close it. The
+  service worker now waits until two seconds after a display before closing it, and no longer
+  re-shows an alert whose request and text are unchanged.
 
 ## [v0.5.3] — 2026-09-24
 
