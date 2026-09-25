@@ -131,7 +131,7 @@ It also covers the two resource-owning lanes (ADR-031), with injected lane modul
 reaches a VM or a phone:
 
 - a lane passes only with a cleanup lane bound to the attempt epoch it recorded; a failed attempt is
-  released, and never converted into a pass, before a new one starts, and an unreleased one blocks it;
+  released, and never converted into a pass, before a new one starts, and a failed release blocks it;
 - a crashed attempt resumes from its last checkpoint, and a cleanup that leaves recorded resources
   fails;
 - a resumed campaign that fails admission still destroys the Windows VM it recorded;
