@@ -421,7 +421,7 @@ test("foreign, malformed, and secret-bearing checkpoints cannot drive cleanup", 
 
 test("notification observation checks exact Private, Session and Preview-fallback presentation without returning content", () => {
   const make = (body: string) => `Notification List:\n  NotificationRecord(1: pkg=org.chromium.webapk.synthetic user=0 tag=omp-attention-fixture)\n    key=synthetic-key\n    mUpdateTimeMs=1000000000000\n    android.title=String (OMP session needs attention)\n    android.text=String (${body})\nRanking Config:`;
-  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["SYNTHETIC-SECRET"] };
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["SYNTHETIC-SECRET"], originHost: "owned.example.test" };
   expect(observeNotificationDump("Current Notification Manager state:\nRanking Config:", expected).count).toBe(0);
   expect(() => observeNotificationDump("DUMP TIMEOUT", expected)).toThrow("unavailable");
   expect(observeNotificationDump(make(""), expected)).toEqual({ count: 1, titleMatches: true, bodyMatches: true, forbiddenFound: false });
@@ -435,13 +435,13 @@ test("notification ownership excludes another topic with the same visible title 
   const row = (tag: string, key: string, postedAt: number) => `\n  NotificationRecord(1: pkg=org.chromium.webapk.synthetic user=0 tag=${tag})\n    key=${key}\n    mUpdateTimeMs=${postedAt}\n    android.title=String (OMP session needs attention)\n    android.text=String ()`;
   const own = row("origin#omp-attention-fixture", "synthetic-own-key", 1000000000000);
   const other = row("origin#omp-attention-fixture-other", "synthetic-other-key", 1000000000001);
-  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: [] };
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: [], originHost: "owned.example.test" };
   expect(observeNotificationDump(`Notification List:${own}${other}\nRanking Config:`, expected)).toMatchObject({ count: 1, titleMatches: true, bodyMatches: true });
   expect(() => observeNotificationDump(`Notification List:${own.replace("mUpdateTimeMs=1000000000000", "mUpdateTimeMs=unknown")}\nRanking Config:`, expected)).toThrow("record identity unavailable");
 });
 
 test("notification selection expands its group and targets the child bound to the owned record", async () => {
-  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "Synthetic project", forbidden: [] };
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "Synthetic project", forbidden: [], originHost: "owned.example.test" };
   const row = (tag: string, key: string) => `\n NotificationRecord(1: pkg=${expected.packageName} tag=${tag})\n key=${key}\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String (${tag === expected.tag ? expected.body : "Unowned project"})`;
   let expanded = false; let reads = 0; let interfere = false;
   const taps: string[][] = [];
@@ -468,7 +468,7 @@ test("notification selection expands its group and targets the child bound to th
 });
 
 test("private presentation excludes unowned shade content and refuses a missing child boundary", async () => {
-  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["Synthetic ask canary"] };
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: ["Synthetic ask canary"], originHost: "owned.example.test" };
   let boundary = true;
   const command = async (...args: string[]) => {
     if (args.includes("dumpsys")) return `Notification List:\n NotificationRecord(1: pkg=${expected.packageName} tag=${expected.tag})\n key=own-key\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String ()\nRanking Config:`;
@@ -487,6 +487,35 @@ test("private presentation excludes unowned shade content and refuses a missing 
   expect(found.rowNodes.some(node => node.text === "Synthetic ask canary" || node.text === "Unowned message")).toBe(false);
   boundary = false;
   await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("content boundary unavailable");
+});
+
+test("Private selection skips another OMP Sessions app's same-title row by its origin header", async () => {
+  // The operator's daily gateway app shows the same Private title; each row header names its origin.
+  const expected = { packageName: "org.chromium.webapk.synthetic", tag: "omp-attention-fixture", title: "OMP session needs attention", body: "", forbidden: [], originHost: "owned.example.test" };
+  let ownedVisible = true;
+  const taps: string[][] = [];
+  const row = (origin: string, top: number) => `<node resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[0,${top}][400,${top + 200}]">
+      <node resource-id="android:id/status_bar_latest_event_content" bounds="[0,${top}][400,${top + 200}]">
+        <node resource-id="android:id/notification_header" bounds="[0,${top}][400,${top + 40}]">
+          <node resource-id="android:id/app_name_text" text="OMP Sessions" bounds="[20,${top}][160,${top + 40}]"/>
+          <node resource-id="android:id/header_text" text="${origin}" bounds="[170,${top}][300,${top + 40}]"/>
+          <node resource-id="android:id/expand_button" content-desc="Expand" bounds="[340,${top}][380,${top + 40}]"/>
+        </node>
+        <node resource-id="android:id/title" text="${expected.title}" bounds="[20,${top + 40}][300,${top + 80}]"/>
+      </node></node>`;
+  const command = async (...args: string[]) => {
+    if (args.includes("dumpsys")) return `Notification List:\n NotificationRecord(1: pkg=${expected.packageName} tag=${expected.tag})\n key=own-key\n mUpdateTimeMs=1000000000000\n android.title=String (${expected.title})\n android.text=String ()\nRanking Config:`;
+    if (args.includes("size")) return "Physical size: 400x800";
+    if (args.includes("tap")) { taps.push(args.slice(-2)); return ""; }
+    if (!args.includes("uiautomator")) return "";
+    return `<hierarchy><node bounds="[0,0][400,800]">${row("daily.example.test", 0)}${ownedVisible ? row(expected.originHost, 300) : ""}</node></hierarchy>`;
+  };
+  const found = await findAndroidNotification(command, expected, async () => {});
+  expect(found.target).toMatchObject({ text: expected.title, y: 360 });
+  expect(found.rowNodes.some(node => node.text === "daily.example.test")).toBe(false);
+  ownedVisible = false;
+  await expect(findAndroidNotification(command, expected, async () => {})).rejects.toThrow("owned notification absent");
+  expect(taps).toEqual([]);
 });
 
 test("task removal ignores retained focus references and waits for active task withdrawal", async () => {

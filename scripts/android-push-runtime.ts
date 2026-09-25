@@ -187,7 +187,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
   const expectation = (session: SessionMetadata, kind: "attention" | "activity_stop", level = selectedDetail): NotificationExpectation => ({
     packageName: packageName!, tag: `omp-attention-${session.instanceId}`, title: title(kind),
     body: level === "private" ? "" : [...[session.title, session.cwdLabel].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ")].slice(0, 256).join(""),
-    forbidden: [PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE, "Qualification benign activity canary"],
+    forbidden: [PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE, "Qualification benign activity canary"], originHost: new URL(identity.origin).host,
   });
   const snapshot = async (epoch: string) => {
     const response = await fetch(`${identity.origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });

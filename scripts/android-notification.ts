@@ -75,6 +75,8 @@ export interface NotificationObservation {
 }
 export interface NotificationExpectation {
   readonly packageName: string; readonly tag: string; readonly title: string; readonly body: string; readonly forbidden: readonly string[];
+  /** The owned origin's host, which Android shows in each WebAPK notification's row header. */
+  readonly originHost: string;
 }
 
 /** Transient OS identities and content: never serialize these records as evidence. */
@@ -149,17 +151,28 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
   for (let attempt = 0; attempt < 7; attempt += 1) {
     await command("shell", "input", "keyevent", "224");
     const nodes = await readAndroidUi(command);
-    const exact = nodes.filter(node => node.text === text);
-    const matches = exact.length > 0 ? exact : nodes.filter(node => node.description.includes(text));
+    const inside = (nodeIndex: number, ancestor: number) => {
+      for (let index: number | undefined = nodeIndex; index !== undefined; index = nodes[index]!.parent) if (index === ancestor) return true;
+      return false;
+    };
+    // The operator's daily OMP Sessions app shows the same Private title. Android names each WebAPK
+    // notification's origin in its row header, so a row naming another origin is never the owned one.
+    const foreign = (nodeIndex: number) => {
+      for (let row: number | undefined = nodes[nodeIndex]!.parent; row !== undefined; row = nodes[row]!.parent) {
+        if (!nodes[row]!.resource.endsWith(":id/expandableNotificationRow")) continue;
+        const header = nodes.find((node, index) => node.resource === "android:id/header_text" && inside(index, row!));
+        if (header !== undefined) return header.text !== expected.originHost;
+      }
+      return false;
+    };
+    const candidates = (test: (node: AndroidUiNode) => boolean) => nodes.filter((node, index) => test(node) && !foreign(index));
+    const exact = candidates(node => node.text === text);
+    const matches = exact.length > 0 ? exact : candidates(node => node.description.includes(text));
     if (matches.length > 1) throw new Error("notification UI locator is ambiguous for the owned record");
     if (matches.length === 1) {
       const match = matches[0]!;
       const ancestors: number[] = [];
       for (let index: number | undefined = nodes.indexOf(match); index !== undefined; index = nodes[index]!.parent) ancestors.push(index);
-      const inside = (nodeIndex: number, ancestor: number) => {
-        for (let index: number | undefined = nodeIndex; index !== undefined; index = nodes[index]!.parent) if (index === ancestor) return true;
-        return false;
-      };
       // Target the title in the child subtree identified by the synthetic body,
       // not a similarly titled group summary elsewhere in the hierarchy.
       let target = match;
@@ -176,7 +189,7 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
         peers: new Map(records.filter(record => record.tag.includes("omp-attention-") && record.key !== owned[0]!.key).map(record => [record.key, record.postedAt])) };
     }
     const headers = nodes.filter(node => node.text.includes("OMP Sessions") || node.description.includes("OMP Sessions"));
-    const expand = nodes.filter(node => node.resource.endsWith("/expand_button") && headers.some(header => Math.abs(header.y - node.y) < 100));
+    const expand = nodes.filter((node, index) => node.resource.endsWith("/expand_button") && !foreign(index) && headers.some(header => Math.abs(header.y - node.y) < 100));
     if (expand.length === 1) await command("shell", "input", "tap", String(expand[0]!.x), String(expand[0]!.y));
     else await command("shell", "input", "swipe", x, String(Math.floor(height * 0.8)), x, String(Math.floor(height * 0.3)), "400");
     await pause(500);
