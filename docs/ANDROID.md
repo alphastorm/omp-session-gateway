@@ -209,6 +209,10 @@ read only by `android-device.ts`, never echoed or copied into configuration.
 Display wake checks keyguard state before sending MENU/dismiss events. On an unlocked Pixel those
 events open Chrome's application menu instead of unlocking anything, intercepting subsequent
 touches. The helper preserves the unlocked page and authenticates only a still-visible keyguard.
+Notification-tap authentication also rechecks keyguard state while observing each bouncer and
+before revealing or entering the PIN. A keyguard that dismisses during a UI snapshot is already
+authenticated; the lane proceeds without waiting for a vanished input field or typing into the
+destination page. A missing or ambiguous credential surface still fails while the keyguard is shown.
 
 ### Matrix and evidence
 

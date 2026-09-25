@@ -7,7 +7,7 @@ import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/
 import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseKeyguardShowing, readAndroidQualificationPin, resolveAndroidBrowserTarget,
   wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
-import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type NotificationExpectation } from "./android-notification.ts";
+import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type AndroidUiNode, type NotificationExpectation } from "./android-notification.ts";
 import { commandPushFixture, executeFixture, type FixtureExecutor, type PushFixtureLocation } from "./push-qualification-fixture.ts";
 import { PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE } from "./fixtures/push-qualification-extension.ts";
 import { PAGE_PRELUDE } from "./android-leak-probe.ts";
@@ -72,6 +72,43 @@ export async function holdAndroidNotificationDenial(origin: string, connect: Per
   });
   void session.catch(error => ready.reject(error));
   return ready.promise;
+}
+
+interface NotificationAuthenticationRuntime {
+  readonly command: AndroidAdbCommand;
+  readonly revealPin: () => Promise<void>;
+  readonly unlock: () => Promise<void>;
+  readonly wait: (test: () => Promise<boolean>, name: string, milliseconds: number) => Promise<void>;
+}
+
+/** Authenticate the tap-created bouncer without replacing its pending notification action. */
+export async function authenticateAndroidNotification(runtime: NotificationAuthenticationRuntime): Promise<void> {
+  const locked = async () => parseKeyguardShowing(await runtime.command("shell", "dumpsys", "window"));
+  if (!await locked()) return;
+  const surface = async (): Promise<AndroidUiNode[] | undefined> => {
+    if (!await locked()) return;
+    let nodes: AndroidUiNode[];
+    try { nodes = await readAndroidUi(runtime.command); }
+    catch (error) { if (!await locked()) return; throw error; }
+    // Authentication can finish while UIAutomator is capturing the old bouncer.
+    return await locked() ? nodes : undefined;
+  };
+  let alternate = false;
+  await runtime.wait(async () => {
+    const nodes = await surface();
+    if (nodes === undefined) return true;
+    alternate = nodes.some(node => node.resource === "com.android.systemui:id/alternate_bouncer");
+    return alternate || nodes.filter(node => node.systemInput).length === 1;
+  }, "notification authentication surface", 15_000);
+  if (!await locked()) return;
+  if (alternate) await runtime.revealPin();
+  await runtime.wait(async () => {
+    const nodes = await surface();
+    return nodes === undefined || nodes.filter(node => node.systemInput).length === 1;
+  }, "notification PIN bouncer", 15_000);
+  if (!await locked()) return;
+  await runtime.unlock();
+  await runtime.wait(async () => !await locked(), "notification keyguard dismissal", 20_000);
 }
 
 export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "origin" | "omp">, options: AndroidPushRuntimeOptions = {}): AndroidPushRuntime {
@@ -419,24 +456,13 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
           stage = "keyguard authentication";
           // Menu/dismiss-keyguard would replace the notification's pending launch action.
           // Authenticate the bouncer created by the tap, without another dismiss request.
-          if (parseKeyguardShowing(await command("shell", "dumpsys", "window"))) {
-            try {
-              let alternate = false;
-              await wait(async () => {
-                const nodes = await readAndroidUi(command);
-                alternate = nodes.some(node => node.resource === "com.android.systemui:id/alternate_bouncer");
-                return alternate || nodes.filter(node => node.systemInput).length === 1;
-              }, "notification authentication surface", 15_000);
-              if (alternate) await showAndroidPinBouncer(mutate);
-              await wait(async () => (await readAndroidUi(command)).filter(node => node.systemInput).length === 1, "notification PIN bouncer", 15_000);
-            } catch (error) {
-              const nodes = await readAndroidUi(command);
-              const remaining = (await readAndroidNotificationRecords(command, packageName!)).filter(record => record.tag.endsWith(`omp-attention-${session.instanceId}`)).length;
-              throw new Error(`notification PIN bouncer unavailable (owned records: ${remaining}; secure inputs: ${nodes.filter(node => node.systemInput).length})`, { cause: error });
-            }
-            await runtime.beforeEffect();
-            await unlockAndroidKeyguard(serial!);
-            await wait(async () => !parseKeyguardShowing(await command("shell", "dumpsys", "window")), "notification keyguard dismissal", 20_000);
+          try {
+            await authenticateAndroidNotification({ command, revealPin: () => showAndroidPinBouncer(mutate),
+              unlock: async () => { await runtime.beforeEffect(); await unlockAndroidKeyguard(serial!); }, wait });
+          } catch (error) {
+            const nodes = await readAndroidUi(command);
+            const remaining = (await readAndroidNotificationRecords(command, packageName!)).filter(record => record.tag.endsWith(`omp-attention-${session.instanceId}`)).length;
+            throw new Error(`notification authentication unavailable (owned records: ${remaining}; secure inputs: ${nodes.filter(node => node.systemInput).length})`, { cause: error });
           }
           stage = "page attachment";
           await wait(async () => { if (attachedError) throw new Error("tap observer could not attach"); return attached !== undefined; }, "notification target");
