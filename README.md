@@ -232,10 +232,11 @@ After installation and tailnet configuration:
    interruptions when they persist, and keeps each answer at `Sending…` until OMP acknowledges
    it. After an authoritative answer, it offers the next ask or returns to the exact directory
    order and scroll position.
-6. **Experimental outside the stable core claim:** the Settings sheet behind the masthead control can enable
-   background Web Push alerts and choose Private, Session, or Preview detail. The no-store tap
-   path is implemented and capability-free, but closed-PWA/lock-screen/force-stop/network behavior
-   is not stable-qualified. Since v0.5.0, the activity extension also alerts on observed working-to-idle
+6. **Background alerts, qualified on the Pixel only:** the Settings sheet behind the masthead
+   control can enable background Web Push alerts and choose Private, Session, or Preview detail.
+   The no-store tap path is capability-free; the qualified Pixel scope and its observed force-stop
+   and Doze variants are listed under [Compatibility and release status](#compatibility-and-release-status).
+   Since v0.5.0, the activity extension also alerts on observed working-to-idle
    transitions from hosts publishing `busy`; stop taps open View after fresh generation validation.
    Unknown activity, disappearance, and reconnect are never treated as completed work.
 7. Session switches, exits, crashes, daemon restarts, and ordinary foreground/online transport
@@ -346,7 +347,7 @@ flowchart LR
     PHONE -->|encrypted collaboration frames| RELAY[OMP relay]
     OMP1 -->|encrypted collaboration frames| RELAY
     OMP2 -->|encrypted collaboration frames| RELAY
-    GATEWAY -->|experimental encrypted metadata-only push| PUSH[Browser push service]
+    GATEWAY -->|encrypted metadata-only push| PUSH[Browser push service]
     PUSH -->|wake service worker| PHONE
 ```
 

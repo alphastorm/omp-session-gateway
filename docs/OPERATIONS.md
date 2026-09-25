@@ -124,8 +124,9 @@ Service mechanisms (qualification is limited to the exact release matrix):
   not every Linux distribution or non-systemd host;
 - macOS: LaunchAgent under the current user; starts after that user logs in, not at unattended boot;
 - Windows: current-user scheduled task that starts at interactive logon, not at unattended boot;
-  supported and CI-tested (service lifecycle on every change, a daily stock-OMP named-pipe canary),
-  with signed-release qualification pending ([Windows delta](WINDOWS_QUALIFICATION.md)).
+  Windows Server 2025 x86-64 is qualified ([Windows qualification](WINDOWS_QUALIFICATION.md)), and
+  other versions are supported and CI-tested (service lifecycle on every change, a daily stock-OMP
+  named-pipe canary).
 
 Operator commands:
 

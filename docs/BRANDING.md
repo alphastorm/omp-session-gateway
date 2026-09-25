@@ -67,9 +67,10 @@ exclamation marks. Security claims stated as invariants ("Capabilities are
 requested only when you tap an action."). Keep the standing disclaimer:
 "Community project; not affiliated with OMP." Describe stock mainline OMP `>= 18.1.20` as the
 prerequisite, not a gateway-specific build. Use only the exact qualified mainline core matrix in
-the [release ledger](RELEASE_STATUS.md) and [compatibility policy](COMPATIBILITY.md). Keep
-Windows, background Web Push, specialized attention, and branch/resume outside that claim. Label
-fork-era release/host/client results as history rather than reusing their support badges.
+the [release ledger](RELEASE_STATUS.md) and [compatibility policy](COMPATIBILITY.md): Windows only
+as Windows Server 2025 at interactive logon, and background Web Push only on the Pixel. Keep
+specialized attention and branch/resume outside that claim. Label fork-era release/host/client
+results as history rather than reusing their support badges.
 
 ## Message hierarchy
 
