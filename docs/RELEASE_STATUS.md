@@ -3,17 +3,30 @@
 ## v0.6.0 preparation — not yet qualified or published
 
 The candidate is the first whose campaign includes the Windows host lane and the Pixel
-background-Push lane (ADR-031, #253, #257). Its shipped bytes change in three places: pushes carry
-no Web Push `Topic`, which FCM throttled after 20 messages per device (#255, amending ADR-017);
-the service worker closes a notification no sooner than two seconds after displaying it and skips
-unchanged re-shows (#256); and the PWA's outage and troubleshooting text speaks of "this device"
-across Android, iPhone and iPad, and computers (#251). #248–#250, #252, #253, and #257 change CI,
-documentation, and qualification tooling only; they are not in the candidate archive. Before
-preparation, the background-Push lane passed one uninterrupted development run against the
-retained Mac's no-Topic build, whose product source equals this candidate's, and the Windows lane
-passed on a real VM (#253); both are tested evidence. Published v0.5.3 remains the predecessor
-and current stable; no v0.6.0 qualification or publication is claimed, and the stable lock
-remains unchanged until approval.
+background-Push lane (ADR-031, #253, #257). Its shipped bytes change in four places:
+
+- pushes carry no Web Push `Topic`, which FCM throttled after 20 messages per device (#255,
+  amending ADR-017);
+- the service worker closes a notification no sooner than two seconds after displaying it and
+  skips unchanged re-shows (#256);
+- the PWA's outage and troubleshooting text speaks of "this device" across Android, iPhone and
+  iPad, and computers (#251);
+- on Windows, the gateway stays alive while a failed private-ACL helper is cleared, so a slow logon
+  retries the helper instead of exiting before it listens (#263).
+
+#248–#250, #252, #253, #257, and #259–#262 change CI, documentation, and qualification tooling
+only; they are not in the candidate archive.
+
+Before preparation, the background-Push lane passed one uninterrupted development run against the
+retained Mac's no-Topic build, whose product source equals this candidate's. The Windows lane
+passed on a real VM (#253). Both are tested evidence.
+
+The published v0.6.0-prealpha.1 cannot qualify. Its two campaigns failed on qualification-tooling
+defects (#259, #260, #262) and on the Windows logon exit that #263 fixes in the runtime. Both
+receipts are archived unchanged.
+
+Published v0.5.3 remains the predecessor and current stable. No v0.6.0 qualification or
+publication is claimed, and the stable lock remains unchanged until approval.
 
 ## Mainline v0.5.3 — published stable
 
