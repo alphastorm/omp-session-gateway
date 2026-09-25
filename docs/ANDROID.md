@@ -389,6 +389,55 @@ The complete uninterrupted matrix remains **blocked at authoritative clear**. Fo
 complete real network matrix, and the final real sink sweep have not passed end to end. These are
 **tested observations**, not qualification of v0.5.3 or the future v0.6.0 candidate.
 
+### Retained-Mac development run with the mitigation
+
+A single uninterrupted production-adapter/runner attempt at orchestrator
+`aed340d50c0819aeafcd9f8bfecd7fc7325a45ef` used the retained Mac, stock OMP 18.3.0, Bun 1.4.0,
+and the same physical Pixel/Android/Chrome combination. The development gateway build was
+`0.5.3-ab78cd73dc1d`, archive source `ddee00de7974f7aa39ec04d2a5f766c75bbfda12`, archive
+SHA-256 `c7003944f39449b909960c7abb8e44971d7219b91045a445a1ed49a3b71674ef`. Its worker
+included the settle/re-query and duplicate-content mitigation. The retained origin had its own
+explicitly installed WebAPK and real granted subscription; the original local-origin app was
+independently observed still installed.
+
+| Completed phase | Phase duration | Observation |
+| --- | --- | --- |
+| Subscription | 24.164 s | Enabled |
+| Locked Private | 56.625 s | One owned notification; matching detail |
+| Locked Session | 61.074 s | One owned notification; matching detail |
+| Locked Preview | 59.034 s | One owned notification; matching detail |
+| Attention tap | 52.653 s | Revalidated, scrubbed Control |
+| Activity stop | 70.886 s | Two known-busy polls; View only |
+| Stale generation | 74.332 s | Same instance, generation +1, zero launches |
+| Clear/fresh | 81.999 s | Authoritative clear; fresh request retained |
+| Force-stop | 131.309 s | Delivered while force-stopped; fresh delivery afterward |
+| Permission | 128.772 s | Suppressed while denied; fresh delivery after restoration |
+
+The next phase again failed with **lock/resume authoritative clear timed out**. The exact error
+line was identified by its stderr digest. Total runner time was 901.483 s including cleanup; the
+failed phase has no completed duration. No retry was made. Doze, networking, and the sink sweep
+were not reached. This recurrence means the measured mitigation did **not** resolve the complete
+sequence failure.
+
+The passive trace retained 1,109 rows with zero drops: 26 owned-topic notification rows, 212
+process rows, and 871 Chrome diagnostic rows. It contained no selected FCM receipt rows; delivery
+and push-handler execution therefore remain unobserved, not disproved. The final owned-topic
+enqueue preceded the final native cancellation by 90.689 s, with no intervening or later enqueue.
+That sequence differs from the controlled cancel-then-late-post signature. The trace did not retain
+per-request arm/resolution times, OS content/post-update hashes, browser handles, or worker
+show/close times. It cannot identify the lingering request or establish the 2 s branch taken.
+Timestamp-and-hash-matched read-only log recovery identified sandboxed Chrome process churn in
+that interval, but no Chrome-main or WebAPK lifecycle event within it; it did not identify the
+service-worker process. The exact timeout path proves fixture answer acknowledgement and a
+gateway snapshot with the ask cleared before waiting for notification removal, not their time.
+
+Cleanup passed for the same epoch, progress was restored with cleanup no longer required, and
+the lease was released. A later read-only query matched all ten device baseline booleans and
+found no owned notification; DND remained off. The restored browser baseline was granted,
+subscribed, Session detail. This is partial **development-tested** evidence, not a matrix pass
+or stable qualification. Further diagnosis must capture the missing request/native/browser
+identities before cleanup rather than extending the clear deadline or retrying its missing event.
+
 ## Optional passkey/biometric gate
 
 WebAuthn Control protection is proposed in ADR-008, not implemented in v0.4.0. There is no

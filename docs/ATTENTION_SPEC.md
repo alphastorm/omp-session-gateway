@@ -265,9 +265,20 @@ inherited by a fresh worker close immediately.
 A detached native-API probe with that settle/re-query ordering then completed 10 warm and 5 cold
 pairs with zero orphans. All pairs returned zero browser handles and remained natively absent
 for at least 13.726 s after completion; fixture, transient UI, and device baseline were restored.
-That controlled result does not substitute for the full Web Push matrix below.
+That controlled result does not substitute for the full Web Push checklist above.
 Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
 experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
 matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,
 not completion of this checklist and not qualification. See ANDROID.md for timings, restored
 baselines, and the exact observed platform combination.
+
+A later single uninterrupted run through the production adapter/runner against the retained Mac
+and the development worker containing that mitigation again failed lock/resume authoritative
+clear, after completing every phase through denied-permission restoration. It took 901.483 s
+including cleanup; Doze, networking, and sinks were not reached. The final owned-topic native
+enqueue preceded cancellation by 90.689 s with no later enqueue, unlike the controlled warm
+replacement signature. FCM receipt, handler execution, and the lingering request/content identity
+were not captured, so the cause remains unresolved. All ten device baseline booleans matched in
+a post-run read-only check, the owned notification was absent, and the lease was released.
+The original local-origin WebAPK remained installed after authorized retained-origin setup.
+The mitigation is not a full-sequence fix and this run does not check the qualification boxes.

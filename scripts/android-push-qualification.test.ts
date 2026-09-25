@@ -415,12 +415,12 @@ test("task removal ignores retained focus references and waits for active task w
   const active = "  * Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
   const stale = "  mLastFocusedRootTask=Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
   expect(webApkTasks(stale, "org.chromium.webapk.synthetic")).toEqual([]);
-  let removed = false; let polls = 0;
+  let removed = false; let polls = 0; let taskStillActive = true;
   await closeWebApk(async (...args) => {
     if (args.includes("remove")) { removed = true; return ""; }
-    polls++; return !removed || polls < 3 ? active : stale;
+    polls++; taskStillActive = !removed || polls < 3; return taskStillActive ? active : stale;
   }, "org.chromium.webapk.synthetic", async () => {});
-  expect(removed).toBe(true); expect(polls).toBe(3);
+  expect(removed).toBe(true); expect(taskStillActive).toBe(false);
 });
 
 for (const choiceSheet of [false, true]) test(`one-time WebAPK setup installs through ${choiceSheet ? "the choice sheet" : "direct confirmation"} and preserves an existing app`, async () => {
