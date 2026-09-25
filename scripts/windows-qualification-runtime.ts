@@ -30,19 +30,25 @@ interface Access extends Record<string, unknown> {
   credentialDigest?: string;
   ompPath?: string;
   ompPid?: number;
-  pixelState?: { serial: string; component: string; launcherPackage: string; wakefulness: string; keyguard: boolean };
+  pixelState?: { serial: string; component: string; launcherPackage: string; launcherCategory: string; wakefulness: string; keyguard: boolean };
 }
-export function windowsPixelLauncherPackage(activities: string, component: string): string {
+/** What restoration relaunches: the app that owns the resumed task, or the home app when the Pixel sat at home. */
+export function windowsPixelLauncher(activities: string, component: string): { packageName: string; category: string } {
   const lines = activities.split(/\r?\n/u);
   const tasks = new Set(lines.filter(line => line.includes(` ${component} `)).flatMap(line => /\bt(\d+)\b/u.exec(line)?.[1] ?? []));
-  const packages = new Set<string>();
+  const launchers = new Map<string, string>();
   for (const line of lines) {
     const task = /Task\{[^}]*#(\d+)\b/u.exec(line)?.[1];
-    const name = /\bA=\d+:([A-Za-z0-9_.]+)/u.exec(line)?.[1];
-    if (task && tasks.has(task) && name) packages.add(name);
+    if (!task || !tasks.has(task)) continue;
+    // A home task has no affinity, so Android prints its intent component instead, and the home
+    // app answers the HOME category: `monkey` finds no LAUNCHER activity in it.
+    const home = /\btype=home\b/u.test(line);
+    const name = /\bA=\d+:([A-Za-z0-9_.]+)/u.exec(line)?.[1] ?? (home ? /\bI=([A-Za-z0-9_.]+)\//u.exec(line)?.[1] : undefined);
+    if (name) launchers.set(name, home ? "android.intent.category.HOME" : "android.intent.category.LAUNCHER");
   }
-  if (packages.size !== 1) throw new Error("Pixel foreground launcher is ambiguous");
-  return [...packages][0]!;
+  const [launcher] = launchers;
+  if (launchers.size !== 1 || !launcher) throw new Error("Pixel foreground launcher is ambiguous");
+  return { packageName: launcher[0], category: launcher[1] };
 }
 async function command(argv: readonly string[], options: { cwd?: string; input?: string; timeoutMs?: number; allowedExitCodes?: readonly number[] } = {}): Promise<string> {
   const proc = Bun.spawn([...argv], { cwd: options.cwd ?? root, stdin: options.input === undefined ? "ignore" : "pipe", stdout: "pipe", stderr: "pipe" });
@@ -259,7 +265,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       }
     });
     await context.beforeEffect();
-    await command(["adb", "-s", serial, "shell", "monkey", "-p", baseline.launcherPackage, "-c", "android.intent.category.LAUNCHER", "1"], { timeoutMs: 30_000 });
+    await command(["adb", "-s", serial, "shell", "monkey", "-p", baseline.launcherPackage, "-c", baseline.launcherCategory, "1"], { timeoutMs: 30_000 });
     if (baseline.keyguard || baseline.wakefulness !== "Awake") {
       await context.beforeEffect(); await command(["adb", "-s", serial, "shell", "input", "keyevent", "223"]);
       if (baseline.wakefulness === "Awake") {
@@ -410,9 +416,9 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       const wakefulness = /mWakefulness=(Awake|Asleep|Dozing|Dreaming)/u.exec(power)?.[1];
       const keyguard = parseKeyguardShowing(await command(["adb", "-s", serial, "shell", "dumpsys", "window"]));
       if (!component || !wakefulness) throw new Error("Pixel baseline is incomplete");
-      const launcherPackage = windowsPixelLauncherPackage(activities, component);
+      const launcher = windowsPixelLauncher(activities, component);
       if ((await command(["adb", "forward", "--list"])).includes("tcp:9222")) throw new Error("Pixel debugging port already has an owner");
-      await context.beforeEffect(); await atomicPrivate(vaultPath(context.epoch), { ...access, pixelState: { serial, component, launcherPackage, wakefulness, keyguard } });
+      await context.beforeEffect(); await atomicPrivate(vaultPath(context.epoch), { ...access, pixelState: { serial, component, launcherPackage: launcher.packageName, launcherCategory: launcher.category, wakefulness, keyguard } });
       let result: Record<string, unknown> | undefined;
       let primary: unknown;
       try {
