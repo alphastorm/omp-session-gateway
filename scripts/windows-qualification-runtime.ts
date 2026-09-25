@@ -1,18 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import pins from "./windows-qualification-pins.json";
 import { cleanupWindows, preflightWindows, runWindows, windowsCampaignLabel, windowsNeedsCleanup } from "./windows-stable-qualification.ts";
 import type { WindowsAdmission, WindowsArtifact, WindowsContext, WindowsFirewall, WindowsIdentity, WindowsInstance, WindowsPreflightInput, WindowsRuntime } from "./windows-stable-qualification.ts";
-import { parseQualificationPins, verifyLaunchContracts, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
+import { parseQualificationPins, parseStableQualificationArgs, releaseArchivePath, verifyLaunchContracts, verifyRelease, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
 import { windowsHostScript } from "./upstream-canary.ts";
 import { OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 import { parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./android-device.ts";
 import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
-import { downloadReleaseAssets } from "./release-download.ts";
-import { assertReleaseTagState, assertReleaseTagReferenceStable } from "./release-tag-state.ts";
-import { assertReleaseArchiveIdentity, releaseAssetNames } from "./post-release-smoke.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
 
@@ -450,49 +447,41 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
   };
 }
 
-async function verifiedDevelopmentArtifact(tag: string): Promise<WindowsArtifact> {
-  if (!/^v\d+\.\d+\.\d+$/u.test(tag)) throw new Error("development tag must be a published stable version");
-  const version = releaseVersion(tag); const names = releaseAssetNames(version); const directory = join(devRoot, "assets", tag);
-  await downloadReleaseAssets(directory, () => command(["gh", "release", "download", tag, "--repo", "alphastorm/omp-session-gateway", "--dir", directory], { timeoutMs: 300_000 }));
-  await chmod(directory, 0o700);
-  if (JSON.stringify((await readdir(directory)).sort()) !== JSON.stringify([...names.all].sort())) throw new Error("release asset inventory mismatch");
-  await command(["shasum", "-a", "256", "-c", "SHA256SUMS"], { cwd: directory });
-  const workflow = "alphastorm/omp-session-gateway/.github/workflows/signed-release.yml";
-  for (const asset of names.attested) {
-    await command(["gh", "attestation", "verify", join(directory, asset), "--repo", "alphastorm/omp-session-gateway", "--signer-workflow", workflow, "--source-ref", `refs/tags/${tag}`], { timeoutMs: 300_000 });
-    await command(["cosign", "verify-blob", "--bundle", join(directory, `${asset}.sigstore.json`), "--certificate-identity", `https://github.com/${workflow}@refs/tags/${tag}`, "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", join(directory, asset)], { timeoutMs: 180_000 });
-  }
-  await command(["git", "tag", "-v", tag]);
-  const sourceCommit = await command(["git", "rev-parse", `${tag}^{commit}`]);
-  const referencePath = `repos/alphastorm/omp-session-gateway/git/ref/tags/${tag}`;
-  const first = JSON.parse(await command(["gh", "api", referencePath]));
-  const annotated = JSON.parse(await command(["gh", "api", `repos/alphastorm/omp-session-gateway/git/tags/${first.object.sha}`]));
-  const last = JSON.parse(await command(["gh", "api", referencePath]));
-  assertReleaseTagReferenceStable(first, last);
-  assertReleaseTagState(last, annotated, tag, sourceCommit);
-  const archivePath = join(directory, names.archive); await chmod(archivePath, 0o600);
-  const member = `omp-session-gateway-${version}-bun/release-info.json`;
-  const info = JSON.parse(await command(["tar", "-xOf", archivePath, member])) as Record<string, unknown>;
-  assertReleaseArchiveIdentity(info, version, sourceCommit, pins.bunVersion);
-  return { tag, sourceCommit, archivePath, archiveSha256: digest(await readFile(archivePath)) };
+/** The campaign's own release verification, so the probe installs exactly the bytes a campaign would. */
+async function verifiedDevelopmentArtifact(tag: string, stable: boolean, ghToken: string): Promise<WindowsArtifact> {
+  const directory = join(devRoot, "assets", tag);
+  const release = await verifyRelease(tag, directory, stable, ghToken);
+  const archivePath = releaseArchivePath(directory, tag);
+  await chmod(directory, 0o700); await chmod(archivePath, 0o600);
+  return { tag, sourceCommit: release.sourceCommit, archivePath, archiveSha256: release.archiveSha256 };
 }
 
 export async function windowsDevelopmentCli(args: readonly string[]): Promise<void> {
-  if (args.length !== 1 || !["preflight", "artifacts", "run", "cleanup"].includes(args[0]!)) throw new Error("usage: bun scripts/windows-stable-qualification.ts preflight|artifacts|run|cleanup");
+  const [mode = "", ...rest] = args;
+  const usage = "usage: bun scripts/windows-stable-qualification.ts preflight|cleanup, or artifacts|run --tag vX.Y.Z-prealpha.N";
+  if (!["preflight", "artifacts", "run", "cleanup"].includes(mode)) throw new Error(usage);
+  // The campaign's tag grammar and published predecessor: the probe never installs a pair a campaign would not.
+  const options = mode === "artifacts" || mode === "run" ? parseStableQualificationArgs(rest, {}) : undefined;
+  if ((options === undefined && rest.length > 0) || options?.preflight === true) throw new Error(usage);
   const runtime = await createWindowsRuntime({ development: true });
-  if (args[0] === "preflight") { console.log(JSON.stringify(await preflightWindows({}, runtime))); return; }
+  if (mode === "preflight") { console.log(JSON.stringify(await preflightWindows({}, runtime))); return; }
   await mkdir(devRoot, { recursive: true, mode: 0o700 }); await chmod(devRoot, 0o700);
   const progressPath = join(devRoot, "progress.json"); const identityPath = join(devRoot, "identity.json");
   let progress: unknown;
   try { progress = JSON.parse(await privateFile(progressPath)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  if (args[0] === "artifacts" && windowsNeedsCleanup(progress)) throw new Error("cannot replace artifact inputs while a Windows attempt needs cleanup");
+  if (mode === "artifacts" && windowsNeedsCleanup(progress)) throw new Error("cannot replace artifact inputs while a Windows attempt needs cleanup");
   let identity: WindowsIdentity;
-  if (args[0] === "cleanup" || windowsNeedsCleanup(progress)) identity = JSON.parse(await privateFile(identityPath)) as WindowsIdentity;
-  else {
-    identity = { tag: "v0.5.3", candidate: await verifiedDevelopmentArtifact("v0.5.3"), predecessor: await verifiedDevelopmentArtifact("v0.5.2"), omp: parseQualificationPins(await readFile(join(root, "UPSTREAM.lock.json"), "utf8")) };
+  if (mode === "cleanup" || windowsNeedsCleanup(progress)) {
+    identity = JSON.parse(await privateFile(identityPath)) as WindowsIdentity;
+    if (options !== undefined && identity.tag !== options.tag) throw new Error(`the retained attempt belongs to ${identity.tag}; run cleanup before probing ${options.tag}`);
+  } else {
+    if (options === undefined) throw new Error(usage);
+    const ghToken = await command(["gh", "auth", "token"]);
+    identity = { tag: options.tag, candidate: await verifiedDevelopmentArtifact(options.tag, false, ghToken),
+      predecessor: await verifiedDevelopmentArtifact(options.previousTag, true, ghToken), omp: parseQualificationPins(await readFile(join(root, "UPSTREAM.lock.json"), "utf8")) };
     await atomicPrivate(identityPath, identity); progress = undefined;
   }
-  if (args[0] === "artifacts") {
+  if (mode === "artifacts") {
     console.log(JSON.stringify({ candidate: identity.candidate.tag, predecessor: identity.predecessor.tag, verified: true }));
     return;
   }
@@ -506,7 +495,7 @@ export async function windowsDevelopmentCli(args: readonly string[]): Promise<vo
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         const owner = await readFile(join(lock, "owner"), "utf8").catch(() => "");
         const fields = owner.trim().split(" ");
-        if (args[0] === "cleanup" && fields[0] === "WindowsLane" && fields[2] === epoch && /^\d+$/u.test(fields[3] ?? "")) {
+        if (mode === "cleanup" && fields[0] === "WindowsLane" && fields[2] === epoch && /^\d+$/u.test(fields[3] ?? "")) {
           try { process.kill(Number(fields[3]), 0); }
           catch (failure) { if ((failure as NodeJS.ErrnoException).code === "ESRCH") break; }
         }
@@ -525,7 +514,7 @@ export async function windowsDevelopmentCli(args: readonly string[]): Promise<vo
       if (!(await loadAccess(epoch)).pixelState) await rm(lock, { recursive: true });
     }
   };
-  if (args[0] === "cleanup") { console.log(JSON.stringify(await cleanupWindows({ identity, progress, checkpoint, pixel, runtime }))); return; }
+  if (mode === "cleanup") { console.log(JSON.stringify(await cleanupWindows({ identity, progress, checkpoint, pixel, runtime }))); return; }
   const result = await runWindows({ identity, progress, checkpoint, pixel, runtime });
   const cleanup = await cleanupWindows({ identity, progress, checkpoint, pixel, runtime });
   const evidence = { claim: "tested-development-only", ...result, cleanup };

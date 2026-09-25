@@ -65,14 +65,18 @@ The development commands are:
 ```sh
 export PATH="$HOME/.local/lib/omp-session-gateway/bun/v1.4.0:$PATH"
 bun scripts/windows-stable-qualification.ts preflight
-bun scripts/windows-stable-qualification.ts artifacts
-bun scripts/windows-stable-qualification.ts run
+bun scripts/windows-stable-qualification.ts artifacts --tag vX.Y.Z-prealpha.N
+bun scripts/windows-stable-qualification.ts run --tag vX.Y.Z-prealpha.N
 # Also safe after an interrupted controller; recovers ownership from the checkpoint epoch.
 bun scripts/windows-stable-qualification.ts cleanup
 ```
 
-`artifacts` verifies published v0.5.3 and v0.5.2 with the existing release-download, tag, archive
-identity and asset-name helpers, checksums, GitHub attestations, and Sigstore bundles. Development
+`artifacts` and `run` take the campaign's candidate tag and pair it with the published stable
+predecessor, both through the campaign's own argument parsing and release verification: signed
+tag, exact asset set, GitHub release state, checksums, GitHub attestations, and Sigstore bundles.
+A development run therefore installs exactly the pre-release bytes a campaign would; the earlier
+stable-only pair never exercised a pre-release tag, which hid a version-derivation defect until a
+paid campaign. A retained attempt resumes only for the tag it recorded. Development
 state is private under `~/.local/share/omp-session-gateway/qualification/dev/windows/`; it is
 **tested evidence only**, never candidate qualification. The separate epoch vault has a `0700`
 parent and `0600` files. It is the only persisted location for guest access credentials and

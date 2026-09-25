@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
+import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
 
@@ -181,7 +182,7 @@ export interface OmpPins {
   readonly nativeBinarySha256: string;
 }
 
-interface CandidateVerification extends CandidateIdentity {
+export interface CandidateVerification extends CandidateIdentity {
   readonly assetDirectory: string;
   readonly releaseUrl: string;
 }
@@ -717,13 +718,7 @@ export async function assertProtectedFilesUnchanged(
   }
 }
 
-function releaseVersion(tag: string): string {
-  const version = /^v([0-9]+\.[0-9]+\.[0-9]+)(?:-|$)/u.exec(tag)?.[1];
-  if (version === undefined) throw new Error(`release tag ${tag} does not name a version`);
-  return version;
-}
-
-function releaseArchivePath(assetDirectory: string, tag: string): string {
+export function releaseArchivePath(assetDirectory: string, tag: string): string {
   return join(assetDirectory, `omp-session-gateway-${releaseVersion(tag)}-bun.tar`);
 }
 
@@ -740,7 +735,7 @@ function predecessorAssetDirectory(options: StableQualificationOptions): string 
  * state, checksums, and every attestation and Sigstore bundle. The candidate is a prerelease; the
  * predecessor must be the published stable that is GitHub Latest.
  */
-async function verifyRelease(
+export async function verifyRelease(
   tag: string,
   assetDirectory: string,
   stable: boolean,
