@@ -8,6 +8,7 @@ import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
+import { defaultLaneModules } from "./stable-lanes.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
@@ -828,7 +829,12 @@ function externalLaneIdentity(
   };
 }
 
-function remoteExecutor(target: MacTarget): RemoteExecutor {
+/** The single remote shell line for `argv`: ssh hands it to the login shell, which must see each element verbatim. */
+export function remoteCommandLine(argv: readonly string[]): string {
+  return argv.map(shellQuote).join(" ");
+}
+
+export function remoteExecutor(target: MacTarget): RemoteExecutor {
   return (argv, options = {}) =>
     runCommand(
       [
@@ -841,7 +847,7 @@ function remoteExecutor(target: MacTarget): RemoteExecutor {
         "BatchMode=yes",
         "-q",
         target.sshDestination,
-        argv.map(shellQuote).join(" "),
+        remoteCommandLine(argv),
       ],
       {
         allowFailure: true,
@@ -1099,7 +1105,7 @@ async function loadQualificationPins(): Promise<OmpPins> {
   return parseQualificationPins(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
 }
 
-async function recoverRetainedMac(options: StableQualificationOptions): Promise<MacTarget> {
+export async function recoverRetainedMac(options: StableQualificationOptions): Promise<MacTarget> {
   const credentialPath = resolve(process.env.OMP_STABLE_SCW_CREDENTIAL_FILE ?? join(homedir(), ".scaleway-apikey"));
   const credentialMetadata = await lstat(credentialPath);
   if (!credentialMetadata.isFile() || credentialMetadata.isSymbolicLink() || credentialMetadata.uid !== process.getuid?.() || (credentialMetadata.mode & 0o077) !== 0) {
