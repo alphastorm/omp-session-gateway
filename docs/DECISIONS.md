@@ -254,7 +254,7 @@ transition still require native-device qualification.
 
 ## ADR-017 — Deliver actionable attention through metadata-only Web Push
 
-**Status:** Accepted
+**Status:** Accepted; amended 2026-09-25 (no coalescing topic)
 
 **Context:** Foreground SSE notifications cannot reach an installed PWA after its page closes. The
 phone user needs an actionable alert that reaches the exact live session with one tap, without
@@ -281,6 +281,23 @@ scoped private persistence exception, while collaboration capabilities and the s
 remain memory-only. Physical Android background, lock-screen, tap, force-stop, and network-change
 qualification is release-blocking. A native FCM wrapper remains a fallback only if this path fails
 that qualification.
+
+**Amendment — 2026-09-25:** Messages carry no coalescing topic. FCM treats a Web Push `Topic` as
+a collapse key and limits collapsible messages to "a burst of 20 messages per app per device, with
+a refill of 1 message every 3 minutes"
+([FCM throttling](https://firebase.google.com/docs/cloud-messaging/throttling-and-quotas)). Every
+ask sends an attention and a clear, and stops and page-load replays add more, so ordinary use
+exceeds that budget. The physical background-Push lane failed twice at the same late step: an
+answered ask's clear did not arrive within a minute, so its notification stayed up. A controlled
+comparison on the same Pixel isolated the topic. With it, 21 messages arrived within 3.5 seconds
+and the next two took 151 and 172 seconds; without it, immediately afterwards and with that budget
+spent, all 28 arrived within 3.1 seconds. Dropping the topic also stops exposing a stable
+per-session identifier to the push service.
+
+Residual, accepted: a device that was offline receives every unexpired message on reconnect, not
+only the newest, so an ask resolved meanwhile can alert briefly before its clear closes it. Push
+services do not guarantee order either way, and the request-specific clear still cannot close a
+newer ask. Activity-stop messages follow the same rule.
 
 ---
 

@@ -176,10 +176,11 @@ Tailscale Serve user identity headers are populated for user-owned source device
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
 No inbound public gateway route is required. Web Push encrypts the payload for the browser
-subscription, while the push service still observes the endpoint, source IP, size, instance-derived
-coalescing topic, and delivery timing (including activity-stop timing). Private notification detail
-does not hide this traffic metadata. Treat subscription endpoints and keys as sensitive private
-state even though they cannot grant collaboration access.
+subscription, while the push service still observes the endpoint, source IP, size, and delivery
+timing (including activity-stop timing). Messages carry no Web Push `Topic`, so the push service
+receives no per-session identifier. Private notification detail does not hide this traffic
+metadata. Treat subscription endpoints and keys as sensitive private state even though they cannot
+grant collaboration access.
 
 ## 5. Relay exposure
 
