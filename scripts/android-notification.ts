@@ -165,10 +165,18 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
       }
       return undefined;
     };
+    // A row's template bounds its content. A collapsed group shows each child as one line with neither
+    // that boundary nor the child's origin, so such a line is never selected; its group is expanded.
+    const content = (nodeIndex: number): number | undefined => {
+      for (let index = nodes[nodeIndex]!.parent; index !== undefined; index = nodes[index]!.parent) {
+        if (nodes[index]!.resource === "android:id/status_bar_latest_event_content") return index;
+      }
+      return undefined;
+    };
     // Prefer the row naming the owned origin, never one naming another, and fall back to rows without
     // a header only when no row names the owned origin.
     const candidates = (test: (node: AndroidUiNode) => boolean) => {
-      const found = nodes.flatMap((node, index) => test(node) ? [{ node, origin: origin(index) }] : []);
+      const found = nodes.flatMap((node, index) => test(node) && content(index) !== undefined ? [{ node, origin: origin(index) }] : []);
       const owned = found.filter(item => item.origin === expected.originHost);
       return (owned.length > 0 ? owned : found.filter(item => item.origin === undefined)).map(item => item.node);
     };
@@ -189,15 +197,26 @@ export async function findAndroidNotification(command: AndroidAdbCommand, expect
           if (titles.length > 1) throw new Error("owned notification child row is ambiguous");
         }
       }
-      const content = ancestors.find(index => nodes[index]!.resource === "android:id/status_bar_latest_event_content");
-      if (content === undefined) throw new Error("owned notification content boundary unavailable");
-      return { target, rowNodes: nodes.filter((_node, index) => inside(index, content)), key: owned[0]!.key, postedAt: owned[0]!.postedAt,
+      const boundary = content(nodes.indexOf(match))!;
+      return { target, rowNodes: nodes.filter((_node, index) => inside(index, boundary)), key: owned[0]!.key, postedAt: owned[0]!.postedAt,
         peers: new Map(records.filter(record => record.tag.includes("omp-attention-") && record.key !== owned[0]!.key).map(record => [record.key, record.postedAt])) };
     }
+    // Expand the first collapsed group with a one-line child showing the owned text or title; its
+    // expand button is the one in its header, outside every child row.
+    const collapsed = nodes.findIndex((node, index) => node.resource.endsWith(":id/notification_children_container") &&
+      nodes.some((line, at) => (line.text === text || line.text === expected.title) && content(at) === undefined && inside(at, index)));
+    const inGroupHeader = (nodeIndex: number) => {
+      for (let index = nodes[nodeIndex]!.parent; index !== undefined && index !== collapsed; index = nodes[index]!.parent) {
+        if (nodes[index]!.resource.endsWith(":id/expandableNotificationRow")) return false;
+      }
+      return true;
+    };
+    const group = collapsed === -1 ? undefined : nodes.find((node, index) => node.resource.endsWith("/expand_button") && inside(index, collapsed) && inGroupHeader(index));
     const headers = nodes.filter(node => node.text.includes("OMP Sessions") || node.description.includes("OMP Sessions"));
     const expand = nodes.filter((node, index) => node.resource.endsWith("/expand_button") && (origin(index) ?? expected.originHost) === expected.originHost &&
       headers.some(header => Math.abs(header.y - node.y) < 100));
-    if (expand.length === 1) await command("shell", "input", "tap", String(expand[0]!.x), String(expand[0]!.y));
+    if (group !== undefined) await command("shell", "input", "tap", String(group.x), String(group.y));
+    else if (expand.length === 1) await command("shell", "input", "tap", String(expand[0]!.x), String(expand[0]!.y));
     else await command("shell", "input", "swipe", x, String(Math.floor(height * 0.8)), x, String(Math.floor(height * 0.3)), "400");
     await pause(500);
   }
