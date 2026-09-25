@@ -62,7 +62,7 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
   const click = async (name: "menu" | "install-entry" | "confirm") => {
     const nodes = await readAndroidUi(runtime.command);
     const matches = nodes.filter(node => name === "menu" ? node.resource.endsWith(":id/menu_button") :
-      name === "install-entry" ? ["Install app", "Add to home screen"].includes(node.text) : node.text === "Install");
+      name === "install-entry" ? node.resource.endsWith(":id/universal_install") : node.text === "Install");
     if (matches.length !== 1) throw new Error(`WebAPK setup ${name} unavailable`);
     await runtime.command("shell", "input", "tap", String(matches[0]!.x), String(matches[0]!.y));
     await runtime.pause(1_000);

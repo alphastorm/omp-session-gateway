@@ -423,23 +423,35 @@ test("task removal ignores retained focus references and waits for active task w
   expect(removed).toBe(true); expect(polls).toBe(3);
 });
 
-test("one-time WebAPK setup verifies installation and never uninstalls an existing app", async () => {
-  let installed = false; let taps = 0;
-  const commands: string[][] = [];
-  const node = (text: string, resource = "") => `<hierarchy><node text="${text}" resource-id="${resource}" bounds="[0,0][40,40]"/></hierarchy>`;
+test("one-time WebAPK setup selects the native install action and preserves an existing app", async () => {
+  let installed = false;
+  let surface: "page" | "menu" | "confirmation" = "page";
+  let taps = 0;
+  const node = (text: string, resource: string, y: number, x = 0, child = "") =>
+    '<node text="' + text + '" resource-id="' + resource + '" bounds="[' + x + ',' + y + '][' + (x + 40) + ',' + (y + 40) + ']">' + child + '</node>';
   const command = async (...args: string[]) => {
-    commands.push(args);
+    if (args.includes("uninstall")) throw new Error("existing apps must be preserved");
     if (args.includes("list")) return installed ? "package:org.chromium.webapk.synthetic" : "";
     if (args.includes("package") && args.includes("dumpsys")) return 'Authority: "gateway.example.test"';
-    if (args.includes("uiautomator")) return taps === 0 ? node("", "com.android.chrome:id/menu_button") : taps === 1 ? node("Install app") : node("Install");
-    if (args.includes("tap")) { taps++; if (taps === 3) installed = true; }
+    if (args.includes("uiautomator")) return "<hierarchy>" + (surface === "page" ? node("", "com.android.chrome:id/menu_button", 0) :
+      surface === "menu" ? node("", "com.android.chrome:id/universal_install", 40, 0, node("Install a changing application title", "com.android.chrome:id/menu_item_text", 40)) + node("Install app", "unrelated", 40, 40) :
+      node("Install", "com.android.chrome:id/positive_button", 80) + node("Cancel", "com.android.chrome:id/negative_button", 80, 40)) + "</hierarchy>";
+    if (args.includes("tap")) {
+      taps++;
+      const [x, y] = args.slice(-2).map(Number);
+      if (x !== 20) throw new Error("unrelated native action selected");
+      if (surface === "page" && y === 20) surface = "menu";
+      else if (surface === "menu" && y === 60) surface = "confirmation";
+      else if (surface === "confirmation" && y === 100) installed = true;
+      else throw new Error("invalid installation transition");
+    }
     return "";
   };
   expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => {}, pause: async () => {} })).toEqual({ alreadyInstalled: false, installed: true });
-  commands.length = 0;
+  expect(installed).toBe(true);
+  const installedTaps = taps;
   expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => { throw new Error("must not navigate"); }, pause: async () => {} })).toEqual({ alreadyInstalled: true, installed: true });
-  expect(commands.some(argv => argv.includes("uninstall") || argv.includes("tap"))).toBe(false);
-  expect(parseAndroidUi(node("Install"))[0]).toMatchObject({ text: "Install", x: 20, y: 20 });
+  expect(taps).toBe(installedTaps);
 });
 
 test("fixture commands are owned, bounded, and monotonically sequenced", () => {
