@@ -287,3 +287,11 @@ were not captured, so the cause remains unresolved. All ten device baseline bool
 a post-run read-only check, the owned notification was absent, and the lease was released.
 The original local-origin WebAPK remained installed after authorized retained-origin setup.
 The mitigation is not a full-sequence fix and this run does not check the qualification boxes.
+
+The cause was FCM's collapsible-message throttle. Every push carried a per-instance Web Push
+`Topic`, which FCM limits to a burst of 20 messages per device, then one every three minutes. In a
+controlled comparison on the same Pixel and origin, with byte-identical workers, transitions 1–21
+stayed prompt with the `Topic`, and transitions 22 and 23 took 150.8 s and 172.4 s. Without it,
+immediately afterwards, 28 of 28 arrived within 3.1 s. #255 sends pushes without a `Topic`
+(ADR-017 amendment). [ANDROID.md](ANDROID.md) records the builds and a separate keyguard race
+fixed in the lane's notification-tap helper.

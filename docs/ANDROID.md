@@ -442,6 +442,35 @@ subscribed, Session detail. This is partial **development-tested** evidence, not
 or stable qualification. Further diagnosis must capture the missing request/native/browser
 identities before cleanup rather than extending the clear deadline or retrying its missing event.
 
+### Root cause: FCM throttled the coalescing Topic
+
+The lock/resume clear timeouts came from Firebase Cloud Messaging, not the worker. Every push
+carried a per-instance Web Push `Topic`, which FCM treats as a collapse key and limits to a burst
+of 20 messages per device, refilling one every three minutes. By lock/resume the matrix had spent
+that budget, so a clear could arrive minutes after the lane's 60-second deadline.
+
+A controlled comparison on 2026-09-25 (04:46:39Z–05:07:17Z) used the retained Mac, the same Pixel
+(Android 17, Chrome 153.0.8010.53), the retained-origin WebAPK, and a granted, subscribed
+Session-detail baseline. Two development builds with byte-identical workers ran one ask and its
+answer per cycle, with the app closed, the device locked, and no UI driving inside a cycle:
+
+| Build | Source | Archive SHA-256 | Result |
+| --- | --- | --- | --- |
+| T, with `Topic` | `ddee00de7974` | `c7003944…` | Transitions 1–21 reached Android within 3.5 s; #22 (clear) took 150.807 s and #23 (attention) 172.362 s, which ended the arm |
+| N, without `Topic` | `e8bfd5b91521` | `a819df96…` | Installed 9.5 s after T ended; 28 of 28 transitions within 3.053 s |
+
+Latency runs from the first gateway snapshot showing the transition to the native Android enqueue
+or cancellation. #255 removes the `Topic` and amends ADR-017.
+
+An earlier no-Topic full-sequence attempt on the same build (04:06:16Z–04:14:21Z) completed six
+phases through activity stop, then failed at the stale-generation tap. Android's event history
+shows the bouncer focused at 04:13:14.898Z, the keyguard going away at 15.216Z, and
+`isKeyguardShowing=false` at 15.419Z; earlier taps had kept the bouncer up for about 8 s. The
+helper kept waiting for a PIN field that no longer existed. `9fdb7c3` accepts a keyguard that
+dismisses during observation; its regression tests failed before the fix. Cleanup passed and the
+lease was released. That attempt never reached lock/resume, so it neither confirmed nor refuted the
+throttle.
+
 ## Optional passkey/biometric gate
 
 WebAuthn Control protection is proposed in ADR-008, not implemented in v0.4.0. There is no
