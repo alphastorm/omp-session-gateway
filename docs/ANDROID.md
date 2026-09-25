@@ -152,7 +152,9 @@ fixture requirement. An owned, detached holder keeps the PTY open and reads/disc
 writes terminal input. Graceful fixture stop is followed, when needed, by signals to the verified
 holder process group, with a final command-line check for surviving owned OMP processes. No tmux
 or Homebrew installation is needed. The local fixture was observed published idle and then absent
-after cleanup with this holder.
+after cleanup with this holder. Separate local holder smokes used a stop-refusing child: TERM
+cleanup took 10.343 s; with TERM ignored, KILL/HUP cleanup took 20.569 s. Both observed terminal
+stdin/stdout, no surviving owned processes, and removal of the owned root.
 
 Read-only preflight accepts only the origin; candidate identity is bound at run and cleanup.
 The retained-Mac adapter injects the fixture executor, base, Bun, OMP binary, and staged scripts
@@ -193,9 +195,13 @@ bun scripts/android-webapk.ts setup "$ORIGIN"
 ```
 
 Setup uses the browser's Install app UI and verifies Android package ownership; it is bounded and
-idempotent. Chrome's native `universal_install` action identifies the install entry; its visible
-caption can include the application name and is not a fixed "Install app" label. Obtain
-authorization before installing for another origin. The installed app is
+idempotent. Chrome's native `universal_install` action identifies the install entry without
+assuming a fixed "Install app" caption. Bounded UI observations wait for each control; the optional
+Install/Create shortcut sheet and the final Install confirmation are separate transitions. Setup
+closes its own menu/dialog on failure and retains the lease if native UI restoration fails. The
+retained-origin install completed in 52.675 s on Chrome 153.0.8010.52; its authorized notification
+grant and subscription persisted across disconnect, with the equipment baseline restored and
+the lease released. Obtain authorization before installing for another origin. The installed app is
 persistent qualification equipment: the lane never uninstalls apps or clears Chrome/WebAPK data.
 Development device mutations acquire `/tmp/omp-gw-pixel.lock` atomically. A lease is released only
 after restoring its baseline; never remove another lane's lock. The PIN remains in Keychain and is

@@ -423,9 +423,9 @@ test("task removal ignores retained focus references and waits for active task w
   expect(removed).toBe(true); expect(polls).toBe(3);
 });
 
-test("one-time WebAPK setup selects the native install action and preserves an existing app", async () => {
+for (const choiceSheet of [false, true]) test(`one-time WebAPK setup installs through ${choiceSheet ? "the choice sheet" : "direct confirmation"} and preserves an existing app`, async () => {
   let installed = false;
-  let surface: "page" | "menu" | "confirmation" = "page";
+  let surface: "page" | "opening" | "menu" | "choice" | "confirmation" = "page";
   let taps = 0;
   const node = (text: string, resource: string, y: number, x = 0, child = "") =>
     '<node text="' + text + '" resource-id="' + resource + '" bounds="[' + x + ',' + y + '][' + (x + 40) + ',' + (y + 40) + ']">' + child + '</node>';
@@ -433,16 +433,19 @@ test("one-time WebAPK setup selects the native install action and preserves an e
     if (args.includes("uninstall")) throw new Error("existing apps must be preserved");
     if (args.includes("list")) return installed ? "package:org.chromium.webapk.synthetic" : "";
     if (args.includes("package") && args.includes("dumpsys")) return 'Authority: "gateway.example.test"';
+    if (args.includes("uiautomator") && surface === "opening") { surface = "menu"; return "<hierarchy></hierarchy>"; }
     if (args.includes("uiautomator")) return "<hierarchy>" + (surface === "page" ? node("", "com.android.chrome:id/menu_button", 0) :
       surface === "menu" ? node("", "com.android.chrome:id/universal_install", 40, 0, node("Install a changing application title", "com.android.chrome:id/menu_item_text", 40)) + node("Install app", "unrelated", 40, 40) :
+      surface === "choice" ? node("Install", "com.android.chrome:id/option_text_install", 60) + node("Create shortcut", "com.android.chrome:id/option_text_shortcut", 60, 40) :
       node("Install", "com.android.chrome:id/positive_button", 80) + node("Cancel", "com.android.chrome:id/negative_button", 80, 40)) + "</hierarchy>";
     if (args.includes("tap")) {
       taps++;
       const [x, y] = args.slice(-2).map(Number);
       if (x !== 20) throw new Error("unrelated native action selected");
-      if (surface === "page" && y === 20) surface = "menu";
-      else if (surface === "menu" && y === 60) surface = "confirmation";
-      else if (surface === "confirmation" && y === 100) installed = true;
+      if (surface === "page" && y === 20) surface = "opening";
+      else if (surface === "menu" && y === 60) surface = choiceSheet ? "choice" : "confirmation";
+      else if (surface === "choice" && y === 80) surface = "confirmation";
+      else if (surface === "confirmation" && y === 100) { installed = true; surface = "page"; }
       else throw new Error("invalid installation transition");
     }
     return "";
@@ -452,6 +455,22 @@ test("one-time WebAPK setup selects the native install action and preserves an e
   const installedTaps = taps;
   expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => { throw new Error("must not navigate"); }, pause: async () => {} })).toEqual({ alreadyInstalled: true, installed: true });
   expect(taps).toBe(installedTaps);
+});
+
+for (const closes of [true, false]) test(`failed WebAPK setup ${closes ? "closes its menu" : "poisons an unrestored native surface"}`, async () => {
+  let menuOpen = false;
+  const runtime = { navigate: async () => {}, pause: async () => {}, command: async (...args: string[]) => {
+    if (args.includes("list")) return "";
+    if (args.includes("uiautomator")) return `<hierarchy><node text="" resource-id="com.android.chrome:id/${menuOpen ? "app_menu_list" : "menu_button"}" bounds="[0,0][40,40]"/></hierarchy>`;
+    if (args.includes("tap")) menuOpen = true;
+    if (args.includes("keyevent") && closes) menuOpen = false;
+    return "";
+  } };
+  let failure: unknown;
+  try { await setupAndroidWebApk(identity.origin, runtime); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Error);
+  expect(menuOpen).toBe(!closes);
+  expect((failure as { pixelUnrestored?: boolean }).pixelUnrestored === true).toBe(!closes);
 });
 
 test("fixture commands are owned, bounded, and monotonically sequenced", () => {
