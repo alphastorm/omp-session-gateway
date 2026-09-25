@@ -371,6 +371,9 @@ describe("strict protocol validation", () => {
       parsePushSubscriptionRequest({ version: 2, detailLevel: "session", subscription }),
     ).toEqual({ version: 2, detailLevel: "session", subscription });
     expect(parsePushSubscriptionRequest({ version: 2, subscription }).detailLevel).toBeUndefined();
+    // WebKit's PushSubscription.toJSON() omits a null expirationTime (#274); it means null.
+    const { expirationTime: _omitted, ...webkit } = subscription;
+    expect(parsePushSubscriptionRequest({ version: 2, subscription: webkit }).subscription).toEqual(subscription);
     expect(
       parsePushSubscriptionResponse({ version: 2, detailLevel: "preview" }),
     ).toEqual({ version: 2, detailLevel: "preview" });

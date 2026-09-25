@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- iPhone and iPad can enable background alerts. WebKit's `PushSubscription.toJSON()` leaves out
+  an `expirationTime` of null, and the exact subscription check rejected that shape before the PWA
+  sent anything, so the new subscription was removed and the control read "Background alerts
+  unavailable" (#274). A missing `expirationTime` now means null in the PWA and the gateway.
+
 ## [v0.6.0] — 2026-09-25
 
 ### Added
