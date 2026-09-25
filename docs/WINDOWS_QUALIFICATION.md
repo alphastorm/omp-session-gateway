@@ -125,7 +125,10 @@ Windows Serve origin, find the fixture, and exercise View and Control. The node 
 
 OMP is built from the exact locked stock source commit and tree, not a floating global package.
 A local bare checkout proves both Git objects; its exported source archive is hash-checked after
-encrypted upload. The guest performs a frozen Bun install and native Windows build.
+encrypted upload. The guest performs a frozen Bun install and native Windows build, then writes
+`collab.autoStart: control` to the profile's `config.yml` and requires the built binary to read it
+back. Over WinRM, the compiled binary's `config set` can exit 0 without writing anything: in a
+v0.6.0-prealpha.3 development run its host started with auto-start off and never published.
 `scripts/windows-qualification-pins.json` binds the Windows native tarball/payload hashes to the
 OMP version, commit and tree and pins Bun/Tailscale artifacts. Both preflight and the portable
 tests reject divergence from `UPSTREAM.lock.json`; an upstream refresh must refresh these

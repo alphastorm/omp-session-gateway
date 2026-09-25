@@ -10,6 +10,7 @@ import {
   assertWebApkActiveTask,
   assertReleaseArchiveIdentity,
   createSmokeLabel,
+  enableOmpAutoStart,
   findWebApkForHost,
   isStockOmpBinary,
   type OmpInstall,
@@ -50,6 +51,30 @@ fi
       if (exitCode !== 0) throw new Error(stderr);
       expect(JSON.parse(stdout).compatible, banner).toBe(compatible);
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === "win32")("refuses an auto-start write that exits cleanly without persisting", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-smoke-autostart-"));
+  try {
+    // `config set` always exits 0; it persists only when the `writes` marker exists, as a
+    // compiled OMP over WinRM once did not.
+    const binary = join(directory, "omp");
+    await writeFile(binary, `#!/bin/sh
+state="$(dirname "$0")/autostart"
+if [ "$*" = 'config set collab.autoStart control' ]; then
+  if [ -e "$(dirname "$0")/writes" ]; then printf control > "$state"; fi
+elif [ "$*" = 'config get collab.autoStart --json' ]; then
+  printf '{"value":"%s"}\\n' "$(cat "$state" 2>/dev/null || printf off)"
+else
+  exit 1
+fi
+`, { mode: 0o700 });
+    await expect(enableOmpAutoStart(binary)).rejects.toThrow("collab.autoStart does not read back as control");
+    await writeFile(join(directory, "writes"), "");
+    await expect(enableOmpAutoStart(binary)).resolves.toBeUndefined();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

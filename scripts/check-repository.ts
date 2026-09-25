@@ -68,7 +68,7 @@ for (const file of await walk(rootPath)) {
   // Rules below name files with forward slashes; Windows `relative` returns backslashes.
   const rel = relative(rootPath, file).split(sep).join("/");
   if (rel === "scripts/check-repository.ts") continue;
-  if (!/\.(?:md|json|jsonc|hujson|ts|tsx|yml|yaml|toml)$/.test(file) && !["LICENSE", "NOTICE"].includes(rel)) {
+  if (!/\.(?:md|json|jsonc|hujson|ts|tsx|yml|yaml|toml|sh|ps1)$/.test(file) && !["LICENSE", "NOTICE"].includes(rel)) {
     continue;
   }
   const text = await readFile(file, "utf8");
@@ -86,6 +86,11 @@ for (const file of await walk(rootPath)) {
   }
   if (rel.endsWith(".md") && /\$\{[A-Z_]*TAG#v\}/u.test(text)) {
     errors.push(`${rel}: derives a package version by stripping a release tag's "v"; a prerelease tag keeps its suffix`);
+  }
+  // `config set` can exit 0 without writing: over WinRM, a compiled OMP's first write did, and the
+  // Windows lane's host started with auto-start off and never published. Only a read-back proves it.
+  if (/^scripts\//u.test(rel) && /config['",\s]+set['",\s]+collab\.autoStart/u.test(text) && !/config['",\s]+get['",\s]+collab\.autoStart/u.test(text)) {
+    errors.push(`${rel}: enables collab.autoStart without reading it back`);
   }
 }
 
