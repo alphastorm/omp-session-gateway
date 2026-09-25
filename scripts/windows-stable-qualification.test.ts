@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { cleanupWindows, runWindows, verifyWindowsDoctor, windowsCampaignLabel, windowsNeedsCleanup, assertWindowsPins } from "./windows-stable-qualification.ts";
 import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsRuntime } from "./windows-stable-qualification.ts";
-import { verifyWindowsStaleLaunch, windowsPixelLauncher, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
+import { verifyWindowsStaleLaunch, windowsPixelForeground, windowsPixelLauncher, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
 import { firewallEligibility } from "./vultr-target.ts";
 import { parseQualificationPins } from "./stable-qualification.ts";
 
@@ -73,6 +73,33 @@ test("Pixel restoration returns to the home screen the Pixel started on", () => 
     "ActivityRecord{e u0 com.android.chrome/com.google.android.apps.chrome.Main t30}",
   ].join("\n");
   expect(windowsPixelLauncher(activities, component)).toEqual({ packageName: "com.google.android.apps.nexuslauncher", category: "android.intent.category.HOME" });
+});
+test("Pixel restoration treats a screensaver as the task beneath it", () => {
+  // Line shapes from a Pixel that dreamed while charging; the dream task's affinity parses as "android".
+  const dream = [
+    "Display #0 (activities from top to bottom):",
+    "  * Task{f1 #21837 type=dream U=0 visible=true visibleRequested=true mode=fullscreen translucent=false sz=1}",
+    "    * Task{f2 #21839 type=dream A=10258:android:com.android.systemui/dream U=0 rootTaskId=21837 visible=true mode=fullscreen sz=1}",
+    "      topResumedActivity=ActivityRecord{f3 u0 com.android.systemui/android.service.dreams.DreamActivity t21839}",
+    "      * Hist  #0: ActivityRecord{f3 u0 com.android.systemui/android.service.dreams.DreamActivity t21839}",
+  ];
+  const home = [
+    "  * Task{d1 #1 type=home U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=1}",
+    "    * Task{d2 #2 type=home I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 rootTaskId=1 visible=false mode=fullscreen sz=2}",
+    "      mLastPausedActivity: ActivityRecord{d3 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}",
+    "      * Hist  #1: ActivityRecord{d3 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}",
+  ];
+  const overHome = [...dream, ...home].join("\n");
+  const launcher = "com.google.android.apps.nexuslauncher/.NexusLauncherActivity";
+  expect(windowsPixelForeground(overHome)).toBe(launcher);
+  expect(windowsPixelLauncher(overHome, launcher)).toEqual({ packageName: "com.google.android.apps.nexuslauncher", category: "android.intent.category.HOME" });
+  const webApk = "com.android.chrome/org.chromium.chrome.browser.webapps.SameTaskWebApkActivity";
+  const overApp = [...dream, "  * Task{g1 #40 type=standard A=10123:org.chromium.webapk.fixture U=0 visible=false mode=fullscreen sz=1}",
+    `      * Hist  #0: ActivityRecord{g2 u0 ${webApk} t40}`, ...home].join("\n");
+  expect(windowsPixelForeground(overApp)).toBe(webApk);
+  expect(windowsPixelLauncher(overApp, webApk)).toEqual({ packageName: "org.chromium.webapk.fixture", category: "android.intent.category.LAUNCHER" });
+  // Awake, asleep and dozing Pixels keep the resumed activity, which stays the launcher's while dozing.
+  expect(windowsPixelForeground([home[0], home[1], `      topResumedActivity=ActivityRecord{d3 u0 ${launcher} t2}`, home[3]].join("\n"))).toBe(launcher);
 });
 function fixture(options: { development?: boolean; fail?: WindowsGuestAction; listener?: boolean; neverStarts?: boolean; vaultFails?: boolean; lostCreate?: boolean; protected?: boolean; unlabelled?: boolean; stale?: number } = {}) {
   let now = 1_800_000_000_000;
