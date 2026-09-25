@@ -35,6 +35,15 @@ async function section(file: string, heading: string): Promise<string> {
   return text;
 }
 
+/** README, docs other than dated records, and every site page: the surfaces making current claims. */
+async function claimSurfaces(datedRecords: Record<string, true>): Promise<string[]> {
+  return [
+    "README.md",
+    ...(await readdir(join(rootPath, "docs"))).filter(name => name.endsWith(".md") && !datedRecords[name]).map(name => `docs/${name}`),
+    ...(await readdir(sitePath, { recursive: true })).filter(name => /\.(html|txt)$/u.test(name)).map(name => `site/${name}`),
+  ];
+}
+
 // Promotion flipped some download links while install commands and other links kept naming older
 // archives through several stable releases. Install and download surfaces therefore name no
 // release: links resolve GitHub Latest, and commands derive the version from the download.
@@ -80,17 +89,42 @@ test("docs call work unreleased only while the changelog has unreleased entries"
   const pending = changelog.split("\n## [Unreleased]\n")[1]?.split("\n## [")[0]?.trim();
   if (pending === undefined) throw new Error("CHANGELOG.md lost its [Unreleased] section");
   if (pending !== "") return;
-  const datedRecords: Record<string, true> = { "DECISIONS.md": true, "RELEASE_STATUS.md": true };
-  const files = [
-    "README.md",
-    ...(await readdir(join(rootPath, "docs"))).filter(name => name.endsWith(".md") && !datedRecords[name]).map(name => `docs/${name}`),
-    ...(await readdir(sitePath, { recursive: true })).filter(name => /\.(html|txt)$/u.test(name)).map(name => `site/${name}`),
-  ];
+  const files = await claimSurfaces({ "DECISIONS.md": true, "RELEASE_STATUS.md": true });
   const stale: string[] = [];
   for (const file of files) {
     (await readFile(join(rootPath, file), "utf8")).split("\n").forEach((line, index) => {
       if (/\bunreleased\b/iu.test(line) && !/unreleased development targets/iu.test(line)) stale.push(`${file}:${index + 1}`);
     });
+  }
+  expect(stale).toEqual([]);
+});
+
+// v0.6.0 qualified Windows and background Web Push, yet the home page, README, operations guide,
+// release runbook and upstream strategy still called them unqualified or outside the claim. While
+// the stable lock holds a platform's evidence, current claims give its qualified scope; a sentence
+// that begins "Other" limits the rest. Dated records, the launch draft prepared for a named release,
+// and fork-era history keep their wording.
+test("docs call a platform unqualified only while the stable lock lacks its evidence", async () => {
+  const stable = JSON.parse(await readFile(join(rootPath, "STABLE_RELEASE.lock.json"), "utf8")) as {
+    evidence: Record<string, string>;
+  };
+  const platforms: Record<string, RegExp> = {
+    windows: /\bWindows\b/u,
+    androidPush: /\bbackground (?:Web )?Push\b/iu,
+  };
+  const unqualified = /\bnot (?:yet )?(?:release-|stable-)?qualified\b|\bunqualified\b|\bunadvertised\b|\bqualification pending\b|\boutside (?:the|this|that|every)\b[^.;]*\bclaim\b/iu;
+  const history = /\n## (?:Fork-era published-release history|Host and client matrix|Fork-era release history)\n[\s\S]*?(?=\n## |$)|<h2>Fork-era release history<\/h2>[\s\S]*/gu;
+  const stale: string[] = [];
+  for (const file of await claimSurfaces({ "DECISIONS.md": true, "RELEASE_STATUS.md": true, "LAUNCH_COPY.md": true })) {
+    const blocks = (await readFile(join(rootPath, file), "utf8")).replace(history, "\n").split(/\n\s*\n|\n\s*(?:[-*]|\d+\.)\s|<\/?(?:p|li|td|h[1-6])\b[^>]*>/u);
+    for (const block of blocks) {
+      for (const sentence of block.replace(/<[^>]+>|\*\*/gu, "").replace(/\s+/gu, " ").split(/[.!?](?:\s|$)/u)) {
+        if (/^\s*Other\b/u.test(sentence) || !unqualified.test(sentence)) continue;
+        for (const [key, subject] of Object.entries(platforms)) {
+          if (stable.evidence[key] === "passed" && subject.test(sentence)) stale.push(`${file} (${key}): ${sentence.trim()}`);
+        }
+      }
+    }
   }
   expect(stale).toEqual([]);
 });

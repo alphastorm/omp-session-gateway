@@ -14,9 +14,6 @@ live in the [release ledger](RELEASE_STATUS.md).
   which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
   notification route. Settle the Android WebAPK single-window behavior before changing it.
 - Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
-- Qualify background Push on the advertised physical Android/browser combination.
-- Decide whether to advertise Windows only after exact mainline discovery and signed-candidate
-  install/reboot-login/upgrade/rollback/uninstall acceptance.
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
   The gateway ignores fields OMP adds under registry v1 (ADR-028); a version bump or a

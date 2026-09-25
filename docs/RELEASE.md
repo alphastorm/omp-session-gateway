@@ -16,9 +16,10 @@ host/client matrix, and post-release evidence are recorded in the
 passed published-byte smoke. Fork-era locks and receipts cannot authorize the changed runtime bytes.
 
 The remote boundary remains TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
-Windows, background Push qualification, Portal Tunnel, userspace networking, public forwarding,
-and self-hosted/proxied relays remain outside the core claim. A minimum OMP version does not
-qualify every future release or platform.
+Portal Tunnel, userspace networking, public forwarding, and self-hosted/proxied relays remain
+outside the core claim. From 0.6.0 every stable campaign also qualifies a Windows Server 2025 host
+and background Web Push on the Pixel (ADR-031). A minimum OMP version does not qualify every future
+release or platform.
 
 Gateway rollback does not switch OMP, restore the previous configuration, or restore the removed
 fork-era publication credential. Qualify the selected predecessor and architecture-crossing

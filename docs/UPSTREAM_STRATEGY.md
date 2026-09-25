@@ -39,8 +39,9 @@ stores capabilities. The private readiness token belongs only to gateway/CLI rea
 - Verify link formats through the pinned upstream parser without recording links.
 - Repeat exact signed-artifact host/client/relay qualification before making a release claim.
   Mainline core qualification passed for the exact candidate and matrix in the
-  [release ledger](RELEASE_STATUS.md); no fork-era result transfers. Windows, background Web Push,
-  specialized attention, and branch/resume remain outside that qualified claim.
+  [release ledger](RELEASE_STATUS.md), including the Windows host and Pixel background Web Push
+  lanes from 0.6.0; no fork-era result transfers. Specialized attention and branch/resume remain
+  outside that qualified claim.
 
 ## Communication
 
