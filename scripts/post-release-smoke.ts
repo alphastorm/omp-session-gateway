@@ -25,6 +25,7 @@ import {
   lastAndroidStage,
 } from "./android-stages.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
+import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -364,7 +365,7 @@ async function verifyPublishedRelease(
   staging: string,
   packageManifest: PackageManifest,
 ): Promise<VerifiedRelease> {
-  const version = options.tag.slice(1);
+  const version = releaseVersion(options.tag);
   const names = releaseAssetNames(version);
   const downloadDirectory = join(staging, "release");
   await downloadReleaseAssets(downloadDirectory, () =>

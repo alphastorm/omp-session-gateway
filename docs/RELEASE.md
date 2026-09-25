@@ -392,18 +392,20 @@ directory:
 REPO=alphastorm/omp-session-gateway
 TAG="$(gh release view --repo "$REPO" --json tagName --jq .tagName)"
 WORKFLOW=signed-release.yml
-ARCHIVE="omp-session-gateway-${TAG#v}-bun.tar"
-SBOM="omp-session-gateway-${TAG#v}.spdx.json"
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
 cd release-verification
+ARCHIVE="$(ls omp-session-gateway-*-bun.tar)"
+SBOM="$(ls omp-session-gateway-*.spdx.json)"
 ```
 
 Without a tag, `gh release view` resolves the current GitHub Latest release, which is always the
 qualified stable. To verify a historical artifact, set `TAG` to it and use its matching signing
 workflow: for example, `v0.1.0-beta.1` used `release.yml`, not `signed-release.yml`. Do not
 substitute today’s workflow identity for a historical receipt.
+Asset names carry the package version, not the tag: a candidate tagged `vX.Y.Z-prealpha.N`
+downloads `omp-session-gateway-X.Y.Z-bun.tar`, so the names are read from the fresh directory.
 
 Verify the immutable release attestation and every release asset. A failure means the release is not yet immutable or the downloaded asset is
 not part of the attested release:

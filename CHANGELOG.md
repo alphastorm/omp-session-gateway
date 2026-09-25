@@ -66,6 +66,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   before its own display, which leaves the display in place with nothing left to close it. The
   service worker now waits until two seconds after a display before closing it, and no longer
   re-shows an alert whose request and text are unchanged.
+- The Windows qualification lane expected a pre-release candidate to install under its tag's
+  version, for example `0.6.0-prealpha.1` instead of `0.6.0`, so its upgrade check failed for every
+  candidate. Qualification scripts now derive a tag's package version in one place, and the
+  repository check rejects slicing it from the tag (qualification tooling only, outside the
+  runtime archive).
 
 ## [v0.5.3] — 2026-09-24
 

@@ -115,6 +115,14 @@ export function releasePolicy(tag: string, version: string): ReleasePolicy {
   );
 }
 
+/** The package version a release tag builds: `v0.6.0-prealpha.1` installs as `0.6.0`. */
+export function releaseVersion(tag: string): string {
+  const version = /^(?:provenance-test-)?v([0-9]+[.][0-9]+[.][0-9]+)/u.exec(tag)?.[1];
+  if (version === undefined) throw new Error("release tag does not contain a numeric version");
+  releasePolicy(tag, version);
+  return version;
+}
+
 if (import.meta.main) {
   const [tag, version, qualificationPath] = Bun.argv.slice(2);
   if (tag === undefined || version === undefined || qualificationPath === undefined) {
