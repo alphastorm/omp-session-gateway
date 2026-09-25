@@ -128,6 +128,392 @@ Shipped card behavior:
   role is no longer shared (`mode_unavailable`);
 - never show or copy the raw link by default.
 
+## Physical background-Push lane
+
+`scripts/android-push-qualification.ts` is the background-Push lane, separate from the existing
+ordinary-Chrome View/Control smoke. Its exported preflight is read-only. Stable qualification
+supplies the signed candidate identity, exact OMP pins, retained Mac Serve origin, a host executor,
+and the shared `pixel()` lease. The host executor runs argv; fixture operations do not assume the
+fixture is a local child process. Stage `push-qualification-fixture.ts`, `omp-fixture.ts`,
+`omp-fixture.json`, and `fixtures/push-qualification-extension.ts` together in the configured
+scripts directory. Both a pinned native OMP executable and a Bun JavaScript entrypoint are accepted.
+
+The fixture explicitly loads one qualification extension while retaining `--no-extensions` and
+`--no-skills`. A private one-process `--config` overlay sets `collab.autoStart: control`; the
+operator's `~/.omp/agent/config.yml` is never changed. The public initial extension command owns
+the control loop. `ctx.ui.select` publishes an authoritative ask, a held `before_agent_start`
+publishes known busy activity, and command-context `newSession()` replaces generation N with N+1
+without replacing the instance. Preparation is aborted before provider transport: only a synthetic
+model key is used. Control files are owner-only, epoch-bound, monotonically sequenced, and outside
+OMP discovery. No terminal injection, private OMP import, or discovery-file editing is involved.
+The fixture host needs Python 3 with `os.forkpty`, checked with the exact Bun, OMP, and staged
+extension pins through the host executor before fixture creation. Device admission has no local
+fixture requirement. An owned, detached holder keeps the PTY open and reads/discards its output; it never
+writes terminal input. Graceful fixture stop is followed, when needed, by signals to the verified
+holder process group, with a final command-line check for surviving owned OMP processes. No tmux
+or Homebrew installation is needed. The local fixture was observed published idle and then absent
+after cleanup with this holder. Separate local holder smokes used a stop-refusing child: TERM
+cleanup took 10.343 s; with TERM ignored, KILL/HUP cleanup took 20.569 s. Both observed terminal
+stdin/stdout, no surviving owned processes, and removal of the owned root.
+
+Read-only preflight accepts only the origin; candidate identity is bound at run and cleanup.
+The retained-Mac adapter injects the fixture executor, base, Bun, OMP binary, and staged scripts
+directory. Its `gatewayLogsDiscarded` callback probes that host through SSH; the default probe
+remains the local LaunchAgent. Pixel adb/CDP, Keychain access, the driver Bun pin, and the expected
+extension-source hash remain local to the controller.
+
+### Device admission and one-time WebAPK setup
+
+Turn Do Not Disturb off manually for the complete qualification window. Preflight reads
+`zen_mode` and each notification phase rechecks it; a schedule reactivating DND fails the phase.
+The lane never changes DND or its schedules. Real sessions may continue publishing: ownership is
+bound to NotificationManager's package, topic/tag, key, and post/update time, never a count of
+similarly titled lock-screen rows. A new or updated unowned record re-arms the affected phase
+**once**, recording `rearmCount: 1` and `rearmReason: "unowned_notification_overlap"`. A second
+overlap fails. Missing required events are never retried. Unowned notifications are never dismissed;
+ambiguous UI attribution still fails closed. Tap probes use Session detail to locate the fixture's
+unique synthetic project label after checking its OS record.
+Presentation and privacy checks are limited to that record's observed Android notification-content
+subtree; text from an unrelated shade row is not attributed to the fixture.
+
+The origin must already have granted notification permission before the run. The lane never accepts
+a permission prompt as part of admission. For its negative window, it retains a browser-only CDP
+connection holding an origin-scoped denial while the WebAPK task is closed. Chrome removes this
+override when the connection closes. Restoration first rewarms the browser, closes the override
+connection, verifies the real granted preference, and requires fresh delivery. No global permission
+reset or Android runtime-permission mutation is used. Local adb forwards 9237 and 9238 are reserved
+for the lane; preflight refuses occupied mappings. Interrupted cleanup removes only matching
+device/stock-Chrome mappings, including an orphaned denial connection's listener.
+
+The lane requires exactly one installed OMP Sessions WebAPK for the **origin under test**. An app
+installed for the developer Mac does not qualify the retained Mac's origin. Equipment setup is a
+separate explicit operation, never part of lane run or cleanup:
+
+```sh
+export PATH="$HOME/.local/lib/omp-session-gateway/bun/v1.4.0:$PATH"
+bun scripts/android-webapk.ts setup "$ORIGIN"
+```
+
+Setup uses the browser's Install app UI and verifies Android package ownership; it is bounded and
+idempotent. Chrome's native `universal_install` action identifies the install entry without
+assuming a fixed "Install app" caption. Bounded UI observations wait for each control; the optional
+Install/Create shortcut sheet and the final Install confirmation are separate transitions. Setup
+closes its own menu/dialog on failure and retains the lease if native UI restoration fails. The
+retained-origin install completed in 52.675 s on Chrome 153.0.8010.52; its authorized notification
+grant and subscription persisted across disconnect, with the equipment baseline restored and
+the lease released. Obtain authorization before installing for another origin. The installed app is
+persistent qualification equipment: the lane never uninstalls apps or clears Chrome/WebAPK data.
+Development device mutations acquire `/tmp/omp-gw-pixel.lock` atomically. A lease is released only
+after restoring its baseline; never remove another lane's lock. The PIN remains in Keychain and is
+read only by `android-device.ts`, never echoed or copied into configuration.
+Display wake checks keyguard state before sending MENU/dismiss events. On an unlocked Pixel those
+events open Chrome's application menu instead of unlocking anything, intercepting subsequent
+touches. The helper preserves the unlocked page and authenticates only a still-visible keyguard.
+Notification-tap authentication also rechecks keyguard state while observing each bouncer and
+before revealing or entering the PIN. A keyguard that dismisses during a UI snapshot is already
+authenticated; the lane proceeds without waiting for a vanished input field or typing into the
+destination page. A missing or ambiguous credential surface still fails while the keyguard is shown.
+
+### Matrix and evidence
+
+- Closed-PWA Private, Session, and Preview delivery; one notification across repeated current
+  samples; Preview must equal Session detail for the pinned OMP contract.
+- Actual lock-screen presentation observed through in-memory UIAutomator output; no screenshots
+  or XML files. Notification dumps are read with `adb exec-out` and reduced to booleans/counts.
+- Current attention tap revalidates the request and generation before Control; stop tap opens View
+  only; same-instance stale-generation tap scrubs to `/` without a launch request.
+- Authoritative clear, followed by a fresh request retained across repeated current samples.
+- Browser force-stop records delivery while stopped or suppression until relaunch; both variants
+  still require a fresh post-relaunch delivery.
+- Origin-permission denial suppresses notifications; restoring permission must permit a fresh
+  delivery. Lock/resume and forced Doze record observed behavior, not a delivery guarantee.
+- Real Wi-Fi and cellular tailnet delivery, Airplane suppression, and bounded recovery. Missing
+  working cellular data is a named blocked sub-phase, never substituted with Wi-Fi. Airplane
+  suppression and Wi-Fi recovery are still exercised; the missing cellular result prevents a pass.
+- A positive control proves the seven historical browser sinks plus notification title/body/data
+  are detectable; real launch material stays in page memory during the sweep. URL/history, DOM,
+  and resource timings are included. On macOS, `plutil` must confirm both LaunchAgent streams are
+  `/dev/null`; evidence records `gatewayLogsDiscarded: true`, not a fictional clean empty log scan.
+
+The complete checkpoint precedes effects and contains only an attempt UUID, identity binding hash,
+closed phase, baseline booleans/preferences, an opaque SHA-256 notification-topic binding, and bounded
+observations. The binding permits cleanup even after the fixture publication disappears; no raw topic
+or instance identifier is checkpointed. `phaseElapsedMs` records
+checkpoint-to-checkpoint time, including any explicitly recorded re-arm.
+Raw OS notification keys, tags, and content remain transient. Cleanup attempts every step
+even after failure: settle the owned ask, exit forced Doze/reset battery emulation, restore radios,
+stop only the owned fixture, remove owned notifications, restore subscription/detail/origin
+permission, and restore WebAPK task and display/keyguard state. Stopping the producer before
+notification and subscription cleanup ensures that cleanup also follows fixture shutdown.
+A failed cleanup remains cleanup-required;
+it never becomes a passing receipt. Its error carries `pixelUnrestored: true`, poisoning the shared
+stable-campaign Pixel lease; an ordinary phase failure followed by successful cleanup does not.
+The private development cleanup command can recover its own retained lease only after the recorded
+owner process has exited; live owners and other lanes remain untouched. Chrome and WebAPK runtime
+notification-permission booleans are observed before and after, but never changed by the lane.
+
+For a development run against an already installed gateway, provide the matching published archive
+and exact pinned OMP executable. The command does not install, restart, reconfigure, or rotate the
+gateway:
+
+```sh
+OMP_PUSH_FIXTURE_BINARY="$PINNED_OMP" bun scripts/android-push-qualification.ts development "$PUBLISHED_ARCHIVE"
+# Resume cleanup after an interrupted development attempt:
+OMP_PUSH_FIXTURE_BINARY="$PINNED_OMP" bun scripts/android-push-qualification.ts cleanup "$PUBLISHED_ARCHIVE"
+```
+
+Private checkpoints and tested evidence live under
+`~/.local/share/omp-session-gateway/qualification/dev/androidPush/` with mode `0600`. They are
+explicitly development evidence, never a stable receipt. Only the lead-owned `qualify:stable`
+integration may qualify the exact signed candidate.
+
+Development observations on 2026-09-25: the isolated stock OMP **18.3.0** fixture published a real
+ask, held known busy across two gateway polls, returned idle, and replaced the same instance by
+exactly one generation; its process was stopped. The local **v0.5.3** gateway with Pixel 10 Pro,
+Android **17**, and Chrome **153.0.8010.52** delivered the three requested detail variants with the
+WebAPK task closed and their lock-screen presentations verified. One full-sequence attempt recorded
+delivery observations of 1.950 s (Private), 2.908 s (Session), and 1.816 s (Preview), including no
+duplicate repost during each repeated observation window. A focused real attention tap separately
+observed exactly one successful launch, current generation/request validation, route scrubbing,
+enabled native ask controls, and an authoritative answer using Select then Send. Fresh-runtime
+cleanup also removed an owned, digest-bound OS notification without a fixture publication while
+preserving a separate synthetic control; both controls and the device baseline were then restored.
+The 632.07-second full-sequence development attempt additionally passed attention Control and
+Select/Send, known-busy-to-idle View, same-instance N+1 rejection with zero stale launch requests,
+authoritative clear/fresh retention, and the `delivered_while_force_stopped` variant with fresh
+post-relaunch delivery. It then exposed a harness error: its denied-permission connection had already
+closed. A corrected focused probe held denial for 33.158 seconds with the WebAPK task closed,
+restored the real permission, received a fresh notification, and restored the baseline in 183.23 seconds.
+Later full-sequence attempts passed the permission phase but repeatedly failed
+`lock_resume_verified` with an authoritative-clear timeout. Waiting for initialized notification
+controls and a visible directory did not resolve that failure. The Android build was
+**CP2A.260805.005**, with Bun **1.4.0** throughout.
+
+Bounded predecessor bisection and in-memory request-correlated instrumentation observed:
+
+| Predecessor before lock/resume | Observed result | Attempt time, including restoration |
+| --- | --- | --- |
+| Subscription only | Exact current request cleared | 85.027 s |
+| Force-stop only | Exact current request cleared | 149.501 s |
+| Permission denial/restoration only | Exact current request cleared | 211.008 s |
+| Clear/fresh only | Exact current request cleared | 159.149 s |
+| Stale-generation only | Exact current request cleared | 210.218 s |
+| Stale-generation → clear/fresh | Exact current request cleared | 285.682 s |
+| Stale-generation → clear/fresh → force-stop | First post-relaunch authoritative clear timed out, before lock/resume | Failure observed at 324.204 s |
+
+The last row is the **smallest observed failing combined prefix**, not a proven minimal cause.
+Repeating that prefix with a worker-side recorder passed: force-stop clear took 1.105 s after
+authoritative resolution; subsequent lock/resume clear took 0.584 s; restoration was observed at
+358.663 s. In the instrumented lock/resume probes, the displayed request matched the received
+clear, the gateway held the browser's current endpoint, and both browser and OS records disappeared.
+The permission probe also observed a changed endpoint correctly retained by the gateway. These
+passing traces do not establish why the uninstrumented failure occurred; attaching CDP changes the
+observation conditions. Those traces alone did not establish a gateway or worker product defect.
+
+The failed combined prefix left one owned active OS notification with no corresponding browser
+notification handle. Ordinary cleanup failed closed and retained the Pixel lease. A separate
+restoration experiment showed that immediately closing a same-tag replacement could be followed by
+its late native OS post. Waiting for that replacement's actual OS post (observed after 806 ms) before
+closing its browser handle removed the owned row for a 7.588-second observation window while
+preserving unrelated notifications. This was explicit cleanup, not a successful authoritative clear
+or a retry of the failed phase; its connection to the original clear failure remains unestablished.
+
+Three later repetitions kept both page and worker DevTools detached throughout force-stop,
+Android-only relaunch, and the first clear. All three cleared: **0 failures in 3 trials**, with
+restoration observed at 313.076, 323.434, and 327.261 seconds. Passive Android notification-service
+traces placed the second enqueue for the owned tag before its cancellation by 1.171, 1.288, and
+2.239 seconds respectively; no later enqueue appeared in those windows. The last two trials also
+observed five additional seconds without a native repost. Browser endpoint/key digests were
+unchanged and matched the gateway target throughout. This does not explain the earlier failure.
+The release build emitted no selected FCM receipt diagnostics; their absence is a visibility gap,
+not proof of non-delivery or receipt ordering. Native content hashes, timestamps, process roles,
+and request hashes were retained; raw logcat, notification content, and XML were not.
+
+A subsequent controlled native-API probe reproduced the orphan independently of Web Push. Each
+pair started with a posted, silent synthetic notice, then an in-memory button in the existing PWA
+replaced it with a different synthetic title and the same tag. After awaiting `showNotification()`,
+the button found exactly one notification, closed it, and observed zero browser handles. The
+button was activated by an Android touch event; page and worker DevTools were detached throughout
+each observation window. Neither the gateway nor the installed worker was modified.
+
+| Controlled condition | Valid pairs | Native orphans | Native notification-service ordering |
+| --- | --- | --- | --- |
+| Warm browser | 5 | 5 | Replacement enqueued 48, 63, 68, 78, and 66 ms after cancellation |
+| Chrome force-stop and cold relaunch before each pair | 5 | 0 | Replacement enqueued 18, 15, 15, 3, and 20 ms before cancellation |
+
+Every warm orphan had the canceled record's key and the replacement's content hash, not the
+seed's. Its native post timestamp was also after cancellation, and it remained about 15.8 seconds
+after the browser reported zero handles. No Chrome process lifecycle event occurred inside any
+pair; each cold setup recorded its preceding process kill and restart. The experiment completed
+in 308.214 seconds including restoration. The transient button and its in-memory state were
+verified absent after reload. Each orphan was removed outside its outcome window by the explicit
+native-post-observed restoration procedure. These small controlled samples demonstrate a native
+ordering failure, not a production failure-rate estimate or proof of the earlier sequence's cause.
+
+Source analysis of the exact Chrome **153.0.8010.52** implementation also limits possible repairs.
+Notification resources load before the browser display acknowledgement, but the Android display
+path subsequently awaits WebAPK/channel work independently of close. Android reports no native
+display synchronization support; `getNotifications()` reads the browser notification database.
+Consequently, neither a resolved `showNotification()` nor a returned notification handle is an
+acknowledgement that Android has posted the notification. Reasserting a silent same-tag placeholder
+and closing it as soon as `getNotifications()` finds it is not a native-display fence. A bounded
+delay is a heuristic rather than a native-display acknowledgement. The worker now retains a
+monotonic display timestamp in memory and holds an exact current-request clear until 2,000 ms
+after a recent show resolves, then re-queries the browser handles before closing. The budget is
+about 25 times the largest observed 78 ms late enqueue, not a delivery guarantee. Old notices
+and notices inherited by a fresh worker close immediately. The existing serial push queue
+preserves clear/replacement ordering; an independently replaced request is not closed.
+An identical current attention replay with the same title and body updates the badge without
+re-showing or extending that timestamp. Changed content and dismissed notices still show.
+This reduces needless native replacements but cannot recover an already native-only orphan.
+Fake-timer regressions cover the timing boundary, exact-request re-query, queued replacement,
+duplicate content, changed content, dismissal, and worker restart. Physical qualification is
+still required; no full-matrix pass is inferred from those tests.
+The pinned Chromium sources are the
+[display acknowledgement](https://github.com/chromium/chromium/blob/153.0.8010.52/content/browser/notifications/platform_notification_service_proxy.cc#L40-L53),
+[asynchronous Android display](https://github.com/chromium/chromium/blob/153.0.8010.52/chrome/android/java/src/org/chromium/chrome/browser/notifications/NotificationPlatformBridge.java#L724-L784),
+and [unsupported native synchronization](https://github.com/chromium/chromium/blob/153.0.8010.52/chrome/browser/notifications/notification_platform_bridge_android.cc#L444-L462).
+
+All final device baseline booleans matched, the original granted/subscribed Preview preference was
+restored after a later **10 warm + 5 cold** settled native-API run as well. All 15 pairs were valid
+and left **zero native orphans**. Each awaited a same-tag replacement, waited the remaining
+2,000 ms, re-queried the exact browser notice, closed it, and observed zero browser handles.
+Observed show-return-to-close times were 2.010–2.030 s; detached Android-only observation
+continued for 13.726–14.103 s after completion. That run took 412.195 s including restoration.
+The transient button/state were absent after reload, the Python-PTY fixture had published idle
+and was then absent, and the lease was released. Earlier settled-probe attempts produced no valid
+samples: an application-menu popup intercepted the touch. The shared wake helper now avoids
+sending MENU to an unlocked phone; its regression models real keyguard/authentication state.
+This native sample supports the measured mitigation but is not an uninterrupted Web Push matrix.
+
+The original granted/subscribed Preview preference was
+restored, the owned fixture was absent, and the development Pixel lease was independently observed
+released. The daily gateway, global OMP installations, and user OMP configuration were unchanged.
+The complete uninterrupted matrix remains **blocked at authoritative clear**. Forced Doze, the
+complete real network matrix, and the final real sink sweep have not passed end to end. These are
+**tested observations**, not qualification of v0.5.3 or the future v0.6.0 candidate.
+
+### Retained-Mac development run with the mitigation
+
+A single uninterrupted production-adapter/runner attempt at orchestrator
+`aed340d50c0819aeafcd9f8bfecd7fc7325a45ef` used the retained Mac, stock OMP 18.3.0, Bun 1.4.0,
+and the same physical Pixel/Android/Chrome combination. The development gateway build was
+`0.5.3-ab78cd73dc1d`, archive source `ddee00de7974f7aa39ec04d2a5f766c75bbfda12`, archive
+SHA-256 `c7003944f39449b909960c7abb8e44971d7219b91045a445a1ed49a3b71674ef`. Its worker
+included the settle/re-query and duplicate-content mitigation. The retained origin had its own
+explicitly installed WebAPK and real granted subscription; the original local-origin app was
+independently observed still installed.
+
+| Completed phase | Phase duration | Observation |
+| --- | --- | --- |
+| Subscription | 24.164 s | Enabled |
+| Locked Private | 56.625 s | One owned notification; matching detail |
+| Locked Session | 61.074 s | One owned notification; matching detail |
+| Locked Preview | 59.034 s | One owned notification; matching detail |
+| Attention tap | 52.653 s | Revalidated, scrubbed Control |
+| Activity stop | 70.886 s | Two known-busy polls; View only |
+| Stale generation | 74.332 s | Same instance, generation +1, zero launches |
+| Clear/fresh | 81.999 s | Authoritative clear; fresh request retained |
+| Force-stop | 131.309 s | Delivered while force-stopped; fresh delivery afterward |
+| Permission | 128.772 s | Suppressed while denied; fresh delivery after restoration |
+
+The next phase again failed with **lock/resume authoritative clear timed out**. The exact error
+line was identified by its stderr digest. Total runner time was 901.483 s including cleanup; the
+failed phase has no completed duration. No retry was made. Doze, networking, and the sink sweep
+were not reached. This recurrence means the measured mitigation did **not** resolve the complete
+sequence failure.
+
+The passive trace retained 1,109 rows with zero drops: 26 owned-topic notification rows, 212
+process rows, and 871 Chrome diagnostic rows. It contained no selected FCM receipt rows; delivery
+and push-handler execution therefore remain unobserved, not disproved. The final owned-topic
+enqueue preceded the final native cancellation by 90.689 s, with no intervening or later enqueue.
+That sequence differs from the controlled cancel-then-late-post signature. The trace did not retain
+per-request arm/resolution times, OS content/post-update hashes, browser handles, or worker
+show/close times. It cannot identify the lingering request or establish the 2 s branch taken.
+Timestamp-and-hash-matched read-only log recovery identified sandboxed Chrome process churn in
+that interval, but no Chrome-main or WebAPK lifecycle event within it; it did not identify the
+service-worker process. The exact timeout path proves fixture answer acknowledgement and a
+gateway snapshot with the ask cleared before waiting for notification removal, not their time.
+
+Cleanup passed for the same epoch, progress was restored with cleanup no longer required, and
+the lease was released. A later read-only query matched all ten device baseline booleans and
+found no owned notification; DND remained off. The restored browser baseline was granted,
+subscribed, Session detail. This is partial **development-tested** evidence, not a matrix pass
+or stable qualification. Further diagnosis must capture the missing request/native/browser
+identities before cleanup rather than extending the clear deadline or retrying its missing event.
+
+### Root cause: FCM throttled the coalescing Topic
+
+The lock/resume clear timeouts came from Firebase Cloud Messaging, not the worker. Every push
+carried a per-instance Web Push `Topic`, which FCM treats as a collapse key and limits to a burst
+of 20 messages per device, refilling one every three minutes. By lock/resume the matrix had spent
+that budget, so a clear could arrive minutes after the lane's 60-second deadline.
+
+A controlled comparison on 2026-09-25 (04:46:39Z–05:07:17Z) used the retained Mac, the same Pixel
+(Android 17, Chrome 153.0.8010.53), the retained-origin WebAPK, and a granted, subscribed
+Session-detail baseline. Two development builds with byte-identical workers ran one ask and its
+answer per cycle, with the app closed, the device locked, and no UI driving inside a cycle:
+
+| Build | Source | Archive SHA-256 | Result |
+| --- | --- | --- | --- |
+| T, with `Topic` | `ddee00de7974` | `c7003944…` | Transitions 1–21 reached Android within 3.5 s; #22 (clear) took 150.807 s and #23 (attention) 172.362 s, which ended the arm |
+| N, without `Topic` | `e8bfd5b91521` | `a819df96…` | Installed 9.5 s after T ended; 28 of 28 transitions within 3.053 s |
+
+Latency runs from the first gateway snapshot showing the transition to the native Android enqueue
+or cancellation. #255 removes the `Topic` and amends ADR-017.
+
+An earlier no-Topic full-sequence attempt on the same build (04:06:16Z–04:14:21Z) completed six
+phases through activity stop, then failed at the stale-generation tap. Android's event history
+shows the bouncer focused at 04:13:14.898Z, the keyguard going away at 15.216Z, and
+`isKeyguardShowing=false` at 15.419Z; earlier taps had kept the bouncer up for about 8 s. The
+helper kept waiting for a PIN field that no longer existed. `9fdb7c3` accepts a keyguard that
+dismisses during observation; its regression tests failed before the fix. Cleanup passed and the
+lease was released. That attempt never reached lock/resume, so it neither confirmed nor refuted the
+throttle.
+
+### Full no-Topic run after the Pixel's September update
+
+Before the run, the Pixel installed system update `CP3A.260905.009` (from `CP2A.260805.005`) and
+rebooted. The first attempt, 2026-09-25 08:43:34Z at orchestrator `0f5c7d0`, passed Subscription
+and Locked Private, then failed Locked Session before arming its ask. The lane's own cleanup and
+the cleanup lane both failed: the fixture was stopped, but the phone stayed locked and the lease
+stayed held. The development tracer printed only the aggregate failure, so the exact error lines
+were not captured.
+
+On the device, the Compose keyguard of that build answers the helper's MENU key with SystemUI's
+standalone fingerprint bouncer window, `AlternateBouncerView`. That window carries no
+`alternate_bouncer` resource and ignores the PIN swipe, so the helper typed its PIN into no field.
+A tap on its scrim shows the PIN bouncer; a swipe from the plain lock screen still does.
+`8a9a497` detects the window by its focus and taps the scrim well above the sensor; its two
+regression tests failed before the fix. The fixed path then unlocked the phone from a locked
+screen, and a second cleanup-lane attempt for the failed epoch passed and restored the baseline.
+
+One uninterrupted attempt at orchestrator `8a9a497` then passed every phase, 09:02:52Z–09:20:40Z
+(runner 1,055.873 s including cleanup), against the retained Mac's no-Topic development gateway
+(source `e8bfd5b`, archive SHA-256 `a819df96…`), stock OMP 18.3.0, and Bun 1.4.0, on the Pixel 10
+Pro (Android 17 `CP3A.260905.009`, Chrome 153.0.8010.53, retained-origin WebAPK version 1):
+
+| Completed phase | Phase duration | Observation |
+| --- | --- | --- |
+| Subscription | 24.270 s | Enabled |
+| Locked Private | 55.978 s | One owned notification; matching detail; delivered in 2.483 s |
+| Locked Session | 60.221 s | One owned notification; matching detail; delivered in 3.253 s |
+| Locked Preview | 59.863 s | One owned notification; matching detail; delivered in 1.419 s |
+| Attention tap | 52.504 s | Revalidated, scrubbed Control |
+| Activity stop | 67.057 s | Two known-busy polls; View only |
+| Stale generation | 64.998 s | Same instance, generation +1, zero launches |
+| Clear/fresh | 75.346 s | Authoritative clear; fresh request retained |
+| Force-stop | 110.493 s | Delivered while force-stopped; fresh delivery afterward |
+| Permission | 119.281 s | Suppressed while denied; fresh delivery after restoration |
+| Lock/resume | 40.216 s | Locked delivery; resumed |
+| Doze | 79.827 s | Delivered after Doze exit |
+| Network | 169.895 s | Wi-Fi and cellular delivery; Airplane suppressed; recovered |
+| Forbidden sinks | 18.483 s | Ten sinks detectable and clean; gateway streams discarded |
+
+Cleanup passed for the same epoch with device, browser, and fixture restored, and the lease was
+released. The passive trace kept 1,298 rows with zero drops. This is **development-tested**
+evidence for the lane and the no-Topic gateway, not stable qualification.
+
 ## Optional passkey/biometric gate
 
 WebAuthn Control protection is proposed in ADR-008, not implemented in v0.4.0. There is no

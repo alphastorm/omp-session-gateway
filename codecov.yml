@@ -59,10 +59,13 @@ ignore:
   # known-bad source map into the project line regression.
   - "scripts/android-device.ts"
   - "scripts/android-acceptance.ts"
-  # Published-byte post-release and View/Control harnesses are also external-effect physical lanes.
-  # Their owned-target, redaction, identity-binding, and cleanup contracts have focused unit tests,
-  # while the complete host/device transition is exercised as a release gate. Counting the unmocked
-  # orchestration body as unit-test debt would make the project gate measure hardware availability.
+  # Published-byte post-release, View/Control, and background-Push harnesses are also external-effect
+  # physical lanes. Their owned-target, redaction, identity-binding, and cleanup contracts have
+  # focused unit tests, while the complete host/device transition is exercised as a release gate.
+  # Counting the unmocked orchestration body as unit-test debt would make the project gate measure
+  # hardware availability. For background Push that body is the adb/Chrome/fixture runtime; the
+  # lane's state machine in android-push-qualification.ts stays measured.
   - "scripts/android-collab-smoke.ts"
   - "scripts/post-release-smoke.ts"
+  - "scripts/android-push-runtime.ts"
   - "apps/web/e2e/**"

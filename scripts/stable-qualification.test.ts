@@ -10,19 +10,26 @@ import {
   assertMacBuildOutput,
   assertMacLifecycleOutput,
   assertProtectedFilesUnchanged,
+  createPixelLease,
   createReceiptPersister,
   createStableQualificationReceipt,
   executeReceiptLane,
+  externalCleanupCurrent,
+  incompleteQualification,
   markMacCleanupRequired,
   parseQualificationPins,
   parseStableQualificationArgs,
   qualifyDebian,
+  runExternalLane,
   runStableQualification,
   receiptNeedsMacCleanup,
   validateStableQualificationReceipt,
   type DebianQualificationRuntime,
+  type ExternalLaneIdentity,
+  type ExternalLaneModule,
   type ProtectedFileSnapshot,
   type StablePreflightRuntime,
+  type StableQualificationLaneModules,
 } from "./stable-qualification.ts";
 
 const TAG = `v${PRODUCT_VERSION}-prealpha.21`;
@@ -47,6 +54,23 @@ async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
     return error instanceof Error ? error.message : String(error);
   }
   throw new Error("expected promise to reject");
+}
+
+/** Admission-only lanes: an unrequested effect fails loudly instead of reaching a real VM or phone. */
+function admissionLanes(refuse?: "windows" | "androidPush"): StableQualificationLaneModules {
+  const lane = (name: "windows" | "androidPush"): ExternalLaneModule => ({
+    preflight: async () => {
+      if (refuse === name) throw new Error(`${name} fixture refuses admission`);
+    },
+    run: async () => {
+      throw new Error(`${name} must not run in an admission test`);
+    },
+    needsCleanup: () => false,
+    cleanup: async () => {
+      throw new Error(`${name} must not clean up in an admission test`);
+    },
+  });
+  return { windows: lane("windows"), androidPush: lane("androidPush"), createPixelLease: () => createPixelLease(() => {}) };
 }
 
 describe("stable qualification arguments", () => {
@@ -163,7 +187,7 @@ describe("resumed relay qualification proof", () => {
         },
         recoverMac: async () => { throw new Error("completed cleanup must not reopen"); },
       };
-      await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("relay evidence");
+      await expect(runStableQualification(["--tag", TAG], guarded, admissionLanes())).rejects.toThrow("relay evidence");
       const persisted = JSON.parse(await readFile(path, "utf8"));
       expect(persisted.status).toBe("failed");
       expect(persisted.completedAt).toBeUndefined();
@@ -182,11 +206,11 @@ describe("resumed relay qualification proof", () => {
       const runtime = await preflightFixture(root, "absent");
       const guarded = { ...runtime, environment: { ...runtime.environment, OMP_STABLE_RELAY_SECONDS: "2400" } };
       await writeFile(path, JSON.stringify(passedRelayReceipt(1_800)));
-      await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("relay evidence");
+      await expect(runStableQualification(["--tag", TAG], guarded, admissionLanes())).rejects.toThrow("relay evidence");
       for (const duration of [2_400, 3_600]) {
         await writeFile(path, JSON.stringify(passedRelayReceipt(duration)));
         // Valid proof reaches read-only admission, which deliberately stops before any effects.
-        await expect(runStableQualification(["--tag", TAG], guarded)).rejects.toThrow("authorized Android");
+        await expect(runStableQualification(["--tag", TAG], guarded, admissionLanes())).rejects.toThrow("authorized Android");
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -228,6 +252,12 @@ test.skipIf(process.platform === "win32")("rejected resumed relay proof still cl
       import { writeFile } from "node:fs/promises";
       import { runStableQualification } from ${JSON.stringify(join(REPOSITORY_ROOT, "scripts/stable-qualification.ts"))};
       const root = process.env.FIXTURE_ROOT;
+      const lane = {
+        preflight: async () => { throw new Error("unexpected lane admission"); },
+        run: async () => { throw new Error("unexpected lane run"); },
+        needsCleanup: () => false,
+        cleanup: async () => { throw new Error("unexpected lane cleanup"); },
+      };
       try {
         await runStableQualification(["--tag", ${JSON.stringify(TAG)}], {
           platform: "darwin", arch: "arm64", bunVersion: Bun.version,
@@ -242,7 +272,7 @@ test.skipIf(process.platform === "win32")("rejected resumed relay proof still cl
             await writeFile(root + "/recovered", "yes");
             return { sshDestination: "fixture.invalid", sudoPassword: "fixture" };
           },
-        });
+        }, { windows: lane, androidPush: lane, createPixelLease: () => (_owner, action) => action() });
         process.exitCode = 2;
       } catch (error) {
         console.log(JSON.stringify({ rejected: error.message }));
@@ -308,7 +338,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
       if (invocation === "git ls-remote --exit-code origin refs/heads/fixture") return COMMIT + "\trefs/heads/fixture";
       if (command[0] === "ssh") {
         if (failure === "ssh") throw new Error("private-host private-credential");
-        return "";
+        return "qualification-mac.example.ts.net";
       }
       throw new Error("fixture refuses a non-prerequisite command: " + invocation);
     },
@@ -330,9 +360,21 @@ describe("stable qualification read-only admission", () => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-failure-"));
     try {
       const runtime = await preflightFixture(root, failure);
-      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime));
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, admissionLanes()));
       expect(error).toContain(diagnostic);
       expect(error).not.toMatch(/private-(?:device|host|credential)/u);
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["windows", "androidPush"] as const)("%s lane admission failure stops normal qualification before receipts", async lane => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-lane-"));
+    try {
+      const runtime = await preflightFixture(root);
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, admissionLanes(lane)));
+      expect(error).toContain("lane admission failed");
       expect(await readdir(root)).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -343,7 +385,7 @@ describe("stable qualification read-only admission", () => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-pass-"));
     try {
       const runtime = await preflightFixture(root);
-      const report = await runStableQualification(["--preflight", "--tag", TAG, "--previous-tag", PREVIOUS_TAG], runtime);
+      const report = await runStableQualification(["--preflight", "--tag", TAG, "--previous-tag", PREVIOUS_TAG], runtime, admissionLanes());
       expect(report.status).toBe("preflight-passed");
       expect(report.notProven).toEqual(expect.arrayContaining([
         expect.stringContaining("signatures"),
@@ -386,10 +428,10 @@ describe("stable qualification read-only admission", () => {
           return stdout.trim();
         },
       };
-      expect((await runStableQualification(["--preflight", "--tag", TAG], hostRuntime)).status).toBe("preflight-passed");
+      expect((await runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).status).toBe("preflight-passed");
       await expect(stat(join(home, "qual"))).rejects.toMatchObject({ code: "ENOENT" });
       await fixtureCommand(join(home, ".bun", "bin", "bun"), "echo 0.0.0");
-      await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime)).rejects.toThrow("retained Mac SSH");
+      await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).rejects.toThrow("retained Mac SSH");
       expect(await Bun.file(join(root, "receipts", "stable-qualification.json")).exists()).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -407,7 +449,7 @@ describe("stable qualification read-only admission", () => {
       ["--preflight", "--tag", TAG, "--previous-tag", "v0.2.1"],
       ["--preflight", "--tag", TAG, "--dispatch"],
     ]) {
-      await expect(runStableQualification(argv, guarded)).rejects.toThrow();
+      await expect(runStableQualification(argv, guarded, admissionLanes())).rejects.toThrow();
     }
     expect(probes).toBe(0);
   });
@@ -700,6 +742,288 @@ test("protected release state guard detects implicit ledger promotion", async ()
     await writeFile(join(root, "STABLE_RELEASE.lock.json"), "qualified\n");
     const message = await rejectionMessage(assertProtectedFilesUnchanged(snapshots, root));
     expect(message).toContain("qualification modified protected release state");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a schema 1 receipt cannot resume into the campaign that adds Windows and background Push", () => {
+  const receipt = { ...createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG), schemaVersion: 1 };
+  expect(() => validateStableQualificationReceipt(receipt, TAG, COMMIT, PREVIOUS_TAG)).toThrow(
+    "predates the Windows and background Push lanes",
+  );
+});
+
+test("the Pixel lease runs one action at a time and survives a failed holder", async () => {
+  const lease = createPixelLease(() => {});
+  const order: string[] = [];
+  let started!: () => void;
+  let release!: () => void;
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  const firstMayEnd = new Promise<void>(resolve => { release = resolve; });
+  const first = lease("android", async () => {
+    order.push("start android");
+    started();
+    await firstMayEnd;
+    order.push("end android");
+    throw new Error("android failed");
+  });
+  const second = lease("androidPush", async () => { order.push("androidPush"); });
+  const third = lease("windows", async () => { order.push("windows"); });
+  await firstStarted;
+  // The holder has not finished, so neither waiter may have started.
+  expect(order).toEqual(["start android"]);
+  release();
+  const results = await Promise.allSettled([first, second, third]);
+  expect(order).toEqual(["start android", "end android", "androidPush", "windows"]);
+  expect(results.map(result => result.status)).toEqual(["rejected", "fulfilled", "fulfilled"]);
+});
+
+test("a Pixel left unrestored refuses every later device lane", async () => {
+  const lease = createPixelLease(() => {});
+  let later = 0;
+  const unrestored = Object.assign(new Error("keyguard restore failed"), { pixelUnrestored: true });
+  const [holder, waiter] = await Promise.allSettled([
+    lease("windows", async () => { throw unrestored; }),
+    lease("androidPush", async () => { later += 1; }),
+  ]);
+  expect(holder).toMatchObject({ status: "rejected", reason: unrestored });
+  if (waiter?.status !== "rejected") throw new Error("the waiting lane must be refused");
+  expect(String(waiter.reason)).toContain("left unrestored by windows");
+  expect(later).toBe(0);
+});
+
+describe("resource-owning lanes", () => {
+  interface LaneLog {
+    readonly calls: string[];
+    readonly runProgress: unknown[];
+  }
+  const persist = async () => {};
+  const newLog = (): LaneLog => ({ calls: [], runProgress: [] });
+  const holdsResources = (progress: unknown): progress is object =>
+    typeof progress === "object" && progress !== null && "resources" in progress && progress.resources === 1;
+
+  /** Records one resource, then releases it on cleanup, the way the Windows VM and Pixel lanes do. */
+  function resourceLane(
+    log: LaneLog,
+    behaviour: {
+      readonly runFails?: boolean;
+      readonly cleanupFails?: boolean;
+      readonly cleanupLeavesResources?: boolean;
+      readonly recordsNoEpoch?: boolean;
+    } = {},
+  ): ExternalLaneModule {
+    return {
+      preflight: async () => {},
+      run: async ({ progress, checkpoint }) => {
+        log.calls.push(progress === undefined ? "run" : "resume");
+        log.runProgress.push(progress);
+        if (behaviour.recordsNoEpoch) return { verified: true };
+        await checkpoint({ epoch: "epoch-new", phase: "provisioned", resources: 1 });
+        if (behaviour.runFails) throw new Error("fixture lane failed after provisioning");
+        await checkpoint({ epoch: "epoch-new", phase: "verified", resources: 1 });
+        return { verified: true };
+      },
+      needsCleanup: holdsResources,
+      cleanup: async ({ progress, checkpoint }) => {
+        log.calls.push("cleanup");
+        if (behaviour.cleanupFails) throw new Error("fixture cleanup failed");
+        if (!behaviour.cleanupLeavesResources && holdsResources(progress)) {
+          await checkpoint({ ...progress, resources: 0 });
+        }
+        return { released: true };
+      },
+    };
+  }
+
+  async function laneContext() {
+    const omp = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
+    const release = (tag: string) => ({ tag, sourceCommit: COMMIT, archiveSha256: "b".repeat(64), archivePath: `/unused/${tag}.tar` });
+    const identity: ExternalLaneIdentity = {
+      tag: TAG,
+      previousTag: PREVIOUS_TAG,
+      orchestratorCommit: COMMIT,
+      receiptRoot: "/unused",
+      candidate: release(TAG),
+      predecessor: release(PREVIOUS_TAG),
+      omp,
+    };
+    return { identity, pixel: createPixelLease(() => {}) };
+  }
+
+  test("passes only with a cleanup bound to the attempt it released", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const log = newLog();
+    await runExternalLane(receipt, "windows", persist, resourceLane(log), await laneContext());
+    expect(log.calls).toEqual(["run", "cleanup"]);
+    expect(receipt.lanes.windows).toMatchObject({
+      status: "passed",
+      attempts: 1,
+      evidence: { progress: { epoch: "epoch-new", phase: "verified", resources: 0 }, result: { verified: true } },
+    });
+    expect(receipt.lanes.windowsCleanup).toMatchObject({ status: "passed", evidence: { released: true, epoch: "epoch-new" } });
+    expect(externalCleanupCurrent(receipt, "windows")).toBe(true);
+  });
+
+  test("cleans up a failed attempt and never converts it into a pass", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const log = newLog();
+    const message = await rejectionMessage(
+      runExternalLane(receipt, "windows", persist, resourceLane(log, { runFails: true }), await laneContext()),
+    );
+    expect(message).toContain("failed after provisioning");
+    expect(log.calls).toEqual(["run", "cleanup"]);
+    expect(receipt.lanes.windows.status).toBe("failed");
+    expect(receipt.lanes.windowsCleanup).toMatchObject({ status: "passed", evidence: { epoch: "epoch-new" } });
+    expect(incompleteQualification(receipt)).toContain("did not pass");
+  });
+
+  test("releases a failed attempt before starting another, and an unreleased one blocks it", async () => {
+    const failedAttempt = () => {
+      const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+      receipt.lanes.windows = { status: "failed", attempts: 1, evidence: { progress: { epoch: "epoch-old", resources: 1 } } };
+      receipt.lanes.windowsCleanup = { status: "failed", attempts: 1 };
+      return receipt;
+    };
+    const blocked = failedAttempt();
+    const blockedLog = newLog();
+    const message = await rejectionMessage(
+      runExternalLane(blocked, "windows", persist, resourceLane(blockedLog, { cleanupFails: true }), await laneContext()),
+    );
+    expect(message).toContain("fixture cleanup failed");
+    expect(blockedLog.calls).toEqual(["cleanup"]);
+    expect(blocked.lanes.windows).toMatchObject({ status: "failed", attempts: 1 });
+
+    const receipt = failedAttempt();
+    const log = newLog();
+    await runExternalLane(receipt, "windows", persist, resourceLane(log), await laneContext());
+    expect(log.calls).toEqual(["cleanup", "run", "cleanup"]);
+    expect(log.runProgress).toEqual([undefined]);
+    expect(receipt.lanes.windows).toMatchObject({ status: "passed", attempts: 2 });
+    expect(externalCleanupCurrent(receipt, "windows")).toBe(true);
+  });
+
+  test("resumes the attempt a crash left running", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const crashed = { epoch: "epoch-new", phase: "provisioned", resources: 1 };
+    receipt.lanes.windows = { status: "running", attempts: 1, evidence: { progress: crashed } };
+    const log = newLog();
+    await runExternalLane(receipt, "windows", persist, resourceLane(log), await laneContext());
+    expect(log.calls).toEqual(["resume", "cleanup"]);
+    expect(log.runProgress).toEqual([crashed]);
+    expect(receipt.lanes.windows).toMatchObject({ status: "passed", attempts: 2 });
+  });
+
+  test("leaves a current pass alone and only cleans one whose cleanup lapsed", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const context = await laneContext();
+    await runExternalLane(receipt, "windows", persist, resourceLane(newLog()), context);
+    const again = newLog();
+    await runExternalLane(receipt, "windows", persist, resourceLane(again), context);
+    expect(again.calls).toEqual([]);
+    receipt.lanes.windowsCleanup.status = "failed";
+    const lapsed = newLog();
+    await runExternalLane(receipt, "windows", persist, resourceLane(lapsed), context);
+    expect(lapsed.calls).toEqual(["cleanup"]);
+    expect(receipt.lanes.windows.attempts).toBe(1);
+    expect(externalCleanupCurrent(receipt, "windows")).toBe(true);
+  });
+
+  test("a cleanup that leaves recorded resources fails its lane", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const message = await rejectionMessage(
+      runExternalLane(receipt, "windows", persist, resourceLane(newLog(), { cleanupLeavesResources: true }), await laneContext()),
+    );
+    expect(message).toContain("still records resources");
+    expect(receipt.lanes.windows.status).toBe("passed");
+    expect(receipt.lanes.windowsCleanup.status).toBe("failed");
+    expect(externalCleanupCurrent(receipt, "windows")).toBe(false);
+  });
+
+  test("an attempt that never records an epoch cannot pass", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const message = await rejectionMessage(
+      runExternalLane(receipt, "windows", persist, resourceLane(newLog(), { recordsNoEpoch: true }), await laneContext()),
+    );
+    expect(message).toContain("attempt epoch");
+    expect(receipt.lanes.windows.status).toBe("failed");
+  });
+
+  test("a lane that finishes with a blocked phase fails, keeps its progress, and is still released", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const log = newLog();
+    const blocked: ExternalLaneModule = {
+      ...resourceLane(log),
+      run: async ({ checkpoint }) => {
+        log.calls.push("run");
+        await checkpoint({ epoch: "epoch-new", phase: "network_verified", resources: 1, network: "cellular_path_unavailable" });
+        return { passed: false, network: "cellular_path_unavailable" };
+      },
+    };
+    const message = await rejectionMessage(runExternalLane(receipt, "androidPush", persist, blocked, await laneContext()));
+    expect(message).toContain("without passing every phase");
+    expect(log.calls).toEqual(["run", "cleanup"]);
+    expect(receipt.lanes.androidPush.status).toBe("failed");
+    expect(receipt.lanes.androidPush.evidence).toMatchObject({ progress: { network: "cellular_path_unavailable" } });
+    expect(receipt.lanes.androidPushCleanup).toMatchObject({ status: "passed", evidence: { epoch: "epoch-new" } });
+  });
+
+  test("a campaign passes only when each cleanup covers the attempt its lane recorded", () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    for (const lane of Object.values(receipt.lanes)) Object.assign(lane, { status: "passed", attempts: 1 });
+    receipt.lanes.windows.evidence = { progress: { epoch: "w1" }, result: { verified: true } };
+    receipt.lanes.windowsCleanup.evidence = { epoch: "w1" };
+    receipt.lanes.androidPush.evidence = { progress: { epoch: "p1" }, result: { verified: true } };
+    receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
+    expect(incompleteQualification(receipt)).toBeUndefined();
+    receipt.lanes.androidPushCleanup.evidence = { epoch: "p0" };
+    expect(incompleteQualification(receipt)).toContain("androidPushCleanup");
+    receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
+    receipt.lanes.windows.evidence = { progress: { epoch: "w1" } };
+    expect(incompleteQualification(receipt)).toContain("without a result");
+  });
+
+  test("a recorded result that did not pass can never complete a campaign", () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    for (const lane of Object.values(receipt.lanes)) Object.assign(lane, { status: "passed", attempts: 1 });
+    receipt.lanes.windows.evidence = { progress: { epoch: "w1" }, result: { verified: true } };
+    receipt.lanes.windowsCleanup.evidence = { epoch: "w1" };
+    receipt.lanes.androidPush.evidence = { progress: { epoch: "p1" }, result: { passed: false } };
+    receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
+    expect(incompleteQualification(receipt)).toContain("did not pass");
+  });
+});
+
+test("a resumed campaign that fails admission still destroys the Windows VM it recorded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "stable-windows-orphan-"));
+  try {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    receipt.status = "failed";
+    receipt.candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+    receipt.predecessor = { tag: PREVIOUS_TAG, sourceCommit: "c".repeat(40), archiveSha256: "d".repeat(64) };
+    // A crash left the lane running with a VM recorded and its cleanup never started.
+    receipt.lanes.windows = { status: "running", attempts: 1, evidence: { progress: { epoch: "w1", resources: 1 } } };
+    const path = join(root, "stable-qualification.json");
+    await writeFile(path, JSON.stringify(receipt));
+    const cleaned: unknown[] = [];
+    const lanes = admissionLanes();
+    const windows: ExternalLaneModule = {
+      ...lanes.windows,
+      needsCleanup: progress =>
+        typeof progress === "object" && progress !== null && "resources" in progress && progress.resources === 1,
+      cleanup: async ({ progress, checkpoint, identity }) => {
+        cleaned.push({ progress, predecessor: identity.predecessor.tag });
+        if (typeof progress === "object" && progress !== null) await checkpoint({ ...progress, resources: 0 });
+        return { released: true };
+      },
+    };
+    const runtime = await preflightFixture(root, "absent");
+    const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, { ...lanes, windows }));
+    expect(error).toContain("authorized Android");
+    expect(cleaned).toEqual([{ progress: { epoch: "w1", resources: 1 }, predecessor: PREVIOUS_TAG }]);
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    expect(persisted.status).toBe("failed");
+    expect(persisted.lanes.windowsCleanup).toMatchObject({ status: "passed", evidence: { released: true, epoch: "w1" } });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

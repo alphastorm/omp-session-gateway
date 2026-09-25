@@ -813,3 +813,46 @@ family can regress between qualifications. Its lanes are the tripwire, and a fam
 running loses support status. Windows hosts are supported without release qualification until a
 persistent signed Windows lane runs (WINDOWS_QUALIFICATION.md). Stable release notes list the
 qualified combinations as qualified, not as the limit of support.
+
+## ADR-031 — Qualify a Windows host and Pixel background Web Push in every stable campaign
+
+**Status:** Accepted
+
+**Date:** 2026-09-25
+
+**Context:** ADR-030 made Windows hosts supported but left them out of the qualified matrix until a
+persistent signed-artifact lane could reboot a Windows host into an interactive login. Hosted runners
+cannot do that. ADR-017 and ADR-019 made the physical Android background matrix release-blocking for
+any Web Push claim, and that matrix had never passed. Both lanes own external state the existing
+lanes do not: a billed VM and a tailnet node, and a phone's radios, Doze state, notification
+permission, and push subscription.
+
+**Decision:** `qualify:stable` gains two resource-owning lanes. Each is paired with a cleanup lane
+bound to the attempt it released.
+
+- `windows` provisions a disposable Vultr Windows Server 2025 VM, identified by a campaign label
+  and firewalled to the operator's `/32`, and joins it to the tailnet as a tagged node. It runs the
+  exact signed candidate and predecessor with stock OMP built at the `UPSTREAM.lock.json` pin
+  through install, upgrade, a real reboot with no pre-login listener, automatic start at RDP
+  logon, OMP publication and revocation, the physical Pixel, rotation, rollback, restore, and
+  uninstall. Its `doctor` evidence follows the Debian tagged-node convention: every host check
+  passes, and exactly the identity-derived checks are false.
+- `androidPush` drives the Pixel's installed OMP Sessions app against the retained Mac's
+  candidate gateway and its own stock-OMP fixture. It covers closed-app delivery at each detail
+  level, lock-screen presentation, taps to current Control and View, stale-generation refusal,
+  authoritative clear, force-stop, permission revocation, Doze, network transitions, and the
+  capability sinks.
+
+Each lane's progress is replaced whole on every checkpoint and carries an attempt epoch. A crashed
+attempt may be resumed; a caught failure is always released before another attempt begins. The
+campaign passes only when each cleanup lane passed for the epoch its lane recorded. Windows runs
+beside the Debian and Mac lanes. Every Pixel action runs under one in-process lease, and an action
+that cannot restore the phone blocks every later one. The receipt schema moves to version 2, and
+older receipts cannot resume.
+
+**Consequences:** A stable campaign now needs a Vultr API key that accepts the operator's current
+egress, the tagged Tailscale join key and API key, and, on the Pixel, Do Not Disturb off plus the
+installed app with notification permission for the retained Mac's origin. The Windows claim is start at
+interactive logon, not at boot. Force-stop and Doze outcomes are recorded as observed variants,
+never as a delivery guarantee. Windows and background Push enter the qualified matrix only from a
+passed campaign on the exact signed candidate; development runs stay tested evidence.

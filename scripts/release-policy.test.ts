@@ -100,6 +100,30 @@ describe("release tag policy", () => {
     expect(() => assertStableReleaseQualification(wrongCandidate, "v0.2.1", VERSION)).toThrow();
   });
 
+  test("from 0.6.0 stable approval also requires passed Windows and background Push evidence", () => {
+    const campaign = () => {
+      const manifest = {
+        ...qualifiedManifest(),
+        version: "0.6.0",
+        releaseTag: "v0.6.0",
+        previousTag: "v0.5.3",
+        candidateTag: "v0.6.0-prealpha.1",
+      };
+      return { ...manifest, evidence: { ...manifest.evidence, windows: "passed", androidPush: "passed" } };
+    };
+    expect(() => assertStableReleaseQualification(campaign(), "v0.6.0", "0.6.0")).not.toThrow();
+    const sixLanes = { ...campaign(), evidence: qualifiedManifest().evidence };
+    expect(() => assertStableReleaseQualification(sixLanes, "v0.6.0", "0.6.0")).toThrow("unexpected fields");
+    const pendingPush = campaign();
+    pendingPush.evidence.androidPush = "pending";
+    expect(() => assertStableReleaseQualification(pendingPush, "v0.6.0", "0.6.0")).toThrow(
+      "stable release evidence is incomplete",
+    );
+    // An earlier release keeps the six lanes it was actually qualified with.
+    const earlier = { ...qualifiedManifest(), evidence: campaign().evidence };
+    expect(() => assertStableReleaseQualification(earlier, "v0.2.1", VERSION)).toThrow("unexpected fields");
+  });
+
   test("CLI emits stable GitHub environment values only with a qualified manifest", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "stable-release-policy-"));
     try {

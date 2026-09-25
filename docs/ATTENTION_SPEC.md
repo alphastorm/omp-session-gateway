@@ -217,3 +217,87 @@ not qualification of these specialized scenarios.
 - [x] Last-known metadata survives phone, tailnet, desktop, and relay failures with distinct copy.
 - [x] The measured 411×816 Pixel layout viewport and synthetic 390×844 browser checks remain overflow-free with targets at least 44px.
 - [x] Capability-leak scan and focused protocol, registry, HTTP, app, worker, and browser tests pass.
+
+### Physical background-Push acceptance
+
+Run the [dedicated Android Push procedure](ANDROID.md#physical-background-push-lane) against the
+candidate gateway's exact Serve origin. An ordinary Chrome tab and a WebAPK for another gateway
+do not satisfy admission. All observations below must be backed by the physical device; portable
+fake-runtime tests cover failure/cleanup behavior but cannot check these boxes.
+The operator turns DND off for the window; the lane only observes DND. Owned OS record keys and
+post times separate real-session alerts from the fixture. One unowned overlap permits one recorded
+phase re-arm, never an undisclosed retry; ambiguous ownership and repeated interference fail closed.
+Permission must be granted before admission. The negative phase holds its origin-scoped CDP denial
+connection open without a page, because disconnecting it removes Chrome's override. The driver
+rewarms Chrome before releasing that connection, then verifies the restored preference and fresh delivery.
+
+- [ ] Closed WebAPK task: Private, Session, and Preview delivery with exactly one owned notification.
+- [ ] Lock-screen UI matches the selected detail and does not contain ask/prompt/answer canaries.
+- [ ] Attention tap: scrubbed route, current request/generation validation, writable Control.
+- [ ] Known busy across two polls → idle: stop notification tap is read-only View.
+- [ ] Same instance N → N+1: old stop tap is scrubbed/expired with zero launch requests.
+- [ ] Authoritative clear removes the exact ask; a fresh request remains visible across repeated current samples.
+- [ ] Force-stop observed variant plus a fresh post-relaunch delivery.
+- [ ] Permission-denied suppression and a fresh delivery after restoration.
+- [ ] Lock/resume and forced-Doze observed variant, without asserting guaranteed delivery.
+- [ ] Actual Wi-Fi → cellular → Airplane → restored-tailnet behavior.
+- [ ] Seven browser sinks plus notification title/body/data, URL/history, DOM, and resource timings
+  are proven detectable and clean; macOS service streams are observed discarded.
+- [ ] Original subscription/detail/permission, radios, battery/Doze, task, and display/keyguard
+  state restored; owned fixture stopped. No screenshots, notification content, or XML persisted.
+
+The 2026-09-25 development probes against v0.5.3 prove the stock-18.3.0 fixture transitions,
+closed-task delivery and lock-screen detail at all three levels, full-sequence attention Control,
+known-busy-to-idle View, same-instance stale rejection, clear/fresh retention, force-stop observed
+delivery with fresh post-relaunch delivery, denied-permission suppression/restoration, and
+digest-bound notification cleanup. The full sequence repeatedly timed out on lock/resume clear.
+The smallest observed failing combined prefix was stale-generation → clear/fresh → force-stop,
+failing its first post-relaunch clear. Instrumented repetitions received the exact current clear
+and removed both browser and OS records; they did not establish the uninstrumented failure's cause.
+Three repetitions with both page and worker DevTools detached through force-stop/relaunch/clear
+also passed (0 failures in 3), with native enqueue-before-cancel ordering and unchanged delivery
+targets. The absence of FCM receipt logs does not establish receipt ordering. On this Chrome
+version, browser notification handles do not acknowledge native Android display; a silent
+replacement followed immediately by close is therefore not a proven orphan repair.
+An independent same-tag native-API probe then left orphans in 5/5 warm pairs and 0/5 cold-relaunch
+pairs, despite zero browser handles after every close. Every warm replacement was enqueued after
+native cancellation and remained visible to the OS observer about 15.8 seconds later. This proves
+an API/native ordering failure, not its causal connection to the earlier full-sequence failure;
+the worker now mitigates recent show/clear races with a 2,000 ms in-memory settle window,
+an exact-request re-query before close, and duplicate-content replay suppression. This measured
+budget is not an Android display fence or a qualification pass; old notices and notices
+inherited by a fresh worker close immediately.
+A detached native-API probe with that settle/re-query ordering then completed 10 warm and 5 cold
+pairs with zero orphans. All pairs returned zero browser handles and remained natively absent
+for at least 13.726 s after completion; fixture, transient UI, and device baseline were restored.
+That controlled result does not substitute for the full Web Push checklist above.
+Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
+experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
+matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,
+not completion of this checklist and not qualification. See ANDROID.md for timings, restored
+baselines, and the exact observed platform combination.
+
+A later single uninterrupted run through the production adapter/runner against the retained Mac
+and the development worker containing that mitigation again failed lock/resume authoritative
+clear, after completing every phase through denied-permission restoration. It took 901.483 s
+including cleanup; Doze, networking, and sinks were not reached. The final owned-topic native
+enqueue preceded cancellation by 90.689 s with no later enqueue, unlike the controlled warm
+replacement signature. FCM receipt, handler execution, and the lingering request/content identity
+were not captured, so the cause remains unresolved. All ten device baseline booleans matched in
+a post-run read-only check, the owned notification was absent, and the lease was released.
+The original local-origin WebAPK remained installed after authorized retained-origin setup.
+The mitigation is not a full-sequence fix and this run does not check the qualification boxes.
+
+The cause was FCM's collapsible-message throttle. Every push carried a per-instance Web Push
+`Topic`, which FCM limits to a burst of 20 messages per device, then one every three minutes. In a
+controlled comparison on the same Pixel and origin, with byte-identical workers, transitions 1–21
+stayed prompt with the `Topic`, and transitions 22 and 23 took 150.8 s and 172.4 s. Without it,
+immediately afterwards, 28 of 28 arrived within 3.1 s. #255 sends pushes without a `Topic`
+(ADR-017 amendment). [ANDROID.md](ANDROID.md) records the builds and a separate keyguard race
+fixed in the lane's notification-tap helper.
+
+With the no-Topic gateway, one uninterrupted development run on 2026-09-25 then completed every
+phase above, including lock/resume, Doze, the Wi-Fi/cellular/Airplane matrix, and the ten-sink
+sweep, and its cleanup restored the phone. It first needed a lane fix for the Pixel's September
+keyguard; [ANDROID.md](ANDROID.md) records both attempts. That run is tested evidence; the boxes
+above stay for the stable campaign's qualification.

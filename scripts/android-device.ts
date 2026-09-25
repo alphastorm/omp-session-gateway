@@ -87,6 +87,12 @@ export interface AndroidChromeDriver {
   version(): Promise<Record<string, unknown>>;
   /** Opens a tab this process owns, so a run never disturbs the user's existing tabs. */
   openTab(): Promise<void>;
+  /** Attach an existing page without taking ownership of the user's WebAPK task. */
+  attachTab(targetId: string, existingSessionId?: string): Promise<void>;
+  closeTab(): Promise<void>;
+  browserSend(method: string, parameters?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  sessionSend(session: string, method: string, parameters?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  onEvent(listener: (method: string, parameters: Record<string, unknown>) => void): () => void;
   /** Navigates the owned tab and waits for document.readyState to become complete. */
   navigate(url: string): Promise<string>;
   /** Evaluates an expression in the owned tab and returns its value. */
@@ -298,6 +304,11 @@ export function parseKeyguardShowing(output: string): boolean {
   if (value === undefined) throw new Error("Android window state is missing isKeyguardShowing");
   return value === "true";
 }
+
+/** Pixel SystemUI's standalone fingerprint (alternate) bouncer window holds input focus. */
+export function parseAlternateBouncerFocused(output: string): boolean {
+  return /^\s*mCurrentFocus=Window\{\S+ u\d+ AlternateBouncerView\}$/mu.test(output);
+}
 function parseAndroidDisplaySize(output: string): { readonly width: number; readonly height: number } {
   const match = [...output.matchAll(/(\d{3,5})x(\d{3,5})/gu)].at(-1);
   const width = Number(match?.[1]);
@@ -309,6 +320,25 @@ function parseAndroidDisplaySize(output: string): { readonly width: number; read
 }
 
 
+/** Reveals the PIN bouncer without replacing a notification's pending dismiss action. */
+export async function showAndroidPinBouncer(
+  command: AndroidAdbCommand,
+  pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+): Promise<void> {
+  try {
+    const { width, height } = parseAndroidDisplaySize(await command("shell", "wm", "size"));
+    const centerX = Math.floor(width / 2);
+    if (parseAlternateBouncerFocused(await command("shell", "dumpsys", "window"))) {
+      // The standalone fingerprint bouncer ignores the swipe. A tap on its scrim, well above the
+      // in-display sensor, hands over to the PIN bouncer and keeps the pending action.
+      await command("shell", "input", "tap", String(centerX), String(Math.floor(height / 4)));
+    } else {
+      await command("shell", "input", "swipe", String(centerX), String(Math.floor((height * 91) / 100)), String(centerX), String(Math.floor(height / 4)), "600");
+    }
+  } catch { throw new Error(ANDROID_KEYGUARD_FAILURE); }
+  await pause(1_200);
+}
+
 /** Wakes and unlocks the display before an Activity launch that may otherwise wait forever. */
 export async function wakeAndroidDisplay(
   command: AndroidAdbCommand,
@@ -319,31 +349,19 @@ export async function wakeAndroidDisplay(
   let keyguardShowing = true;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await command("shell", "input", "keyevent", "224");
-    await command("shell", "input", "keyevent", "82");
-    await command("shell", "wm", "dismiss-keyguard");
     await pause(1_200);
     wakefulness = parseWakefulness(await command("shell", "dumpsys", "power"));
     if (wakefulness !== "Awake") continue;
     keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
     if (!keyguardShowing) return wakefulness;
+    // MENU opens an application popup on an already unlocked phone. Use it only for keyguard.
+    await command("shell", "input", "keyevent", "82");
+    await command("shell", "wm", "dismiss-keyguard");
+    await pause(1_200);
+    keyguardShowing = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
+    if (!keyguardShowing) return wakefulness;
     if (unlockKeyguard !== undefined) {
-      try {
-        const { width, height } = parseAndroidDisplaySize(await command("shell", "wm", "size"));
-        const centerX = Math.floor(width / 2);
-        await command(
-          "shell",
-          "input",
-          "swipe",
-          String(centerX),
-          String(Math.floor((height * 91) / 100)),
-          String(centerX),
-          String(Math.floor(height / 4)),
-          "600",
-        );
-      } catch {
-        throw new Error(ANDROID_KEYGUARD_FAILURE);
-      }
-      await pause(1_200);
+      await showAndroidPinBouncer(command, pause);
       await unlockKeyguard();
       // Pixel SystemUI can accept the credential several seconds before window state drops the
       // secure bouncer. Poll without injecting another keyevent or a second credential attempt.
@@ -461,13 +479,13 @@ export async function wakeAndroidChrome(
  */
 export async function withAndroidChrome<T>(
   run: (driver: AndroidChromeDriver) => Promise<T>,
-  options: { readonly port?: number } = {},
+  options: { readonly port?: number; readonly launchBrowser?: boolean } = {},
 ): Promise<T> {
   const port = options.port ?? DEFAULT_FORWARD_PORT;
   const target = resolveAndroidBrowserTarget();
   const serial = await requireSingleDevice();
   const packageVersion = await androidPackageVersion(serial, target.packageName);
-  await wakeAndroidChrome(serial, target);
+  if (options.launchBrowser !== false) await wakeAndroidChrome(serial, target);
   await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
 
   let webSocketDebuggerUrl: string;
@@ -512,14 +530,21 @@ export async function withAndroidChrome<T>(
   let nextId = 0;
   let sessionId: string | undefined;
   let targetId: string | undefined;
+  let ownsTarget = false;
+  const eventListeners = new Set<(method: string, parameters: Record<string, unknown>) => void>();
 
   socket.onmessage = (event: MessageEvent) => {
     const message = JSON.parse(String(event.data)) as {
       id?: number;
       error?: { message: string };
       result?: Record<string, unknown>;
+      method?: string;
+      params?: Record<string, unknown>;
     };
-    if (message.id === undefined) return;
+    if (message.id === undefined) {
+      if (message.method !== undefined) for (const listener of eventListeners) listener(message.method, message.params ?? {});
+      return;
+    }
     const entry = pending.get(message.id);
     if (entry === undefined) return;
     pending.delete(message.id);
@@ -527,12 +552,13 @@ export async function withAndroidChrome<T>(
     else entry.resolve(message.result ?? {});
   };
 
-  const send = (method: string, parameters: Record<string, unknown> = {}, useSession = true) =>
+  const send = (method: string, parameters: Record<string, unknown> = {}, useSession = true, explicitSession?: string) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
       const id = (nextId += 1);
       pending.set(id, { method, resolve, reject });
       const frame: Record<string, unknown> = { id, method, params: parameters };
-      if (useSession && sessionId !== undefined) frame.sessionId = sessionId;
+      const destination = explicitSession ?? (useSession ? sessionId : undefined);
+      if (destination !== undefined) frame.sessionId = destination;
       socket.send(JSON.stringify(frame));
       setTimeout(() => {
         if (pending.delete(id)) reject(new Error(`CDP timeout: ${method}`));
@@ -564,6 +590,7 @@ export async function withAndroidChrome<T>(
             throw new Error("CDP Target.createTarget returned no target id");
           }
           targetId = created.targetId;
+          ownsTarget = true;
           try {
             const attached = await send("Target.attachToTarget", { targetId, flatten: true }, false);
             if (typeof attached.sessionId !== "string" || attached.sessionId === "") {
@@ -586,6 +613,27 @@ export async function withAndroidChrome<T>(
           }
         }
         throw lastError instanceof Error ? lastError : new Error("could not attach to Android Chrome tab");
+      },
+      async attachTab(existingTargetId, existingSessionId) {
+        const attached = existingSessionId === undefined ? await send("Target.attachToTarget", { targetId: existingTargetId, flatten: true }, false) : { sessionId: existingSessionId };
+        if (typeof attached.sessionId !== "string") throw new Error("could not attach to Android page");
+        targetId = existingTargetId;
+        ownsTarget = false;
+        sessionId = attached.sessionId;
+        await send("Page.enable");
+        await send("Runtime.enable");
+      },
+      async closeTab() {
+        if (targetId !== undefined) await send("Target.closeTarget", { targetId }, false);
+        targetId = undefined;
+        sessionId = undefined;
+        ownsTarget = false;
+      },
+      browserSend: (method, parameters) => send(method, parameters, false),
+      sessionSend: (session, method, parameters) => send(method, parameters, false, session),
+      onEvent(listener) {
+        eventListeners.add(listener);
+        return () => { eventListeners.delete(listener); };
       },
       async navigate(url: string) {
         let result: Record<string, unknown> = {};
@@ -616,7 +664,7 @@ export async function withAndroidChrome<T>(
 
     return await run(driver);
   } finally {
-    if (targetId !== undefined) {
+    if (targetId !== undefined && ownsTarget) {
       await send("Target.closeTarget", { targetId }, false).catch(() => {});
     }
     socket.close();
