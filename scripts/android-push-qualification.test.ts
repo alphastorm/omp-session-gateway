@@ -11,7 +11,7 @@ import { webApkTasks, closeWebApk, setupAndroidWebApk } from "./android-webapk.t
 import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
 import { runFixtureOperation, type FixtureExecutor } from "./push-qualification-fixture.ts";
-import { isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
+import { authenticateAndroidNotification, isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
 
 const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { tag: "v0.6.0-prealpha.1", sourceCommit: "a".repeat(40), archiveSha256: "b".repeat(64), archivePath: "synthetic.tar" },
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
@@ -77,6 +77,57 @@ function fake(options: FakeOptions = {}) {
   return { runtime, cleanup, checkpoints, state: () => ({ started, asking, browser, device, shown, effects, stopped }),
     input: { identity, progress: undefined, runtime, checkpoint: async (p: Record<string, unknown>) => { checkpoints.push(structuredClone(p)); }, pixel: async <T>(_owner: string, action: () => Promise<T>) => action() } };
 }
+
+test.each(["surface", "surface-unavailable", "pin", "credential"] as const)("notification authentication accepts dismissal during %s observation without application input", async boundary => {
+  let locked = true, revealed = false, credentialAttempts = 0, applicationInput = false;
+  let waits = 0;
+  await authenticateAndroidNotification({
+    command: async (...args) => {
+      if (args.join(" ") === "shell dumpsys window") return `isKeyguardShowing=${locked}`;
+      if (args.join(" ") !== "exec-out uiautomator dump /dev/tty") throw new Error("unexpected authentication mutation");
+      if (boundary.startsWith("surface")) locked = false;
+      if (boundary === "surface-unavailable") return "ERROR: no root node during dismissal";
+      return `<hierarchy>${!locked ? "" : `<node package="com.android.systemui" resource-id="com.android.systemui:id/${revealed ? "pinEntry" : "alternate_bouncer"}" password="${revealed}" bounds="[0,0][40,40]"/>`}</hierarchy>`;
+    },
+    revealPin: async () => { if (!locked) applicationInput = true; revealed = true; if (boundary === "pin") locked = false; },
+    unlock: async () => { credentialAttempts++; if (!locked) applicationInput = true; locked = false; },
+    wait: async predicate => {
+      waits++;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (await predicate()) { if (boundary === "credential" && waits === 2) locked = false; return; }
+      }
+      throw new Error("synthetic observation deadline");
+    },
+  });
+  expect(locked).toBe(false);
+  expect(credentialAttempts).toBe(0);
+  expect(applicationInput).toBe(false);
+});
+
+test.each(["secure-pin", "multiple-inputs", "unavailable-ui"] as const)("notification authentication handles %s without guessing a credential target", async scenario => {
+  let locked = true, revealed = false, credentialAttempts = 0;
+  let failure: unknown;
+  try {
+    await authenticateAndroidNotification({
+      command: async (...args) => {
+        if (args.join(" ") === "shell dumpsys window") return `isKeyguardShowing=${locked}`;
+        if (args.join(" ") !== "exec-out uiautomator dump /dev/tty") throw new Error("unexpected authentication mutation");
+        if (scenario === "unavailable-ui") return "ERROR: no root node while locked";
+        const node = `<node package="com.android.systemui" resource-id="com.android.systemui:id/${revealed ? "pinEntry" : "alternate_bouncer"}" password="${revealed}" bounds="[0,0][40,40]"/>`;
+        return `<hierarchy>${node}${revealed && scenario === "multiple-inputs" ? node : ""}</hierarchy>`;
+      },
+      revealPin: async () => { revealed = true; },
+      unlock: async () => { credentialAttempts++; locked = false; },
+      wait: async predicate => {
+        for (let attempt = 0; attempt < 3; attempt++) if (await predicate()) return;
+        throw new Error("synthetic observation deadline");
+      },
+    });
+  } catch (error) { failure = error; }
+  expect(credentialAttempts).toBe(scenario === "secure-pin" ? 1 : 0);
+  expect(locked).toBe(scenario !== "secure-pin");
+  expect(failure instanceof Error).toBe(scenario !== "secure-pin");
+});
 
 test("tap authorization rejects the wrong role, stale generation, missing request, and malformed body", () => {
   const session = { generation: 2, ask: { requestId: "synthetic-current", since: "2026-01-01T00:00:00Z" } };
@@ -415,12 +466,12 @@ test("task removal ignores retained focus references and waits for active task w
   const active = "  * Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
   const stale = "  mLastFocusedRootTask=Task{safe #42 type=standard A=1:org.chromium.webapk.synthetic}";
   expect(webApkTasks(stale, "org.chromium.webapk.synthetic")).toEqual([]);
-  let removed = false; let polls = 0;
+  let removed = false; let polls = 0; let taskStillActive = true;
   await closeWebApk(async (...args) => {
     if (args.includes("remove")) { removed = true; return ""; }
-    polls++; return !removed || polls < 3 ? active : stale;
+    polls++; taskStillActive = !removed || polls < 3; return taskStillActive ? active : stale;
   }, "org.chromium.webapk.synthetic", async () => {});
-  expect(removed).toBe(true); expect(polls).toBe(3);
+  expect(removed).toBe(true); expect(taskStillActive).toBe(false);
 });
 
 for (const choiceSheet of [false, true]) test(`one-time WebAPK setup installs through ${choiceSheet ? "the choice sheet" : "direct confirmation"} and preserves an existing app`, async () => {
