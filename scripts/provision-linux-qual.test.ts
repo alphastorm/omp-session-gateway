@@ -14,6 +14,8 @@ test.skipIf(process.platform === "win32")("rollback refuses a non-private predec
   const managerMarker = join(home, "service-touched");
   await Promise.all([mkdir(state, { recursive: true }), mkdir(bin)]);
   await writeFile(backup, '{"http":{"port":47419}}', { mode: 0o644 });
+  // `mode` is filtered by the umask; a 077 umask would silently make the backup private.
+  await chmod(backup, 0o644);
   await writeFile(join(home, "runtime-root"), "unused");
   await writeFile(join(bin, "systemctl"), '#!/bin/sh\ntouch "$MANAGER_MARKER"\nexit 90\n', { mode: 0o700 });
   const harness = `

@@ -92,6 +92,16 @@ for (const file of await walk(rootPath)) {
   if (/^scripts\//u.test(rel) && /config['",\s]+set['",\s]+collab\.autoStart/u.test(text) && !/config['",\s]+get['",\s]+collab\.autoStart/u.test(text)) {
     errors.push(`${rel}: enables collab.autoStart without reading it back`);
   }
+  // A create-time `mode` is filtered by the umask. A test that needs a group- or world-accessible
+  // fixture must chmod it, or a 077 umask silently makes it private, as provision-linux-qual.test.ts did.
+  if (rel.endsWith(".test.ts")) {
+    for (const [, target, mode] of text.matchAll(/\b(?:writeFile|mkdir)\(\s*([\w.]+)\s*,[^;]*?\{\s*(?:recursive:\s*true,\s*)?mode:\s*0o([0-7]{3,4})\s*\}/gu)) {
+      if (!target || !mode || (Number.parseInt(mode, 8) & 0o077) === 0) continue;
+      if (!new RegExp(`\\b(?:chmod|makeFixtureUnsafe)\\(\\s*${target.replaceAll(".", "\\.")}\\s*[,)]`, "u").test(text)) {
+        errors.push(`${rel}: creates ${target} with mode 0o${mode} but never chmods it; the umask can make it private`);
+      }
+    }
+  }
 }
 
 for (const rel of [
