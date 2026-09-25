@@ -304,6 +304,11 @@ export function parseKeyguardShowing(output: string): boolean {
   if (value === undefined) throw new Error("Android window state is missing isKeyguardShowing");
   return value === "true";
 }
+
+/** Pixel SystemUI's standalone fingerprint (alternate) bouncer window holds input focus. */
+export function parseAlternateBouncerFocused(output: string): boolean {
+  return /^\s*mCurrentFocus=Window\{\S+ u\d+ AlternateBouncerView\}$/mu.test(output);
+}
 function parseAndroidDisplaySize(output: string): { readonly width: number; readonly height: number } {
   const match = [...output.matchAll(/(\d{3,5})x(\d{3,5})/gu)].at(-1);
   const width = Number(match?.[1]);
@@ -323,7 +328,13 @@ export async function showAndroidPinBouncer(
   try {
     const { width, height } = parseAndroidDisplaySize(await command("shell", "wm", "size"));
     const centerX = Math.floor(width / 2);
-    await command("shell", "input", "swipe", String(centerX), String(Math.floor((height * 91) / 100)), String(centerX), String(Math.floor(height / 4)), "600");
+    if (parseAlternateBouncerFocused(await command("shell", "dumpsys", "window"))) {
+      // The standalone fingerprint bouncer ignores the swipe. A tap on its scrim, well above the
+      // in-display sensor, hands over to the PIN bouncer and keeps the pending action.
+      await command("shell", "input", "tap", String(centerX), String(Math.floor(height / 4)));
+    } else {
+      await command("shell", "input", "swipe", String(centerX), String(Math.floor((height * 91) / 100)), String(centerX), String(Math.floor(height / 4)), "600");
+    }
   } catch { throw new Error(ANDROID_KEYGUARD_FAILURE); }
   await pause(1_200);
 }

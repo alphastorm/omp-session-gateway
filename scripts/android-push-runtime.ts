@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseSessionListResponse } from "../packages/protocol/src/validation.ts";
 import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/types.ts";
-import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseKeyguardShowing, readAndroidQualificationPin, resolveAndroidBrowserTarget,
+import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, parseKeyguardShowing, readAndroidQualificationPin, resolveAndroidBrowserTarget,
   wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
 import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type AndroidUiNode, type NotificationExpectation } from "./android-notification.ts";
@@ -97,7 +97,9 @@ export async function authenticateAndroidNotification(runtime: NotificationAuthe
   await runtime.wait(async () => {
     const nodes = await surface();
     if (nodes === undefined) return true;
-    alternate = nodes.some(node => node.resource === "com.android.systemui:id/alternate_bouncer");
+    // The View keyguard marks its fingerprint bouncer; the Compose keyguard shows it as its own window.
+    alternate = nodes.some(node => node.resource === "com.android.systemui:id/alternate_bouncer") ||
+      parseAlternateBouncerFocused(await runtime.command("shell", "dumpsys", "window"));
     return alternate || nodes.filter(node => node.systemInput).length === 1;
   }, "notification authentication surface", 15_000);
   if (!await locked()) return;

@@ -237,6 +237,38 @@ describe("Android display bootstrap", () => {
     expect(applicationMenuOpened).toBe(false);
   });
 
+  test("reaches the PIN keypad through Pixel's standalone fingerprint bouncer, clear of its sensor", async () => {
+    // Compose SystemUI answers MENU with a fingerprint bouncer window that ignores the PIN swipe.
+    let locked = true, alternate = false, keypad = false, unlocks = 0;
+    const gestures: string[][] = [];
+    const state = await wakeAndroidDisplay(
+      async (...args) => {
+        const command = args.join(" ");
+        if (command === "shell dumpsys power") return "mWakefulness=Awake";
+        if (command === "shell wm size") return "Physical size: 1080x2410";
+        if (command === "shell dumpsys window") {
+          return `  mCurrentFocus=Window{9878c1f u0 ${alternate ? "AlternateBouncerView" : "NotificationShade"}}\n    isKeyguardShowing=${locked}`;
+        }
+        if (command === "shell input keyevent 82" && locked && !keypad) alternate = true;
+        if (args[1] === "input" && (args[2] === "swipe" || args[2] === "tap")) {
+          gestures.push(args.slice(2));
+          if (alternate ? args[2] === "tap" : args[2] === "swipe") { alternate = false; keypad = true; }
+        }
+        return "";
+      },
+      async () => {},
+      async () => {
+        if (!keypad) throw new Error("authentication requires the keypad");
+        unlocks += 1;
+        locked = false;
+      },
+    );
+    expect(state).toBe("Awake");
+    expect(unlocks).toBe(1);
+    expect(gestures.map(gesture => gesture[0])).toEqual(["tap"]);
+    expect(Number(gestures[0]![2])).toBeLessThan(2410 / 2);
+  });
+
   test("fails closed when one authentication attempt leaves the keyguard visible", async () => {
     let unlocks = 0;
     const state = await wakeAndroidDisplay(

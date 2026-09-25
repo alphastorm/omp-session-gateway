@@ -129,6 +129,33 @@ test.each(["secure-pin", "multiple-inputs", "unavailable-ui"] as const)("notific
   expect(failure instanceof Error).toBe(scenario !== "secure-pin");
 });
 
+test("notification authentication reveals the PIN from Pixel's standalone fingerprint bouncer window", async () => {
+  // The Compose keyguard exposes no alternate_bouncer resource; only its focused window names it.
+  let locked = true, revealed = false, credentialAttempts = 0;
+  await authenticateAndroidNotification({
+    command: async (...args) => {
+      if (args.join(" ") === "shell dumpsys window") {
+        return `  mCurrentFocus=Window{9878c1f u0 ${revealed ? "NotificationShade" : "AlternateBouncerView"}}\n    isKeyguardShowing=${locked}`;
+      }
+      if (args.join(" ") !== "exec-out uiautomator dump /dev/tty") throw new Error("unexpected authentication mutation");
+      const pin = revealed ? `<node package="com.android.systemui" resource-id="" password="true" bounds="[0,0][40,40]"/>` : "";
+      return `<hierarchy><node package="com.android.systemui" resource-id="" password="false" bounds="[0,0][1080,2410]"/>${pin}</hierarchy>`;
+    },
+    revealPin: async () => { revealed = true; },
+    unlock: async () => {
+      if (!revealed) throw new Error("credential typed without a PIN field");
+      credentialAttempts++;
+      locked = false;
+    },
+    wait: async predicate => {
+      for (let attempt = 0; attempt < 3; attempt++) if (await predicate()) return;
+      throw new Error("synthetic observation deadline");
+    },
+  });
+  expect(credentialAttempts).toBe(1);
+  expect(locked).toBe(false);
+});
+
 test("tap authorization rejects the wrong role, stale generation, missing request, and malformed body", () => {
   const session = { generation: 2, ask: { requestId: "synthetic-current", since: "2026-01-01T00:00:00Z" } };
   const body = { mode: "control", generation: 2, requestId: "synthetic-current" };
