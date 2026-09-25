@@ -358,6 +358,8 @@ async function bootApp(options: {
   readonly workerResponse?: unknown;
   readonly permissionResult?: NotificationPermission;
   readonly existingSubscription?: boolean;
+  /** WebKit's `toJSON()` omits `expirationTime` when it is null; Chromium includes it. */
+  readonly webkitSubscriptionJson?: boolean;
   readonly pathname?: string;
   readonly search?: string;
   readonly storage?: FakeStorage;
@@ -477,7 +479,9 @@ async function bootApp(options: {
       return null;
     },
     toJSON(): PushSubscriptionJSON {
-      return pushSubscriptionJson;
+      if (options.webkitSubscriptionJson !== true) return pushSubscriptionJson;
+      const { expirationTime: _omitted, ...webkit } = pushSubscriptionJson;
+      return webkit;
     },
     async unsubscribe(): Promise<boolean> {
       subscriptionCalls.unsubscribe += 1;
@@ -1099,6 +1103,28 @@ describe("dashboard attention and notifications", () => {
     expect(harness.subscriptionCalls.unsubscribe).toBe(1);
     expect(harness.unsubscribeRequests).toEqual([
       { version: 2, endpoint: "https://push.example.test/send/browser-device" },
+    ]);
+  });
+
+  // #274: no iPhone or iPad could enable background alerts. WebKit omits a null `expirationTime`
+  // from `PushSubscription.toJSON()`, and the exact subscription check rejected that shape before
+  // any request, so the new subscription was removed and the control read unavailable.
+  test("enables background alerts when WebKit omits a null subscription expiration", async () => {
+    const harness = await bootApp({
+      permission: "default",
+      permissionResult: "granted",
+      webkitSubscriptionJson: true,
+      suffix: "webkit-subscription",
+      initialSessions: [session("webkit-session-001")],
+    });
+
+    harness.elements.notificationButton.dispatchEvent(new Event("click"));
+    const settled = () => harness.elements.notificationButton.dataset.state;
+    await settleUntil(() => settled() === "enabled" || settled() === "unavailable");
+    expect(settled()).toBe("enabled");
+    expect(harness.subscriptionCalls.unsubscribe).toBe(0);
+    expect(harness.subscriptionRequests).toEqual([
+      expect.objectContaining({ subscription: expect.objectContaining({ expirationTime: null }) }),
     ]);
   });
 

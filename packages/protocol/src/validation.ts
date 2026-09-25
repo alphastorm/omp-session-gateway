@@ -420,18 +420,17 @@ function requirePushKey(value: unknown, minimumLength: number, maximumLength: nu
 
 function parseBrowserPushSubscription(value: unknown): BrowserPushSubscription {
   const record = requireRecord(value);
-  requireExactKeys(record, ["endpoint", "expirationTime", "keys"]);
+  // WebKit's PushSubscription.toJSON() omits a null expirationTime; Chromium serializes it.
+  requireExactKeys(record, ["endpoint", "keys"], ["expirationTime"]);
+  const expirationTime = record.expirationTime ?? null;
   const keys = requireRecord(record.keys);
   requireExactKeys(keys, ["p256dh", "auth"]);
-  if (
-    record.expirationTime !== null &&
-    (!Number.isSafeInteger(record.expirationTime) || (record.expirationTime as number) < 0)
-  ) {
+  if (expirationTime !== null && (!Number.isSafeInteger(expirationTime) || (expirationTime as number) < 0)) {
     throw new ProtocolValidationError();
   }
   return {
     endpoint: requirePushEndpoint(record.endpoint),
-    expirationTime: record.expirationTime as number | null,
+    expirationTime: expirationTime as number | null,
     keys: {
       p256dh: requirePushKey(keys.p256dh, 80, 128),
       auth: requirePushKey(keys.auth, 20, 64),
