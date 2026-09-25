@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.6.0] — 2026-09-25
+
 ### Added
 
 - CI checks every change on Linux, macOS, and Windows (`portable-source`): repository scan,

@@ -225,9 +225,11 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Render OMP 18.3.0's wait tool in the collaboration client; hub-family tool cards from older supported OMP releases still render.
-          - Streaming no longer re-scans the whole transcript for active tool cards on every token.
-          - The exact qualified OMP baseline moves to stock v18.3.0; mainline OMP >=18.1.20 remains the minimum.
+          - Windows hosts enter the qualified matrix: the signed candidate installs, survives a real reboot, starts at interactive logon, serves the physical Pixel, rotates, rolls back, and uninstalls on Windows Server 2025.
+          - Background Web Push enters the qualified matrix on the Pixel: closed-app delivery at each detail level, lock-screen presentation, taps to current Control and View, stale-generation refusal, authoritative clear, force-stop, permission revocation, Doze, and network changes.
+          - Background notifications no longer stall after a burst: pushes carry no Web Push Topic, which FCM throttled after 20 messages per device.
+          - An alert cleared moments after it appeared no longer stays on an Android screen, and an unchanged replay no longer re-alerts.
+          - The PWA's outage and troubleshooting text no longer assumes an Android phone; it covers Android, iPhone and iPad, and computers.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -236,7 +238,8 @@ jobs:
           |---|---|
           | host | Debian 13 (trixie) x86-64 |
           | host | macOS arm64 (Mac14,3) |
-          | client | Chrome on Android (Pixel 10 Pro) |
+          | host | Windows Server 2025 x86-64, started at interactive logon |
+          | client | Chrome on Android (Pixel 10 Pro), including background Web Push |
 
           Exact qualified OS, browser, and kernel builds, per-lane evidence, and the qualifying candidate are recorded in docs/RELEASE_STATUS.md and docs/COMPATIBILITY.md at this source commit.
 
@@ -248,7 +251,7 @@ jobs:
           ### Known environment limitation
 
           Android Chrome can wedge its process-wide network state outside the qualified lock/Airplane/Doze transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
-          Windows hosts are supported and CI-tested but not release-qualified. Background Web Push delivery remains best-effort and is not part of the stable core claim.
+          The Windows claim is start at interactive logon, not at boot. Background Web Push records force-stop and Doze outcomes as observed variants, never as guaranteed delivery.
 
           ### Install or upgrade
 
@@ -257,7 +260,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.5.2 predecessor renders OMP 18.3.0's wait tool calls as generic tool cards. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.5.3 predecessor sends each push with a per-session Topic that FCM throttles after a burst, and it can leave a just-cleared alert on an Android screen. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -272,9 +275,10 @@ jobs:
 
           ### Changes to test
 
-          - A wait tool call from an OMP 18.3.0 host renders as a peer message or a job summary, and hub-family tool calls from older hosts still render.
-          - Long streaming turns keep active tool cards and transcript scrolling correct.
-          - Qualification builds and runs stock OMP v18.3.0 from source on every host lane.
+          - Background notifications keep arriving within seconds after a burst of asks and clears.
+          - An alert answered moments after it appeared disappears from the Android shade, and an unchanged replay does not alert again.
+          - The PWA's outage and troubleshooting text reads correctly on Android, iPhone and iPad, and computers.
+          - Qualification adds a disposable Windows Server 2025 host lane and the Pixel background-Push lane; both must pass on these bytes.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -286,12 +290,12 @@ jobs:
 
           - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
-          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), and Chrome on the physical Pixel must pass against these exact signed bytes before stable promotion.
-          - The Chrome process-wide network wedge remains a disclosed environment limitation; Windows, background Push qualification, Portal Tunnel, and self-hosted/proxied relays remain outside the stable core claim.
+          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host, and Chrome on the physical Pixel, including its background-Push lane, must pass against these exact signed bytes before stable promotion.
+          - The Chrome process-wide network wedge remains a disclosed environment limitation; Portal Tunnel and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          The selected predecessor is v0.5.2. It renders OMP 18.3.0's wait tool calls as generic tool cards; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.5.3. It sends each push with a per-session Topic that FCM throttles after a burst, and it can leave a just-cleared alert on an Android screen; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 
