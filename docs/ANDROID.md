@@ -226,7 +226,9 @@ destination page. A missing or ambiguous credential surface still fails while th
 - Browser force-stop records delivery while stopped or suppression until relaunch; both variants
   still require a fresh post-relaunch delivery.
 - Origin-permission denial suppresses notifications; restoring permission must permit a fresh
-  delivery. Lock/resume and forced Doze record observed behavior, not a delivery guarantee.
+  delivery. Lock/resume and forced Doze record observed behavior, not a delivery guarantee: forced
+  Doze records delivery during Doze, delivery within a minute of exit, or a push the push service
+  still holds (`undelivered_after_doze_exit`); privacy checks apply to anything that arrives.
 - Real Wi-Fi and cellular tailnet delivery, Airplane suppression, and bounded recovery. Missing
   working cellular data is a named blocked sub-phase, never substituted with Wi-Fi. Airplane
   suppression and Wi-Fi recovery are still exercised; the missing cellular result prevents a pass.
