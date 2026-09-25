@@ -281,7 +281,8 @@ The encrypted payload is exactly one of the following attention/clear envelopes,
 
 `body` is omitted for `private`; `preview` may append one bounded preview line and otherwise falls
 back to `session`. Presentation fields are built at send time and never persisted in gateway push
-state. Send with high urgency, a five-minute TTL, and an instance-derived coalescing topic. The
+state. Send with high urgency, a five-minute TTL, and no `Topic` header, because FCM throttles
+collapsible messages ([delivery](ATTENTION_SPEC.md#notification-lifecycle)). The
 VAPID `sub` claim is the repository URL, `https://github.com/alphastorm/omp-session-gateway`: a
 contact the push service can reach, which Apple enforces by rejecting the JWT otherwise. The
 service worker uses one notification tag per instance, updates it silently, closes it on `clear`,
@@ -290,7 +291,7 @@ and sets or clears the app badge from `pendingAskCount`.
 An `activity_stop` envelope contains exactly `version: 2`, `type: "activity_stop"`, `instanceId`,
 `generation`, `pendingAskCount`, fixed `title: "OMP session activity stopped"`, and optional `body`.
 It has no request ID. Private omits the body; Preview uses Session detail. It shares the existing
-instance topic/tag and five-minute TTL. A displayed valid attention notification wins over a stop;
+instance tag and five-minute TTL. A displayed valid attention notification wins over a stop;
 a clear closes only matching request data and therefore cannot close a stop. See the exact
 [trigger and precedence contract](ATTENTION_SPEC.md#activity-stop-notifications).
 

@@ -115,8 +115,8 @@ polls remove only activity knowledge without extending TTL. Its private stop eve
 ordered dispatch queue but is never sent as a browser SSE event. A record-local revision marker
 invalidates stale queued delivery across busy, unknown, or identity transitions. Neither a previous
 nor current waiting sample may produce a stop. Stop taps use the exact instance/generation route
-and open View after fresh metadata; they never acquire Control. Existing per-instance topics and
-displayed-attention priority are specified in [ATTENTION_SPEC.md](ATTENTION_SPEC.md).
+and open View after fresh metadata; they never acquire Control. The shared per-instance
+notification tag and displayed-attention priority are specified in [ATTENTION_SPEC.md](ATTENTION_SPEC.md).
 
 PWA upgrades activate immediately after the new content-hashed shell is cached. The shell includes
 the pinned collaboration-client module and stylesheet, and an idle directory warms the module
