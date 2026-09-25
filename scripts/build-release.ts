@@ -12,7 +12,7 @@ const archiveBase = `omp-session-gateway-${PRODUCT_VERSION}-bun`;
 const BUNDLED_WORKSPACES = ["apps/gateway", "apps/web", "packages/collab-client"] as const;
 const COLLAB_WEB_LICENSE_PATH = "licenses/collab-web/LICENSE";
 
-interface ArchiveFile {
+export interface ArchiveFile {
   readonly path: string;
   readonly content: Buffer;
   readonly executable: boolean;
@@ -577,6 +577,11 @@ function tarEntry(file: ArchiveFile): Buffer {
   ]);
 }
 
+/** The release archive: one regular-file ustar entry per file, then the end-of-archive blocks. */
+export function createTarArchive(files: readonly ArchiveFile[]): Buffer {
+  return Buffer.concat([...files.map(tarEntry), Buffer.alloc(1_024)]);
+}
+
 async function archiveFiles(directory: string): Promise<ArchiveFile[]> {
   const files: ArchiveFile[] = [];
   const visit = async (current: string): Promise<void> => {
@@ -712,7 +717,7 @@ async function buildRelease(): Promise<void> {
         throw new Error(`release archive contains a capability-shaped value: ${file.path}`);
       }
     }
-    const archive = Buffer.concat([...files.map(tarEntry), Buffer.alloc(1_024)]);
+    const archive = createTarArchive(files);
     const archiveName = `${archiveBase}.tar`;
     const archivePath = join(releaseDirectory, archiveName);
     const sbomPath = join(releaseDirectory, sbomName);

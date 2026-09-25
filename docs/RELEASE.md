@@ -60,7 +60,9 @@ the installed gateway and drives the Pixel).
    with the stable lock. A clean
    `OMP_RELEASE_CHANNEL=stable bun run release:build` of that tree must match every candidate
    archive member by path, mode, and bytes, except `release-info.json`, `SBOM.spdx.json`,
-   `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`. Before merging, run
+   `STABLE_RELEASE.lock.json`, and `schemas/stable-release.schema.json`:
+   `bun run release:compare -- <candidate archive> <candidate SHA-256> dist/release/omp-session-gateway-X.Y.Z-bun.tar`
+   refuses a candidate that is not the qualified digest and fails on any other difference. Before merging, run
    `bun run check`, `bun scripts/release-policy.ts vX.Y.Z X.Y.Z STABLE_RELEASE.lock.json`, and
    `bun run smoke:release -- --tag vX.Y.Z --plan`.
 4. **Publish.** Merge with the head pinned, confirm the merged tree equals the tested tree, and push

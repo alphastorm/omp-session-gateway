@@ -20,6 +20,7 @@
     "check:capability-leaks": "bun scripts/check-capability-leaks.ts",
     "check:identifier-leaks": "bun scripts/check-identifier-leaks.ts",
     "release:build": "bun scripts/build-release.ts",
+    "release:compare": "bun scripts/release-runtime-compare.ts",
     "qualify:stable": "bun scripts/stable-qualification.ts",
     "smoke:release": "bun scripts/post-release-smoke.ts",
     "qualify:relay-soak": "bun scripts/relay-soak.ts",
