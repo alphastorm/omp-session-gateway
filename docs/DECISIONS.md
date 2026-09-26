@@ -776,6 +776,13 @@ fire while a client is still live, because it is reachable only after disposal. 
 resumes nothing and shows the directory's own failure state. Resume is qualified by the browser lane
 only; it carries no iOS claim.
 
+**Observation (2026-09-26):** On a real iPhone 17 Pro with iOS 26.5 in TestingBot's device cloud,
+running v0.6.2, backgrounding the Home Screen app for 15 seconds, 2 minutes, and 5 minutes fired only
+`visibilitychange`, never `pagehide`, and each return found the page alive and the session connected
+in Control. The context above overstates `pagehide`: the bfcache restore serves a page that did enter
+the bfcache, while the iPhone keeps the page and its client alive. An e2e test now fails if visibility
+alone tears the client down. This was a targeted device check, not a qualification lane.
+
 ## ADR-030 — Claim support for CI-tested platform families, separately from qualification
 
 **Status:** Accepted

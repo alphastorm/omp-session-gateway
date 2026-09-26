@@ -184,8 +184,9 @@ let disposeActiveCollab: (() => void) | undefined;
 let collabShellDisposedOnPageHide = false;
 /**
  * Which session the disposed shell was showing, so a restore can reopen it rather than stranding the
- * user in the directory. On a phone, backgrounding the PWA fires `pagehide`, so the common case for
- * this state is a user who merely switched apps (issue #198).
+ * user in the directory (issue #198). Only a page that entered the bfcache gets here: backgrounding
+ * an iPhone Home Screen app fires no `pagehide` (iOS 26.5 and 26.6 on real devices), so that page
+ * and its client simply stay alive, and nothing may tear the client down on `visibilitychange`.
  *
  * This is a launch intent, never a capability. It holds only what the directory already publishes,
  * and the resume re-runs the ordinary launch fetch, so the capability is acquired fresh from OMP at
