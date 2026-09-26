@@ -134,6 +134,31 @@ describe("release tag policy", () => {
     expect(() => assertStableReleaseQualification(earlier, "v0.2.1", VERSION)).toThrow("unexpected fields");
   });
 
+  test("from 0.6.2 stable approval also requires passed real-device cloud evidence", () => {
+    const campaign = () => {
+      const manifest = {
+        ...qualifiedManifest(),
+        version: "0.6.2",
+        releaseTag: "v0.6.2",
+        previousTag: "v0.6.1",
+        candidateTag: "v0.6.2-prealpha.1",
+      };
+      return { ...manifest, evidence: { ...manifest.evidence, windows: "passed", androidPush: "passed", deviceCloud: "passed" } };
+    };
+    expect(() => assertStableReleaseQualification(campaign(), "v0.6.2", "0.6.2")).not.toThrow();
+    const withoutCloud = campaign();
+    Reflect.deleteProperty(withoutCloud.evidence, "deviceCloud");
+    expect(() => assertStableReleaseQualification(withoutCloud, "v0.6.2", "0.6.2")).toThrow("unexpected fields");
+    const pendingCloud = campaign();
+    pendingCloud.evidence.deviceCloud = "pending";
+    expect(() => assertStableReleaseQualification(pendingCloud, "v0.6.2", "0.6.2")).toThrow(
+      "stable release evidence is incomplete",
+    );
+    // v0.6.1 was qualified before the lane existed and keeps the eight lanes it actually passed.
+    const v061 = { ...campaign(), version: "0.6.1", releaseTag: "v0.6.1", previousTag: "v0.6.0", candidateTag: "v0.6.1-prealpha.1" };
+    expect(() => assertStableReleaseQualification(v061, "v0.6.1", "0.6.1")).toThrow("unexpected fields");
+  });
+
   test("CLI emits stable GitHub environment values only with a qualified manifest", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "stable-release-policy-"));
     try {

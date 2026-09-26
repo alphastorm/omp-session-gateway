@@ -27,10 +27,15 @@ const QUALIFICATION_KEYS = [
 const EVIDENCE_KEYS = ["android", "debian", "macos", "ompPublication", "provenance", "secretSinks"] as const;
 /** From 0.6.0 every stable campaign also qualifies a Windows host and Pixel background Web Push (ADR-031). */
 const CAMPAIGN_EVIDENCE_KEYS = ["android", "androidPush", "debian", "macos", "ompPublication", "provenance", "secretSinks", "windows"] as const;
+/** From 0.6.2 it also qualifies iPhone, iPad, and Android browsers on real cloud devices (ADR-032). */
+const DEVICE_CLOUD_EVIDENCE_KEYS = [
+  "android", "androidPush", "debian", "deviceCloud", "macos", "ompPublication", "provenance", "secretSinks", "windows",
+] as const;
 
 function requiredEvidence(version: string): readonly string[] {
-  const [major = 0, minor = 0] = version.split(".").map(Number);
-  return major > 0 || minor >= 6 ? CAMPAIGN_EVIDENCE_KEYS : EVIDENCE_KEYS;
+  const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
+  if (major > 0 || minor > 6 || (minor === 6 && patch >= 2)) return DEVICE_CLOUD_EVIDENCE_KEYS;
+  return minor === 6 ? CAMPAIGN_EVIDENCE_KEYS : EVIDENCE_KEYS;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {

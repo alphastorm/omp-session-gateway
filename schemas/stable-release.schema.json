@@ -32,7 +32,7 @@
     "evidence": {
       "type": "object",
       "additionalProperties": false,
-      "$comment": "From 0.6.0, release-policy.ts also requires windows and androidPush (ADR-031).",
+      "$comment": "From 0.6.0, release-policy.ts also requires windows and androidPush (ADR-031); from 0.6.2, deviceCloud (ADR-032).",
       "required": ["debian", "macos", "android", "ompPublication", "provenance", "secretSinks"],
       "properties": {
         "debian": { "enum": ["pending", "passed"] },
@@ -40,6 +40,7 @@
         "android": { "enum": ["pending", "passed"] },
         "androidPush": { "enum": ["pending", "passed"] },
         "ompPublication": { "enum": ["pending", "passed"] },
+        "deviceCloud": { "enum": ["pending", "passed"] },
         "provenance": { "enum": ["pending", "passed"] },
         "secretSinks": { "enum": ["pending", "passed"] },
         "windows": { "enum": ["pending", "passed"] }

@@ -1,14 +1,13 @@
 # Upgrade and rollback lane
 
-## v0.6.1 predecessor compatibility
+## v0.6.2 predecessor compatibility
 
-The selected predecessor is published v0.6.0. Gateway rollback does not change the separately
-running OMP process. v0.6.0 cannot enable background alerts on iPhone or iPad: it rejects WebKit's
-push subscription, which leaves out a null `expirationTime`, so the alerts control reads unavailable
-(#274). Chrome includes the field and is unaffected. After a v0.6.1 install, `rollback --to` can
-select only the runtimes pruning retained. v0.5.3, one step further back, also sends every push
-with a per-session Web Push `Topic`, which FCM limits to a burst of about 20 messages per device,
-and on Windows it can exit at logon without listening when its private-ACL helper starts slowly.
+The selected predecessor is published v0.6.1. Gateway rollback does not change the separately
+running OMP process. The two signed archives hold the same 50 files and differ only in version
+strings and release metadata, so rollback changes no gateway, PWA, or collaboration-client
+behavior. After a v0.6.2 install, `rollback --to` can select only the runtimes pruning retained.
+v0.6.0, one step further back, cannot enable background alerts on iPhone or iPad: it rejects
+WebKit's push subscription, which leaves out a null `expirationTime` (#274).
 
 ## Staged-runtime retention from v0.5.2
 

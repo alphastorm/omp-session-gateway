@@ -1,17 +1,66 @@
 # Release status
 
-## v0.6.2 preparation — not yet qualified or published
+## Mainline v0.6.2 — qualified; stable publication pending
 
-The candidate changes no runtime behavior: `apps/` and `packages/` are identical to v0.6.1, and only
-version metadata and documentation differ. It exists to run the stable campaign's new real-device
-cloud lane (ADR-032, #288) on signed bytes, so iPhone, iPad, and Galaxy browsers can enter the
+**Updated:** 2026-09-26. The exact candidate below is approved for stable promotion. Published
+v0.6.1 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.6.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2-prealpha.1).<br>
+**Source:** `865abdac0ee23b2b545534b164171a4a070e7197`.<br>
+**Archive SHA-256:** `26bbd74317a3c4530f40d645c0881d9011fa3abbacb3af1fe99d9c19899fd153`.<br>
+**Predecessor:** published `v0.6.1`. Rollback does not change OMP; see
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v062-predecessor-compatibility).
+
+The candidate changes no runtime behavior. Its archive and v0.6.1's hold the same 50 files: 45 are
+byte-identical, and the gateway bundle, `package.json`, and `bun.lock` differ only in the version
+string, beside the release metadata. It is the first candidate whose campaign includes the
+real-device cloud lane (ADR-032, #288), which brings iPhone, iPad, and Galaxy browsers into the
 qualified matrix. Before #288 merged, the lane passed against an isolated gateway on the
-qualification workstation, on TestingBot's iPhone 17 Pro Max, iPad (9th generation), and Galaxy S26
-and S25; that is smoke evidence, not qualification. A campaign on v0.6.1's candidate with the new
-lane stopped in its artifacts lane before any other lane ran, because the orchestrator qualifies only
-a candidate whose predecessor is still GitHub Latest; its receipt is archived unchanged. Published
-v0.6.1 remains the predecessor and current stable; no v0.6.2 qualification or publication is
-claimed, and the stable lock remains unchanged until approval.
+qualification workstation; that was smoke evidence, not qualification. #288 changes qualification
+tooling, tests, and documentation only; none of it is in the candidate archive.
+
+### Candidate evidence — 2026-09-26
+
+The orchestrator ran from the candidate's own source, `865abdac0ee23b2b545534b164171a4a070e7197`,
+14:55:11Z–15:40:56Z; its private receipt records `passed`, and every lane passed on its first
+attempt.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [36249961515](https://github.com/alphastorm/omp-session-gateway/actions/runs/36249961515); predecessor v0.6.1 verified the same way |
+| Debian | [36250215581](https://github.com/alphastorm/omp-session-gateway/actions/runs/36250215581) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; stock OMP v18.3.0 built from source; 83/83 migration/recovery invariants |
+| Mac | Mac14,3, macOS 26.6.1 arm64; stock OMP v18.3.0 built from source with native addon `ed9ddcee7338`; doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence |
+| Windows | Windows Server 2025 build 26100 on a disposable 2-vCPU/4-GiB VM; the candidate installed over published v0.6.1 with stock OMP v18.3.0, survived a real reboot, and started automatically 108.8 s after interactive logon; doctor 15/18 with only the tagged node's `identityAllowed`, `pwa`, and `sessionHealth` false; named-pipe publication at generation 1, View and Control `200`, stale generations `409`, `no-store`; the Pixel accepted the user identity with View read-only, Control writable, and the prompt accepted; revocation, readiness rotation, history-selected rollback, restoration, and uninstall preserved configuration and the readiness credential |
+| OMP publication | stock v18.3.0 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP3A.260905.009, Chrome 153.0.8010.53; View read-only, Control writable, prompt accepted, return to directory; at a 250 ms probe cadence, same-page unlock 6,802 ms (including device wake), Airplane 5,209 ms, Doze 363 ms |
+| Background Push | the installed app closed: Private, Session, and Preview delivery on the lock screen in 3.0–5.3 s, each a single notification with matching detail; tap to current Control, stop tap to View only, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery; force-stop `delivered_while_force_stopped` and Doze `delivered_after_doze_exit` as observed variants; ten forbidden sinks detectable and clean; device, browser, and fixture restored |
+| Device cloud | TestingBot real devices through the pinned tunnel 4.9, whose proxy refused every destination but the candidate origin and its `connect-src` sources (18, 34, and 57 refusals). iPhone 17 Pro Max, iOS 26.6, Safari 26.6: View read-only, Control writable, prompt accepted, and return to directory on the candidate's app bundle; the Home Screen app enabled alerts with a real tap, its subscription omitted `expirationTime` on `web.push.apple.com`, an attention alert arrived in 4,624 ms with the app in the background, its tap opened current Control with a scrubbed address, and alerts were turned off. iPad (9th generation), iPadOS 26.6, Safari 26.6, and Galaxy S26 (`SM-S942B`), Android 16.0.0, Chrome 145.0.7632.159: the same journey. Each device's seven sinks were detectable and clean; TestingBot's three test records held no live link and no video or screenshots; the sessions, tunnel, and fixture were released |
+| Secret sinks | all seven sinks detectable and clean |
+| Relay | 1,800 seconds, 2026-09-26T15:10:14.697Z–15:40:14.703Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; the Mac's OMP binary and source removed; the Windows VM, its firewall, and its tailnet node destroyed, and its access vault removed |
+
+**Attempts:** this candidate's campaign above is its first. An earlier campaign ran the new lane on
+v0.6.1's candidate and stopped in its artifacts lane before any other lane ran: the orchestrator
+qualifies only a candidate whose predecessor is still GitHub Latest, and v0.6.1's publication had
+already replaced v0.6.0. That receipt is archived unchanged. Published releases are immutable, so
+the cloud evidence needed a new candidate rather than a note on v0.6.1.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
+re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
+gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
+claimed. Windows is qualified only as Windows Server 2025 x86-64 started at interactive logon, and
+background Web Push in full only on the Pixel, with force-stop and Doze outcomes as observed
+variants. The cloud devices are qualified in the browser at the exact models and versions above:
+the tunnel ran on the workstation, so Serve saw the workstation's allowlisted login, not a
+phone's; the iPhone's alert was proven with the device unlocked and the app in the background, not
+on the lock screen; lock, Airplane, Doze, force-stop, and cellular behavior stay Pixel-only.
+Desktop Safari, specialized attention/branch-resume, and broader host/browser combinations remain
+unqualified. Every other release gate stays required.
 
 ## Mainline v0.6.1 — published stable
 

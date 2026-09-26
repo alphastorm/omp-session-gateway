@@ -73,7 +73,7 @@ installation.
 | Firefox | ✅ |
 | Safari / WebKit | ✅ |
 | Android | ✅ |
-| iPhone / iPad | ✅ as a browser; tested with WebKit emulation, not on a physical device |
+| iPhone / iPad | ✅ as a browser |
 
 ✅ means supported: CI tests it on every change. Each release is also qualified on real hardware
 for exact combinations. Those, and every limit, are in
@@ -274,7 +274,7 @@ minimum OMP version does not qualify every host, browser, or future OMP release.
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | Supported platforms | Linux, macOS, and Windows hosts; Chromium-based browsers including Edge, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser. Each is tested in CI ([matrix](docs/COMPATIBILITY.md#platforms-and-browsers)) |
-| Qualified on hardware | Debian 13 x86-64, macOS arm64, and Windows Server 2025 x86-64 (started at interactive logon) hosts with a Pixel/Android/Chrome client, including background Web Push; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
+| Qualified on hardware | Debian 13 x86-64, macOS arm64, and Windows Server 2025 x86-64 (started at interactive logon) hosts with a Pixel/Android/Chrome client, including background Web Push; from v0.6.2 also Safari on real cloud iPhones and iPads and Chrome on a cloud Galaxy phone, with iPhone alerts proven unlocked with the app in the background, not on the lock screen; each release's exact builds, checks, relay window, and rollback predecessor are in the [compatibility policy](docs/COMPATIBILITY.md#current-claim) and the [release ledger](docs/RELEASE_STATUS.md) |
 
 Exact source and package metadata: [`UPSTREAM.lock.json`](UPSTREAM.lock.json). The upstream merge
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908) (`4999b98bd5`) makes stock OMP
