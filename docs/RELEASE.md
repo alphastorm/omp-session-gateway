@@ -18,8 +18,9 @@ passed published-byte smoke. Fork-era locks and receipts cannot authorize the ch
 The remote boundary remains TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
 Portal Tunnel, userspace networking, public forwarding, and self-hosted/proxied relays remain
 outside the core claim. From 0.6.0 every stable campaign also qualifies a Windows Server 2025 host
-and background Web Push on the Pixel (ADR-031). A minimum OMP version does not qualify every future
-release or platform.
+and background Web Push on the Pixel (ADR-031). From the next stable release it also qualifies
+iPhone, iPad, and Android browsers on TestingBot's real cloud devices (ADR-032). A minimum OMP
+version does not qualify every future release or platform.
 
 Gateway rollback does not switch OMP, restore the previous configuration, or restore the removed
 fork-era publication credential. Qualify the selected predecessor and architecture-crossing
@@ -155,17 +156,22 @@ For a selected mainline candidate, `bun run qualify:stable --tag "$TAG"` must re
 assets and provenance for the candidate and its predecessor, exercise Debian and retained-Mac
 lifecycle, the exact predecessor, real mainline discovery/launch/revocation, physical Pixel
 acceptance and secret sinks, bounded relay smoke, the [Windows host lane](WINDOWS_QUALIFICATION.md),
-the [background Web Push lane](ANDROID.md), and cleanup. It writes a private receipt (schema 2)
-under `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
+the [background Web Push lane](ANDROID.md), the real-device cloud lane (ADR-032), and cleanup. It
+writes a private receipt (schema 3) under
+`~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
 scripts are not qualification evidence until these lanes run against the exact candidate.
 
-The Windows and background Push lanes own external state, so each has a cleanup lane
-(`windowsCleanup`, `androidPushCleanup`) that runs after every attempt and passes only for the
-attempt epoch its lane recorded. A crash leaves a lane `running`, and a rerun may resume it; a
-caught failure is released before a new attempt begins, and a failed release stops the lane there.
-If admission fails while a recorded Windows VM exists, the command still destroys it. Windows runs
-beside the Debian and Mac lanes; the core Android lane, background Push, and the Windows physical
-client take turns on the Pixel, and a lane that cannot restore the phone blocks every later one.
+The Windows, background Push, and device-cloud lanes own external state, so each has a cleanup lane
+(`windowsCleanup`, `androidPushCleanup`, `deviceCloudCleanup`) that runs after every attempt and
+passes only for the attempt epoch its lane recorded. A crash leaves a lane `running`, and a rerun may
+resume it; a caught failure is released before a new attempt begins, and a failed release stops the
+lane there. If admission fails while a recorded Windows VM exists, the command still destroys it.
+Windows runs beside the Debian and Mac lanes. The core Android lane, background Push, the
+device-cloud lane, and the Windows physical client take turns under the Pixel lease: the cloud lane's
+prompts and alert reach every push subscription on the candidate gateway, so it ends its sessions and
+stops its tunnel and fixture within its own turn, and `deviceCloudCleanup` has work only after an
+attempt stopped before that release finished. A lane that cannot restore the phone blocks every
+later one.
 
 The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 
@@ -186,7 +192,7 @@ from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree ass
 counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
 mainline output.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). The device-cloud lane needs Java for the TestingBot tunnel (`/opt/homebrew/opt/openjdk@17/bin/java`, or `OMP_STABLE_JAVA`) and the read-only 1Password service-account token at `~/.local/state/alpha-founder/retained-host/op-service-account.token` (mode `0600`, or `OMP_STABLE_OP_TOKEN_FILE`), which must be able to read `op://Centaur/TestingBot/key` and `op://Centaur/TestingBot/secret`; the tunnel jar is downloaded once into `~/.cache/omp-session-gateway/testingbot/` and verified against its pinned SHA-256 before every use. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 

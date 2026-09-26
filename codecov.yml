@@ -64,8 +64,12 @@ ignore:
   # focused unit tests, while the complete host/device transition is exercised as a release gate.
   # Counting the unmocked orchestration body as unit-test debt would make the project gate measure
   # hardware availability. For background Push that body is the adb/Chrome/fixture runtime; the
-  # lane's state machine in android-push-qualification.ts stays measured.
+  # lane's state machine in android-push-qualification.ts stays measured. The View/Control journey
+  # body lives in browser-journey.ts, shared with the device-cloud lane, whose TestingBot/WebDriver
+  # runtime is likewise excluded while device-cloud-qualification.ts and testingbot.ts stay measured.
   - "scripts/android-collab-smoke.ts"
+  - "scripts/browser-journey.ts"
   - "scripts/post-release-smoke.ts"
   - "scripts/android-push-runtime.ts"
+  - "scripts/device-cloud-runtime.ts"
   - "apps/web/e2e/**"

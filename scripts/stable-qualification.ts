@@ -45,14 +45,20 @@ const LANE_NAMES = [
   "android",
   "androidPush",
   "androidPushCleanup",
+  "deviceCloud",
+  "deviceCloudCleanup",
   "relay",
   "cleanup",
   "windows",
   "windowsCleanup",
 ] as const;
 /** Lanes that own external resources, each paired with the lane that must release them. */
-const CLEANUP_LANES = { windows: "windowsCleanup", androidPush: "androidPushCleanup" } as const;
-const RECEIPT_SCHEMA_VERSION = 2;
+const CLEANUP_LANES = {
+  windows: "windowsCleanup",
+  androidPush: "androidPushCleanup",
+  deviceCloud: "deviceCloudCleanup",
+} as const;
+const RECEIPT_SCHEMA_VERSION = 3;
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 /**
@@ -245,10 +251,13 @@ export type RemoteExecutor = (
   options?: { readonly stdin?: Uint8Array; readonly timeoutMs?: number },
 ) => Promise<RemoteCommandResult>;
 
-export interface AndroidPushLaneContext {
+/** What the lanes that drive the retained Mac's live candidate gateway need beyond their identity. */
+export interface RetainedMacLaneContext {
   /** The candidate gateway's Tailscale Serve origin on the retained Mac. */
   readonly origin: string;
   readonly mac: RemoteExecutor;
+  /** The campaign's live OMP session on that gateway, which the Pixel's core lane also drives. */
+  readonly sessionLabel: string;
 }
 
 /**
@@ -265,7 +274,8 @@ export interface ExternalLaneModule<Extra extends object = object> {
 
 export interface StableQualificationLaneModules {
   readonly windows: ExternalLaneModule;
-  readonly androidPush: ExternalLaneModule<AndroidPushLaneContext>;
+  readonly androidPush: ExternalLaneModule<RetainedMacLaneContext>;
+  readonly deviceCloud: ExternalLaneModule<RetainedMacLaneContext>;
   readonly createPixelLease: () => PixelLease;
 }
 
@@ -389,7 +399,7 @@ export function validateStableQualificationReceipt(
   const receipt = value as Partial<StableQualificationReceipt>;
   if (receipt.schemaVersion !== RECEIPT_SCHEMA_VERSION) {
     throw new Error(
-      `qualification receipt schema ${String(receipt.schemaVersion)} predates the Windows and background Push lanes; ` +
+      `qualification receipt schema ${String(receipt.schemaVersion)} predates the real-device cloud lane; ` +
         "start a new campaign directory rather than resuming it",
     );
   }
@@ -1261,7 +1271,11 @@ export async function preflightStableQualification(
   });
   const macOrigin = `https://${macDnsName}`;
   const laneContext: ExternalLanePreflightContext = { environment: runtime.environment, serial, omp: ompPins, macOrigin };
-  for (const [name, lane] of [["Windows", lanes.windows], ["background Push", lanes.androidPush]] as const) {
+  for (const [name, lane] of [
+    ["Windows", lanes.windows],
+    ["background Push", lanes.androidPush],
+    ["real-device cloud", lanes.deviceCloud],
+  ] as const) {
     try {
       await lane.preflight(laneContext);
     } catch (error) {
@@ -1768,7 +1782,7 @@ async function cleanupMac(
 
 export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boolean {
   if (receipt.lanes.cleanup.status === "passed") return false;
-  return (["macos", "ompPublication", "android", "androidPush", "relay", "cleanup"] as const).some(
+  return (["macos", "ompPublication", "android", "androidPush", "deviceCloud", "relay", "cleanup"] as const).some(
     name => receipt.lanes[name].attempts > 0,
   );
 }
@@ -1803,6 +1817,7 @@ export async function runStableQualification(
         "configured relay check, longer endurance coverage and cleanup",
         "Windows VM provisioning, interactive logon, lifecycle, physical client and destruction",
         "background Web Push delivery, notification taps, degraded device states and device restore",
+        "real-device cloud iPhone, iPad and Android journeys, iPhone Home Screen alerts, and the vendor-record audit",
       ],
     };
   }
@@ -1824,7 +1839,8 @@ export async function runStableQualification(
   let externalEffects = false;
   const pixel = lanes.createPixelLease();
   let windowsBranch: Promise<void> | undefined;
-  let pushDriven = false;
+  // Lanes this invocation drove through runExternalLane, which always runs their cleanup itself.
+  const driven: Record<"androidPush" | "deviceCloud", boolean> = { androidPush: false, deviceCloud: false };
 
   let target: MacTarget | undefined;
   let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
@@ -1929,7 +1945,8 @@ export async function runStableQualification(
     }
 
     const pushCurrent = receipt.lanes.androidPush.status === "passed" && externalCleanupCurrent(receipt, "androidPush");
-    const liveEvidenceNeeded = !pushCurrent || (["ompPublication", "android", "relay"] as const).some(
+    const cloudCurrent = receipt.lanes.deviceCloud.status === "passed" && externalCleanupCurrent(receipt, "deviceCloud");
+    const liveEvidenceNeeded = !pushCurrent || !cloudCurrent || (["ompPublication", "android", "relay"] as const).some(
       name => receipt.lanes[name].status !== "passed",
     );
     if (liveEvidenceNeeded) {
@@ -1965,7 +1982,7 @@ export async function runStableQualification(
         );
       }
       if (!pushCurrent) {
-        pushDriven = true;
+        driven.androidPush = true;
         // Push drives its own OMP fixture: replacing a generation on the shared one would break relay.
         pending.push(
           runExternalLane(receipt, "androidPush", persist, lanes.androidPush, {
@@ -1973,6 +1990,21 @@ export async function runStableQualification(
             pixel,
             origin: macContext.publicOrigin,
             mac: remoteExecutor(target),
+            sessionLabel: options.sessionLabel,
+          }),
+        );
+      }
+      if (!cloudCurrent) {
+        driven.deviceCloud = true;
+        // Its own OMP fixture and TestingBot tunnel. It takes the Pixel lease inside, because its
+        // prompts and alert raise Web Push to every subscription on the candidate gateway.
+        pending.push(
+          runExternalLane(receipt, "deviceCloud", persist, lanes.deviceCloud, {
+            identity,
+            pixel,
+            origin: macContext.publicOrigin,
+            mac: remoteExecutor(target),
+            sessionLabel: options.sessionLabel,
           }),
         );
       }
@@ -1986,7 +2018,7 @@ export async function runStableQualification(
       const settled = await Promise.allSettled(pending);
       const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failures.length > 0) {
-        throw new AggregateError(failures.map(result => result.reason), "physical-client, background Push or relay qualification failed");
+        throw new AggregateError(failures.map(result => result.reason), "physical-client, background Push, device-cloud or relay qualification failed");
       }
       await stopSubprocess(tunnelProcess);
       tunnelProcess = undefined;
@@ -2004,24 +2036,26 @@ export async function runStableQualification(
   } finally {
     await stopSubprocess(tunnelProcess).catch(() => {});
     await stopSubprocess(ompProcess).catch(() => {});
-    if (!pushDriven && recordedEffects(lanes.androidPush, receipt.lanes.androidPush)) {
-      // A resumed campaign stopped before the Push lane could release the Pixel it had changed. Push
-      // cleanup resolves its ask through the candidate gateway, so it runs before the Mac is torn down.
+    for (const [name, description] of [["androidPush", "background Push"], ["deviceCloud", "device-cloud"]] as const) {
+      if (driven[name] || !recordedEffects(lanes[name], receipt.lanes[name])) continue;
+      // A resumed campaign stopped before this lane could release what it recorded. Both lanes
+      // resolve their fixture through the candidate gateway, so they run before the Mac is torn down.
       externalEffects = true;
       try {
-        const mac = target ?? await prerequisite("retained Mac access for background Push cleanup is unavailable", () =>
+        const mac = target ?? await prerequisite(`retained Mac access for ${description} cleanup is unavailable`, () =>
           runtime.recoverMac(options),
         );
-        await cleanExternalLane(receipt, "androidPush", persist, lanes.androidPush, {
+        await cleanExternalLane(receipt, name, persist, lanes[name], {
           identity: externalLaneIdentity(options, receipt, orchestratorCommit, ompPins),
           pixel,
           origin: await readMacPublicOrigin(mac),
           mac: remoteExecutor(mac),
+          sessionLabel: options.sessionLabel,
         });
       } catch (cleanupError) {
         primaryError = primaryError === undefined
           ? cleanupError
-          : new AggregateError([primaryError, cleanupError], "qualification and background Push cleanup failed");
+          : new AggregateError([primaryError, cleanupError], `qualification and ${description} cleanup failed`);
       }
     }
     if (cleanupRequired && macCleanupContext !== undefined) {

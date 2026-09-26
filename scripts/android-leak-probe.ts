@@ -24,6 +24,7 @@ export const PAGE_PRELUDE = `
     }
     if (hit(document.cookie)) note("cookie");
     for (const cacheName of await caches.keys()) {
+      if (hit(cacheName)) note("cacheName");
       const cache = await caches.open(cacheName);
       for (const request of await cache.keys()) {
         if (hit(request.url)) note("cacheKey", cacheName);
@@ -33,6 +34,7 @@ export const PAGE_PRELUDE = `
     }
     for (const meta of (await indexedDB.databases?.()) ?? []) {
       if (!meta.name) continue;
+      if (hit(meta.name)) note("indexedDbName");
       const db = await openDb(meta.name);
       for (const storeName of [...db.objectStoreNames]) {
         if (hit(JSON.stringify(await readAll(db, storeName)))) note("indexedDB", meta.name + "/" + storeName);
@@ -47,7 +49,8 @@ export const PAGE_PRELUDE = `
     }
     if (hit(document.documentElement.outerHTML)) note("domMarkup");
     const registration = await navigator.serviceWorker.getRegistration();
-    for (const notification of await registration?.getNotifications() ?? []) {
+    // iOS Safari tabs expose ServiceWorkerRegistration without getNotifications.
+    for (const notification of await registration?.getNotifications?.() ?? []) {
       if (hit(notification.title)) note("notificationTitle");
       if (hit(notification.body)) note("notificationBody");
       if (hit(JSON.stringify(notification.data))) note("notificationData");

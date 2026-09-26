@@ -1,11 +1,13 @@
 /**
- * The production Windows and background Push lanes, adapted to the stable orchestrator's
- * resource-owning lane contract (`ExternalLaneModule` in stable-qualification.ts).
+ * The production Windows, background Push, and real-device cloud lanes, adapted to the stable
+ * orchestrator's resource-owning lane contract (`ExternalLaneModule` in stable-qualification.ts).
  *
- * The Push fixture runs on the retained Mac beside the candidate gateway, so its fixture files are
- * staged there over SSH and every fixture operation runs through the orchestrator's remote executor.
+ * The Push and device-cloud fixtures run on the retained Mac beside the candidate gateway, so their
+ * fixture files are staged there over SSH and every fixture operation runs through the
+ * orchestrator's remote executor.
  */
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   androidPushNeedsCleanup,
@@ -15,10 +17,12 @@ import {
   type AndroidPushIdentity,
 } from "./android-push-qualification.ts";
 import { createAndroidPushRuntime } from "./android-push-runtime.ts";
+import { cleanupDeviceCloud, deviceCloudNeedsCleanup, runDeviceCloud } from "./device-cloud-qualification.ts";
+import { admitDeviceCloud, createDeviceCloudRuntime } from "./device-cloud-runtime.ts";
 import type { FixtureExecutor } from "./push-qualification-fixture.ts";
 import {
   createPixelLease,
-  type AndroidPushLaneContext,
+  type RetainedMacLaneContext,
   type ExternalLaneContext,
   type ExternalLaneModule,
   type RemoteExecutor,
@@ -59,12 +63,12 @@ export async function stageRemoteFile(mac: RemoteExecutor, path: string, bytes: 
   await remoteText(
     mac,
     'umask 077 && mkdir -p "$(dirname "$0")" && cat > "$0.tmp" && mv "$0.tmp" "$0"',
-    "could not stage a background Push fixture file on the retained Mac",
+    "could not stage a fixture file on the retained Mac",
     { args: [path], stdin: bytes },
   );
 }
 
-function pushIdentity(context: ExternalLaneContext & AndroidPushLaneContext): AndroidPushIdentity {
+function liveIdentity(context: ExternalLaneContext & RetainedMacLaneContext): AndroidPushIdentity {
   const { tag, candidate, omp } = context.identity;
   return { tag, candidate, omp, origin: context.origin };
 }
@@ -86,9 +90,13 @@ export async function gatewayStreamsDiscarded(mac: RemoteExecutor): Promise<bool
   return true;
 }
 
-async function retainedMacPushRuntime(context: ExternalLaneContext & AndroidPushLaneContext) {
+/**
+ * Stages the fixture files into one lane's own directory on the retained Mac, so two lanes never
+ * write the same staged file, and returns how to run the stock-OMP fixture there.
+ */
+async function stageRetainedMacFixture(context: ExternalLaneContext & RetainedMacLaneContext, lane: "push" | "device-cloud") {
   const home = await remoteHome(context.mac);
-  const scripts = `${home}/qual-tools/push/scripts`;
+  const scripts = `${home}/qual-tools/${lane}/scripts`;
   for (const file of PUSH_FIXTURE_FILES) {
     await stageRemoteFile(context.mac, `${scripts}/${file}`, await readFile(fileURLToPath(new URL(file, import.meta.url))));
   }
@@ -97,14 +105,35 @@ async function retainedMacPushRuntime(context: ExternalLaneContext & AndroidPush
     const result = await context.mac(argv, { timeoutMs: FIXTURE_OPERATION_TIMEOUT_MS });
     return { exitCode: result.exitCode, stdout: result.stdout };
   };
-  return createAndroidPushRuntime(pushIdentity(context), {
+  return {
+    home,
+    scripts,
     execute,
-    fixtureBase: `${home}/qual-tools/push-fixtures`,
-    fixtureBun: `${home}/.bun/bin/bun`,
+    bun: `${home}/.bun/bin/bun`,
     // The pinned stock OMP that the Mac lane's `omp-build` installs (qualify-macos-omp.sh).
-    fixtureBinary: `${home}/.local/lib/omp-session-gateway/omp/v${omp.version}-${omp.sourceTree.slice(0, 8)}/omp`,
-    fixtureScripts: scripts,
+    binary: `${home}/.local/lib/omp-session-gateway/omp/v${omp.version}-${omp.sourceTree.slice(0, 8)}/omp`,
+  };
+}
+
+async function retainedMacPushRuntime(context: ExternalLaneContext & RetainedMacLaneContext) {
+  const fixture = await stageRetainedMacFixture(context, "push");
+  return createAndroidPushRuntime(liveIdentity(context), {
+    execute: fixture.execute,
+    fixtureBase: `${fixture.home}/qual-tools/push-fixtures`,
+    fixtureBun: fixture.bun,
+    fixtureBinary: fixture.binary,
+    fixtureScripts: fixture.scripts,
     gatewayLogsDiscarded: () => gatewayStreamsDiscarded(context.mac),
+  });
+}
+
+async function retainedMacCloudRuntime(context: ExternalLaneContext & RetainedMacLaneContext) {
+  const fixture = await stageRetainedMacFixture(context, "device-cloud");
+  return createDeviceCloudRuntime({
+    identity: liveIdentity(context),
+    workspace: join(context.identity.receiptRoot, "device-cloud"),
+    fixture: { ...fixture, base: `${fixture.home}/qual-tools/device-cloud/fixtures` },
+    environment: process.env,
   });
 }
 
@@ -119,13 +148,13 @@ const windows: ExternalLaneModule = {
     cleanupWindows({ identity: context.identity, progress: context.progress, checkpoint: context.checkpoint, pixel: context.pixel }),
 };
 
-const androidPush: ExternalLaneModule<AndroidPushLaneContext> = {
+const androidPush: ExternalLaneModule<RetainedMacLaneContext> = {
   preflight: async context => {
     await preflightAndroidPush({ origin: context.macOrigin });
   },
   run: async context =>
     runAndroidPush({
-      identity: pushIdentity(context),
+      identity: liveIdentity(context),
       progress: context.progress,
       checkpoint: context.checkpoint,
       pixel: context.pixel,
@@ -135,7 +164,7 @@ const androidPush: ExternalLaneModule<AndroidPushLaneContext> = {
   cleanup: async context => {
     if (context.progress === undefined) return { noAttempt: true };
     return cleanupAndroidPush({
-      identity: pushIdentity(context),
+      identity: liveIdentity(context),
       progress: context.progress,
       checkpoint: context.checkpoint,
       pixel: context.pixel,
@@ -144,8 +173,36 @@ const androidPush: ExternalLaneModule<AndroidPushLaneContext> = {
   },
 };
 
+const deviceCloud: ExternalLaneModule<RetainedMacLaneContext> = {
+  preflight: async context => {
+    await admitDeviceCloud(context.environment);
+  },
+  run: async context =>
+    runDeviceCloud({
+      identity: liveIdentity(context),
+      sessionLabel: context.sessionLabel,
+      progress: context.progress,
+      checkpoint: context.checkpoint,
+      pixel: context.pixel,
+      runtime: await retainedMacCloudRuntime(context),
+    }),
+  needsCleanup: deviceCloudNeedsCleanup,
+  cleanup: async context => {
+    if (context.progress === undefined) return { noAttempt: true };
+    return cleanupDeviceCloud({
+      identity: liveIdentity(context),
+      sessionLabel: context.sessionLabel,
+      progress: context.progress,
+      checkpoint: context.checkpoint,
+      pixel: context.pixel,
+      runtime: await retainedMacCloudRuntime(context),
+    });
+  },
+};
+
 export const defaultLaneModules: StableQualificationLaneModules = {
   windows,
   androidPush,
+  deviceCloud,
   createPixelLease: () => createPixelLease(),
 };

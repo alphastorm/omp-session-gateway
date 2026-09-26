@@ -19,152 +19,33 @@
 import { withAndroidChrome, type AndroidChromeDriver } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 import { ANDROID_LEAK_SWEEP_STAGES, announceAndroidStage } from "./android-stages.ts";
-import { PAGE_PRELUDE } from "./android-leak-probe.ts";
-
-/** Sinks the sweep inspects. The control must be able to plant and detect every one. */
-const SINKS = [
-  "localStorage",
-  "sessionStorage",
-  "cookie",
-  "cacheBody",
-  "indexedDB",
-  "locationHash",
-  "historyState",
-] as const;
-
-interface ControlResult {
-  readonly plantedUnique: readonly string[];
-  readonly detectedUnique: readonly string[];
-  readonly residual: Record<string, unknown>;
-}
-
-interface SweepResult {
-  readonly target?: Record<string, unknown>;
-  readonly launchStatus?: number;
-  readonly launchCacheControl?: string | null;
-  readonly launchKeys?: readonly string[];
-  readonly capabilityLength?: number;
-  readonly capabilityDigest?: string;
-  readonly needleCount?: number;
-  readonly cacheNames?: readonly string[];
-  readonly indexedDbNames?: readonly string[];
-  readonly locationHref?: string;
-  readonly locationHashLength?: number;
-  readonly findings?: readonly string[];
-  readonly error?: string;
-  readonly seen?: readonly string[];
-}
+import {
+  LEAK_CONTROL_EXPRESSION,
+  LEAK_SINKS,
+  leakControlGaps,
+  leakSweepExpression,
+  type LeakControlResult,
+  type LeakSweepResult,
+} from "./browser-journey.ts";
 
 /** Plants a synthetic secret in every sink, requires detection, then removes each plant. */
-async function runControl(driver: AndroidChromeDriver): Promise<ControlResult> {
-  const script = `(async () => {
-    ${PAGE_PRELUDE}
-    const NEEDLE = "SYNTHETIC-CAPABILITY-CONTROL-b7f3a91c2d8e4056";
-    const CONTROL_KEY = "__leak_control__";
-    const hit = value => typeof value === "string" && value.includes(NEEDLE);
-    const planted = [];
-    const detected = [];
-
-    localStorage.setItem(CONTROL_KEY, NEEDLE); planted.push("localStorage");
-    sessionStorage.setItem(CONTROL_KEY, NEEDLE); planted.push("sessionStorage");
-    document.cookie = CONTROL_KEY + "=" + NEEDLE + "; path=/"; planted.push("cookie");
-    const controlCache = await caches.open(CONTROL_KEY);
-    await controlCache.put(new Request("/" + CONTROL_KEY), new Response(NEEDLE));
-    planted.push("cacheBody");
-    const db = await openDb(CONTROL_KEY, 1, handle => handle.createObjectStore("s"));
-    const writing = Promise.withResolvers();
-    const tx = db.transaction("s", "readwrite");
-    tx.objectStore("s").put(NEEDLE, "k");
-    tx.oncomplete = () => writing.resolve(undefined);
-    tx.onerror = () => writing.reject(tx.error);
-    await writing.promise;
-    planted.push("indexedDB");
-    history.replaceState({ control: NEEDLE }, "", location.pathname + "#" + NEEDLE);
-    planted.push("locationHash", "historyState");
-
-    await scanSinks(hit, sink => detected.push(sink));
-
-    localStorage.removeItem(CONTROL_KEY);
-    sessionStorage.removeItem(CONTROL_KEY);
-    document.cookie = CONTROL_KEY + "=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    await caches.delete(CONTROL_KEY);
-    db.close();
-    indexedDB.deleteDatabase(CONTROL_KEY);
-    history.replaceState(null, "", location.pathname);
-
-    return {
-      plantedUnique: [...new Set(planted)].sort(),
-      detectedUnique: [...new Set(detected)].sort(),
-      residual: {
-        localStorage: localStorage.getItem(CONTROL_KEY),
-        sessionStorage: sessionStorage.getItem(CONTROL_KEY),
-        cookie: document.cookie.includes(CONTROL_KEY),
-        hash: location.hash,
-        caches: await caches.keys(),
-      },
-    };
-  })()`;
+async function runControl(driver: AndroidChromeDriver): Promise<LeakControlResult> {
   const evaluation = await driver.send("Runtime.evaluate", {
-    expression: script,
+    expression: LEAK_CONTROL_EXPRESSION,
     awaitPromise: true,
     returnByValue: true,
   });
-  return extract<ControlResult>(evaluation);
+  return extract<LeakControlResult>(evaluation);
 }
 
 /** Launches a view capability exactly as the PWA does, then searches every sink for it. */
-async function runSweep(driver: AndroidChromeDriver, label: string): Promise<SweepResult> {
-  const script = `(async () => {
-    ${PAGE_PRELUDE}
-    const out = {};
-    const list = await (await fetch("/api/v1/sessions", { cache: "no-store" })).json();
-    const target = list.sessions.find(session => session.cwdLabel === ${JSON.stringify(label)});
-    if (!target) return { error: "target session not published", seen: list.sessions.map(s => s.cwdLabel) };
-    out.target = { generation: target.generation, canView: target.canView, canControl: target.canControl };
-
-    const response = await fetch("/api/v1/sessions/" + target.instanceId + "/launch", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ generation: target.generation, mode: "view" }),
-    });
-    out.launchStatus = response.status;
-    out.launchCacheControl = response.headers.get("cache-control");
-    if (!response.ok) return { ...out, error: "launch rejected" };
-
-    const payload = await response.json();
-    out.launchKeys = Object.keys(payload).sort();
-    const capability = payload.capability;
-    if (typeof capability !== "string") return { ...out, error: "no capability string in launch payload" };
-
-    out.capabilityLength = capability.length;
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(capability));
-    out.capabilityDigest = [...new Uint8Array(digest)].slice(0, 8).map(b => b.toString(16).padStart(2, "0")).join("");
-
-    // The whole value, plus every opaque segment long enough to be the secret itself.
-    const needles = [capability];
-    for (const part of capability.split(/[\\/?#&=]/)) if (part.length >= 16) needles.push(part);
-    out.needleCount = needles.length;
-
-    const findings = [];
-    await scanSinks(
-      value => typeof value === "string" && needles.some(needle => value.includes(needle)),
-      (sink, detail) => findings.push(detail ? sink + ": " + detail : sink),
-    );
-
-    out.cacheNames = await caches.keys();
-    out.indexedDbNames = ((await indexedDB.databases?.()) ?? []).map(entry => entry.name);
-    out.locationHref = location.href;
-    out.locationHashLength = location.hash.length;
-    out.findings = findings;
-    return out;
-  })()`;
+async function runSweep(driver: AndroidChromeDriver, label: string): Promise<LeakSweepResult> {
   const evaluation = await driver.send("Runtime.evaluate", {
-    expression: script,
+    expression: leakSweepExpression(label, { detail: true }),
     awaitPromise: true,
     returnByValue: true,
   });
-  return extract<SweepResult>(evaluation);
+  return extract<LeakSweepResult>(evaluation);
 }
 
 function extract<T>(evaluation: Record<string, unknown>): T {
@@ -223,10 +104,7 @@ const { control, sweep, serial, browser } = await withAndroidChrome(async driver
 
 announceAndroidStage(ANDROID_LEAK_SWEEP_STAGES, "verdict");
 
-const missed = SINKS.filter(sink => !control.detectedUnique.includes(sink));
-const residualPlants = Object.entries(control.residual).filter(
-  ([key, value]) => (key === "cookie" && value === true) || (key === "hash" && value !== "") || (key !== "cookie" && key !== "hash" && key !== "caches" && value !== null),
-);
+const { missed, residualPlants } = leakControlGaps(control);
 
 console.log("device        " + serial);
 console.log("browser       " + JSON.stringify(browser));
@@ -240,7 +118,7 @@ if (residualPlants.length > 0) {
   console.error(`CONTROL LEFT RESIDUE: ${JSON.stringify(residualPlants)}`);
   process.exit(1);
 }
-console.log(`              all ${SINKS.length} sinks proven detectable, no residue`);
+console.log(`              all ${LEAK_SINKS.length} sinks proven detectable, no residue`);
 
 if (sweep.error !== undefined) {
   console.error(`SWEEP FAILED: ${sweep.error}${sweep.seen ? ` (published: ${sweep.seen.join(", ")})` : ""}`);
@@ -256,4 +134,4 @@ if ((sweep.findings?.length ?? 0) > 0) {
   console.error(`CAPABILITY LEAKED INTO: ${sweep.findings?.join(", ")}`);
   process.exit(1);
 }
-console.log(`result        clean — capability absent from all ${SINKS.length} sinks, resource timings, and DOM`);
+console.log(`result        clean — capability absent from all ${LEAK_SINKS.length} sinks, resource timings, and DOM`);

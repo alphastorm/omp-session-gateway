@@ -383,6 +383,46 @@ Forbidden:
 
 Test infrastructure must fail when a known canary appears in logs, files, Playwright traces, HARs, screenshots, video, browser history, DOM snapshots, caches, storage, service-worker state, or diagnostics archives.
 
+### Real-device cloud qualification
+
+The stable campaign's `deviceCloud` lane (ADR-032) opens View and Control on TestingBot's real
+devices, so a vendor-operated phone briefly holds a live capability. Only qualification sessions on
+the retained Mac's candidate gateway are opened there: the campaign's live OMP session and the lane's
+own fixture, both with a synthetic model key and no user data, and both revoked when the campaign
+stops them. The boundary:
+
+- TestingBot's tunnel fetches whatever its devices request from the machine it runs on. Run as
+  shipped, it would reach that machine's loopback, where a gateway trusts identity headers, its LAN,
+  and every tailnet service its login may open, including an operator's own production gateway. The
+  lane therefore runs the tunnel with `--noproxy` and serves the tunnel's local proxy itself. That
+  proxy opens CONNECT tunnels only to the candidate origin and the sources the candidate's
+  `connect-src` names, and refuses everything else, plain HTTP included. It relays TLS without
+  decrypting it, so the vendor sees the tailnet hostname and traffic sizes, not content. The lane
+  closes the proxy and stops the tunnel before it releases the Pixel lease, so this path exists only
+  while its devices run.
+- Stock tunnel 4.9 also opens a Selenium relay and a metrics server on every interface, and the relay
+  lends the TestingBot account to any unauthenticated caller that can reach it. The lane asks for
+  port -1 for both, so neither opens, and stops any tunnel that listens anywhere but loopback or
+  fails to start, before going on.
+- Sessions request no video, screenshots, or device logs, and are not public. TestingBot still keeps
+  a step log of every WebDriver command and its result, so page evaluations return only counts,
+  booleans, and fixed names, and a failed evaluation only its error's name. The in-page sink sweep
+  keeps the capability inside the page and returns no digest, length, matched detail, address, or
+  cache or database name.
+- Evidence text comes only from fixed grammars (a pinned model, a version number, Apple's push
+  service), so neither a device nor TestingBot can write a link or a reflected credential into a
+  receipt.
+- After the sessions end, the lane fetches every test record TestingBot kept for the attempt, and
+  fails if one contains either session's live View or Control link, or any 16-character segment of
+  one, or kept video or screenshots. The links it compares against are fetched through the gateway's
+  own launch contract and exist only in the orchestrator's memory for that comparison.
+- The TestingBot key and secret come from the read-only 1Password service account. The token reaches
+  only each `op` child's environment, never argv, and no ambient `OP_ACCOUNT` applies. The credentials
+  reach only the tunnel's environment and in-memory request headers, never receipts or logs.
+- The iPhone turns background alerts off before its session ends. If its attempt fails first, the
+  subscription stays on the candidate gateway until Mac cleanup uninstalls the gateway, and the
+  alerts sent to it meanwhile carry only session metadata.
+
 ### Manual `/collab` is outside this boundary
 
 The rules above bind the gateway. Upstream OMP's manual `/collab` command deliberately prints the
@@ -432,4 +472,7 @@ Before release, prove:
 - cross-origin launches fail; any future WebAuthn endpoints must enforce the same exact-origin boundary;
 - malformed and oversized IPC/API input stays bounded;
 - gateway restart starts empty and discovery polling repopulates only live hosts;
+- every test record TestingBot kept from the stable campaign's cloud devices contains neither
+  session's live View or Control link, and the tunnel can reach nothing but the candidate origin and
+  its `connect-src` sources;
 - release binaries bind loopback only and match published checksums.

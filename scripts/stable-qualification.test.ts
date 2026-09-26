@@ -57,8 +57,8 @@ async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
 }
 
 /** Admission-only lanes: an unrequested effect fails loudly instead of reaching a real VM or phone. */
-function admissionLanes(refuse?: "windows" | "androidPush"): StableQualificationLaneModules {
-  const lane = (name: "windows" | "androidPush"): ExternalLaneModule => ({
+function admissionLanes(refuse?: "windows" | "androidPush" | "deviceCloud"): StableQualificationLaneModules {
+  const lane = (name: "windows" | "androidPush" | "deviceCloud"): ExternalLaneModule => ({
     preflight: async () => {
       if (refuse === name) throw new Error(`${name} fixture refuses admission`);
     },
@@ -70,7 +70,12 @@ function admissionLanes(refuse?: "windows" | "androidPush"): StableQualification
       throw new Error(`${name} must not clean up in an admission test`);
     },
   });
-  return { windows: lane("windows"), androidPush: lane("androidPush"), createPixelLease: () => createPixelLease(() => {}) };
+  return {
+    windows: lane("windows"),
+    androidPush: lane("androidPush"),
+    deviceCloud: lane("deviceCloud"),
+    createPixelLease: () => createPixelLease(() => {}),
+  };
 }
 
 describe("stable qualification arguments", () => {
@@ -272,7 +277,7 @@ test.skipIf(process.platform === "win32")("rejected resumed relay proof still cl
             await writeFile(root + "/recovered", "yes");
             return { sshDestination: "fixture.invalid", sudoPassword: "fixture" };
           },
-        }, { windows: lane, androidPush: lane, createPixelLease: () => (_owner, action) => action() });
+        }, { windows: lane, androidPush: lane, deviceCloud: lane, createPixelLease: () => (_owner, action) => action() });
         process.exitCode = 2;
       } catch (error) {
         console.log(JSON.stringify({ rejected: error.message }));
@@ -369,7 +374,7 @@ describe("stable qualification read-only admission", () => {
     }
   });
 
-  test.each(["windows", "androidPush"] as const)("%s lane admission failure stops normal qualification before receipts", async lane => {
+  test.each(["windows", "androidPush", "deviceCloud"] as const)("%s lane admission failure stops normal qualification before receipts", async lane => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-lane-"));
     try {
       const runtime = await preflightFixture(root);
@@ -747,10 +752,10 @@ test("protected release state guard detects implicit ledger promotion", async ()
   }
 });
 
-test("a schema 1 receipt cannot resume into the campaign that adds Windows and background Push", () => {
-  const receipt = { ...createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG), schemaVersion: 1 };
+test("a schema 2 receipt cannot resume into the campaign that adds the real-device cloud lane", () => {
+  const receipt = { ...createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG), schemaVersion: 2 };
   expect(() => validateStableQualificationReceipt(receipt, TAG, COMMIT, PREVIOUS_TAG)).toThrow(
-    "predates the Windows and background Push lanes",
+    "predates the real-device cloud lane",
   );
 });
 
@@ -975,6 +980,8 @@ describe("resource-owning lanes", () => {
     receipt.lanes.windowsCleanup.evidence = { epoch: "w1" };
     receipt.lanes.androidPush.evidence = { progress: { epoch: "p1" }, result: { verified: true } };
     receipt.lanes.androidPushCleanup.evidence = { epoch: "p1" };
+    receipt.lanes.deviceCloud.evidence = { progress: { epoch: "c1" }, result: { passed: true } };
+    receipt.lanes.deviceCloudCleanup.evidence = { epoch: "c1" };
     expect(incompleteQualification(receipt)).toBeUndefined();
     receipt.lanes.androidPushCleanup.evidence = { epoch: "p0" };
     expect(incompleteQualification(receipt)).toContain("androidPushCleanup");
