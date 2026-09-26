@@ -1,10 +1,15 @@
 # Release status
 
-## Mainline v0.6.1 — qualified; stable publication pending
+## Mainline v0.6.1 — published stable
 
-**Updated:** 2026-09-26. The exact candidate below is approved for stable promotion. Published
-v0.6.0 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-26. [v0.6.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1)
+was published at **03:03:06 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[36213509890](https://github.com/alphastorm/omp-session-gateway/actions/runs/36213509890) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `0d0d804eba20bbc375185e725f5151ddcdd76602`.<br>
+**Stable archive SHA-256:** `339da3a0cb67c3cc895d8d20705069c4614be07d5e1e3b6289538148bec291c5`.
 
 **Candidate:** [v0.6.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1-prealpha.1).<br>
 **Source:** `ad8b283b3ac3ccab2a365aebae2428c1771a73c0`.<br>
@@ -49,7 +54,8 @@ same candidate.
 **Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
 all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
 re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
-SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json. The merged promotion
+tree was identical, and the published stable archive also matched all 46 candidate files.
 
 **Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
 gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
