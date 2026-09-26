@@ -225,8 +225,8 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - iPhone and iPad can enable background alerts from the Home Screen app. WebKit leaves a null expiration time out of the push subscription, and the PWA and gateway rejected that shape, so the control read unavailable (#274). iPhone and iPad remain outside the qualified matrix; repository tests cover the fix.
-          - The qualified matrix is unchanged from v0.6.0, including the Windows Server 2025 host and background Web Push on the Pixel; every lane passed again on these bytes.
+          - iPhone, iPad, and Galaxy browsers enter the qualified matrix on real devices in TestingBot's cloud: the signed candidate passed the directory, View, Control, prompt, and capability-sink journey on each, and on the iPhone the Home Screen app enabled background alerts and a delivered alert opened Control. The gateway is unchanged from v0.6.1.
+          - The rest of the qualified matrix is unchanged, including the Windows Server 2025 host and background Web Push on the Pixel; every lane passed again on these bytes.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -237,6 +237,8 @@ jobs:
           | host | macOS arm64 (Mac14,3) |
           | host | Windows Server 2025 x86-64, started at interactive logon |
           | client | Chrome on Android (Pixel 10 Pro), including background Web Push |
+          | client | Safari on iPhone and iPad, real devices in TestingBot's cloud, in the browser; iPhone background alerts in the Home Screen app |
+          | client | Chrome on a Galaxy phone, a real device in TestingBot's cloud, in the browser |
 
           Exact qualified OS, browser, and kernel builds, per-lane evidence, and the qualifying candidate are recorded in docs/RELEASE_STATUS.md and docs/COMPATIBILITY.md at this source commit.
 
@@ -249,6 +251,7 @@ jobs:
 
           Android Chrome can wedge its process-wide network state outside the qualified lock/Airplane/Doze transitions. Native EventSource reconnection and the bounded snapshot fallback recover the qualified cases; after an uninterrupted prolonged visible outage the loaded shell exposes force-stop/reopen help. The release does not claim page JavaScript can restart a failed browser process.
           The Windows claim is start at interactive logon, not at boot. Background Web Push records force-stop and Doze outcomes as observed variants, never as guaranteed delivery.
+          Cloud-device clients are qualified in the browser: Tailscale Serve saw the qualification workstation's login, not the phone's own, and iPhone alerts were proven with the device unlocked, not on the lock screen.
 
           ### Install or upgrade
 
@@ -257,7 +260,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.6.0 predecessor cannot enable background alerts on iPhone or iPad: it rejects WebKit's push subscription, which leaves out a null expiration time. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.6.1 predecessor runs the same gateway code; only its version and qualification record differ. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -272,7 +275,7 @@ jobs:
 
           ### Changes to test
 
-          - iPhone and iPad enable background alerts from the Home Screen app; a push subscription without an expiration time registers instead of reading unavailable.
+          - No gateway, PWA, or collaboration-client changes from v0.6.1; this candidate exists to qualify iPhone, iPad, and Galaxy browsers on real devices in TestingBot's cloud (ADR-032).
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -284,12 +287,12 @@ jobs:
 
           - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
-          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host, and Chrome on the physical Pixel, including its background-Push lane, must pass against these exact signed bytes before stable promotion.
+          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host, Chrome on the physical Pixel, including its background-Push lane, and real iPhone, iPad, and Galaxy devices in TestingBot's cloud must pass against these exact signed bytes before stable promotion.
           - The Chrome process-wide network wedge remains a disclosed environment limitation; Portal Tunnel and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          The selected predecessor is v0.6.0. It cannot enable background alerts on iPhone or iPad because it rejects WebKit's push subscription; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.6.1, which runs the same gateway code; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

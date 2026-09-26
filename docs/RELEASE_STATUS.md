@@ -1,5 +1,18 @@
 # Release status
 
+## v0.6.2 preparation — not yet qualified or published
+
+The candidate changes no runtime behavior: `apps/` and `packages/` are identical to v0.6.1, and only
+version metadata and documentation differ. It exists to run the stable campaign's new real-device
+cloud lane (ADR-032, #288) on signed bytes, so iPhone, iPad, and Galaxy browsers can enter the
+qualified matrix. Before #288 merged, the lane passed against an isolated gateway on the
+qualification workstation, on TestingBot's iPhone 17 Pro Max, iPad (9th generation), and Galaxy S26
+and S25; that is smoke evidence, not qualification. A campaign on v0.6.1's candidate with the new
+lane stopped in its artifacts lane before any other lane ran, because the orchestrator qualifies only
+a candidate whose predecessor is still GitHub Latest; its receipt is archived unchanged. Published
+v0.6.1 remains the predecessor and current stable; no v0.6.2 qualification or publication is
+claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.6.1 — published stable
 
 **Updated:** 2026-09-26. [v0.6.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1)

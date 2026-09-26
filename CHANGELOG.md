@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.6.2] — 2026-09-26
+
+The gateway, PWA, and collaboration client are unchanged from v0.6.1. This release qualifies iPhone,
+iPad, and Galaxy browsers on real cloud devices.
+
 ### Added
 
 - Stable qualification (`qualify:stable`) also qualifies iPhone, iPad, and Android browsers on real
