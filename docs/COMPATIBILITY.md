@@ -65,14 +65,13 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Qualified for stable promotion:** [v0.6.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2-prealpha.1),
-for [v0.6.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2). Publication
-and the separate published-byte local/Pixel smoke are pending; published v0.6.1 remains GitHub
-Latest until promotion. v0.6.2 changes no runtime behavior from v0.6.1 and adds real iPhone, iPad,
-and Galaxy browsers on cloud devices to the qualified matrix. The [release ledger](RELEASE_STATUS.md)
-records the qualification lanes, an earlier campaign that stopped before its lanes ran, and exact
-source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback
-predecessor, v0.6.1.
+**Published stable:** [v0.6.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2),
+GitHub Latest, promoted from v0.6.2-prealpha.1 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. v0.6.2 changes
+no runtime behavior from v0.6.1 and adds real iPhone, iPad, and Galaxy browsers on cloud devices to
+the qualified matrix. The [release ledger](RELEASE_STATUS.md) records the qualification lanes, an
+earlier campaign that stopped before its lanes ran, and exact source/archive bindings;
+[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.6.1.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
