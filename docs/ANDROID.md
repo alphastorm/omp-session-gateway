@@ -235,6 +235,9 @@ destination page. A missing or ambiguous credential surface still fails while th
 - Real Wi-Fi and cellular tailnet delivery, Airplane suppression, and bounded recovery. Missing
   working cellular data is a named blocked sub-phase, never substituted with Wi-Fi. Airplane
   suppression and Wi-Fi recovery are still exercised; the missing cellular result prevents a pass.
+  Every radio change gives Play Services a fresh push socket, which can deliver what it held and
+  then die silently until it reconnects, so each ask or clear after a change must arrive within the
+  160-second recovery window rather than the steady-state minute.
 - A positive control proves the seven historical browser sinks plus notification title/body/data
   are detectable; real launch material stays in page memory during the sweep. URL/history, DOM,
   and resource timings are included. On macOS, `plutil` must confirm both LaunchAgent streams are

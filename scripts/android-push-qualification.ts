@@ -65,6 +65,14 @@ export interface AndroidPushRuntime {
   cleanup(step: PushCleanupStep, progress: AndroidPushProgress): Promise<void>;
 }
 
+/**
+ * The bound for any push wait that follows a radio change. Every change gives Play Services a fresh
+ * push socket, which can deliver what it held and then die silently until its next reconnect: in the
+ * first v0.6.1-prealpha.1 campaign a clear sent right after the Airplane recovery arrived 61 s after
+ * the answer, 0.4 s after the socket reconnected. Steady-state waits keep the one-minute bound.
+ */
+const PUSH_RECOVERY_MS = 160_000;
+
 export const ANDROID_PUSH_PHASES = ["baseline_captured", "subscription_ready", "private_verified", "session_verified", "preview_verified",
   "attention_tap_verified", "activity_stop_verified", "stale_generation_verified", "clear_verified", "force_stop_verified",
   "permission_verified", "lock_resume_verified", "network_verified", "doze_verified", "forbidden_sinks_verified", "evidence_complete", "restored"] as const;
@@ -218,12 +226,12 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
       progress.phase = phase; progress.results[phase] = { ...progress.results[phase], ...result, dndOff: true, phaseElapsedMs: now - phaseStarted };
       phaseStarted = now; await save();
     };
-    const clear = async () => {
+    const clear = async (timeout = 60_000) => {
       await fixture("answer");
       const current = await snapshot(s => !s.inputRequired);
-      await wait("authoritative clear", async () => (await runtime.observe(current, "attention", "private")).count === 0 ? true : undefined);
+      await wait("authoritative clear", async () => (await runtime.observe(current, "attention", "private")).count === 0 ? true : undefined, timeout);
     };
-    const delivery = async (detail: PushDetailLevel, kind: "attention" | "activity_stop" = "attention", arm = true) => {
+    const delivery = async (detail: PushDetailLevel, kind: "attention" | "activity_stop" = "attention", arm = true, timeout = 60_000) => {
       if (arm) { await runtime.detail(detail); await runtime.closePwa(); await runtime.lock(); }
       if (arm) await fixture("ask");
       const session = await snapshot(s => kind === "attention" ? s.inputRequired : s.busy === false);
@@ -232,7 +240,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         const observation = await runtime.observe(session, kind, detail);
         if (observation.count > 1 || observation.forbiddenFound) throw new Error("Android Push duplicate or forbidden notification");
         return observation.count === 1 ? observation : undefined;
-      });
+      }, timeout);
       if (!seen.titleMatches || !seen.bodyMatches) throw new Error("Android Push notification detail mismatch");
       return { session, milliseconds: runtime.now() - start };
     };
@@ -250,7 +258,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
           await runtime.doze(false);
           if (!await runtime.network("wifi")) throw new Error("Android Push overlap recovery needs the Wi-Fi tailnet path");
           await runtime.permission("granted");
-          await fixture("release"); await clear(); await snapshot(s => s.busy === false);
+          await fixture("release"); await clear(PUSH_RECOVERY_MS); await snapshot(s => s.busy === false);
           await runtime.closePwa();
         }
       }
@@ -349,11 +357,12 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         await finish("lock_resume_verified", { lockedDelivery: true, resumed: true });
       });
       await attempt("network_verified", async () => {
+        // Each push wait here follows a radio change, so it allows the recovery window.
         if (!await runtime.network("wifi")) throw new Error("Android Push Wi-Fi tailnet path unavailable");
-        await delivery("private"); await clear();
+        await delivery("private", "attention", true, PUSH_RECOVERY_MS); await clear(PUSH_RECOVERY_MS);
         const cellular = await runtime.network("cellular");
         if (cellular) {
-          await delivery("private"); await clear();
+          await delivery("private", "attention", true, PUSH_RECOVERY_MS); await clear(PUSH_RECOVERY_MS);
         }
         // Missing cellular service blocks that sub-phase, not the independent offline/recovery proof.
         if (!await runtime.network("airplane")) throw new Error("Android Push Airplane state unavailable");
@@ -368,8 +377,8 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
           const observed = await runtime.observe(offline, "attention", "private");
           if (observed.count > 1 || observed.forbiddenFound || (observed.count === 1 && (!observed.titleMatches || !observed.bodyMatches))) throw new Error("Android Push Airplane recovery privacy failure");
           return observed.count === 1 ? true : undefined;
-        }, 160_000);
-        await clear();
+        }, PUSH_RECOVERY_MS);
+        await clear(PUSH_RECOVERY_MS);
         await finish("network_verified", { wifiDelivery: true, ...(cellular ? { cellularDelivery: true } : { blocked: "cellular_path_unavailable" }), airplaneSuppressed: true, recovered: true });
       });
       await attempt("doze_verified", async () => {
