@@ -17,19 +17,31 @@ const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { t
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
 const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
 const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
-interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; deferredAfterDoze?: boolean; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
+/** `staleSocket`: after a radio change brings the phone online (`after: "airplane"`, only the return from Airplane mode), Play Services' fresh push socket delivers what it held, then dies silently; pushes sent within `ms` of the change wait until it reconnects. */
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; deferredAfterDoze?: boolean; staleSocket?: { ms: number; after: "airplane" | "any" }; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
 function fake(options: FakeOptions = {}) {
   let overlaps = options.overlaps ?? 0;
   let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
   let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false; let dozed = false; let deferredClear = false;
+  let socketStaleUntil = -Infinity; let heldAsk = false; let heldClear = false;
   let shown: "attention" | "activity_stop" | undefined;
   const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
   let browser = { ...initialBrowser }; let device = { ...baseline }; let pending = false;
   const cleanup: PushCleanupStep[] = []; const checkpoints: Record<string, unknown>[] = [];
-  const show = () => { if (asking && browser.permission === "granted" && !offline && (!forced || options.forceDelivery) && (!asleep || options.dozeDelivery)) shown = "attention"; };
+  const show = () => {
+    if (!asking || browser.permission !== "granted" || offline || (forced && !options.forceDelivery) || (asleep && !options.dozeDelivery)) return;
+    if (time < socketStaleUntil) heldAsk = true; else shown = "attention";
+  };
   const effect = async (action: () => void) => { await runtime.beforeEffect(); effects++; action(); if (effects === options.failAfter) throw new Error("synthetic interruption"); };
   const runtime: AndroidPushRuntime = {
-    now: () => time, pause: async milliseconds => { time += milliseconds; }, beforeEffect: async () => {},
+    now: () => time, beforeEffect: async () => {},
+    pause: async milliseconds => {
+      time += milliseconds;
+      if (time < socketStaleUntil) return;
+      // The reconnected socket delivers in send order: a held ask, then its clear.
+      if (heldAsk) { heldAsk = false; show(); }
+      if (heldClear) { heldClear = false; shown = undefined; }
+    },
     preflight: async () => ({ android: "17", browser: "153.0.8010.52", webApk: true, dndOff: true }),
     dndOff: async () => options.dndFlipAfter === undefined || effects < options.dndFlipAfter,
     beginNotificationPhase: async () => {}, assertNotificationOwnership: async () => { if (overlaps > 0) { overlaps--; throw new NotificationOverlapError(); } },
@@ -37,7 +49,7 @@ function fake(options: FakeOptions = {}) {
     async fixture(operation) { await effect(() => {
       if (operation === "start") started = true;
       if (operation === "ask") { asking = true; request++; pending = true; show(); }
-      if (operation === "answer") { asking = false; pending = false; if (shown === "attention") { if (options.deferredAfterDoze && dozed) deferredClear = true; else shown = undefined; } }
+      if (operation === "answer") { asking = false; pending = false; if (shown === "attention") { if (options.deferredAfterDoze && dozed) deferredClear = true; else if (time < socketStaleUntil) heldClear = true; else shown = undefined; } }
       if (operation === "busy") { busy = true; stopped = false; }
       if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; }
       if (operation === "replace") generation++;
@@ -61,7 +73,15 @@ function fake(options: FakeOptions = {}) {
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
     permission: async value => { await effect(() => { browser.permission = value; }); },
     doze: async enabled => { await effect(() => { asleep = enabled; device.forcedDoze = enabled; device.batteryOverride = enabled; if (!enabled) dozed = true; if (!enabled && !options.dozeHeld) show(); }); },
-    network: async value => { await effect(() => { offline = value === "airplane"; device.airplane = offline; device.wifi = value === "wifi"; device.mobile = !offline; if (!offline && pending) show(); }); return value !== "cellular" || options.cellular !== false; },
+    network: async value => { await effect(() => {
+      const next = { airplane: value === "airplane", wifi: value === "wifi", mobile: value !== "airplane" };
+      const changed = next.airplane !== device.airplane || next.wifi !== device.wifi || next.mobile !== device.mobile;
+      const returning = device.airplane && !next.airplane;
+      offline = next.airplane; device.airplane = next.airplane; device.wifi = next.wifi; device.mobile = next.mobile;
+      if (!offline && pending) show();
+      const stale = options.staleSocket;
+      if (stale !== undefined && changed && !offline && (stale.after === "any" || returning)) socketStaleUntil = time + stale.ms;
+    }); return value !== "cellular" || options.cellular !== false; },
     sinks: async () => ({ clean: true, detectable: true, gatewayLogsDiscarded: true }),
     async cleanup(step) { cleanup.push(step);
       if (step === options.cleanupFail) throw new Error("synthetic cleanup failure");
@@ -274,6 +294,23 @@ test("a clear deferred after forced Doze is flushed by resuming the app, and no 
   expect(final.results.doze_verified?.variant).toBe("delivered_after_doze_exit");
   expect(final.results.network_verified).toMatchObject({ wifiDelivery: true, recovered: true });
   expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+});
+
+// In the first v0.6.1-prealpha.1 campaign, Play Services' push socket reconnected on the return from
+// Airplane mode, delivered the held ask, then died silently: the clear sent right after arrived 61 s
+// after the answer, 0.4 s after the socket reconnected, and the lane had stopped waiting at 60 s. Any
+// radio change opens a fresh socket, so every push wait after one allows the recovery window, and a
+// push held past that window still fails the lane.
+test.each(["airplane", "any"] as const)("a push held while Play Services reconnects after a radio change (%s) waits within the recovery window", async after => {
+  const f = fake({ staleSocket: { ms: 70_000, after } });
+  expect((await runAndroidPush(f.input)).passed).toBe(true);
+  const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(final.results.network_verified).toMatchObject({ wifiDelivery: true, cellularDelivery: true, airplaneSuppressed: true, recovered: true });
+  expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+
+  const held = fake({ staleSocket: { ms: 170_000, after } });
+  await expect(runAndroidPush(held.input)).rejects.toThrow(/^Android Push network_verified: .* timed out$/u);
+  expect(held.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
 });
 
 test("every non-idempotent interruption restores every baseline and stops the owned fixture", async () => {
