@@ -14,19 +14,21 @@ The format is based on Keep a Changelog and Semantic Versioning.
   capability-sink journey against the campaign's live OMP session. The iPhone also installs the
   Home Screen app, enables background alerts with a real tap on the permission prompt, and taps a
   delivered alert into Control. Afterwards every test record TestingBot kept is checked for the
-  sessions' live links.
+  sessions' live links. Each device must report itself as the requested kind of device, browser,
+  and OS release, and the receipt records what it reported.
 
   The tunnel's local proxy is the lane's own, which reaches only the candidate origin and the
   relay its CSP names, never the workstation's loopback, LAN, or other tailnet services. The
   tunnel's Selenium relay and metrics server stay closed: stock, they listen on every interface,
-  and the relay lends the TestingBot account to anyone who can reach it.
+  and the relay lends the TestingBot account to anyone who can reach it. The lane closes the
+  tunnel and its fixture before handing the Pixel to another lane.
   Credentials come from the 1Password service account without a prompt. The lane has its own
   cleanup lane, and the receipt schema moves to version 3, so older receipts cannot resume.
 
 ### Fixed
 
 - The capability-sink scan no longer fails in iPhone and iPad Safari tabs, whose service-worker
-  registration has no `getNotifications`.
+  registration has no `getNotifications`, and it now also checks cache and database names.
 
 ## [v0.6.1] — 2026-09-26
 

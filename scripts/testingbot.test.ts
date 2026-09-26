@@ -3,7 +3,15 @@ import { chmod, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { connect, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readTestingBotCredentials, startAllowlistProxy, startTunnel, stopTunnel, type OpRunner, type ProcessEntry } from "./testingbot.ts";
+import {
+  pageEvaluationScript,
+  readTestingBotCredentials,
+  startAllowlistProxy,
+  startTunnel,
+  stopTunnel,
+  type OpRunner,
+  type ProcessEntry,
+} from "./testingbot.ts";
 
 // Built at runtime so no token-shaped literal sits in the repository.
 const TOKEN = `ops_${"SYNTHETICserviceAccount".repeat(3)}`;
@@ -140,15 +148,39 @@ describe("TestingBot tunnel ownership", () => {
     });
     const credentials = { key: KEY, secret: SECRET };
 
-    test("refuses a tunnel that listens beyond loopback, then stops it by its identifier", async () => {
+    test("refuses a tunnel that listens beyond loopback and leaves it stopped", async () => {
       await expect(startTunnel(options("java-exposed"), credentials, 20_000)).rejects.toThrow("listens beyond loopback");
-      expect(await stopTunnel("omp-dc-0000feed")).toBe(1);
+      expect(await stopTunnel("omp-dc-0000feed")).toBe(0);
     });
 
     test("accepts a tunnel that listens on loopback only", async () => {
       await startTunnel(options("java-loopback"), credentials, 20_000);
       expect(await stopTunnel("omp-dc-0000feed")).toBe(1);
     });
+  });
+});
+
+describe("page evaluation", () => {
+  const LINK = "omp-synthetic://relay/SYNTHETIC-EVAL-ROOM-5d2c/SYNTHETIC-EVAL-KEY-8e1b4f7a";
+
+  async function evaluate(expression: string): Promise<unknown> {
+    const done = Promise.withResolvers<unknown>();
+    new Function(pageEvaluationScript(expression))(done.resolve);
+    return done.promise;
+  }
+
+  test("returns the expression's value", async () => {
+    expect(await evaluate("({ passed: true, count: 2 })")).toEqual({ ok: true, value: { passed: true, count: 2 } });
+  });
+
+  test.each([
+    ["an Error whose message quotes a link", `(() => { throw new TypeError("could not open ${LINK}"); })()`, "TypeError"],
+    ["a rejected string", `Promise.reject("${LINK}")`, "unnamed rejection"],
+    ["an Error with a crafted name", `(() => { const error = new Error("x"); error.name = "${LINK}"; throw error; })()`, "unnamed rejection"],
+  ])("reports only the kind of %s", async (_name, expression, reported) => {
+    const result = await evaluate(expression);
+    expect(result).toEqual({ ok: false, error: reported });
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC-EVAL");
   });
 });
 

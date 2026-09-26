@@ -21,6 +21,7 @@ import {
   type LeakSweepResult,
 } from "./browser-journey.ts";
 import {
+  attestAllocation,
   DEVICE_CLOUD_PROFILES,
   DEVICE_CLOUD_TARGETS,
   type DeviceCloudIdentity,
@@ -307,6 +308,7 @@ async function homeScreenAlerts(
   if (!isRecord(subscription) || !Array.isArray(subscription.keys) || typeof subscription.host !== "string") {
     throw new Error("background alerts reported enabled without a push subscription");
   }
+  if (subscription.host !== "web.push.apple.com") throw new Error("the Home Screen app subscribed through a push service other than Apple's");
 
   await session.context("NATIVE_APP");
   await session.pressHome();
@@ -375,7 +377,7 @@ export async function createDeviceCloudRuntime(options: DeviceCloudRuntimeOption
     const device = await freeDevice(api, target, profile);
     const started = Date.now();
     const refusalsBefore = proxy?.refusals() ?? 0;
-    const { session } = await WebDriverSession.create(credentials, {
+    const { session, capabilities } = await WebDriverSession.create(credentials, {
       platformName: profile.platform,
       browserName: profile.browser,
       "appium:deviceName": device.name,
@@ -395,23 +397,24 @@ export async function createDeviceCloudRuntime(options: DeviceCloudRuntimeOption
     }, attempt.created);
     try {
       const journey = await runCollaborationJourney(session, { origin, label, promptMarker: PROMPT_MARKER, expectedAppAsset: appAsset });
-      // Chrome's user agent is reduced to its major version; the full one needs a client hint.
+      // The browser's own report of the device; Chrome's reduced user agent leaves its details to client hints.
       const reported = await session.evaluate<unknown>(`(async () => ({
         userAgent: navigator.userAgent,
-        fullVersion: (await navigator.userAgentData?.getHighEntropyValues?.(["uaFullVersion"]).catch(() => undefined))?.uaFullVersion ?? null,
+        touchPoints: navigator.maxTouchPoints,
+        hints: (await navigator.userAgentData?.getHighEntropyValues?.(["uaFullVersion", "platformVersion", "model"]).catch(() => undefined)) ?? null,
       }))()`);
-      const hinted = isRecord(reported) && typeof reported.fullVersion === "string" && /^[0-9.]{1,32}$/u.test(reported.fullVersion)
-        ? reported.fullVersion
-        : undefined;
-      const version = hinted ?? (isRecord(reported) && typeof reported.userAgent === "string"
-        ? (profile.browser === "safari" ? /Version\/([0-9.]+)/u : /Chrome\/([0-9.]+)/u).exec(reported.userAgent)?.[1]
-        : undefined);
+      if (!isRecord(reported) || typeof reported.userAgent !== "string" || typeof reported.touchPoints !== "number") {
+        throw new Error(`the ${target} session's browser did not report its device`);
+      }
+      const allocation = attestAllocation(target, device, {
+        capabilities,
+        userAgent: reported.userAgent,
+        touchPoints: reported.touchPoints,
+        ...(isRecord(reported.hints) ? { hints: reported.hints } : {}),
+      });
       await assertCleanSinks(session, label);
       const observations: Observations = {
-        device: device.name,
-        os: device.version,
-        browser: profile.browser,
-        ...(version === undefined ? {} : { browserVersion: version }),
+        ...allocation,
         appAssetMatched: journey.appAsset === appAsset,
         viewReadOnly: journey.viewReadOnly,
         controlWritable: journey.controlWritable,
@@ -451,9 +454,10 @@ export async function createDeviceCloudRuntime(options: DeviceCloudRuntimeOption
     liveSession: publishedSession,
     tunnel: async (operation, epoch) => {
       if (operation === "stop") {
-        await stopTunnel(tunnelIdentifier(epoch));
+        // The proxy first: a tunnel that outlives SIGKILL then forwards only to a closed port.
         await proxy?.close();
         proxy = undefined;
+        await stopTunnel(tunnelIdentifier(epoch));
         return;
       }
       proxy = await startAllowlistProxy(await connectAllowlist(origin));

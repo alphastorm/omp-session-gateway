@@ -8,8 +8,10 @@
  * an attention alert from the lane's own stock-OMP fixture into Control. Afterwards every
  * vendor-retained test record is searched for both sessions' live View and Control links.
  *
- * The lane holds the Pixel lease for its whole run. Its prompts and alert raise Web Push to every
- * subscription on the candidate gateway, which would land in the middle of the Pixel lanes.
+ * The lane holds the Pixel lease from its first effect until it has released every session, the
+ * tunnel, the fixture, and its workspace. Its prompts and alert raise Web Push to every subscription
+ * on the candidate gateway, which would land in the middle of the Pixel lanes. The cleanup lane
+ * repeats that release only for an attempt that stopped before finishing it.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { isRecord } from "../packages/collab-client/upstream/src/tool-render/util.ts";
@@ -106,7 +108,90 @@ const RECORD_FINALIZATION_MS = 3 * 60 * 1_000;
 const EPOCH = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const OBSERVATION_NAME = /^[a-z][A-Za-z]{0,47}$/u;
 const SECRET_NAME = /(capability|password|secret|authKey|token|bearer)/iu;
-const OBSERVATION_TEXT = /^[A-Za-z0-9 ().,_-]{1,64}$/u;
+const VERSION = /^[0-9]{1,4}(?:\.[0-9]{1,4}){0,3}$/u;
+
+/**
+ * The only observations that may be text, each from a fixed grammar. Vendor and device text never
+ * reaches progress otherwise: a free-form field could carry a link or reflect a credential.
+ */
+const OBSERVATION_TEXT: Readonly<Record<string, (value: string) => boolean>> = {
+  device: value => Object.values(DEVICE_CLOUD_PROFILES).some(profile => profile.models.includes(value)),
+  model: value => /^SM-[A-Z0-9]{1,12}$/u.test(value),
+  os: value => VERSION.test(value),
+  browser: value => value === "safari" || value === "chrome",
+  browserVersion: value => VERSION.test(value),
+  pushServiceHost: value => value === "web.push.apple.com",
+};
+
+function safeObservations(result: Record<string, unknown>): boolean {
+  return Object.entries(result).every(([name, item]) =>
+    OBSERVATION_NAME.test(name) && !SECRET_NAME.test(name) && (
+      typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item) && item >= 0) ||
+      (typeof item === "string" && Object.hasOwn(OBSERVATION_TEXT, name) && OBSERVATION_TEXT[name]!(item))
+    ));
+}
+
+/** What the allocated session and the device's own browser report about the device. */
+export interface AllocationReport {
+  /** The capabilities TestingBot returned for the session it allocated. */
+  readonly capabilities: Record<string, unknown>;
+  readonly userAgent: string;
+  readonly touchPoints: number;
+  /** User-agent client hints, which Chrome answers and Safari does not. */
+  readonly hints?: Record<string, unknown>;
+}
+
+const DEVICE_FAMILY: Readonly<Record<DeviceCloudTarget, (report: AllocationReport) => boolean>> = {
+  iphone: report => /\biPhone\b/u.test(report.userAgent),
+  // iPadOS Safari asks for desktop sites, so it reports a Mac with a touch screen.
+  ipad: report => /\biPad\b/u.test(report.userAgent) || (/\bMacintosh\b/u.test(report.userAgent) && report.touchPoints > 1),
+  android: report => /\bAndroid\b/u.test(report.userAgent),
+};
+
+/**
+ * The device as its session and browser report it, refused unless it is the requested platform,
+ * kind of device, browser, and OS release, so evidence never names hardware nobody observed. An
+ * iPhone or iPad reports its model only through TestingBot's session and its release through
+ * Safari's version, which ships in lockstep with iOS. A Galaxy reports its model code and release
+ * through Chrome's client hints, and its evidence names the requested model beside that code.
+ */
+export function attestAllocation(
+  target: DeviceCloudTarget,
+  requested: { readonly name: string; readonly version: string },
+  report: AllocationReport,
+): Record<string, DeviceCloudObservation> {
+  const profile = DEVICE_CLOUD_PROFILES[target];
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  const leading = (version: string, parts: number) => version.split(".").slice(0, parts).join(".");
+  const { capabilities, userAgent } = report;
+  if (
+    text(capabilities.platformName).toLowerCase() !== profile.platform.toLowerCase() ||
+    text(capabilities.browserName).toLowerCase() !== profile.browser
+  ) {
+    throw new Error(`TestingBot allocated the ${target} session on another platform or browser`);
+  }
+  if (!DEVICE_FAMILY[target](report)) throw new Error(`the ${target} session's browser reports another kind of device`);
+  if (profile.browser === "safari") {
+    const safari = /\bVersion\/([0-9.]{1,24}) (?:Mobile\/\S+ )?Safari\//u.exec(userAgent)?.[1];
+    if (safari === undefined || !VERSION.test(safari) || /\b(?:CriOS|FxiOS|EdgiOS)\//u.test(userAgent)) {
+      throw new Error(`the ${target} session's browser is not Safari`);
+    }
+    const model = text(capabilities.deviceName);
+    if (model !== requested.name) throw new Error(`TestingBot allocated another model for the ${target}`);
+    if (leading(safari, 2) !== leading(requested.version, 2)) throw new Error(`the ${target} runs another iOS release`);
+    return { device: model, os: leading(safari, 2), browser: "safari", browserVersion: safari };
+  }
+  const hints = report.hints ?? {};
+  const version = text(hints.uaFullVersion);
+  const release = text(hints.platformVersion);
+  const model = text(hints.model);
+  if (!VERSION.test(version) || !/\bChrome\//u.test(userAgent) || /\b(?:SamsungBrowser|EdgA|OPR|Firefox)\//u.test(userAgent)) {
+    throw new Error(`the ${target} session's browser is not Chrome`);
+  }
+  if (!VERSION.test(release) || leading(release, 1) !== leading(requested.version, 1)) throw new Error(`the ${target} runs another Android release`);
+  if (!/^SM-[A-Z0-9]{1,12}$/u.test(model)) throw new Error(`the ${target} is not a Galaxy phone`);
+  return { device: requested.name, model, os: release, browser: "chrome", browserVersion: version };
+}
 
 /** Binds progress to the candidate, OMP, origin, device profiles, and tunnel it was recorded against. */
 function binding(identity: DeviceCloudIdentity): string {
@@ -147,11 +232,7 @@ export function parseDeviceCloudProgress(value: unknown): DeviceCloudProgress {
     if ((key !== "audit" && !DEVICE_CLOUD_TARGETS.some(target => target === key)) || !isRecord(result)) {
       throw new Error("invalid device-cloud result");
     }
-    for (const [name, item] of Object.entries(result)) {
-      const safe = typeof item === "boolean" || (typeof item === "number" && Number.isFinite(item) && item >= 0) ||
-        (typeof item === "string" && OBSERVATION_TEXT.test(item));
-      if (!OBSERVATION_NAME.test(name) || SECRET_NAME.test(name) || !safe) throw new Error("unsafe device-cloud evidence");
-    }
+    if (!safeObservations(result)) throw new Error("unsafe device-cloud evidence");
   }
   if ((value.phase === "restored") === value.cleanupRequired) throw new Error("inconsistent device-cloud cleanup state");
   return value as DeviceCloudProgress;
@@ -220,6 +301,92 @@ export async function preflightDeviceCloud(runtime: DeviceCloudRuntime): Promise
   await runtime.admit();
 }
 
+/** Drives one attempt from its fixture to its record audit; the caller releases it either way. */
+async function drive(input: DeviceCloudLaneInput, progress: DeviceCloudProgress, save: () => Promise<void>): Promise<Record<string, unknown>> {
+  const { runtime } = input;
+  const advance = async (phase: DeviceCloudPhase) => {
+    progress.phase = phase;
+    await save();
+  };
+  await runtime.fixture("start", progress.epoch);
+  const fixture = await waitFor(runtime, "fixture publication", () => runtime.fixtureSession(progress.epoch), FIXTURE_PUBLICATION_MS);
+  const live = await waitFor(runtime, "live session", () => runtime.liveSession(input.sessionLabel), FIXTURE_PUBLICATION_MS);
+  for (const session of [fixture, live]) {
+    const modelError = fixtureModelError(session);
+    if (modelError !== undefined) throw new Error(modelError);
+    if (!session.canView || !session.canControl) throw new Error("a device-cloud session does not offer View and Control");
+  }
+  await advance("fixture_ready");
+
+  await runtime.tunnel("start", progress.epoch);
+  await advance("tunnel_ready");
+
+  for (const target of DEVICE_CLOUD_TARGETS) {
+    const observations = await runtime.verify(target, {
+      epoch: progress.epoch,
+      session: live,
+      created: async sessionId => {
+        progress.sessions.push(sessionId);
+        await save();
+      },
+    });
+    // Refused before it joins progress, so no vendor or device value can block a later checkpoint.
+    if (!safeObservations(observations)) throw new Error(`unsafe device-cloud evidence from the ${target}`);
+    progress.results[target] = observations;
+    await advance(`${target}_verified`);
+  }
+
+  const audit = await auditRecords(runtime, progress, [
+    [live, () => runtime.liveSession(input.sessionLabel)],
+    [fixture, () => runtime.fixtureSession(progress.epoch)],
+  ], save);
+  await advance("records_audited");
+  await advance("evidence_complete");
+  return {
+    passed: true,
+    vendor: "TestingBot",
+    tunnelVersion: TESTINGBOT_TUNNEL.version,
+    targets: Object.fromEntries(DEVICE_CLOUD_TARGETS.map(target => [target, progress.results[target]])),
+    audit,
+  };
+}
+
+/**
+ * Ends every recorded session, stops the tunnel and fixture, and removes the workspace. Each step
+ * runs even if another fails, and only a complete release marks the attempt restored.
+ */
+async function release(runtime: DeviceCloudRuntime, progress: DeviceCloudProgress, save: () => Promise<void>): Promise<Record<string, unknown>> {
+  const failures: string[] = [];
+  const attempt = async (step: string, action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch {
+      // Raw errors can carry vendor identifiers; the step name is the evidence.
+      failures.push(step);
+    }
+  };
+  await attempt("sessions", async () => {
+    let ended = 0;
+    for (const sessionId of progress.sessions) {
+      try {
+        await runtime.endSession(sessionId);
+        ended += 1;
+      } catch {
+        // Keep ending the others.
+      }
+    }
+    if (ended !== progress.sessions.length) throw new Error("a TestingBot session did not end");
+  });
+  await attempt("tunnel", () => runtime.tunnel("stop", progress.epoch));
+  await attempt("fixture", () => runtime.fixture("stop", progress.epoch));
+  await attempt("workspace", () => runtime.removeWorkspace(progress.epoch));
+  if (failures.length > 0) throw new Error(`device-cloud cleanup failed: ${failures.join(", ")}`);
+  progress.cleanupRequired = false;
+  progress.phase = "restored";
+  await save();
+  return { epoch: progress.epoch, restored: true, sessionsEnded: progress.sessions.length, tunnelStopped: true, fixtureStopped: true };
+}
+
 export async function runDeviceCloud(input: DeviceCloudLaneInput): Promise<Record<string, unknown>> {
   const bind = binding(input.identity);
   if (input.progress !== undefined) {
@@ -230,93 +397,37 @@ export async function runDeviceCloud(input: DeviceCloudLaneInput): Promise<Recor
   }
   const { runtime } = input;
   await runtime.admit();
+  // One lease turn covers the attempt and its release, so no Pixel lane starts while its sessions,
+  // tunnel, or fixture remain.
   return input.pixel("deviceCloud", async () => {
     const progress: DeviceCloudProgress = {
       lane: "deviceCloud", epoch: randomUUID(), binding: bind, phase: "attempt_started", cleanupRequired: true, sessions: [], results: {},
     };
-    const save = async () => { await input.checkpoint(structuredClone(progress)); };
-    const advance = async (phase: DeviceCloudPhase) => {
-      progress.phase = phase;
-      await save();
-    };
+    // Only progress the parser accepts is saved, so the cleanup lane can always read it back.
+    const save = async () => { await input.checkpoint(structuredClone(parseDeviceCloudProgress(progress))); };
     await save();
-
-    await runtime.fixture("start", progress.epoch);
-    const fixture = await waitFor(runtime, "fixture publication", () => runtime.fixtureSession(progress.epoch), FIXTURE_PUBLICATION_MS);
-    const live = await waitFor(runtime, "live session", () => runtime.liveSession(input.sessionLabel), FIXTURE_PUBLICATION_MS);
-    for (const session of [fixture, live]) {
-      const modelError = fixtureModelError(session);
-      if (modelError !== undefined) throw new Error(modelError);
-      if (!session.canView || !session.canControl) throw new Error("a device-cloud session does not offer View and Control");
+    let result: Record<string, unknown> | undefined;
+    let failure: unknown;
+    try {
+      result = await drive(input, progress, save);
+    } catch (error) {
+      failure = error;
     }
-    await advance("fixture_ready");
-
-    await runtime.tunnel("start", progress.epoch);
-    await advance("tunnel_ready");
-
-    for (const target of DEVICE_CLOUD_TARGETS) {
-      progress.results[target] = await runtime.verify(target, {
-        epoch: progress.epoch,
-        session: live,
-        created: async sessionId => {
-          progress.sessions.push(sessionId);
-          await save();
-        },
-      });
-      await advance(`${target}_verified`);
+    try {
+      await release(runtime, progress, save);
+    } catch (releaseError) {
+      failure = failure === undefined ? releaseError : new AggregateError([failure, releaseError], "the device-cloud attempt and its release failed");
     }
-
-    const audit = await auditRecords(runtime, progress, [
-      [live, () => runtime.liveSession(input.sessionLabel)],
-      [fixture, () => runtime.fixtureSession(progress.epoch)],
-    ], save);
-    await advance("records_audited");
-    await advance("evidence_complete");
-    return {
-      passed: true,
-      vendor: "TestingBot",
-      tunnelVersion: TESTINGBOT_TUNNEL.version,
-      targets: Object.fromEntries(DEVICE_CLOUD_TARGETS.map(target => [target, progress.results[target]])),
-      audit,
-    };
+    if (result === undefined || failure !== undefined) throw failure;
+    return result;
   });
 }
 
-/** Ends every recorded session, stops the tunnel and fixture, and removes the workspace; each step runs even if another fails. */
+/** Releases an attempt that stopped before its own release finished. */
 export async function cleanupDeviceCloud(input: DeviceCloudLaneInput): Promise<Record<string, unknown>> {
   const progress = parseDeviceCloudProgress(input.progress);
   if (progress.binding !== binding(input.identity)) throw new Error("device-cloud progress belongs to a different candidate, origin, or device profile");
   if (!progress.cleanupRequired) return { epoch: progress.epoch, restored: true };
-  const { runtime } = input;
-  return input.pixel("deviceCloud-cleanup", async () => {
-    const failures: string[] = [];
-    const attempt = async (step: string, action: () => Promise<void>) => {
-      try {
-        await action();
-      } catch {
-        // Raw errors can carry vendor identifiers; the step name is the evidence.
-        failures.push(step);
-      }
-    };
-    await attempt("sessions", async () => {
-      let ended = 0;
-      for (const sessionId of progress.sessions) {
-        try {
-          await runtime.endSession(sessionId);
-          ended += 1;
-        } catch {
-          // Keep ending the others.
-        }
-      }
-      if (ended !== progress.sessions.length) throw new Error("a TestingBot session did not end");
-    });
-    await attempt("tunnel", () => runtime.tunnel("stop", progress.epoch));
-    await attempt("fixture", () => runtime.fixture("stop", progress.epoch));
-    await attempt("workspace", () => runtime.removeWorkspace(progress.epoch));
-    if (failures.length > 0) throw new Error(`device-cloud cleanup failed: ${failures.join(", ")}`);
-    progress.cleanupRequired = false;
-    progress.phase = "restored";
-    await input.checkpoint(structuredClone(progress));
-    return { epoch: progress.epoch, restored: true, sessionsEnded: progress.sessions.length, tunnelStopped: true, fixtureStopped: true };
-  });
+  return input.pixel("deviceCloud-cleanup", () =>
+    release(input.runtime, progress, async () => { await input.checkpoint(structuredClone(parseDeviceCloudProgress(progress))); }));
 }

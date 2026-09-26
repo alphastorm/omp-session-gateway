@@ -168,8 +168,10 @@ resume it; a caught failure is released before a new attempt begins, and a faile
 lane there. If admission fails while a recorded Windows VM exists, the command still destroys it.
 Windows runs beside the Debian and Mac lanes. The core Android lane, background Push, the
 device-cloud lane, and the Windows physical client take turns under the Pixel lease: the cloud lane's
-prompts and alert reach every push subscription on the candidate gateway. A lane that cannot restore
-the phone blocks every later one.
+prompts and alert reach every push subscription on the candidate gateway, so it ends its sessions and
+stops its tunnel and fixture within its own turn, and `deviceCloudCleanup` has work only after an
+attempt stopped before that release finished. A lane that cannot restore the phone blocks every
+later one.
 
 The receipt resumes only for the same candidate, exact orchestrator commit, and configured rollback predecessor. A stale `OMP_STABLE_PREVIOUS_TAG` or mismatched `--previous-tag` is refused before effects; remove the override and rerun the documented command to resume cleanup and qualification. Before Debian dispatch, the command persists a UUID, supplies it as the workflow run name, and discovers the resulting run through the Actions API. An accepted dispatch that is not yet discoverable fails closed rather than creating a duplicate billed run. Before renewed Mac effects, the command reopens the durable cleanup lane so a later process can recover after a crash. Persisted failures are generic markers; diagnostic subprocess errors stay only in the active process output.
 

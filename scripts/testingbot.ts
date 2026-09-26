@@ -210,6 +210,17 @@ export async function endWebDriverSession(credentials: TestingBotCredentials, se
   }
 }
 
+/**
+ * The `execute/async` script around a page expression. A rejection returns only its error's name:
+ * TestingBot logs every command's result, and a message can quote page state, a link included.
+ */
+export function pageEvaluationScript(expression: string): string {
+  return `const done = arguments[arguments.length - 1];
+    Promise.resolve().then(() => (${expression})).then(
+      value => done({ ok: true, value }),
+      error => done({ ok: false, error: error instanceof Error && /^[A-Za-z]{1,40}$/.test(error.name) ? error.name : "unnamed rejection" }));`;
+}
+
 /** One W3C session on a real device. Page evaluations return only their structured result. */
 export class WebDriverSession implements JourneyPage {
   readonly #authorization: string;
@@ -244,13 +255,10 @@ export class WebDriverSession implements JourneyPage {
   }
 
   async evaluate<T>(expression: string): Promise<T> {
-    const script = `const done = arguments[arguments.length - 1];
-      Promise.resolve().then(() => (${expression})).then(
-        value => done({ ok: true, value }),
-        error => done({ ok: false, error: String((error && error.message) || error).slice(0, 200) }));`;
-    const result = await this.#command("page evaluation", "POST", "/execute/async", { script, args: [] });
+    const result = await this.#command("page evaluation", "POST", "/execute/async", { script: pageEvaluationScript(expression), args: [] });
     if (!isRecord(result) || result.ok !== true) {
-      throw new Error(`page evaluation failed: ${isRecord(result) ? String(result.error) : "no result"}`);
+      const name = isRecord(result) && typeof result.error === "string" && /^[A-Za-z -]{1,40}$/u.test(result.error) ? result.error : "no result";
+      throw new Error(`page evaluation failed: ${name}`);
     }
     return result.value as T;
   }
@@ -379,17 +387,25 @@ export async function startTunnel(
     },
   );
   child.unref();
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error("the TestingBot tunnel exited before it was ready");
-    if (await Bun.file(ready).exists()) {
-      const exposed = (await listeners(child.pid)).filter(address => !/^(?:127\.0\.0\.1|\[::1\]):[0-9]+$/u.test(address));
-      if (exposed.length > 0) throw new Error(`the TestingBot tunnel listens beyond loopback on ${exposed.length} sockets`);
-      return;
+  try {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error("the TestingBot tunnel exited before it was ready");
+      if (await Bun.file(ready).exists()) {
+        const exposed = (await listeners(child.pid)).filter(address => !/^(?:127\.0\.0\.1|\[::1\]):[0-9]+$/u.test(address));
+        if (exposed.length > 0) throw new Error(`the TestingBot tunnel listens beyond loopback on ${exposed.length} sockets`);
+        return;
+      }
+      await Bun.sleep(500);
     }
-    await Bun.sleep(500);
+    throw new Error("the TestingBot tunnel did not become ready");
+  } catch (error) {
+    // A tunnel that failed to start never outlives the call, least of all one listening beyond loopback.
+    await stopTunnel(options.identifier).catch((stopError: unknown) => {
+      throw new AggregateError([error, stopError], "the TestingBot tunnel failed to start and to stop");
+    });
+    throw error;
   }
-  throw new Error("the TestingBot tunnel did not become ready");
 }
 
 /** Every TCP address a process listens on, as lsof names them (`*:8003`, `127.0.0.1:50376`). */

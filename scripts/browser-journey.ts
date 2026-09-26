@@ -211,8 +211,11 @@ export interface LeakSweepResult {
   readonly capabilityLength?: number;
   readonly capabilityDigest?: string;
   readonly needleCount?: number;
+  /** With `detail`: the names themselves. Without it: only how many there are. */
   readonly cacheNames?: readonly string[];
   readonly indexedDbNames?: readonly string[];
+  readonly cacheCount?: number;
+  readonly indexedDbCount?: number;
   readonly locationHref?: string;
   readonly locationHashLength?: number;
   readonly findings?: readonly string[];
@@ -283,9 +286,9 @@ export function leakControlGaps(control: LeakControlResult): {
 
 /**
  * Launches View in-page and scans every sink. `detail: true` also returns the capability's length,
- * a truncated digest, the needle count, the matched sink details, and the address, for an
- * operator's own terminal. `detail: false` returns sink names and counts only, for a driver whose
- * command log a vendor keeps: a matched detail or an address could itself hold part of the link.
+ * a truncated digest, the needle count, the matched sink details, the cache and database names, and
+ * the address, for an operator's own terminal. `detail: false` returns sink names and counts only,
+ * for a driver whose command log a vendor keeps: any page-controlled text could hold part of the link.
  */
 export function leakSweepExpression(label: string, options: { readonly detail: boolean }): string {
   return `(async () => {
@@ -318,14 +321,13 @@ ${options.detail ? "    out.capabilityLength = capability.length;\n    const dig
     for (const part of capability.split(/[\\/?#&=]/)) if (part.length >= 16) needles.push(part);
 ${options.detail ? "    out.needleCount = needles.length;" : ""}
 
+    const hit = value => typeof value === "string" && needles.some(needle => value.includes(needle));
     const findings = [];
-    await scanSinks(
-      value => typeof value === "string" && needles.some(needle => value.includes(needle)),
-      (sink, detail) => findings.push(${options.detail ? 'detail ? sink + ": " + detail : sink' : "sink"}),
-    );
+    await scanSinks(hit, (sink, detail) => findings.push(${options.detail ? 'detail ? sink + ": " + detail : sink' : "sink"}));
 
-    out.cacheNames = await caches.keys();
-    out.indexedDbNames = ((await indexedDB.databases?.()) ?? []).map(entry => entry.name);
+    const cacheNames = await caches.keys();
+    const indexedDbNames = ((await indexedDB.databases?.()) ?? []).map(entry => entry.name);
+${options.detail ? "    out.cacheNames = cacheNames;\n    out.indexedDbNames = indexedDbNames;" : "    out.cacheCount = cacheNames.length;\n    out.indexedDbCount = indexedDbNames.length;"}
 ${options.detail ? "    out.locationHref = location.href;" : ""}
     out.locationHashLength = location.hash.length;
     out.findings = findings;

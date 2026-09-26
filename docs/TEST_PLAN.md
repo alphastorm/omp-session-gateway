@@ -150,15 +150,20 @@ real run exercises.
 
 The device-cloud lane (`scripts/device-cloud-qualification.test.ts`) runs against a fake runtime:
 
-- every WebDriver session reaches a checkpoint before it is driven, and every effect runs under the
-  Pixel lease;
+- every WebDriver session reaches a checkpoint before it is driven, and every effect, the release of
+  its sessions, tunnel, fixture, and workspace included, runs in one Pixel lease turn that no queued
+  lane can enter, after a failure too;
 - a vendor record holding either session's live link, or a 16-character segment of one, fails the
   lane, and neither the error nor the saved progress repeats it;
 - a generation change of either session before the audit fails the lane, and so do records that kept
   video or screenshots;
-- an interrupted attempt is released rather than resumed, cleanup attempts every step after a
-  failure and stays dirty, and progress from another candidate is refused;
-- progress refuses unknown fields, secret-named observations, and free text.
+- an attempt interrupted before its release is released rather than resumed, a release that cannot
+  finish leaves the attempt dirty for cleanup, which retries every step, and progress from another
+  candidate is refused;
+- progress refuses unknown fields, secret-named observations, and any text outside its fixed
+  grammars, and device text outside them fails the attempt before it is saved;
+- a device that reports another kind of device, model, browser, or OS release than the one requested
+  is refused, using the capability shapes TestingBot returned for real allocations.
 
 `scripts/testingbot.test.ts` covers the vendor boundary:
 
@@ -166,13 +171,16 @@ The device-cloud lane (`scripts/device-cloud-qualification.test.ts`) runs agains
   applies;
 - a loose, symlinked, or malformed token file, or a non-service or foreign `op whoami`, stops before
   any read;
-- the tunnel is stopped only by its own identifier, and a real process listening beyond loopback is
-  refused as a tunnel while a loopback-only one is accepted;
+- the tunnel is stopped only by its own identifier; a real process listening beyond loopback is
+  refused as a tunnel and left stopped, while a loopback-only one is accepted;
 - the tunnel's proxy relays only a CONNECT to an allowed host and port, and refuses every other
-  target, name, and plain HTTP without opening a connection.
+  target, name, and plain HTTP without opening a connection;
+- a page evaluation that fails returns only its error's name, never message text or a crafted name.
 
 `scripts/android-leak-probe.test.ts` runs the shared sink scan against an iOS Safari tab's
-service-worker registration, which has no `getNotifications`.
+service-worker registration, which has no `getNotifications`, and against cache and database names
+holding the needle. It also runs the sweep that a vendor-logged driver uses, which reports sink
+names and counts, never the page text that held the link.
 
 A real run exercises TestingBot's iPhone, iPad, and Android devices through the tunnel against the
 candidate gateway, the iPhone's Home Screen alert, and the vendor-record audit; ADR-032 lists what

@@ -397,14 +397,21 @@ stops them. The boundary:
   lane therefore runs the tunnel with `--noproxy` and serves the tunnel's local proxy itself. That
   proxy opens CONNECT tunnels only to the candidate origin and the sources the candidate's
   `connect-src` names, and refuses everything else, plain HTTP included. It relays TLS without
-  decrypting it, so the vendor sees the tailnet hostname and traffic sizes, not content.
+  decrypting it, so the vendor sees the tailnet hostname and traffic sizes, not content. The lane
+  closes the proxy and stops the tunnel before it releases the Pixel lease, so this path exists only
+  while its devices run.
 - Stock tunnel 4.9 also opens a Selenium relay and a metrics server on every interface, and the relay
   lends the TestingBot account to any unauthenticated caller that can reach it. The lane asks for
-  port -1 for both, so neither opens, and refuses a tunnel that listens anywhere but loopback.
+  port -1 for both, so neither opens, and stops any tunnel that listens anywhere but loopback or
+  fails to start, before going on.
 - Sessions request no video, screenshots, or device logs, and are not public. TestingBot still keeps
   a step log of every WebDriver command and its result, so page evaluations return only counts,
-  booleans, and fixed names. The in-page sink sweep keeps the capability inside the page and returns
-  no digest, length, matched detail, or address.
+  booleans, and fixed names, and a failed evaluation only its error's name. The in-page sink sweep
+  keeps the capability inside the page and returns no digest, length, matched detail, address, or
+  cache or database name.
+- Evidence text comes only from fixed grammars (a pinned model, a version number, Apple's push
+  service), so neither a device nor TestingBot can write a link or a reflected credential into a
+  receipt.
 - After the sessions end, the lane fetches every test record TestingBot kept for the attempt, and
   fails if one contains either session's live View or Control link, or any 16-character segment of
   one, or kept video or screenshots. The links it compares against are fetched through the gateway's
@@ -412,8 +419,9 @@ stops them. The boundary:
 - The TestingBot key and secret come from the read-only 1Password service account. The token reaches
   only each `op` child's environment, never argv, and no ambient `OP_ACCOUNT` applies. The credentials
   reach only the tunnel's environment and in-memory request headers, never receipts or logs.
-- The iPhone turns background alerts off before its session ends, so no push subscription outlives
-  it; Mac cleanup then uninstalls the candidate gateway itself.
+- The iPhone turns background alerts off before its session ends. If its attempt fails first, the
+  subscription stays on the candidate gateway until Mac cleanup uninstalls the gateway, and the
+  alerts sent to it meanwhile carry only session metadata.
 
 ### Manual `/collab` is outside this boundary
 

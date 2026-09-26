@@ -886,10 +886,12 @@ the lane:
   candidate origin and the sources the candidate's `connect-src` names, read from its response, and
   refuses everything else, plain HTTP included. It never decrypts. The tunnel's own Selenium relay
   and metrics server, which bind every interface and whose relay lends the account to any caller,
-  are given port -1 so neither opens, and a tunnel listening beyond loopback is refused;
+  are given port -1 so neither opens; a tunnel listening beyond loopback, or failing to start, is
+  stopped before the lane goes on;
 - on an iPhone, an iPad, and an Android phone, each the first free model from a pinned list, runs the
   Pixel lane's directory, View, Control, prompt, and return journey and the self-verifying seven-sink
-  sweep against the campaign's live OMP session, and requires the candidate archive's app bundle;
+  sweep against the campaign's live OMP session, and requires the candidate archive's app bundle.
+  Each device must report itself as the requested kind of device, browser, and OS release;
 - on the iPhone, also installs the Home Screen app, enables background alerts with a real tap on the
   iOS prompt, receives an attention alert from the fixture with the app in the background, taps it
   into current Control with a scrubbed address, and turns alerts off;
@@ -899,13 +901,18 @@ the lane:
 Credentials come from the read-only 1Password service account (`op://Centaur/TestingBot/...`), with
 the token only in each `op` child's environment and the identity pinned by `op whoami`, so a campaign
 never waits on a prompt. Sessions request no video, screenshots, or logs and are not public. Page
-evaluations return only counts, booleans, and fixed names, because TestingBot keeps every command and
-its result. The lane holds the Pixel lease for its whole run: its prompts and alert raise Web Push
-to every subscription on the candidate gateway. The receipt schema moves to version 3, and older
-receipts cannot resume.
+evaluations return only counts, booleans, and fixed names, and a failed one only its error's name,
+because TestingBot keeps every command and its result; evidence text comes only from fixed
+grammars. The lane holds the Pixel lease from its first effect until it has ended its sessions and
+stopped its tunnel and fixture, because its prompts and alert raise Web Push to every subscription
+on the candidate gateway; the cleanup lane repeats that release only for an attempt that stopped
+before finishing it. The receipt schema moves to version 3, and older receipts cannot resume.
 
 A passed lane qualifies the exact device, OS, and browser versions its receipt names, as qualified
-in the browser on a cloud device. The limits are part of the claim:
+in the browser on a cloud device. Those are what each device reported: an iPhone's or iPad's
+release is Safari's version and its model TestingBot's report of the session; a Galaxy's release
+and model code are Chrome's client hints, beside the model name requested. The limits are part of
+the claim:
 
 - the tunnel runs on the workstation, so Serve saw the workstation's allowlisted login, not a
   phone's own;

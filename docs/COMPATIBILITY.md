@@ -208,10 +208,10 @@ status (ADR-030).
 
 Real-device cloud rows (ADR-032) are qualified **in the browser on a cloud device**: the stable
 campaign's `deviceCloud` lane passed on the named real device, OS, and browser version in
-TestingBot's cloud. The limits are part of that claim. Tailscale Serve saw the orchestrator's
-allowlisted login, not the phone's own; alerts were proven with the device unlocked and the app in
-the background; and lock, Airplane, Doze, force-stop, and cellular behavior are qualified only on
-the Pixel.
+TestingBot's cloud, each as the device itself reported it. The limits are part of that claim.
+Tailscale Serve saw the orchestrator's allowlisted login, not the phone's own; alerts were proven
+with the device unlocked and the app in the background; and lock, Airplane, Doze, force-stop, and
+cellular behavior are qualified only on the Pixel.
 
 ## Exact OMP baseline
 
