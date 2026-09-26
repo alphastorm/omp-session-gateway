@@ -128,6 +128,11 @@ bun apps/gateway/src/cli.js install \
 bun apps/gateway/src/cli.js serve-guidance
 ```
 
+On Windows, run these in PowerShell with each command on one line; PowerShell does not continue a
+line with `\`. [Operations](docs/OPERATIONS.md#2-cli-and-daemon-installation) has the exact
+PowerShell steps, including extraction with the `tar` that Windows 10 and later include, and
+[verification](docs/RELEASE.md#verify-a-published-build) includes a PowerShell checksum check.
+
 Use your host's tailnet HTTPS origin and exact Tailscale login. **Run the Tailscale Serve command
 printed by `serve-guidance`**, then check the deployment:
 
