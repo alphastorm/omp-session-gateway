@@ -1,5 +1,18 @@
 # Release status
 
+## v0.6.1 preparation — not yet qualified or published
+
+The candidate changes one runtime behavior. The shared push-subscription validator now treats a
+missing `expirationTime` as null, so iPhone and iPad can enable background alerts: WebKit leaves a
+null expiration time out of `PushSubscription.toJSON()`, the PWA rejected that shape before sending
+it, and the gateway answered 400 to it (#279, #274). Repository tests cover the WebKit shape in the
+PWA and the validator; before merge, a throwaway smoke of the built PWA in Chromium with WebKit's
+shape sent no subscription without the fix and registered one with `expirationTime: null` with it.
+No physical iPhone was tested, and iPhone and iPad remain outside the qualified matrix. #276–#278
+and #281 change documentation, tests, and release tooling only; they are not in the candidate
+archive. Published v0.6.0 remains the predecessor and current stable; no v0.6.1 qualification or
+publication is claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.6.0 — published stable
 
 **Updated:** 2026-09-25. [v0.6.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0)

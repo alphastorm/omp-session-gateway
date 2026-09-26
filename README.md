@@ -312,7 +312,7 @@ Known limits are part of the claim — read them before installing:
   authoritative clear, permission revocation, and network changes pass on the qualified Pixel.
   Force-stop and forced Doze outcomes are recorded as observed variants, never as guaranteed
   delivery. On iPhone and iPad, background alerts need OMP Sessions added to the Home Screen;
-  v0.6.0 and earlier cannot enable them there (#274), and the fix is unreleased.
+  v0.6.0 and earlier cannot enable them there (#274); the fix ships in v0.6.1.
 - **Preview notification detail currently falls back to Session detail** — the OMP snapshot
   carries no bounded preview field.
 - **Windows is qualified as Windows Server 2025 x86-64, started at interactive logon.** The gateway
