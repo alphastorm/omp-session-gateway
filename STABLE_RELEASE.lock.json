@@ -1,13 +1,13 @@
 {
   "$schema": "./schemas/stable-release.schema.json",
   "schemaVersion": 1,
-  "version": "0.6.1",
-  "releaseTag": "v0.6.1",
-  "previousTag": "v0.6.0",
+  "version": "0.6.2",
+  "releaseTag": "v0.6.2",
+  "previousTag": "v0.6.1",
   "status": "qualified",
-  "candidateTag": "v0.6.1-prealpha.1",
-  "candidateSourceCommit": "ad8b283b3ac3ccab2a365aebae2428c1771a73c0",
-  "candidateArchiveSha256": "ce18ba982cd749d8d96144544fbd79d76fd7adfe6b5726089a21de8df3947e74",
+  "candidateTag": "v0.6.2-prealpha.1",
+  "candidateSourceCommit": "865abdac0ee23b2b545534b164171a4a070e7197",
+  "candidateArchiveSha256": "26bbd74317a3c4530f40d645c0881d9011fa3abbacb3af1fe99d9c19899fd153",
   "runtimeByteComparison": "passed",
   "evidence": {
     "debian": "passed",
@@ -15,9 +15,10 @@
     "windows": "passed",
     "android": "passed",
     "androidPush": "passed",
+    "deviceCloud": "passed",
     "ompPublication": "passed",
     "provenance": "passed",
     "secretSinks": "passed"
   },
-  "approvedAt": "2026-09-26T02:52:50.868Z"
+  "approvedAt": "2026-09-26T15:40:56.158Z"
 }

@@ -137,8 +137,8 @@ test reaches a VM, a phone, or a device cloud:
 - a resumed campaign that fails admission still destroys the Windows VM it recorded;
 - the Pixel lease runs one device action at a time and refuses every later one after a lane reports
   the phone unrestored;
-- from 0.6.0, stable approval requires passed Windows and background Push evidence, and from the
-  next stable release passed real-device cloud evidence; a schema 2 receipt cannot resume;
+- from 0.6.0, stable approval requires passed Windows and background Push evidence, and from 0.6.2
+  passed real-device cloud evidence; a schema 2 receipt cannot resume;
 - the retained-Mac Push fixture stages exactly its import closure, as shell operands the remote shell
   never interprets, and the gateway's two log streams are observed separately.
 

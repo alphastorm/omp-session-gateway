@@ -82,8 +82,9 @@ test("rollback guidance names the locked release and its predecessor", async () 
   expect(rollback).toContain(`The selected predecessor is published ${stable.previousTag}.`);
 });
 
-// Work shipped in v0.5.0 kept its "unreleased" labels in README, ANDROID.md and TEST_PLAN.md. Dated
-// records (the ledger and ADRs) keep their wording.
+// Work shipped in v0.5.0 kept its "unreleased" labels in README, ANDROID.md and TEST_PLAN.md, and
+// v0.6.2's campaign qualified the cloud-device lane while four docs still promised it "from the next
+// stable release". Dated records (the ledger and ADRs) keep their wording.
 test("docs call work unreleased only while the changelog has unreleased entries", async () => {
   const changelog = await readFile(join(rootPath, "CHANGELOG.md"), "utf8");
   const pending = changelog.split("\n## [Unreleased]\n")[1]?.split("\n## [")[0]?.trim();
@@ -92,9 +93,10 @@ test("docs call work unreleased only while the changelog has unreleased entries"
   const files = await claimSurfaces({ "DECISIONS.md": true, "RELEASE_STATUS.md": true });
   const stale: string[] = [];
   for (const file of files) {
-    (await readFile(join(rootPath, file), "utf8")).split("\n").forEach((line, index) => {
-      if (/\bunreleased\b/iu.test(line) && !/unreleased development targets/iu.test(line)) stale.push(`${file}:${index + 1}`);
-    });
+    const text = await readFile(join(rootPath, file), "utf8");
+    for (const match of text.matchAll(/\bunreleased(?!\s+development\s+targets)\b|\bnext\s+stable\s+(?:release|campaign)\b/giu)) {
+      stale.push(`${file}:${text.slice(0, match.index).split("\n").length}`);
+    }
   }
   expect(stale).toEqual([]);
 });
@@ -111,8 +113,9 @@ test("docs call a platform unqualified only while the stable lock lacks its evid
   const platforms: Record<string, RegExp> = {
     windows: /\bWindows\b/u,
     androidPush: /\bbackground (?:Web )?Push\b/iu,
+    deviceCloud: /\biPhone\b|\biPad\b/u,
   };
-  const unqualified = /\bnot (?:yet )?(?:release-|stable-)?qualified\b|\bunqualified\b|\bunadvertised\b|\bqualification pending\b|\boutside (?:the|this|that|every)\b[^.;]*\bclaim\b/iu;
+  const unqualified = /\bnot (?:yet )?(?:release-|stable-)?qualified\b|\bunqualified\b|\bunadvertised\b|\bqualification pending\b|\boutside (?:the|this|that|every)\b[^.;]*\bclaim\b|\bNone yet\b|\b(?:not on|rather than on|no) (?:a )?physical (?:Apple )?device\b/iu;
   const history = /\n## (?:Fork-era published-release history|Host and client matrix|Fork-era release history)\n[\s\S]*?(?=\n## |$)|<h2>Fork-era release history<\/h2>[\s\S]*/gu;
   const stale: string[] = [];
   for (const file of await claimSurfaces({ "DECISIONS.md": true, "RELEASE_STATUS.md": true, "LAUNCH_COPY.md": true })) {

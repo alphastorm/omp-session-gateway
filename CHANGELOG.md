@@ -29,6 +29,10 @@ iPad, and Galaxy browsers on real cloud devices.
   tunnel and its fixture before handing the Pixel to another lane.
   Credentials come from the 1Password service account without a prompt. The lane has its own
   cleanup lane, and the receipt schema moves to version 3, so older receipts cannot resume.
+- Stable approval from 0.6.2 requires passed `deviceCloud` evidence in `STABLE_RELEASE.lock.json`,
+  as it has required Windows and background Push evidence since 0.6.0. The documentation checks
+  now also flag "the next stable release" once nothing is unreleased, and iPhone or iPad described
+  as untested on a physical device once the lock holds cloud evidence.
 
 ### Fixed
 

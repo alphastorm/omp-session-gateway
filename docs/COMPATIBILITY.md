@@ -10,12 +10,12 @@ web-app installation. The gateway runs on the computer that runs OMP.
 | Linux host | Supported | `portable-source (ubuntu-24.04)`, `implementation-checks`, `linux-arm64-source-checkout` (aarch64), daily `canary` against stock OMP | Debian 13 (trixie) x86-64 |
 | macOS host | Supported | `portable-source (macos-latest)` | macOS 26.6.1 arm64 (`Mac14,3`) |
 | Windows host | Supported | `portable-source (windows-latest)`, `windows-service-lifecycle`, daily `canary-windows` against stock OMP | Windows Server 2025 x86-64, started at interactive logon |
-| Chrome and Chromium | Supported | `browser-core` desktop Chromium; `browser-notifications` full suite at Pixel sizes | Chrome on Android 17, Pixel 10 Pro |
+| Chrome and Chromium | Supported | `browser-core` desktop Chromium; `browser-notifications` full suite at Pixel sizes | Chrome on Android 17, Pixel 10 Pro; Chrome on Android 16, a cloud Galaxy S26 |
 | Edge and other Chromium-based browsers | Supported through Chromium | `browser-core` desktop Chromium; the client has no Edge-specific code path | None |
 | Firefox | Supported | `browser-core` desktop Firefox | None |
-| Safari and WebKit | Supported | `browser-core` desktop WebKit | None |
-| Android | Supported | `browser-notifications` at measured Pixel sizes | Pixel 10 Pro, Android 17, Chrome |
-| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | None yet; the stable campaign's real-device cloud lane (ADR-032) first runs for the next release |
+| Safari and WebKit | Supported | `browser-core` desktop WebKit | Safari on iOS and iPadOS 26.6, a cloud iPhone 17 Pro Max and iPad (9th generation) |
+| Android | Supported | `browser-notifications` at measured Pixel sizes | Pixel 10 Pro, Android 17, Chrome; a cloud Galaxy S26, Android 16, Chrome |
+| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | iPhone 17 Pro Max, iOS 26.6, and iPad (9th generation), iPadOS 26.6, with Safari, on cloud devices (ADR-032) |
 
 **Supported** means every listed lane stays green (on each change, the canaries daily) and bug
 reports are accepted. **Qualified on hardware** names what a signed release passed on real
@@ -26,14 +26,14 @@ see the [status vocabulary](#status-vocabulary).
 - **Installing as a PWA.** Chromium browsers install from the browser menu on desktop and Android.
   Safari installs with Add to Home Screen on iPhone and iPad, and Add to Dock on macOS. Desktop
   Firefox has no web-app install; it works in a tab.
-- **Background alerts** (Web Push) are qualified only on the Pixel with Chrome on Android, where
-  force-stop and forced Doze outcomes are observed variants, never guaranteed delivery. iPhone and
-  iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+); v0.6.0 and earlier cannot
+- **Background alerts** (Web Push) are qualified in full only on the Pixel with Chrome on Android,
+  where force-stop and forced Doze outcomes are observed variants, never guaranteed delivery. iPhone
+  and iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+); v0.6.0 and earlier cannot
   enable them there because WebKit omits a null `expirationTime` from the subscription (#274); the
   fix ships in v0.6.1. Playwright's WebKit has no push service, so the compatibility lane runs
-  desktop WebKit without service workers and does not test WebKit push. From the next stable
-  campaign, a cloud iPhone also qualifies enabling alerts in the Home Screen app, delivery with the
-  app in the background, and the tap into Control, but not lock-screen presentation (ADR-032).
+  desktop WebKit without service workers and does not test WebKit push. From v0.6.2, a cloud iPhone
+  also qualifies enabling alerts in the Home Screen app, delivery with the app in the background,
+  and the tap into Control, but not lock-screen presentation (ADR-032).
 - **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
   browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.
 - **Windows** starts the gateway at interactive logon, not at unattended boot.
@@ -65,12 +65,14 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Published stable:** [v0.6.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1),
-GitHub Latest, promoted from v0.6.1-prealpha.1 with identical runtime bytes. Its published-byte
-local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. The
-[release ledger](RELEASE_STATUS.md) records the qualification lanes, the candidate's failed first
-campaign, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the
-rollback predecessor, v0.6.0.
+**Qualified for stable promotion:** [v0.6.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2-prealpha.1),
+for [v0.6.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2). Publication
+and the separate published-byte local/Pixel smoke are pending; published v0.6.1 remains GitHub
+Latest until promotion. v0.6.2 changes no runtime behavior from v0.6.1 and adds real iPhone, iPad,
+and Galaxy browsers on cloud devices to the qualified matrix. The [release ledger](RELEASE_STATUS.md)
+records the qualification lanes, an earlier campaign that stopped before its lanes ran, and exact
+source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback
+predecessor, v0.6.1.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
@@ -79,9 +81,11 @@ rollback predecessor, v0.6.0.
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
-| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon | Upgrade from v0.6.0, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM |
+| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon | Upgrade from v0.6.1, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM |
 | Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `153.0.8010.53` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
 | Background Web Push | Pixel 10 Pro, the installed OMP Sessions app closed | Delivery at each detail level on the lock screen, taps to current Control and View, stale-generation refusal, authoritative clear, permission revocation, and network changes passed; force-stop and Doze recorded as observed variants |
+| Cloud browsers | iPhone 17 Pro Max, iOS 26.6, Safari 26.6; iPad (9th generation), iPadOS 26.6, Safari 26.6; Galaxy S26 (`SM-S942B`), Android 16, Chrome `145.0.7632.159`; TestingBot real devices | View/Control on the candidate's app bundle and seven detectable clean capability sinks on each; no vendor test record held a live link, video, or screenshot. Serve saw the workstation's allowlisted login, not a phone's |
+| iPhone background alerts | The iPhone above, unlocked, its Home Screen app in the background | Alerts enabled with a real tap, delivery in 4.6 s through `web.push.apple.com`, and the tap into current Control with a scrubbed address; not lock-screen presentation |
 | Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Mac/Pixel allowed-user access, Debian tagged-user denial, direct backend refusal |
 | Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
 
@@ -342,10 +346,10 @@ WebAuthn control gating, a Trusted Web Activity, native Android applications, an
 federation remain deferred. Background Web Push is qualified on the Pixel by each stable
 campaign's background-Push lane (ADR-031): the exact-version closed-app, lock-screen,
 tap-to-current-Control, stale-generation, force-stop, network-change, Doze, and forbidden-sink
-matrix, with force-stop and Doze recorded as observed variants. From the next stable campaign, the
-real-device cloud lane (ADR-032) adds a narrower iPhone check: Home Screen install, alerts enabled
-with a real tap, delivery with the app in the background, and the tap into Control. Other browsers
-and devices remain unqualified for background alerts.
+matrix, with force-stop and Doze recorded as observed variants. From v0.6.2, the real-device cloud
+lane (ADR-032) adds a narrower iPhone check: Home Screen install, alerts enabled with a real tap,
+delivery with the app in the background, and the tap into Control. Other browsers and devices
+remain unqualified for background alerts.
 
 ## Upstream refresh procedure
 

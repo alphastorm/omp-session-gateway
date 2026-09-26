@@ -18,8 +18,8 @@ passed published-byte smoke. Fork-era locks and receipts cannot authorize the ch
 The remote boundary remains TUN-mode Tailscale Serve with an exact allowlist and Funnel disabled.
 Portal Tunnel, userspace networking, public forwarding, and self-hosted/proxied relays remain
 outside the core claim. From 0.6.0 every stable campaign also qualifies a Windows Server 2025 host
-and background Web Push on the Pixel (ADR-031). From the next stable release it also qualifies
-iPhone, iPad, and Android browsers on TestingBot's real cloud devices (ADR-032). A minimum OMP
+and background Web Push on the Pixel (ADR-031). From 0.6.2 it also qualifies iPhone, iPad, and
+Android browsers on TestingBot's real cloud devices (ADR-032). A minimum OMP
 version does not qualify every future release or platform.
 
 Gateway rollback does not switch OMP, restore the previous configuration, or restore the removed
