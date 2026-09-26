@@ -63,12 +63,12 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Published stable:** [v0.6.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.0),
-GitHub Latest, promoted from v0.6.0-prealpha.4 with identical runtime bytes. Its published-byte
-local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. The
-[release ledger](RELEASE_STATUS.md) records the qualification lanes, the earlier candidates' failed
-attempts, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the
-rollback predecessor, v0.5.3.
+**Qualified for stable promotion:** [v0.6.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1-prealpha.1),
+for [v0.6.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1). Publication
+and the separate published-byte local/Pixel smoke are pending; published v0.6.0 remains GitHub
+Latest until promotion. The [release ledger](RELEASE_STATUS.md) records the qualification lanes,
+the candidate's failed first campaign, and exact source/archive bindings;
+[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.6.0.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
@@ -77,11 +77,11 @@ rollback predecessor, v0.5.3.
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
-| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon | Upgrade from v0.5.3, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM |
+| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon | Upgrade from v0.6.0, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM |
 | Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `153.0.8010.53` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
 | Background Web Push | Pixel 10 Pro, the installed OMP Sessions app closed | Delivery at each detail level on the lock screen, taps to current Control and View, stale-generation refusal, authoritative clear, permission revocation, and network changes passed; force-stop and Doze recorded as observed variants |
 | Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Mac/Pixel allowed-user access, Debian tagged-user denial, direct backend refusal |
-| Default OMP relay | Fresh 1,800-second check, four transitions, final phase live | Eight-hour endurance not rerun or claimed |
+| Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
 
 The gateway only reads OMP discovery, polls metadata, and fetches capabilities per launch without
 storing them. The minimum version is an integration contract, not proof that every later release
