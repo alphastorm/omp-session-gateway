@@ -29,8 +29,8 @@ see the [status vocabulary](#status-vocabulary).
 - **Background alerts** (Web Push) are qualified only on the Pixel with Chrome on Android, where
   force-stop and forced Doze outcomes are observed variants, never guaranteed delivery. iPhone and
   iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+); v0.6.0 and earlier cannot
-  enable them there because WebKit omits a null `expirationTime` from the subscription (#274), and
-  the fix is unreleased. Playwright's WebKit has no push service, so the compatibility lane runs
+  enable them there because WebKit omits a null `expirationTime` from the subscription (#274); the
+  fix ships in v0.6.1. Playwright's WebKit has no push service, so the compatibility lane runs
   desktop WebKit without service workers and does not test WebKit push.
 - **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
   browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.

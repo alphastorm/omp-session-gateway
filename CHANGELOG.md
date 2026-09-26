@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.6.1] — 2026-09-26
+
+### Added
+
+- `bun run release:compare` checks a stable build against its qualified candidate: both archives
+  must hold the same members, and every member outside the promotion metadata must have the same
+  mode and bytes, read from the archive's own headers rather than an extraction.
+
 ### Fixed
 
 - iPhone and iPad can enable background alerts. WebKit's `PushSubscription.toJSON()` leaves out

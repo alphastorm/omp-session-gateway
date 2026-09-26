@@ -225,12 +225,8 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Windows hosts enter the qualified matrix: the signed candidate installs, survives a real reboot, starts at interactive logon, serves the physical Pixel, rotates, rolls back, and uninstalls on Windows Server 2025.
-          - On Windows, the gateway no longer exits at a slow first logon before it listens: a fresh private-ACL helper's first reply may take 45 seconds to cover PowerShell's cold start after install, and a failed helper is cleared without stopping the gateway.
-          - Background Web Push enters the qualified matrix on the Pixel: closed-app delivery at each detail level, lock-screen presentation, taps to current Control and View, stale-generation refusal, authoritative clear, force-stop, permission revocation, Doze, and network changes.
-          - Background notifications no longer stall after a burst: pushes carry no Web Push Topic, which FCM throttled after 20 messages per device.
-          - An alert cleared moments after it appeared no longer stays on an Android screen, and an unchanged replay no longer re-alerts.
-          - The PWA's outage and troubleshooting text no longer assumes an Android phone; it covers Android, iPhone and iPad, and computers.
+          - iPhone and iPad can enable background alerts from the Home Screen app. WebKit leaves a null expiration time out of the push subscription, and the PWA and gateway rejected that shape, so the control read unavailable (#274). iPhone and iPad remain outside the qualified matrix; repository tests cover the fix.
+          - The qualified matrix is unchanged from v0.6.0, including the Windows Server 2025 host and background Web Push on the Pixel; every lane passed again on these bytes.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -261,7 +257,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.5.3 predecessor sends each push with a per-session Topic that FCM throttles after a burst, and it can leave a just-cleared alert on an Android screen. On Windows it can exit at logon without listening when its private-ACL helper starts slowly, as right after install. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.6.0 predecessor cannot enable background alerts on iPhone or iPad: it rejects WebKit's push subscription, which leaves out a null expiration time. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -276,10 +272,7 @@ jobs:
 
           ### Changes to test
 
-          - Background notifications keep arriving within seconds after a burst of asks and clears.
-          - An alert answered moments after it appeared disappears from the Android shade, and an unchanged replay does not alert again.
-          - The PWA's outage and troubleshooting text reads correctly on Android, iPhone and iPad, and computers.
-          - Qualification adds a disposable Windows Server 2025 host lane and the Pixel background-Push lane; both must pass on these bytes.
+          - iPhone and iPad enable background alerts from the Home Screen app; a push subscription without an expiration time registers instead of reading unavailable.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -296,7 +289,7 @@ jobs:
 
           ### Rollback
 
-          The selected predecessor is v0.5.3. It sends each push with a per-session Topic that FCM throttles after a burst, and it can leave a just-cleared alert on an Android screen; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.6.0. It cannot enable background alerts on iPhone or iPad because it rejects WebKit's push subscription; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 
