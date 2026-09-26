@@ -1,8 +1,8 @@
 # OMP Session Gateway
 
 > Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
-> gateway-specific OMP plugin, or publisher credential. v0.6.1 is qualified for stable promotion; publication is pending.
-> Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> gateway-specific OMP plugin, or publisher credential. Stable v0.6.1 is published as immutable
+> GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
 > sessions and opens OMP's own encrypted View/Control client in any modern browser, installable as a PWA where the platform supports it. One-time
 > setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
 > with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
@@ -14,7 +14,7 @@
 
 ## Current qualification boundary
 
-- v0.6.1 is qualified for stable promotion from signed candidate v0.6.1-prealpha.1 (source ad8b283b3ac3ccab2a365aebae2428c1771a73c0, archive SHA-256 ce18ba982cd749d8d96144544fbd79d76fd7adfe6b5726089a21de8df3947e74); a clean stable-channel build matched its 46 non-metadata runtime files. Publication is pending, and published v0.6.0 remains GitHub Latest until it succeeds. Every qualification lane passed on 2026-09-26 on its first attempt against stock OMP v18.3.0; an earlier campaign on the same candidate failed only background Push on a lane wait bound, and the release ledger records it. No claim for arbitrary builds from main.
+- Stable v0.6.1 (source 0d0d804eba20bbc375185e725f5151ddcdd76602) was promoted from signed candidate v0.6.1-prealpha.1 with identical runtime bytes. Every qualification lane passed on 2026-09-26 on its first attempt against stock OMP v18.3.0; an earlier campaign on the same candidate failed only background Push on a lane wait bound, and the release ledger records it. No claim for arbitrary builds from main.
 - Exact OMP v18.3.0 source: 62bc57be1b03ef0802a33cf7f5f530e534527531. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway.
 - Debian 13 (trixie) x86-64, Linux 6.12.94+deb13-amd64: 83/83 migration/recovery invariants, stock OMP publication/revocation, persistence, tagged-identity denial/exposure, uninstall and resource teardown.
 - Mac14,3 / macOS 26.6.1 arm64: doctor 18/18, rollback 23/23, install/rotation/reboot-to-login persistence, real allowlisted identity and forged-header/exposure checks. Positive allowed-user HTTPS was measured on Mac/Pixel, not the tagged Debian CI caller.
