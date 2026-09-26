@@ -1,17 +1,62 @@
 # Release status
 
-## v0.6.1 preparation — not yet qualified or published
+## Mainline v0.6.1 — qualified; stable publication pending
 
-The candidate changes one runtime behavior. The shared push-subscription validator now treats a
-missing `expirationTime` as null, so iPhone and iPad can enable background alerts: WebKit leaves a
-null expiration time out of `PushSubscription.toJSON()`, the PWA rejected that shape before sending
-it, and the gateway answered 400 to it (#279, #274). Repository tests cover the WebKit shape in the
-PWA and the validator; before merge, a throwaway smoke of the built PWA in Chromium with WebKit's
-shape sent no subscription without the fix and registered one with `expirationTime: null` with it.
-No physical iPhone was tested, and iPhone and iPad remain outside the qualified matrix. #276–#278
-and #281 change documentation, tests, and release tooling only; they are not in the candidate
-archive. Published v0.6.0 remains the predecessor and current stable; no v0.6.1 qualification or
-publication is claimed, and the stable lock remains unchanged until approval.
+**Updated:** 2026-09-26. The exact candidate below is approved for stable promotion. Published
+v0.6.0 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.6.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1-prealpha.1).<br>
+**Source:** `ad8b283b3ac3ccab2a365aebae2428c1771a73c0`.<br>
+**Archive SHA-256:** `ce18ba982cd749d8d96144544fbd79d76fd7adfe6b5726089a21de8df3947e74`.<br>
+**Predecessor:** published `v0.6.0`. Rollback does not change OMP; see
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v061-predecessor-compatibility).
+
+The candidate changes one runtime behavior. The shared push-subscription validator treats a missing
+`expirationTime` as null, so iPhone and iPad can enable background alerts: WebKit leaves a null
+expiration time out of `PushSubscription.toJSON()`, and v0.6.0 rejected that shape in both the PWA
+and the gateway (#279, #274). Repository tests cover the WebKit shape; no physical iPhone was
+tested, and iPhone and iPad remain outside the qualified matrix. #276–#278, #281, and #283 change
+documentation, tests, release tooling, and qualification tooling only; they are not in the
+candidate archive.
+
+### Candidate evidence — 2026-09-26
+
+The orchestrator ran from `495aad66f540a6c3514e791fe63447756bba9740`, 02:06:15Z–02:52:50Z; its
+private receipt records `passed`, and every lane passed on its first attempt.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [36206305403](https://github.com/alphastorm/omp-session-gateway/actions/runs/36206305403) |
+| Debian | [36210688812](https://github.com/alphastorm/omp-session-gateway/actions/runs/36210688812) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; stock OMP v18.3.0 built from source; 83/83 migration/recovery invariants |
+| Mac | Mac14,3, macOS 26.6.1 arm64; stock OMP v18.3.0 built from source with native addon `ed9ddcee7338`; doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence |
+| Windows | Windows Server 2025 build 26100 on a disposable 2-vCPU/4-GiB VM; the candidate installed over published v0.6.0 with stock OMP v18.3.0, survived a real reboot, and started automatically 121.4 s after interactive logon; doctor 15/18 with only the tagged node's `identityAllowed`, `pwa`, and `sessionHealth` false; named-pipe publication at generation 1, View and Control `200`, stale generations `409`, `no-store`; the Pixel accepted the user identity with View read-only, Control writable, and the prompt accepted; revocation, readiness rotation, history-selected rollback, restoration, and uninstall preserved configuration and the readiness credential |
+| OMP publication | stock v18.3.0 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP3A.260905.009, Chrome 153.0.8010.53; View read-only, Control writable, prompt accepted, return to directory; at a 250 ms probe cadence, same-page unlock 6,397 ms (including device wake), Airplane 4,618 ms, Doze 292 ms |
+| Background Push | the installed app closed: Private, Session, and Preview delivery on the lock screen in 2.7–4.3 s, each a single notification with matching detail; tap to current Control, stop tap to View only, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery; force-stop `delivered_while_force_stopped` and Doze `delivered_after_doze_exit` as observed variants; ten forbidden sinks detectable and clean; device, browser, and fixture restored |
+| Secret sinks | all seven sinks detectable and clean |
+| Relay | 1,800 seconds, 2026-09-26T02:22:09.219Z–02:52:09.229Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; the Mac's OMP binary and source removed; the Windows VM, its firewall, and its tailnet node destroyed, and its access vault removed |
+
+**Attempts:** the first campaign on this candidate (orchestrator `ad8b283`, 00:59:56Z–01:46:15Z)
+passed every lane except background Push, which failed at `network_verified`. The clear sent right
+after the Airplane recovery arrived 61 s after the answer, 0.4 s after Play Services' push socket
+reconnected, while the lane allowed the steady-state 60 s. The gateway sent the clear once and the
+phone applied it on arrival; #283 gives every push wait after a radio change the 160-second
+recovery window. That receipt is archived unchanged, and the corrected campaign above ran on the
+same candidate.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
+re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
+gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
+claimed. Windows is qualified only as Windows Server 2025 x86-64 started at interactive logon, and
+background Web Push only on the Pixel, with force-stop and Doze outcomes as observed variants.
+iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
+remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.6.0 — published stable
 

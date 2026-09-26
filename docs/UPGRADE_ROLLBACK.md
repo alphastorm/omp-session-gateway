@@ -1,15 +1,14 @@
 # Upgrade and rollback lane
 
-## v0.6.0 predecessor compatibility
+## v0.6.1 predecessor compatibility
 
-The selected predecessor is published v0.5.3. Gateway rollback does not change the separately
-running OMP process. v0.5.3 sends every push with a per-session Web Push `Topic`, which FCM limits
-to a burst of about 20 messages per device, so background alerts can lag for minutes after busy
-activity; an Android alert cleared moments after it appeared can also stay on screen. On Windows,
-v0.5.3 can exit at logon without listening when its private-ACL helper starts slowly, as right
-after install, and it then stays down until the next logon. After a v0.6.0 install,
-`rollback --to` can select only the runtimes pruning retained. v0.5.2, one step further back, also
-renders OMP 18.3.0's `wait` tool calls as generic tool cards.
+The selected predecessor is published v0.6.0. Gateway rollback does not change the separately
+running OMP process. v0.6.0 cannot enable background alerts on iPhone or iPad: it rejects WebKit's
+push subscription, which leaves out a null `expirationTime`, so the alerts control reads unavailable
+(#274). Chrome includes the field and is unaffected. After a v0.6.1 install, `rollback --to` can
+select only the runtimes pruning retained. v0.5.3, one step further back, also sends every push
+with a per-session Web Push `Topic`, which FCM limits to a burst of about 20 messages per device,
+and on Windows it can exit at logon without listening when its private-ACL helper starts slowly.
 
 ## Staged-runtime retention from v0.5.2
 
