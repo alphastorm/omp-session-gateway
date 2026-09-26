@@ -34,6 +34,10 @@ export const HOST_BOUND_TESTS: Readonly<Record<string, HostBoundTest>> = {
     platforms: ["win32"],
     reason: "asserts POSIX receipt modes and a Darwin-arm64 qualification host",
   },
+  "scripts/testingbot.test.ts": {
+    platforms: ["win32"],
+    reason: "asserts a POSIX 0600 token file and drives stand-in tunnels through /bin/sh, lsof, and ps, as on the macOS qualification host",
+  },
 };
 
 export function portableTestFiles(tracked: readonly string[], platform: NodeJS.Platform): string[] {
