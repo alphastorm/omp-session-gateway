@@ -6,6 +6,28 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Stable qualification (`qualify:stable`) also qualifies iPhone, iPad, and Android browsers on real
+  devices in TestingBot's cloud (ADR-032). The `deviceCloud` lane opens the candidate gateway
+  through TestingBot's tunnel. On each device it runs the directory, View, Control, prompt, and
+  capability-sink journey against the campaign's live OMP session. The iPhone also installs the
+  Home Screen app, enables background alerts with a real tap on the permission prompt, and taps a
+  delivered alert into Control. Afterwards every test record TestingBot kept is checked for the
+  sessions' live links.
+
+  The tunnel's local proxy is the lane's own, which reaches only the candidate origin and the
+  relay its CSP names, never the workstation's loopback, LAN, or other tailnet services. The
+  tunnel's Selenium relay and metrics server stay closed: stock, they listen on every interface,
+  and the relay lends the TestingBot account to anyone who can reach it.
+  Credentials come from the 1Password service account without a prompt. The lane has its own
+  cleanup lane, and the receipt schema moves to version 3, so older receipts cannot resume.
+
+### Fixed
+
+- The capability-sink scan no longer fails in iPhone and iPad Safari tabs, whose service-worker
+  registration has no `getNotifications`.
+
 ## [v0.6.1] — 2026-09-26
 
 ### Added

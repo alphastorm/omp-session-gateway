@@ -127,8 +127,8 @@ The stable-qualification suite also covers the 1,800-second relay floor, malform
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
 still clean recorded pending Mac effects and must not reopen already completed cleanup.
 
-It also covers the two resource-owning lanes (ADR-031), with injected lane modules so no test
-reaches a VM or a phone:
+It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
+test reaches a VM, a phone, or a device cloud:
 
 - a lane passes only with a cleanup lane bound to the attempt epoch it recorded; a failed attempt is
   released, and never converted into a pass, before a new one starts, and a failed release blocks it;
@@ -137,7 +137,8 @@ reaches a VM or a phone:
 - a resumed campaign that fails admission still destroys the Windows VM it recorded;
 - the Pixel lease runs one device action at a time and refuses every later one after a lane reports
   the phone unrestored;
-- from 0.6.0, stable approval requires passed Windows and background Push evidence;
+- from 0.6.0, stable approval requires passed Windows and background Push evidence, and from the
+  next stable release passed real-device cloud evidence; a schema 2 receipt cannot resume;
 - the retained-Mac Push fixture stages exactly its import closure, as shell operands the remote shell
   never interprets, and the gateway's two log streams are observed separately.
 
@@ -146,6 +147,36 @@ The Windows lane (`scripts/windows-stable-qualification.test.ts`) and the backgr
 protection rules, failure paths, and restoration against fake providers, transports, and devices;
 [WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md) and [ANDROID.md](ANDROID.md) list what each
 real run exercises.
+
+The device-cloud lane (`scripts/device-cloud-qualification.test.ts`) runs against a fake runtime:
+
+- every WebDriver session reaches a checkpoint before it is driven, and every effect runs under the
+  Pixel lease;
+- a vendor record holding either session's live link, or a 16-character segment of one, fails the
+  lane, and neither the error nor the saved progress repeats it;
+- a generation change of either session before the audit fails the lane, and so do records that kept
+  video or screenshots;
+- an interrupted attempt is released rather than resumed, cleanup attempts every step after a
+  failure and stays dirty, and progress from another candidate is refused;
+- progress refuses unknown fields, secret-named observations, and free text.
+
+`scripts/testingbot.test.ts` covers the vendor boundary:
+
+- the service-account token reaches only the `op` child's environment, and no account selection
+  applies;
+- a loose, symlinked, or malformed token file, or a non-service or foreign `op whoami`, stops before
+  any read;
+- the tunnel is stopped only by its own identifier, and a real process listening beyond loopback is
+  refused as a tunnel while a loopback-only one is accepted;
+- the tunnel's proxy relays only a CONNECT to an allowed host and port, and refuses every other
+  target, name, and plain HTTP without opening a connection.
+
+`scripts/android-leak-probe.test.ts` runs the shared sink scan against an iOS Safari tab's
+service-worker registration, which has no `getNotifications`.
+
+A real run exercises TestingBot's iPhone, iPad, and Android devices through the tunnel against the
+candidate gateway, the iPhone's Home Screen alert, and the vendor-record audit; ADR-032 lists what
+it proves and what stays Pixel-only.
 
 ## 2. Secret-leak test harness
 

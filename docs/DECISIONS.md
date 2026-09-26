@@ -856,3 +856,64 @@ installed app with notification permission for the retained Mac's origin. The Wi
 interactive logon, not at boot. Force-stop and Doze outcomes are recorded as observed variants,
 never as a delivery guarantee. Windows and background Push enter the qualified matrix only from a
 passed campaign on the exact signed candidate; development runs stay tested evidence.
+
+## ADR-032 — Qualify iPhone, iPad, and Android browsers on real cloud devices in every stable campaign
+
+**Status:** Accepted
+
+**Date:** 2026-09-26
+
+**Context:** No release had run on a physical Apple device. iPhone and iPad were tested only as
+WebKit with iPhone-class emulation (ADR-030), and v0.6.1 shipped the fix for WebKit's subscription
+shape (#274) without a real iPhone confirming it. TestingBot's open-source plan offers real iOS and
+Android devices over W3C WebDriver at no cost, two sessions at a time. Probes on 2026-09-26 passed
+the Pixel lane's collaboration journey and seven-sink sweep on TestingBot's iPhone 16 and 17 Pro
+(iOS 26.5), iPad (9th generation, iPadOS 26.6), and Galaxy S26 (Android 16, Chrome). An iPhone
+installed the Home Screen app, enabled background alerts with a real tap on the permission prompt,
+received an attention alert in 5 to 12 seconds with the app in the background, and tapped it into
+Control. TestingBot keeps a WebDriver step log of every session even with recording and logs off.
+Its tunnel fetches whatever its devices request from the tunnel host's network position, so run
+as shipped it would also reach that host's loopback, LAN, and every tailnet service its login may
+open.
+
+**Decision:** `qualify:stable` gains a resource-owning `deviceCloud` lane, paired with a
+`deviceCloudCleanup` lane on the ADR-031 contract. Once the retained Mac's candidate gateway is live,
+the lane:
+
+- starts its own stock-OMP fixture on the retained Mac, and the pinned TestingBot tunnel (v4.9,
+  SHA-256 pinned) on the orchestrator workstation;
+- replaces the tunnel's local proxy with its own. The proxy opens CONNECT tunnels only to the
+  candidate origin and the sources the candidate's `connect-src` names, read from its response, and
+  refuses everything else, plain HTTP included. It never decrypts. The tunnel's own Selenium relay
+  and metrics server, which bind every interface and whose relay lends the account to any caller,
+  are given port -1 so neither opens, and a tunnel listening beyond loopback is refused;
+- on an iPhone, an iPad, and an Android phone, each the first free model from a pinned list, runs the
+  Pixel lane's directory, View, Control, prompt, and return journey and the self-verifying seven-sink
+  sweep against the campaign's live OMP session, and requires the candidate archive's app bundle;
+- on the iPhone, also installs the Home Screen app, enables background alerts with a real tap on the
+  iOS prompt, receives an attention alert from the fixture with the app in the background, taps it
+  into current Control with a scrubbed address, and turns alerts off;
+- fetches every TestingBot test record the attempt created, and fails if one holds either session's
+  live View or Control link, or any 16-character segment of one, or kept video or screenshots.
+
+Credentials come from the read-only 1Password service account (`op://Centaur/TestingBot/...`), with
+the token only in each `op` child's environment and the identity pinned by `op whoami`, so a campaign
+never waits on a prompt. Sessions request no video, screenshots, or logs and are not public. Page
+evaluations return only counts, booleans, and fixed names, because TestingBot keeps every command and
+its result. The lane holds the Pixel lease for its whole run: its prompts and alert raise Web Push
+to every subscription on the candidate gateway. The receipt schema moves to version 3, and older
+receipts cannot resume.
+
+A passed lane qualifies the exact device, OS, and browser versions its receipt names, as qualified
+in the browser on a cloud device. The limits are part of the claim:
+
+- the tunnel runs on the workstation, so Serve saw the workstation's allowlisted login, not a
+  phone's own;
+- alerts are proven with the device unlocked and the app in the background, not on the lock screen;
+- lock, Airplane, Doze, force-stop, and cellular behavior stay Pixel-only.
+
+**Consequences:** A stable campaign now needs the 1Password service-account token, Java for the
+tunnel (`openjdk@17`), and TestingBot's open-source plan. A TestingBot outage, or no pinned model free
+within ten minutes, fails the lane and holds the release, as a Pixel failure does. Replacing the vendor
+means replacing the tunnel launch and the record audit; the journeys are standard WebDriver. iPhone
+and iPad enter the qualified matrix only from a passed campaign on the exact signed candidate.

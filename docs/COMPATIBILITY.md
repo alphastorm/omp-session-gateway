@@ -15,7 +15,7 @@ web-app installation. The gateway runs on the computer that runs OMP.
 | Firefox | Supported | `browser-core` desktop Firefox | None |
 | Safari and WebKit | Supported | `browser-core` desktop WebKit | None |
 | Android | Supported | `browser-notifications` at measured Pixel sizes | Pixel 10 Pro, Android 17, Chrome |
-| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | None; no physical Apple device is tested |
+| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | None yet; the stable campaign's real-device cloud lane (ADR-032) first runs for the next release |
 
 **Supported** means every listed lane stays green (on each change, the canaries daily) and bug
 reports are accepted. **Qualified on hardware** names what a signed release passed on real
@@ -31,7 +31,9 @@ see the [status vocabulary](#status-vocabulary).
   iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+); v0.6.0 and earlier cannot
   enable them there because WebKit omits a null `expirationTime` from the subscription (#274); the
   fix ships in v0.6.1. Playwright's WebKit has no push service, so the compatibility lane runs
-  desktop WebKit without service workers and does not test WebKit push.
+  desktop WebKit without service workers and does not test WebKit push. From the next stable
+  campaign, a cloud iPhone also qualifies enabling alerts in the Home Screen app, delivery with the
+  app in the background, and the tap into Control, but not lock-screen presentation (ADR-032).
 - **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
   browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.
 - **Windows** starts the gateway at interactive logon, not at unattended boot.
@@ -204,6 +206,13 @@ Tested and supported never become qualified: a green hosted or emulated lane is 
 physical-device or signed-release result. A family whose lanes stop running loses its support
 status (ADR-030).
 
+Real-device cloud rows (ADR-032) are qualified **in the browser on a cloud device**: the stable
+campaign's `deviceCloud` lane passed on the named real device, OS, and browser version in
+TestingBot's cloud. The limits are part of that claim. Tailscale Serve saw the orchestrator's
+allowlisted login, not the phone's own; alerts were proven with the device unlocked and the app in
+the background; and lock, Airplane, Doze, force-stop, and cellular behavior are qualified only on
+the Pixel.
+
 ## Exact OMP baseline
 
 **Fork-era evidence:** the table and pin-refresh records below are immutable published-release
@@ -333,8 +342,10 @@ WebAuthn control gating, a Trusted Web Activity, native Android applications, an
 federation remain deferred. Background Web Push is qualified on the Pixel by each stable
 campaign's background-Push lane (ADR-031): the exact-version closed-app, lock-screen,
 tap-to-current-Control, stale-generation, force-stop, network-change, Doze, and forbidden-sink
-matrix, with force-stop and Doze recorded as observed variants. Other browsers and devices remain
-unqualified for background alerts.
+matrix, with force-stop and Doze recorded as observed variants. From the next stable campaign, the
+real-device cloud lane (ADR-032) adds a narrower iPhone check: Home Screen install, alerts enabled
+with a real tap, delivery with the app in the background, and the tap into Control. Other browsers
+and devices remain unqualified for background alerts.
 
 ## Upstream refresh procedure
 

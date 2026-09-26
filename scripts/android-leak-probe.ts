@@ -47,7 +47,8 @@ export const PAGE_PRELUDE = `
     }
     if (hit(document.documentElement.outerHTML)) note("domMarkup");
     const registration = await navigator.serviceWorker.getRegistration();
-    for (const notification of await registration?.getNotifications() ?? []) {
+    // iOS Safari tabs expose ServiceWorkerRegistration without getNotifications.
+    for (const notification of await registration?.getNotifications?.() ?? []) {
       if (hit(notification.title)) note("notificationTitle");
       if (hit(notification.body)) note("notificationBody");
       if (hit(JSON.stringify(notification.data))) note("notificationData");

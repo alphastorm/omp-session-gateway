@@ -1,0 +1,334 @@
+import { PAGE_PRELUDE } from "./android-leak-probe.ts";
+
+/** The page surface the journeys drive: Chrome DevTools on the Pixel, W3C WebDriver on cloud devices. */
+export interface JourneyPage {
+  navigate(url: string): Promise<unknown>;
+  evaluate<T>(expression: string): Promise<T>;
+}
+
+export const APP_ASSET_PATTERN = /^\/assets\/app\.[0-9a-f]+\.js$/u;
+
+export interface CollaborationJourneyOptions {
+  readonly origin: string;
+  readonly label: string;
+  /** Distinctive text the Control prompt sends; its echo proves acceptance. */
+  readonly promptMarker: string;
+  readonly expectedAppAsset?: string;
+  /** Receives the journey stages in order. */
+  readonly announce?: (stage: "installed shell" | "directory" | "View" | "Control" | "prompt" | "directory return") => void;
+}
+
+export interface CollaborationJourneyResult {
+  readonly appAsset: string;
+  readonly viewReadOnly: true;
+  readonly controlWritable: true;
+  readonly promptAccepted: true;
+  readonly returnedToDirectory: true;
+}
+
+/**
+ * True once the controlling worker is the settled one whose only shell cache holds this document's
+ * app bundle, and that bundle is the expected release bundle when one is given. The first visit
+ * after a gateway upgrade installs and activates the new shell, and the page then reloads itself if
+ * it is idle (ADR-018); driving View/Control before that settles races the reload.
+ */
+function currentShellExpression(expectedAppAsset: string | undefined): string {
+  return `(async () => {
+  const expected = ${JSON.stringify(expectedAppAsset ?? null)};
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  const controller = navigator.serviceWorker.controller;
+  if (registration?.active?.state !== "activated" || registration.installing !== null || registration.waiting !== null) return false;
+  if (controller === null || controller.state !== "activated") return false;
+  const asset = performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname).find(path => /^\\/assets\\/app\\.[0-9a-f]+\\.js$/.test(path));
+  if (asset === undefined || (expected !== null && asset !== expected)) return false;
+  const shells = (await caches.keys()).filter(name => name.startsWith("omp-sessions-shell-"));
+  return shells.length === 1 && (await (await caches.open(shells[0])).match(asset)) !== undefined;
+})()`;
+}
+
+async function pause(milliseconds: number): Promise<void> {
+  const paused = Promise.withResolvers<void>();
+  setTimeout(paused.resolve, milliseconds);
+  await paused.promise;
+}
+
+/** Starts by navigating to `${origin}/`; the caller owns tab/session setup. */
+export async function runCollaborationJourney(
+  page: JourneyPage,
+  options: CollaborationJourneyOptions,
+): Promise<CollaborationJourneyResult> {
+    await page.navigate(`${options.origin}/`);
+
+    const waitFor = async (name: string, expression: string, attempts = 60): Promise<void> => {
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (await page.evaluate<boolean>(expression).catch(() => false)) return;
+        await pause(500);
+      }
+      throw new Error(`${name} did not become ready`);
+    };
+
+    options.announce?.("installed shell");
+    await waitFor("installed application shell", currentShellExpression(options.expectedAppAsset), 120);
+    // Start from a document the settled worker controlled from load, so no update reload can follow.
+    await page.navigate(`${options.origin}/`);
+
+    options.announce?.("directory");
+    const quotedLabel = JSON.stringify(options.label);
+    await waitFor(
+      "directory target",
+      `Boolean([...document.querySelectorAll("button[aria-label]")].find(button => button.getAttribute("aria-label") === "View " + ${quotedLabel}))`,
+    );
+
+    const appAsset = await page.evaluate<string | null>(
+      `performance.getEntriesByType("resource").map(entry => new URL(entry.name).pathname).find(path => /^\\/assets\\/app\\.[0-9a-f]+\\.js$/.test(path)) ?? null`,
+    );
+    if (appAsset === null || !APP_ASSET_PATTERN.test(appAsset)) throw new Error("hashed app asset was not loaded");
+    if (options.expectedAppAsset !== undefined && appAsset !== options.expectedAppAsset) {
+      throw new Error("installed app asset does not match the release archive");
+    }
+
+    options.announce?.("View");
+    const openedView = await page.evaluate<boolean>(`(() => {
+      const button = [...document.querySelectorAll("button[aria-label]")].find(
+        candidate => candidate.getAttribute("aria-label") === "View " + ${quotedLabel},
+      );
+      if (!(button instanceof HTMLButtonElement)) return false;
+      button.click();
+      return true;
+    })()`);
+    if (!openedView) throw new Error("View action was unavailable");
+
+    await waitFor(
+      "View collaboration shell",
+      `location.pathname === "/client/" && document.querySelector(".conn-chip")?.dataset.state === "connected" && document.querySelector(".sh-composer-input") instanceof HTMLTextAreaElement`,
+      120,
+    );
+    const view = await page.evaluate<{ readOnly: boolean; controlVisible: boolean; rootMounted: boolean }>(`(() => {
+      const editor = document.querySelector(".sh-composer-input");
+      const control = document.querySelector(".shell-control");
+      return {
+        readOnly: editor instanceof HTMLTextAreaElement && editor.disabled && editor.placeholder === "read-only session — watching only",
+        controlVisible: control instanceof HTMLButtonElement && !control.hidden,
+        rootMounted: document.querySelector("#root[role=application]") !== null,
+      };
+    })()`);
+    if (!view.readOnly || !view.controlVisible || !view.rootMounted) throw new Error("View did not remain read-only");
+
+    options.announce?.("Control");
+    const upgraded = await page.evaluate<boolean>(`(() => {
+      const control = document.querySelector(".shell-control");
+      if (!(control instanceof HTMLButtonElement) || control.hidden) return false;
+      control.click();
+      return true;
+    })()`);
+    if (!upgraded) throw new Error("Control upgrade action was unavailable");
+
+    await waitFor(
+      "Control collaboration shell",
+      `document.querySelector(".conn-chip")?.dataset.state === "connected" && document.querySelector(".shell-control")?.hidden === true && document.querySelector(".sh-composer-input") instanceof HTMLTextAreaElement && !document.querySelector(".sh-composer-input").disabled`,
+      120,
+    );
+    const control = await page.evaluate<{ writable: boolean; sendInitiallyDisabled: boolean }>(`(() => {
+      const editor = document.querySelector(".sh-composer-input");
+      const send = document.querySelector('button[title="send (Enter)"]');
+      return {
+        writable: editor instanceof HTMLTextAreaElement && !editor.disabled && editor.placeholder === "prompt the host agent…",
+        sendInitiallyDisabled: send instanceof HTMLButtonElement && send.disabled,
+      };
+    })()`);
+    if (!control.writable || !control.sendInitiallyDisabled) throw new Error("Control composer was not writable");
+
+    options.announce?.("prompt");
+    const drafted = await page.evaluate<boolean>(`(() => {
+      const editor = document.querySelector(".sh-composer-input");
+      if (!(editor instanceof HTMLTextAreaElement)) return false;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      if (!setter) return false;
+      setter.call(editor, ${JSON.stringify(options.promptMarker)});
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    })()`);
+    if (!drafted) throw new Error("Control prompt could not be drafted");
+    await waitFor("Control send", `document.querySelector('button[title="send (Enter)"]')?.disabled === false`);
+    const sent = await page.evaluate<boolean>(`(() => {
+      const send = document.querySelector('button[title="send (Enter)"]');
+      if (!(send instanceof HTMLButtonElement) || send.disabled) return false;
+      send.click();
+      return true;
+    })()`);
+    if (!sent) throw new Error("Control prompt could not be sent");
+    await waitFor("Control prompt acceptance", `document.body.innerText.includes(${JSON.stringify(options.promptMarker)})`, 60);
+
+    await page.evaluate(`(() => {
+      const stop = document.querySelector(".sh-btn-stop");
+      if (stop instanceof HTMLButtonElement && !stop.disabled) stop.click();
+    })()`);
+
+    options.announce?.("directory return");
+    const returned = await page.evaluate<boolean>(`(() => {
+      const back = document.querySelector(".shell-back");
+      if (!(back instanceof HTMLButtonElement)) return false;
+      back.click();
+      return true;
+    })()`);
+    if (!returned) throw new Error("Sessions return action was unavailable");
+    await waitFor(
+      "directory return",
+      `location.pathname === "/" && Boolean([...document.querySelectorAll("button[aria-label]")].find(button => button.getAttribute("aria-label") === "View " + ${quotedLabel}))`,
+    );
+
+    return {
+      appAsset,
+      viewReadOnly: true,
+      controlWritable: true,
+      promptAccepted: true,
+      returnedToDirectory: true,
+    };
+}
+
+/** Sinks the sweep inspects. The control must be able to plant and detect every one. */
+export const LEAK_SINKS = [
+  "localStorage",
+  "sessionStorage",
+  "cookie",
+  "cacheBody",
+  "indexedDB",
+  "locationHash",
+  "historyState",
+] as const;
+
+export interface LeakControlResult {
+  readonly plantedUnique: readonly string[];
+  readonly detectedUnique: readonly string[];
+  readonly residual: Record<string, unknown>;
+}
+
+export interface LeakSweepResult {
+  readonly target?: Record<string, unknown>;
+  readonly launchStatus?: number;
+  readonly launchCacheControl?: string | null;
+  readonly launchKeys?: readonly string[];
+  readonly capabilityLength?: number;
+  readonly capabilityDigest?: string;
+  readonly needleCount?: number;
+  readonly cacheNames?: readonly string[];
+  readonly indexedDbNames?: readonly string[];
+  readonly locationHref?: string;
+  readonly locationHashLength?: number;
+  readonly findings?: readonly string[];
+  readonly error?: string;
+  readonly seen?: readonly string[];
+}
+
+/** Self-contained page expression that plants, detects and removes the synthetic control secret. */
+export const LEAK_CONTROL_EXPRESSION = `(async () => {
+    ${PAGE_PRELUDE}
+    const NEEDLE = "SYNTHETIC-CAPABILITY-CONTROL-b7f3a91c2d8e4056";
+    const CONTROL_KEY = "__leak_control__";
+    const hit = value => typeof value === "string" && value.includes(NEEDLE);
+    const planted = [];
+    const detected = [];
+
+    localStorage.setItem(CONTROL_KEY, NEEDLE); planted.push("localStorage");
+    sessionStorage.setItem(CONTROL_KEY, NEEDLE); planted.push("sessionStorage");
+    document.cookie = CONTROL_KEY + "=" + NEEDLE + "; path=/"; planted.push("cookie");
+    const controlCache = await caches.open(CONTROL_KEY);
+    await controlCache.put(new Request("/" + CONTROL_KEY), new Response(NEEDLE));
+    planted.push("cacheBody");
+    const db = await openDb(CONTROL_KEY, 1, handle => handle.createObjectStore("s"));
+    const writing = Promise.withResolvers();
+    const tx = db.transaction("s", "readwrite");
+    tx.objectStore("s").put(NEEDLE, "k");
+    tx.oncomplete = () => writing.resolve(undefined);
+    tx.onerror = () => writing.reject(tx.error);
+    await writing.promise;
+    planted.push("indexedDB");
+    history.replaceState({ control: NEEDLE }, "", location.pathname + "#" + NEEDLE);
+    planted.push("locationHash", "historyState");
+
+    await scanSinks(hit, sink => detected.push(sink));
+
+    localStorage.removeItem(CONTROL_KEY);
+    sessionStorage.removeItem(CONTROL_KEY);
+    document.cookie = CONTROL_KEY + "=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    await caches.delete(CONTROL_KEY);
+    db.close();
+    indexedDB.deleteDatabase(CONTROL_KEY);
+    history.replaceState(null, "", location.pathname);
+
+    return {
+      plantedUnique: [...new Set(planted)].sort(),
+      detectedUnique: [...new Set(detected)].sort(),
+      residual: {
+        localStorage: localStorage.getItem(CONTROL_KEY),
+        sessionStorage: sessionStorage.getItem(CONTROL_KEY),
+        cookie: document.cookie.includes(CONTROL_KEY),
+        hash: location.hash,
+        caches: await caches.keys(),
+      },
+    };
+  })()`;
+
+/** Sinks the control missed and control plants it left behind. */
+export function leakControlGaps(control: LeakControlResult): {
+  readonly missed: readonly string[];
+  readonly residualPlants: readonly (readonly [string, unknown])[];
+} {
+  const missed = LEAK_SINKS.filter(sink => !control.detectedUnique.includes(sink));
+  const residualPlants = Object.entries(control.residual).filter(
+    ([key, value]) => (key === "cookie" && value === true) || (key === "hash" && value !== "") || (key !== "cookie" && key !== "hash" && key !== "caches" && value !== null),
+  );
+  return { missed, residualPlants };
+}
+
+/**
+ * Launches View in-page and scans every sink. `detail: true` also returns the capability's length,
+ * a truncated digest, the needle count, the matched sink details, and the address, for an
+ * operator's own terminal. `detail: false` returns sink names and counts only, for a driver whose
+ * command log a vendor keeps: a matched detail or an address could itself hold part of the link.
+ */
+export function leakSweepExpression(label: string, options: { readonly detail: boolean }): string {
+  return `(async () => {
+    ${PAGE_PRELUDE}
+    const out = {};
+    const list = await (await fetch("/api/v1/sessions", { cache: "no-store" })).json();
+    const target = list.sessions.find(session => session.cwdLabel === ${JSON.stringify(label)});
+    if (!target) return { error: "target session not published", seen: list.sessions.map(s => s.cwdLabel) };
+    out.target = { generation: target.generation, canView: target.canView, canControl: target.canControl };
+
+    const response = await fetch("/api/v1/sessions/" + target.instanceId + "/launch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ generation: target.generation, mode: "view" }),
+    });
+    out.launchStatus = response.status;
+    out.launchCacheControl = response.headers.get("cache-control");
+    if (!response.ok) return { ...out, error: "launch rejected" };
+
+    const payload = await response.json();
+    out.launchKeys = Object.keys(payload).sort();
+    const capability = payload.capability;
+    if (typeof capability !== "string") return { ...out, error: "no capability string in launch payload" };
+
+${options.detail ? "    out.capabilityLength = capability.length;\n    const digest = await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(capability));\n    out.capabilityDigest = [...new Uint8Array(digest)].slice(0, 8).map(b => b.toString(16).padStart(2, \"0\")).join(\"\");" : ""}
+
+    // The whole value, plus every opaque segment long enough to be the secret itself.
+    const needles = [capability];
+    for (const part of capability.split(/[\\/?#&=]/)) if (part.length >= 16) needles.push(part);
+${options.detail ? "    out.needleCount = needles.length;" : ""}
+
+    const findings = [];
+    await scanSinks(
+      value => typeof value === "string" && needles.some(needle => value.includes(needle)),
+      (sink, detail) => findings.push(${options.detail ? 'detail ? sink + ": " + detail : sink' : "sink"}),
+    );
+
+    out.cacheNames = await caches.keys();
+    out.indexedDbNames = ((await indexedDB.databases?.()) ?? []).map(entry => entry.name);
+${options.detail ? "    out.locationHref = location.href;" : ""}
+    out.locationHashLength = location.hash.length;
+    out.findings = findings;
+    return out;
+  })()`;
+}
