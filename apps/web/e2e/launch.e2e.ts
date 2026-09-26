@@ -1245,8 +1245,8 @@ test("a bfcache restore reopens the backgrounded session and stores no capabilit
     expect(fixture.launchRequests).toHaveLength(1);
 
     await expect.poll(() => relaySocketCount(page)).toBeGreaterThanOrEqual(1);
-    // Backgrounding an installed PWA is a `pagehide`, which disposes the client and drops its
-    // capability. That is what made switching apps for a moment look like the session dying (#198).
+    // Entering the bfcache fires `pagehide`, which disposes the client and drops its capability; the
+    // restored page used to be an inert shell, which read as the session dying (#198).
     const bootstrapSocketCount = await page.evaluate(() => {
       const count =
         (globalThis as typeof globalThis & { __ompRelaySocketCount?: number }).__ompRelaySocketCount ?? 0;
@@ -1324,6 +1324,45 @@ test("a bfcache restore reopens a session whose question was answered elsewhere"
       generation: 1,
       mode: "control",
     });
+  } finally {
+    await fixture.stop();
+  }
+});
+
+/** Reports the page hidden or visible the way a backgrounded app does, with no page-lifecycle event. */
+async function setVisibility(page: Page, state: "hidden" | "visible"): Promise<void> {
+  await page.evaluate(async next => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => next });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => next === "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    // Let any teardown or render the change schedules land before the caller looks.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, state);
+}
+
+// Backgrounding an iPhone Home Screen app fires no `pagehide`: on real devices iOS 26.5 and 26.6 only
+// reported the page hidden, then visible, and kept it alive (TestingBot, 2026-09-26). Visibility alone
+// must never tear the client down, or returning strands an inert shell that no `pageshow` restores.
+test("backgrounding without a pagehide keeps the open session", { tag: "@core" }, async ({ page }) => {
+  const active = session();
+  const fixture = await startDashboardFixture([active, workingSession(0)]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+    await page.locator(".queue-hero").getByRole("button", { name: "Open request" }).evaluate(
+      button => (button as HTMLButtonElement).click(),
+    );
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+
+    await setVisibility(page, "hidden");
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    await setVisibility(page, "visible");
+
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    await expect(page.locator("#root > .sh-app")).toHaveCount(1);
+    await expect(page.locator(".shell-title")).toHaveText(SESSION_TITLE);
   } finally {
     await fixture.stop();
   }
