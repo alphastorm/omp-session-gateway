@@ -79,7 +79,8 @@ installation.
 for exact combinations. Those, and every limit, are in
 [Compatibility](docs/COMPATIBILITY.md#platforms-and-browsers).
 
-This project is tested with BrowserStack.
+[TestingBot](https://testingbot.com) supports this project with free real-device testing through its
+open-source program.
 
 OMP Session Gateway is a local-first companion for Oh My Pi (OMP). The terminal remains the source
 of truth: the gateway is a private directory for already-running interactive OMP processes, a
