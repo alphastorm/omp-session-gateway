@@ -65,9 +65,10 @@ only when a candidate built from a newer baseline qualifies.
 
 **Published stable:** [v0.6.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1),
 GitHub Latest, promoted from v0.6.1-prealpha.1 with identical runtime bytes. Its published-byte
-local/Pixel smoke is pending. The [release ledger](RELEASE_STATUS.md) records the qualification
-lanes, the candidate's failed first campaign, and exact source/archive bindings;
-[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.6.0.
+local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. The
+[release ledger](RELEASE_STATUS.md) records the qualification lanes, the candidate's failed first
+campaign, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers the
+rollback predecessor, v0.6.0.
 
 | Surface | Current contract | Qualification |
 |---|---|---|

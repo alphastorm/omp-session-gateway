@@ -11,6 +11,8 @@ The published archive matches the complete clean local stable-channel build.
 **Stable source:** `0d0d804eba20bbc375185e725f5151ddcdd76602`.<br>
 **Stable archive SHA-256:** `339da3a0cb67c3cc895d8d20705069c4614be07d5e1e3b6289538148bec291c5`.
 
+The published-byte workstation/Pixel smoke passed on its **first attempt**; see below.
+
 **Candidate:** [v0.6.1-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.1-prealpha.1).<br>
 **Source:** `ad8b283b3ac3ccab2a365aebae2428c1771a73c0`.<br>
 **Archive SHA-256:** `ce18ba982cd749d8d96144544fbd79d76fd7adfe6b5726089a21de8df3947e74`.<br>
@@ -63,6 +65,30 @@ claimed. Windows is qualified only as Windows Server 2025 x86-64 started at inte
 background Web Push only on the Pixel, with force-stop and Doze outcomes as observed variants.
 iOS/Safari/WebKit, specialized attention/branch-resume and broader host/browser combinations
 remain unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+The first `smoke:release` invocation, bound to the stable tag, source and archive digest above,
+passed in 4 minutes 1 second (05:40:55–05:44:56 UTC). It verified the published provenance and
+upgraded the installed gateway from `0.6.0-21e5182fd807` to `0.6.1-df63aff418ad` with the
+configuration and readiness token preserved; Tailscale Serve was unchanged and unrelated mappings
+were preserved. `doctor` passed 18/18. The `omp` on the default PATH is the Code Mode launcher, not
+stock OMP, so the smoke selected Bun's global stock OMP 18.1.20, the minimum supported version, and
+did not reinstall it. The candidate campaign above, not this smoke, covers the exact OMP 18.3.0.
+
+The install removed the superseded `0.5.2-005df2868300` runtime and kept `0.6.1-df63aff418ad`,
+`0.6.0-21e5182fd807` and `0.5.3-04e2f32fff8e`; no prune marker remained, and activation history
+records `0.6.0-21e5182fd807` as the predecessor that plain `rollback` selects.
+
+On the Pixel, with asset `app.435206ea59ba.js`, View was read-only and Control writable; the
+capability-sink, same-page recovery, and installed-WebAPK checks passed. The owned disposable
+fixture was removed; no owned tmux session or staging directory remained.
+
+Afterwards, `status` reported active, ready, tailscale-serve and not diverged, with active and
+service versions `0.6.1-df63aff418ad`, and `doctor` passed 18/18. The smoke did not modify the Code
+Mode launcher or the Bun-global OMP. It does not expand the exact candidate host/client matrix and
+does not exercise iPhone or iPad, the platforms this release fixes; Windows and background Push rest
+on the campaign lanes above.
 
 ## Mainline v0.6.0 — published stable
 

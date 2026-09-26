@@ -25,7 +25,7 @@
 - Other Windows versions are supported and CI-tested, including a daily canary that drives stock OMP's named pipe through the gateway, but not qualified. Specialized attention and branch/resume, and new media qualification remain unqualified/unadvertised. Seeded-fixture product media is not release-qualification evidence for these lanes. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
 - v0.6.0 is the migration/rollback predecessor. It cannot enable background alerts on iPhone or iPad, because it rejects WebKit's push subscription, which leaves out a null expiration time. Gateway rollback does not switch OMP.
 - In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The v0.5.1 fix never navigates from the worker.
-- The v0.6.1 published-byte local/Pixel smoke is pending after publication. The v0.6.0 smoke passed on its first attempt across the upgrade from v0.5.3, against Bun's global stock OMP 18.1.20.
+- The v0.6.1 published-byte local/Pixel smoke passed on its first attempt across the upgrade from v0.6.0, against Bun's global stock OMP 18.1.20; it does not exercise iPhone or iPad. The v0.6.0 smoke passed on its first attempt across the upgrade from v0.5.3.
 
 ## Fork-era release history
 
