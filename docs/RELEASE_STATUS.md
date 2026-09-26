@@ -1,10 +1,17 @@
 # Release status
 
-## Mainline v0.6.2 — qualified; stable publication pending
+## Mainline v0.6.2 — published stable
 
-**Updated:** 2026-09-26. The exact candidate below is approved for stable promotion. Published
-v0.6.1 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-26. [v0.6.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2)
+was published at **16:00:09 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[36253822411](https://github.com/alphastorm/omp-session-gateway/actions/runs/36253822411) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `8175a1afdefaaaac8f618585f00e47f07282fa9e`.<br>
+**Stable archive SHA-256:** `192090f429c30ad98c94acc7965d215a2f738dd8eef7127c49385a3ed746e617`.
+
+The published-byte workstation/Pixel smoke passed on its **first attempt**; see below.
 
 **Candidate:** [v0.6.2-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2-prealpha.1).<br>
 **Source:** `865abdac0ee23b2b545534b164171a4a070e7197`.<br>
@@ -49,7 +56,8 @@ the cloud evidence needed a new candidate rather than a note on v0.6.1.
 **Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
 all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
 re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
-SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json. The merged promotion
+tree was identical, and the published stable archive also matched all 46 candidate files.
 
 **Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
 gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
@@ -61,6 +69,29 @@ phone's; the iPhone's alert was proven with the device unlocked and the app in t
 on the lock screen; lock, Airplane, Doze, force-stop, and cellular behavior stay Pixel-only.
 Desktop Safari, specialized attention/branch-resume, and broader host/browser combinations remain
 unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+The first `smoke:release` invocation, bound to the stable tag, source and archive digest above,
+passed in 3 minutes 57 seconds (16:01:50–16:05:47 UTC). It verified the published provenance and
+upgraded the installed gateway from `0.6.1-df63aff418ad` to `0.6.2-04bbe8b69b63` with the
+configuration and readiness token preserved; Tailscale Serve was unchanged and unrelated mappings
+were preserved. `doctor` passed 18/18. The `omp` on the default PATH is not stock OMP, so the smoke
+selected Bun's global stock OMP 18.1.20, the minimum supported version, and did not reinstall it.
+The candidate campaign above, not this smoke, covers the exact OMP 18.3.0.
+
+The install removed the superseded `0.5.3-04e2f32fff8e` runtime and kept `0.6.2-04bbe8b69b63`,
+`0.6.1-df63aff418ad` and `0.6.0-21e5182fd807`; no prune marker remained, and activation history
+records `0.6.1-df63aff418ad` as the predecessor that plain `rollback` selects.
+
+On the Pixel, with asset `app.435206ea59ba.js`, View was read-only and Control writable; the
+capability-sink, same-page recovery, and installed-WebAPK checks passed. No owned tmux session
+remained.
+
+Afterwards, `status` reported active, ready, tailscale-serve and not diverged, with active and
+service versions `0.6.2-04bbe8b69b63`, and `doctor` passed 18/18. The smoke does not expand the
+exact candidate host/client matrix. It does not exercise iPhone, iPad, or Galaxy browsers, which
+rest on the campaign's cloud lane; Windows and background Push rest on the campaign lanes above.
 
 ## Mainline v0.6.1 — published stable
 
