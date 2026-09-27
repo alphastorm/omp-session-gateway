@@ -93,6 +93,27 @@ describe("doctor reports mainline compatibility and discovery health", () => {
     expect(report.checks.compatibility).toBe(false);
   }, 30_000);
 
+  test("reports an unreadable service manager as failed service checks, not a failed report", async () => {
+    await isolatedRoot();
+
+    const report = await runDoctorChecks({
+      tunDevicePresent: () => true,
+      ompVersion: async () => "18.1.20",
+      serviceStatus: async () => {
+        throw new Error("cannot read the Windows gateway task's state");
+      },
+    });
+
+    // Checks computed after the service probe still report, so one unreadable manager costs two checks.
+    expect(report.checks).toMatchObject({
+      config: true,
+      serviceInstalled: false,
+      serviceActive: false,
+      loopbackTrustSound: true,
+      compatibility: true,
+    });
+  }, 30_000);
+
   test("reports a symlinked discovery directory as unreadable without following or removing it", async () => {
     if (process.platform === "win32") return;
     const root = await isolatedRoot();

@@ -12,7 +12,7 @@ import {
 } from "./config.ts";
 import { OmpHostReader } from "./omp-registry.ts";
 import type { DoctorReport } from "./diagnostics.ts";
-import { userServiceStatus } from "./service.ts";
+import { type UserServiceStatus, userServiceStatus } from "./service.ts";
 
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const MAX_READINESS_BODY_BYTES = 512;
@@ -325,6 +325,11 @@ export async function runDoctorChecks(
      * and unsupported releases — the two cases worth pinning — are otherwise untestable.
      */
     readonly ompVersion?: () => Promise<string | undefined>;
+    /**
+     * Reads the service manager's view of the gateway. Injectable for the same reason as the probes
+     * above: the real one queries whatever service manager this machine runs.
+     */
+    readonly serviceStatus?: (config: GatewayConfig) => Promise<UserServiceStatus>;
   } = {},
 ): Promise<DoctorReport> {
   const checks: Record<string, boolean> = {
@@ -375,9 +380,15 @@ export async function runDoctorChecks(
   }).directoryUsable();
   if (!checks.discoveryReadable) checks.permissions = false;
 
-  const service = await userServiceStatus(config);
-  checks.serviceInstalled = service.installed;
-  checks.serviceActive = service.active;
+  // A service manager that cannot be read fails both service checks without costing the rest of the report.
+  try {
+    const service = await (options.serviceStatus ?? userServiceStatus)(config);
+    checks.serviceInstalled = service.installed;
+    checks.serviceActive = service.active;
+  } catch {
+    checks.serviceInstalled = false;
+    checks.serviceActive = false;
+  }
   checks.relay = await relayReachable();
   const funnel = await commandJson(["tailscale", "funnel", "status", "--json"]);
   checks.funnelDisabled = funnel !== undefined && funnelConfigurationDisabled(funnel);
