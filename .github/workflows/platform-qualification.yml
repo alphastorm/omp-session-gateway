@@ -131,7 +131,7 @@ jobs:
             Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -ne $process) { throw "gateway process remained after uninstall" }
-      - name: Install, reinstall, and uninstall as a standard user
+      - name: Install, reinstall, start, and uninstall as a standard user
         # Every step above runs as the runner's administrator, whose token holds SeSecurityPrivilege
         # and may register a task for any user's logon. A standard user's token has neither, and a
         # non-elevated install failed on both counts (#293, #294) while this job stayed green. The
@@ -186,6 +186,29 @@ jobs:
             $status = (Invoke-AsStandardUser "$shared\bun.exe" @($cli, "status")).Stdout | ConvertFrom-Json
             if (-not $status.installed -or $status.active -or $status.diverged -or -not $status.activeVersion -or $status.activeVersion -ne $status.serviceVersion) {
               throw "standard-user install did not register an idle task for the version it activated"
+            }
+            # No logon session exists here to fire the trigger, so start the command the task would:
+            # the installed runtime, as this user, from Task Scheduler's default directory. It
+            # re-secures every private path at startup and has to answer readiness as that user.
+            $action = @((Get-ScheduledTask -TaskName 'OMP Session Gateway').Actions)[0]
+            $serveStdout = Join-Path $shared "serve-stdout.txt"
+            $serveStderr = Join-Path $shared "serve-stderr.txt"
+            $serve = Start-Process -FilePath $action.Execute -ArgumentList $action.Arguments -Credential $credential `
+              -LoadUserProfile -UseNewEnvironment -WorkingDirectory "$env:SystemRoot\System32" `
+              -RedirectStandardOutput $serveStdout -RedirectStandardError $serveStderr -PassThru
+            try {
+              # The Windows install readiness budget, which covers the ACL helper's cold start.
+              $deadline = (Get-Date).AddSeconds(60)
+              do {
+                Start-Sleep -Seconds 3
+                $status = (Invoke-AsStandardUser "$shared\bun.exe" @($cli, "status")).Stdout | ConvertFrom-Json
+              } until ($status.ready -or (Get-Date) -gt $deadline)
+              if (-not $status.ready) {
+                Get-Content -LiteralPath $serveStdout, $serveStderr -ErrorAction SilentlyContinue | Write-Host
+                throw "the installed gateway never answered readiness as the standard user"
+              }
+            } finally {
+              Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue
             }
             if ((Invoke-AsStandardUser "$shared\bun.exe" @($cli, "uninstall")).ExitCode -ne 0) { throw "standard-user uninstall failed" }
             if ($null -ne (Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue)) {

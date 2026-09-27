@@ -10,8 +10,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 - The `windows-service-lifecycle` CI lane also installs, reinstalls, and uninstalls the gateway as
   a standard local user, whose token has no `SeSecurityPrivilege` and may register tasks only for
-  its own logon. Every earlier step runs as the runner's administrator, which is why neither defect
-  below was caught.
+  its own logon, and starts the registered task's command as that user until it reports ready.
+  Every earlier step runs as the runner's administrator, which is why neither defect below was
+  caught.
 
 ### Fixed
 
