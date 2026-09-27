@@ -40,11 +40,31 @@ try {
 """
 
 
+# The two accounts a qualification guest has: the provider's built-in Administrator and the
+# standard account the lane creates for its non-elevated install.
+ACCOUNT = re.compile(r'Administrator|ompstd[0-9a-f]{8}')
+
+
+def credentials(request):
+    """The request's account and password, refused before any connection is opened."""
+    username = request.get('username')
+    password = request.get('password')
+    if not isinstance(username, str) or not ACCOUNT.fullmatch(username):
+        raise ValueError('invalid WinRM account')
+    if not isinstance(password, str) or not 0 < len(password) <= 256 or '\n' in password or '\0' in password:
+        raise ValueError('invalid WinRM credential')
+    # Staging uploads land in the Administrator's private staging root.
+    if request.get('upload') and username != 'Administrator':
+        raise ValueError('uploads run as Administrator only')
+    return username, password
+
+
 def main():
     request = json.loads(sys.stdin.buffer.read(1024 * 1024))
+    username, password = credentials(request)
     protocol = Protocol(
         endpoint='http://' + request['host'] + ':5985/wsman',
-        transport='ntlm', username='Administrator', password=request['password'],
+        transport='ntlm', username=username, password=password,
         message_encryption='always', read_timeout_sec=60, operation_timeout_sec=45,
     )
     shell = protocol.open_shell()

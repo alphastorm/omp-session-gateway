@@ -19,6 +19,11 @@ hold (#293), and the logon task could only be registered by an administrator (#2
   its own logon, and starts the registered task's command as that user until it reports ready.
   Every earlier step runs as the runner's administrator, which is why neither defect below was
   caught.
+- The stable campaign's Windows lane (ADR-031, amended) now installs the candidate fresh as a local
+  account outside Administrators whose token lacks `SeSecurityPrivilege`, after the Administrator
+  journey on the same VM. It reboots, requires automatic start at that account's logon, then runs
+  the full doctor, rotation, and uninstall as the account. Every Windows doctor and pre-login sample
+  also requires the logon trigger to name the account the task runs as.
 
 ### Fixed
 

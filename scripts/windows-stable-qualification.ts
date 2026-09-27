@@ -54,7 +54,9 @@ export interface WindowsContext {
 }
 export type WindowsGuestAction = "transport" | "stage" | "installPredecessor" | "upgrade" | "doctor" | "reboot" |
   "prelogin" | "ready" | "publish" | "launch" | "stopOmp" | "revoked" | "rotate" | "rollback" | "restore" |
-  "uninstall" | "resetServe" | "logout";
+  "uninstall" | "resetServe" | "logout" | "prepareStandardUser" | "identity" | "releaseTailnet" | "join" | "installFresh";
+/** The Windows account a guest action or RDP logon runs as. */
+export type WindowsPrincipal = "administrator" | "standard";
 export interface WindowsRuntime {
   /** Development CLI only: retain a healthy guest for immediate repair inside its lease. */
   readonly development?: boolean;
@@ -66,8 +68,8 @@ export interface WindowsRuntime {
   admit(input: WindowsPreflightInput): Promise<WindowsAdmission>;
   saveAccess(epoch: string, instance: WindowsInstance): Promise<void>;
   removeAccess(epoch: string): Promise<void>;
-  guest(context: WindowsContext, action: WindowsGuestAction): Promise<Record<string, unknown>>;
-  rdp(context: WindowsContext): Promise<void>;
+  guest(context: WindowsContext, action: WindowsGuestAction, principal?: WindowsPrincipal): Promise<Record<string, unknown>>;
+  rdp(context: WindowsContext, principal?: WindowsPrincipal): Promise<void>;
   pixel(context: WindowsContext): Promise<Record<string, unknown>>;
   restorePixel(context: WindowsContext): Promise<void>;
   deleteTailnet(context: WindowsContext): Promise<void>;
@@ -75,7 +77,10 @@ export interface WindowsRuntime {
 const PHASES = ["intent_checkpointed", "firewall_created", "instance_created", "transport_ready", "toolchain_staged",
   "predecessor_installed", "candidate_upgraded", "reboot_requested", "prelogin_verified", "postlogin_ready",
   "doctor_passed", "omp_published", "pixel_verified", "omp_revoked", "readiness_rotated", "predecessor_restored",
-  "candidate_restored", "candidate_uninstalled", "evidence_complete"] as const;
+  "candidate_restored", "candidate_uninstalled", "standard_user_prepared", "standard_tailnet_released",
+  "standard_tailnet_joined", "standard_interactive_ready", "standard_candidate_installed", "standard_reboot_requested",
+  "standard_prelogin_verified", "standard_postlogin_ready", "standard_doctor_passed", "standard_readiness_rotated",
+  "standard_candidate_uninstalled", "evidence_complete"] as const;
 type Phase = typeof PHASES[number];
 const FACTS = ["preloginSamples", "preloginDurationMs", "automaticStartMs", "doctorChecks", "namedPipe", "generation",
   "viewStatus", "controlStatus", "staleViewStatus", "staleControlStatus", "noStore", "taggedNode", "tunMode", "funnelOff",
@@ -83,7 +88,10 @@ const FACTS = ["preloginSamples", "preloginDurationMs", "automaticStartMs", "doc
   "configPreserved", "readinessPreserved", "readinessChanged", "historySelected", "restored", "uninstalled", "revoked",
   "windowsBuild", "cpus", "memoryMiB", "failedPhaseAttempts", "doctorTrue", "doctorIdentityAllowed", "doctorPwa",
   "doctorSessionHealth", "doctorPublisherHealth", "doctorSecurityHeaders", "logonTrigger", "interactivePrincipal",
-  "transportStabilitySamples", "transportStabilityDurationMs"] as const;
+  "transportStabilitySamples", "transportStabilityDurationMs", "logonTriggerScoped", "standardUserNonAdmin",
+  "standardUserNoSecurityPrivilege", "standardPreloginSamples", "standardPreloginDurationMs", "standardAutomaticStartMs",
+  "standardDoctorChecks", "standardDoctorTrue", "standardReadinessChanged", "standardUninstalled",
+  "standardConfigPreserved", "standardReadinessPreserved"] as const;
 interface Progress extends Record<string, unknown> {
   schemaVersion: 1;
   lane: "windows";
@@ -109,7 +117,8 @@ function record(value: unknown): value is Record<string, unknown> { return value
 function requireFact(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 export function verifyWindowsDoctor(result: Record<string, unknown>): Record<string, number | boolean> {
   const checks = result.checks;
-  requireFact(record(checks) && result.loopbackOnly === true && result.logonTrigger === true && result.interactivePrincipal === true, "invalid Windows doctor/listener/task observation");
+  // A logon trigger without the installing account fires on anyone's logon, and needs an administrator to register (#294).
+  requireFact(record(checks) && result.loopbackOnly === true && result.logonTrigger === true && result.interactivePrincipal === true && result.logonTriggerScoped === true, "invalid Windows doctor/listener/task observation");
   for (const name of ["assets", "compatibility", "config", "daemon", "discoveryReadable", "funnelDisabled",
     "listenerLoopbackOnly", "loopbackTrustSound", "permissions", "relay", "serveMapping", "serviceActive", "serviceInstalled", "tailscaleConnected"]) {
     requireFact(checks[name] === true, `Windows doctor host check failed: ${name}`);
@@ -122,7 +131,7 @@ export function verifyWindowsDoctor(result: Record<string, unknown>): Record<str
   requireFact(entries.every(([name, value]) => typeof value === "boolean" && (value || expectedFalse.has(name))), "unexpected Windows doctor failure");
   return { doctorChecks: entries.length, doctorTrue: entries.filter(([, value]) => value === true).length,
     doctorIdentityAllowed: false, doctorPwa: false, [health === "sessionHealth" ? "doctorSessionHealth" : "doctorPublisherHealth"]: false,
-    doctorSecurityHeaders: checks.securityHeaders, loopbackOnly: true, logonTrigger: true, interactivePrincipal: true };
+    doctorSecurityHeaders: checks.securityHeaders, loopbackOnly: true, logonTrigger: true, interactivePrincipal: true, logonTriggerScoped: true };
 }
 export function assertWindowsPins(omp: Pick<OmpPins, "version" | "sourceCommit" | "sourceTree" | "bunVersion">): void {
   requireFact(omp.version === pins.omp.version && omp.sourceCommit === pins.omp.sourceCommit && omp.sourceTree === pins.omp.sourceTree && omp.bunVersion === pins.bunVersion,
@@ -227,13 +236,31 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
     const start = runtime.now(); await action();
     progress.timings[phase] = runtime.now() - start; progress.settled = true; await save();
   };
-  const guest = (action: WindowsGuestAction) => runtime.guest(context, action);
+  const guest = (action: WindowsGuestAction, principal?: WindowsPrincipal) => runtime.guest(context, action, principal);
   const facts = (values: Record<string, unknown>) => {
     for (const key of FACTS) if (values[key] !== undefined) {
       const value = values[key];
       requireFact(typeof value === "number" || typeof value === "boolean", "unsafe Windows observation");
       progress.facts[key] = value;
     }
+  };
+  const prelogin = async () => {
+    await guest("transport"); const start = runtime.now(); let samples = 0;
+    do {
+      const state = await guest("prelogin");
+      requireFact(state.taskPresent === true && state.taskRunning === false && state.gatewayProcesses === 0 && state.listeners === 0 &&
+        state.logonTrigger === true && state.interactivePrincipal === true && state.logonTriggerScoped === true, "pre-login task/process/listener invariant failed");
+      samples += 1; if (runtime.now() - start >= 30_000 && samples >= 3) break;
+      await runtime.sleep(15_000);
+    } while (true);
+    return { samples, durationMs: runtime.now() - start };
+  };
+  const postlogin = async (principal: WindowsPrincipal) => {
+    const start = runtime.now(); await runtime.rdp(context, principal);
+    let last: Record<string, unknown> = {};
+    await waitFor(runtime, async () => (last = await guest("ready", principal)).ready === true, 180_000,
+      `${principal === "standard" ? "standard " : ""}automatic LogonTrigger startup`, () => last);
+    return runtime.now() - start;
   };
   try {
     let firewall: WindowsFirewall | undefined = resumed ? (await runtime.provider.firewalls()).find(item => item.description === label) : undefined;
@@ -266,21 +293,9 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
     });
     await step("reboot_requested", async () => { await guest("reboot"); });
     await step("prelogin_verified", async () => {
-      await guest("transport"); const start = runtime.now(); let samples = 0;
-      do {
-        const state = await guest("prelogin");
-        requireFact(state.taskPresent === true && state.taskRunning === false && state.gatewayProcesses === 0 && state.listeners === 0 && state.logonTrigger === true && state.interactivePrincipal === true, "pre-login task/process/listener invariant failed");
-        samples += 1; if (runtime.now() - start >= 30_000 && samples >= 3) break;
-        await runtime.sleep(15_000);
-      } while (true);
-      facts({ preloginSamples: samples, preloginDurationMs: runtime.now() - start });
+      const observed = await prelogin(); facts({ preloginSamples: observed.samples, preloginDurationMs: observed.durationMs });
     });
-    await step("postlogin_ready", async () => {
-      const start = runtime.now(); await runtime.rdp(context);
-      let last: Record<string, unknown> = {};
-      await waitFor(runtime, async () => (last = await guest("ready")).ready === true, 180_000, "automatic LogonTrigger startup", () => last);
-      facts({ automaticStartMs: runtime.now() - start });
-    });
+    await step("postlogin_ready", async () => { facts({ automaticStartMs: await postlogin("administrator") }); });
     await step("doctor_passed", async () => { facts(verifyWindowsDoctor(await guest("doctor"))); });
     await step("omp_published", async () => {
       const result = await guest("publish"); requireFact(result.namedPipe === true && result.generation === 1, "OMP did not publish its named pipe"); facts(result);
@@ -297,6 +312,45 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
     await step("predecessor_restored", async () => { const result = await guest("rollback"); requireFact(result.ready === true && result.historySelected === true && result.configPreserved === true && result.readinessPreserved === true, "history-selected rollback invariant failed"); facts(result); });
     await step("candidate_restored", async () => { const result = await guest("restore"); requireFact(result.ready === true && result.restored === true && result.configPreserved === true && result.readinessPreserved === true, "candidate restoration invariant failed"); facts(result); });
     await step("candidate_uninstalled", async () => { const result = await guest("uninstall"); requireFact(result.uninstalled === true && result.configPreserved === true && result.readinessPreserved === true, "uninstall preservation invariant failed"); facts(result); });
+    // The same candidate, freshly installed by an account with no administrative rights (#293, #294).
+    await step("standard_user_prepared", async () => {
+      requireFact((await guest("prepareStandardUser")).prepared === true, "standard account preparation failed");
+      const token = await guest("identity", "standard");
+      requireFact(token.standardUserNonAdmin === true && token.standardUserNoSecurityPrivilege === true, "the standard account's token is privileged");
+      facts({ standardUserNonAdmin: true, standardUserNoSecurityPrivilege: true });
+    });
+    await step("standard_tailnet_released", async () => {
+      requireFact((await guest("releaseTailnet")).released === true, "the Administrator did not release Tailscale");
+      await runtime.deleteTailnet(context);
+    });
+    await step("standard_tailnet_joined", async () => {
+      const joined = await guest("join", "standard");
+      requireFact(joined.taggedNode === true && joined.tunMode === true && joined.funnelOff === true, "standard tagged Tailscale join failed");
+    });
+    await step("standard_interactive_ready", async () => { await runtime.rdp(context, "standard"); });
+    await step("standard_candidate_installed", async () => {
+      const result = await guest("installFresh", "standard");
+      requireFact(result.ready === true && result.loopbackOnly === true, "standard fresh install did not become ready");
+    });
+    await step("standard_reboot_requested", async () => { await guest("reboot"); });
+    await step("standard_prelogin_verified", async () => {
+      const observed = await prelogin(); facts({ standardPreloginSamples: observed.samples, standardPreloginDurationMs: observed.durationMs });
+    });
+    await step("standard_postlogin_ready", async () => { facts({ standardAutomaticStartMs: await postlogin("standard") }); });
+    await step("standard_doctor_passed", async () => {
+      const doctor = verifyWindowsDoctor(await guest("doctor", "standard"));
+      facts({ standardDoctorChecks: doctor.doctorChecks, standardDoctorTrue: doctor.doctorTrue });
+    });
+    await step("standard_readiness_rotated", async () => {
+      const result = await guest("rotate", "standard");
+      requireFact(result.ready === true && result.readinessChanged === true && result.configPreserved === true, "standard readiness rotation invariant failed");
+      facts({ standardReadinessChanged: true });
+    });
+    await step("standard_candidate_uninstalled", async () => {
+      const result = await guest("uninstall", "standard");
+      requireFact(result.uninstalled === true && result.configPreserved === true && result.readinessPreserved === true, "standard uninstall preservation invariant failed");
+      facts({ standardUninstalled: true, standardConfigPreserved: true, standardReadinessPreserved: true });
+    });
     await step("evidence_complete", async () => {});
     return evidence(progress, input.identity);
   } catch (error) {
@@ -336,7 +390,13 @@ export async function cleanupWindows(input: WindowsLaneInput): Promise<Record<st
     let ownedGuest = false;
     await attempt("guestInventory", async () => { ownedGuest = (await runtime.provider.instances()).some(item => item.label === label); });
     if (ownedGuest) {
-      for (const action of ["stopOmp", "uninstall", "resetServe", "logout"] as const) await attempt(action, async () => { await runtime.guest(context, action); });
+      // After the handover Windows refuses the Administrator's Tailscale CLI while the standard account
+      // operates it, and the Administrator's gateway is already uninstalled.
+      const handedOver = PHASES.indexOf(progress.phase) > PHASES.indexOf("standard_tailnet_released") ||
+        (progress.phase === "standard_tailnet_released" && progress.settled);
+      const owner: WindowsPrincipal = handedOver ? "standard" : "administrator";
+      await attempt("stopOmp", async () => { await runtime.guest(context, "stopOmp"); });
+      for (const action of ["uninstall", "resetServe", "logout"] as const) await attempt(action, async () => { await runtime.guest(context, action, owner); });
     }
     await attempt("tailnetDelete", () => runtime.deleteTailnet(context));
     await attempt("instances", async () => {

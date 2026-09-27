@@ -114,6 +114,26 @@ ordinary Chrome pages and restores that baseline after a crash. A failed restore
 `pixelUnrestored: true` to fence the production lease. Development retains its exact-epoch lock
 until cleanup proves restoration; another lane's lock is never broken.
 
+**Standard-user fresh install.** The same VM then proves the non-elevated path (#293, #294).
+After the Administrator's uninstall the lane creates `ompstd` plus the epoch's first eight hex
+digits: a local account in Remote Desktop Users, never Administrators, whose controller-generated
+password lives only in the epoch vault and reaches the guest only as encrypted WinRM input. It
+gets read and execute on the staged Bun, the candidate and the pinned OMP build (doctor probes
+`omp --version`), and on the WinRM listener's descriptor, because the WinRS shell the adapter
+uses is outside Remote Management Users. Nothing else in the staging root is readable to it.
+Through its own WinRM shell the lane requires a token with neither `BUILTIN\Administrators`,
+deny-only included, nor `SeSecurityPrivilege`. Tailscale serves one Windows user at a time, so
+the Administrator then hands it over the way a person would: its desktop signs out (a connected
+tray client refuses every other account), Serve resets, and `tailscale logout` deletes its
+unattended profile. The lane deletes that node, and the standard account joins as a new tagged
+node under the same hostname; the join's origin is authoritative. After a pinned RDP logon as the
+account, the candidate installs fresh → reboot → at least three pre-login samples → pinned RDP
+logon and automatic startup → the full doctor as the account → readiness rotation → uninstall
+with private state preserved. Every doctor and pre-login sample, for either account, requires the
+logon trigger to name the account the task runs as. These observations carry a `standard`
+prefix. Predecessor, upgrade, rollback, OMP and Pixel journeys stay Administrator-only, because
+v0.6.2 cannot install without elevation.
+
 **Tagged-node doctor result.** Follow the existing [Debian identity convention](LINUX_QUALIFICATION.md#gap-3--denied-tailscale-identity),
 not an N/N claim. The tagged host's self-probe through Serve has no user identity. Record the
 true/total split and the exact false set: `identityAllowed`, `pwa`, and `sessionHealth`
@@ -135,7 +155,9 @@ tests reject divergence from `UPSTREAM.lock.json`; an upstream refresh must refr
 Windows pins too. No upstream lock/schema change is needed for the separate lane-owned pins.
 
 On a stable-campaign failure, cleanup still attempts guest teardown, Serve reset, logout, exact-label tailnet
-deletion, instance deletion, firewall deletion and vault removal. Each provider deletion
+deletion, instance deletion, firewall deletion and vault removal. Once the Administrator has
+handed Tailscale over, the gateway uninstall, Serve reset and logout run as the standard account:
+Windows refuses the Administrator's Tailscale CLI while another account holds it. Each provider deletion
 refetches ownership and applies the positive prefix and protected-resource checks. Lost create
 responses are recoverable by the exact epoch-derived label even without a vault. Cleanup polls
 for deletion and requires zero `omp-winqual-*` instances and firewall groups account-wide.

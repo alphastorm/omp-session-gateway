@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { cleanupWindows, runWindows, verifyWindowsDoctor, windowsCampaignLabel, windowsNeedsCleanup, assertWindowsPins } from "./windows-stable-qualification.ts";
-import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsRuntime } from "./windows-stable-qualification.ts";
+import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsPrincipal, WindowsRuntime } from "./windows-stable-qualification.ts";
 import { verifyWindowsStaleLaunch, windowsPixelForeground, windowsPixelLauncher, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
 import { firewallEligibility } from "./vultr-target.ts";
 import { parseQualificationPins } from "./stable-qualification.ts";
@@ -18,7 +18,7 @@ const taggedDoctorChecks = { assets: true, compatibility: true, config: true, da
   funnelDisabled: true, listenerLoopbackOnly: true, loopbackTrustSound: true, permissions: true, relay: true,
   serveMapping: true, serviceActive: true, serviceInstalled: true, tailscaleConnected: true,
   identityAllowed: false, pwa: false, sessionHealth: false, securityHeaders: true };
-const doctorState = { loopbackOnly: true, logonTrigger: true, interactivePrincipal: true };
+const doctorState = { loopbackOnly: true, logonTrigger: true, interactivePrincipal: true, logonTriggerScoped: true };
 test("an authenticated transport error resets both the stability count and window", async () => {
   let now = 0; let failed = false;
   const uninterrupted: number[] = [];
@@ -130,8 +130,8 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
     },
     saveAccess: async () => { events.push("vaultSaved"); if (options.vaultFails) throw new Error("private disk full"); },
     removeAccess: async () => { events.push("vaultRemoved"); },
-    guest: async (_context: WindowsContext, action: WindowsGuestAction) => {
-      now += 1_000; events.push(action);
+    guest: async (_context: WindowsContext, action: WindowsGuestAction, principal?: WindowsPrincipal) => {
+      now += 1_000; events.push(principal === "standard" ? `${action}@standard` : action);
       if (options.fail === action) throw new Error("guest operation failed");
       return {
         ready: !options.neverStarts, taskPresent: true, taskRunning: false, gatewayProcesses: 0, listeners: options.listener ? 1 : 0,
@@ -139,16 +139,17 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
         namedPipe: true, generation: 1, viewStatus: 200, controlStatus: 200, staleViewStatus: options.stale ?? 409, staleControlStatus: 409, noStore: true,
         revoked: true, historySelected: true, restored: true, uninstalled: true,
         transportStabilitySamples: 3, transportStabilityDurationMs: 60_000,
+        prepared: true, released: true, taggedNode: true, tunMode: true, funnelOff: true, standardUserNonAdmin: true, standardUserNoSecurityPrivilege: true,
       };
     },
-    rdp: async () => { events.push("rdp"); },
+    rdp: async (_context: WindowsContext, principal?: WindowsPrincipal) => { events.push(principal === "standard" ? "rdp@standard" : "rdp"); },
     pixel: async () => { events.push("physicalPixel"); return { pixelIdentityAccepted: true, viewReadOnly: true, controlWritable: true, promptAccepted: true, returnedToDirectory: true }; },
     restorePixel: async () => { events.push("pixelRestored"); },
     deleteTailnet: async () => { events.push("tailnetDeleted"); },
   };
   // Installation readiness is not the automatic post-reboot readiness sample.
   const originalGuest = runtime.guest;
-  if (options.neverStarts) runtime.guest = async (context, action) => ({ ...await originalGuest(context, action), ready: action !== "ready", note: "synthetic-guest-string" });
+  if (options.neverStarts) runtime.guest = async (context, action, principal) => ({ ...await originalGuest(context, action, principal), ready: action !== "ready", note: "synthetic-guest-string" });
   const checkpoint = async (next: Record<string, unknown>) => { progress = structuredClone(next); events.push(`checkpoint:${String(next.phase)}`); };
   const pixel = async <T>(_owner: string, action: () => Promise<T>) => { events.push("pixelLease"); return action(); };
   return { runtime, events, checkpoint, pixel, get progress() { return progress; }, get instances() { return instances; }, get firewalls() { return firewalls; },
@@ -173,6 +174,18 @@ describe("Windows qualification ownership and failure paths", () => {
   });
   test("a healthy listener cannot qualify a non-interactive task principal", () => {
     expect(() => verifyWindowsDoctor({ checks: taggedDoctorChecks, ...doctorState, interactivePrincipal: false })).toThrow();
+  });
+  test("a logon trigger that fires on anyone's logon cannot qualify", () => {
+    expect(() => verifyWindowsDoctor({ checks: taggedDoctorChecks, ...doctorState, logonTriggerScoped: false })).toThrow();
+  });
+  test("a privileged standard token stops the sub-lane while the Administrator still holds Tailscale", async () => {
+    const f = fixture(); const original = f.runtime.guest;
+    f.runtime.guest = async (context, action, principal) => action === "identity" ? { standardUserNonAdmin: true, standardUserNoSecurityPrivilege: false } : original(context, action, principal);
+    await expect(f.run()).rejects.toThrow("token is privileged");
+    expect(f.events).not.toContain("releaseTailnet"); expect(f.events).not.toContain("installFresh@standard");
+    // Cleanup therefore signs the Administrator out of Tailscale, not the standard account.
+    expect(f.events).toContain("logout"); expect(f.events).not.toContain("logout@standard");
+    expect(f.instances).toEqual([]); expect(windowsNeedsCleanup(f.progress)).toBe(false);
   });
   test("pins fail closed on an upstream change", () => {
     assertWindowsPins(identity.omp);
@@ -204,7 +217,7 @@ describe("Windows qualification ownership and failure paths", () => {
     await expect(f.run()).rejects.toThrow("guest operation failed");
     expect(f.instances).toHaveLength(1); expect(windowsNeedsCleanup(f.progress)).toBe(true);
     const original = f.runtime.guest;
-    f.runtime.guest = async (context, action) => action === "stage" ? {} : original(context, action);
+    f.runtime.guest = async (context, action, principal) => action === "stage" ? {} : original(context, action, principal);
     const result = await runWindows({ identity, progress: f.progress, checkpoint: f.checkpoint, pixel: f.pixel, runtime: f.runtime });
     expect((result.observations as Record<string, unknown>).failedPhaseAttempts).toBe(1);
     expect(f.events.filter(event => event === "instanceCreated")).toHaveLength(1);
@@ -242,7 +255,8 @@ describe("Windows qualification ownership and failure paths", () => {
   test("cleanup continues after a guest failure and is retryable", async () => {
     const f = fixture({ fail: "resetServe" }); await f.run();
     await expect(f.clean()).rejects.toThrow("resetServe");
-    expect(f.events).toContain("logout"); expect(f.events).toContain("tailnetDeleted"); expect(f.instances).toEqual([]); expect(f.firewalls).toEqual([]);
+    // After the handover only the standard account may operate Tailscale and its own gateway.
+    expect(f.events).toContain("logout@standard"); expect(f.events).toContain("uninstall@standard"); expect(f.events).toContain("tailnetDeleted"); expect(f.instances).toEqual([]); expect(f.firewalls).toEqual([]);
     await f.clean(); expect(windowsNeedsCleanup(f.progress)).toBe(false);
   });
   test("Pixel lease failure cannot keep paid resources alive or erase recovery state", async () => {
@@ -275,6 +289,12 @@ describe("Windows qualification ownership and failure paths", () => {
     const observations = result.observations as Record<string, unknown>;
     expect(observations.preloginDurationMs).toBeGreaterThanOrEqual(30_000); expect(observations.preloginSamples).toBeGreaterThanOrEqual(3);
     expect(observations.pixelIdentityAccepted).toBe(true); expect(observations.readinessChanged).toBe(true); expect(observations.historySelected).toBe(true);
+    expect(observations.standardPreloginSamples).toBeGreaterThanOrEqual(3); expect(observations.standardUserNoSecurityPrivilege).toBe(true);
+    expect(observations.standardDoctorTrue).toBe(15); expect(observations.standardUninstalled).toBe(true);
+    // Tailscale changes hands before the standard account joins, and its desktop exists before it installs.
+    const order = ["candidate_uninstalled", "releaseTailnet", "tailnetDeleted", "join@standard", "rdp@standard", "installFresh@standard", "doctor@standard"]
+      .map(event => event === "candidate_uninstalled" ? f.events.indexOf("checkpoint:candidate_uninstalled") : f.events.indexOf(event));
+    expect(order.every(index => index >= 0)).toBe(true); expect(order).toEqual([...order].sort((a, b) => a - b));
     const inspect = (value: unknown) => { if (!value || typeof value !== "object") return; for (const [key, item] of Object.entries(value)) { expect(key).not.toMatch(/capability|password|secret|authKey|token|bearer/iu); inspect(item); } };
     inspect(result); inspect(f.progress);
     const serialized = JSON.stringify(result);
