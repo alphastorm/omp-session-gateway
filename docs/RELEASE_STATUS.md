@@ -27,9 +27,16 @@ and its first RDP logon, then failed its fresh install: over the account's WinRM
 task running (state 4), and a COM-based query exited 0. WMI refuses a standard user's network logon,
 so the same misreport reaches a standard user running `status` or `doctor` over SSH, and an upgrade
 or uninstall stopped waiting for the task at once. The candidate therefore also reads the task's
-state through the COM interface, and qualification moves to `v0.6.3-prealpha.2`. Published v0.6.2
-remains the predecessor and current stable; no v0.6.3 qualification or publication is claimed, and
-the stable lock remains unchanged until approval.
+state through the COM interface. That faster query exposed a latent race: on a hosted runner, one
+millisecond after `schtasks /End` the task read Ready with no instances while its process and port
+4317 listener survived until about 600 ms
+([36291384690](https://github.com/alphastorm/omp-session-gateway/actions/runs/36291384690)), so the
+COM-only change failed a rotation restart
+([36291047377](https://github.com/alphastorm/omp-session-gateway/actions/runs/36291047377)); each
+slower `Get-ScheduledTask` poll had taken 1.2 s. Stopping now waits for the task's own process.
+Qualification moves to `v0.6.3-prealpha.2`. Published v0.6.2 remains the predecessor and current
+stable; no v0.6.3 qualification or publication is claimed, and the stable lock remains unchanged
+until approval.
 
 ## Mainline v0.6.2 — published stable
 
