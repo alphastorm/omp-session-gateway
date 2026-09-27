@@ -65,15 +65,15 @@ gateway change. The current checkout's engineering baseline is v18.3.0 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Qualified for stable promotion:** [v0.6.3-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3-prealpha.2),
-for [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3). Publication
-and the separate published-byte local/Pixel smoke are pending; published v0.6.2 remains GitHub
-Latest until promotion. On Windows, v0.6.3 installs and runs from a standard (non-elevated) account
-(#293, #294), reads its task's state through the Task Scheduler's COM interface, and waits for the
-gateway's process when stopping it. Its Windows qualification adds a fresh install from such an
-account. The [release ledger](RELEASE_STATUS.md) records the qualification lanes, the development
-runs that found the third Windows defect, and exact source/archive bindings;
-[upgrade and rollback](UPGRADE_ROLLBACK.md) covers the rollback predecessor, v0.6.2.
+**Published stable:** [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3),
+GitHub Latest, promoted from v0.6.3-prealpha.2 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. On Windows,
+v0.6.3 installs and runs from a standard (non-elevated) account (#293, #294), reads its task's
+state through the Task Scheduler's COM interface, and waits for the gateway's process when stopping
+it. Its Windows qualification adds a fresh install from such an account. The
+[release ledger](RELEASE_STATUS.md) records the qualification lanes, the development runs that found
+the third Windows defect, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md)
+covers the rollback predecessor, v0.6.2.
 
 | Surface | Current contract | Qualification |
 |---|---|---|

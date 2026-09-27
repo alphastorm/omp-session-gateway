@@ -1,10 +1,17 @@
 # Release status
 
-## Mainline v0.6.3 — qualified; stable publication pending
+## Mainline v0.6.3 — published stable
 
-**Updated:** 2026-09-27. The exact candidate below is approved for stable promotion. Published
-v0.6.2 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-09-27. [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3)
+was published at **06:29:51 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[36300215606](https://github.com/alphastorm/omp-session-gateway/actions/runs/36300215606) passed
+all gates, including the final runtime comparison and three attestations / three Sigstore bundles.
+The published archive matches the complete clean local stable-channel build.
+
+**Stable source:** `5e3de461e26cc6f3a149e94088cb42c431bbe002`.<br>
+**Stable archive SHA-256:** `45a3e4848aab1e590fbc639ded2118fb74843ea77efe49fe7e9c5c903e4b83e8`.
+
+The published-byte workstation/Pixel smoke passed on its **first attempt**; see below.
 
 **Candidate:** [v0.6.3-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3-prealpha.2).<br>
 **Source:** `9deb122584a92c3e0519f9884ae56a2c33f6a4c2`.<br>
@@ -64,7 +71,8 @@ development run found #298's defect first.
 **Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
 all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
 re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
-SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json. The merged promotion
+tree was identical, and the published stable archive also matched all 46 candidate files.
 
 **Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
 gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
@@ -78,6 +86,31 @@ login, not a phone's. The iPhone's alert was proven with the device unlocked and
 background, not on the lock screen; lock, Airplane, Doze, force-stop, and cellular behavior stay
 Pixel-only. Desktop Safari, specialized attention/branch-resume, and broader host/browser
 combinations remain unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+The first `smoke:release` invocation, bound to the stable tag, source and archive digest above,
+passed in about four minutes (06:32–06:36 UTC). It verified the published provenance and upgraded
+the installed gateway from `0.6.2-04bbe8b69b63` to `0.6.3-2e592dd1224d` with the configuration and
+readiness token preserved; Tailscale Serve was unchanged and unrelated mappings were preserved.
+`doctor` passed 18/18. The `omp` on the default PATH is not stock OMP, so the smoke selected Bun's
+global stock OMP 18.1.20, the minimum supported version, and did not reinstall it. The candidate
+campaign above, not this smoke, covers the exact OMP 18.3.0.
+
+The install removed the superseded `0.6.0-21e5182fd807` runtime and kept `0.6.3-2e592dd1224d`,
+`0.6.2-04bbe8b69b63` and `0.6.1-df63aff418ad`; no prune marker remained, and activation history
+records `0.6.2-04bbe8b69b63` as the predecessor that plain `rollback` selects.
+
+On the Pixel, with asset `app.435206ea59ba.js`, View was read-only and Control writable; the
+capability-sink, same-page recovery, and installed-WebAPK checks passed. No owned tmux session
+remained.
+
+Afterwards, `status` reported active, ready, tailscale-serve and not diverged, with active and
+service versions `0.6.3-2e592dd1224d`, and `doctor` passed 18/18. The smoke does not expand the
+exact candidate host/client matrix. It runs on macOS, so it does not exercise the Windows
+standard-account path this release fixes; that rests on the campaign's Windows lane and hosted CI.
+iPhone, iPad, and Galaxy browsers rest on the campaign's cloud lane, and background Push on its
+Pixel lane.
 
 ## Mainline v0.6.2 — published stable
 
