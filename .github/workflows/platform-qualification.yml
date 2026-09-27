@@ -139,7 +139,8 @@ jobs:
         shell: pwsh
         run: |
           $user = "ompgatewaystandard"
-          $password = "Omp!" + [Guid]::NewGuid().ToString("N").Substring(0, 12) + "1"
+          # Fourteen characters at most: `net user` asks for confirmation beyond that and fails unanswered.
+          $password = "Omp!" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + "1"
           & net.exe user $user $password /add /expires:never
           if ($LASTEXITCODE -ne 0) { throw "failed to create the standard user" }
           $shared = "C:\omp-gateway-standard-user"
