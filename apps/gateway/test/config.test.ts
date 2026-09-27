@@ -62,12 +62,15 @@ function windowsPowerShellEnvironment(overrides: Record<string, string>): Record
 
 async function secureWindowsFixture(path: string): Promise<void> {
   if (process.platform !== "win32") return;
+  // The same write `apply` makes: a fresh descriptor through `SetAccessControl`, never `Set-Acl`,
+  // whose retry for a token without SeSecurityPrivilege fails once the file's DACL is protected.
   const script =
     "$Path=$env:OMP_GATEWAY_ACL_PATH; " +
     "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; " +
-    "$sddl='D:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')'; " +
-    "$acl=Get-Acl -LiteralPath $Path; $acl.SetSecurityDescriptorSddlForm($sddl); $acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
-    "Set-Acl -LiteralPath $Path -AclObject $acl";
+    "$security=[System.Security.AccessControl.FileSecurity]::new(); " +
+    "$security.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')',[System.Security.AccessControl.AccessControlSections]::Access); " +
+    "$security.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
+    "[System.IO.File]::SetAccessControl($Path,$security)";
   const subprocess = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
     env: windowsPowerShellEnvironment({ OMP_GATEWAY_ACL_PATH: path }),
     stdin: "ignore",

@@ -38,12 +38,34 @@ export function serializedPathForms(path: string): readonly string[] {
   return [...new Set([path, xmlEscape(path), JSON.stringify(path).slice(1, -1)])];
 }
 
+/** Where `platform`'s service definition lives. Needs no installing user, unlike its content. */
+export function serviceDefinitionPath(
+  config: ServicePathConfig,
+  platform = process.platform,
+  homeDirectory = homedir(),
+): string {
+  if (platform === "linux") {
+    return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "systemd", "user", "omp-session-gateway.service");
+  }
+  if (platform === "darwin") return join(homeDirectory, "Library", "LaunchAgents", "omp-session-gateway.plist");
+  if (platform === "win32") return join(config.paths.configDir, "omp-session-gateway-task.xml");
+  throw new Error(`unsupported platform: ${platform}`);
+}
+
+const WINDOWS_SID = /^S-1-\d+(?:-\d+)+$/u;
+
+/**
+ * `windowsUserSid` is the installing account, which the Windows task's logon trigger names: a
+ * `<LogonTrigger>` without a `<UserId>` fires on any user's logon, and only an administrator may
+ * register one, so a standard user's install was refused with "Access is denied" (#294).
+ */
 export function serviceDefinition(
   config: ServicePathConfig,
   platform = process.platform,
   installedCli?: string,
   readinessInstance?: string,
   homeDirectory = homedir(),
+  windowsUserSid?: string,
 ): ServiceDefinition {
   if (readinessInstance !== undefined && !/^[A-Za-z0-9_-]{43}$/u.test(readinessInstance)) {
     throw new Error("invalid service readiness instance");
@@ -68,7 +90,7 @@ export function serviceDefinition(
       : "";
     return {
       identifier: "omp-session-gateway",
-      path: join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "systemd", "user", "omp-session-gateway.service"),
+      path: serviceDefinitionPath(config, platform, homeDirectory),
       content: `[Unit]\nDescription=OMP Session Gateway\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=read-only\n${runtimeDirectory}ReadWritePaths=${readWritePaths.map(value => JSON.stringify(value)).join(" ")}\n\n[Install]\nWantedBy=default.target\n`,
     };
   }
@@ -76,21 +98,24 @@ export function serviceDefinition(
     const argumentsXml = argv.map(value => `      <string>${xmlEscape(value)}</string>`).join("\n");
     return {
       identifier: "omp-session-gateway",
-      path: join(homeDirectory, "Library", "LaunchAgents", "omp-session-gateway.plist"),
+      path: serviceDefinitionPath(config, platform, homeDirectory),
       content: `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key><string>omp-session-gateway</string>\n    <key>ProgramArguments</key>\n    <array>\n${argumentsXml}\n    </array>\n    <key>RunAtLoad</key><true/>\n    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n    <key>ProcessType</key><string>Background</string>\n    <key>StandardOutPath</key><string>/dev/null</string>\n    <key>StandardErrorPath</key><string>/dev/null</string>\n  </dict>\n</plist>\n`,
     };
   }
   if (platform === "win32") {
     const executable = argv[0];
     if (executable === undefined) throw new Error("service executable is unavailable");
+    if (windowsUserSid === undefined || !WINDOWS_SID.test(windowsUserSid)) {
+      throw new Error("a Windows task definition needs the installing user's SID");
+    }
     const argumentsXml = argv
       .slice(1)
       .map(value => `&quot;${xmlEscape(value)}&quot;`)
       .join(" ");
     return {
       identifier: "omp-session-gateway",
-      path: join(config.paths.configDir, "omp-session-gateway-task.xml"),
-      content: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><AllowHardTerminate>true</AllowHardTerminate><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>${xmlEscape(executable)}</Command><Arguments>${argumentsXml}</Arguments></Exec></Actions>\n</Task>\n`,
+      path: serviceDefinitionPath(config, platform, homeDirectory),
+      content: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${windowsUserSid}</UserId></LogonTrigger></Triggers>\n  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><AllowHardTerminate>true</AllowHardTerminate><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\n  <Actions Context="Author"><Exec><Command>${xmlEscape(executable)}</Command><Arguments>${argumentsXml}</Arguments></Exec></Actions>\n</Task>\n`,
     };
   }
   throw new Error(`unsupported platform: ${platform}`);
@@ -120,6 +145,18 @@ async function commandOutput(command: readonly string[]): Promise<string | undef
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The installing account's SID, from its own token. The SID rather than `DOMAIN\user`: `whoami`
+ * writes the name in the console code page, which mangles a non-ASCII account name, and a SID is
+ * ASCII everywhere.
+ */
+async function installingWindowsUserSid(host: ServiceHost): Promise<string> {
+  const output = await host.output(["whoami.exe", "/user", "/fo", "csv", "/nh"]);
+  const sid = output === undefined ? undefined : /"(S-1-\d+(?:-\d+)+)"\s*$/u.exec(output)?.[1];
+  if (sid === undefined) throw new Error("cannot determine the installing Windows user's SID");
+  return sid;
 }
 
 /**
@@ -233,7 +270,7 @@ function serviceRegistryName(host: ServiceHost): string {
 }
 
 async function existingServiceDefinition(config: ServicePathConfig, host: ServiceHost): Promise<string | undefined> {
-  const path = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory).path;
+  const path = serviceDefinitionPath(config, host.platform, host.homeDirectory);
   try {
     const bytes = await readFile(path);
     if (host.platform !== "win32") return bytes.toString("utf8");
@@ -333,8 +370,7 @@ export async function userServiceStatus(
   config: ServicePathConfig,
   host: ServiceHost = systemServiceHost,
 ): Promise<UserServiceStatus> {
-  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
-  const definitionExists = await fileExists(definition.path);
+  const definitionExists = await fileExists(serviceDefinitionPath(config, host.platform, host.homeDirectory));
   // `active` means "a service this install owns is running", never "some service holds our label".
   // Everything downstream acts on it: rotation restarts, stop boots out, uninstall refuses.
   const active = await loadedServiceIsOurs(config, host);
@@ -360,7 +396,15 @@ export async function installUserService(
   // Linux and Windows the manager mutations that follow act on a label a sandbox cannot scope.
   await assertNoForeignServiceLabel(config, host);
   await assertServiceInstallPreflight(activate, host);
-  const definition = serviceDefinition(config, host.platform, installedCli, readinessInstance, host.homeDirectory);
+  const windowsUserSid = host.platform === "win32" ? await installingWindowsUserSid(host) : undefined;
+  const definition = serviceDefinition(
+    config,
+    host.platform,
+    installedCli,
+    readinessInstance,
+    host.homeDirectory,
+    windowsUserSid,
+  );
   if (!serviceProgramBelongsTo(definition.content, config.paths.stateDir)) {
     throw new Error("gateway service program must be staged under the configured state directory");
   }
@@ -439,7 +483,7 @@ export async function uninstallUserService(
   // two roots sharing a HOME compute identically. Refuse first, so an uninstall run from one root
   // cannot stop, delete or unfile another root's service.
   await assertNoForeignServiceLabel(config, host);
-  const definition = serviceDefinition(config, host.platform, undefined, undefined, host.homeDirectory);
+  const definitionPath = serviceDefinitionPath(config, host.platform, host.homeDirectory);
   const status = await userServiceStatus(config, host);
   if (!deactivate && status.active) {
     throw new Error("cannot uninstall an active gateway with --no-stop");
@@ -468,6 +512,6 @@ export async function uninstallUserService(
     await host.run(["schtasks.exe", "/Delete", "/TN", "OMP Session Gateway", "/F"]);
   }
   await assertNoForeignServiceLabel(config, host);
-  await rm(definition.path, { force: true });
+  await rm(definitionPath, { force: true });
   if (host.platform === "linux") await host.run(["systemctl", "--user", "daemon-reload"]);
 }

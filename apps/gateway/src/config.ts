@@ -88,12 +88,21 @@ function windowsPowerShellEnvironment(): Record<string, string> {
 }
 
 /**
- * Newline-delimited JSON request loop over `Get-Acl`/`Set-Acl`.
+ * Newline-delimited JSON request loop: `apply` writes a path's owner and protected DACL, and
+ * `inspect` reads them back through `Get-Acl`.
  *
  * Starting `powershell.exe` measured 1.8-2.1 s on a 2-vCPU Windows Server 2025 host, and the daemon
  * secures or verifies five private paths before it can bind its loopback listener, so one process per
  * path consumed more than the whole `install` readiness budget and every install was torn back down
  * (#90). One process answers every request of a run instead.
+ *
+ * `apply` builds a fresh `DirectorySecurity` or `FileSecurity` holding only the owner and the DACL,
+ * and .NET's `SetAccessControl` persists only the sections a security object has changed, so no
+ * apply ever writes the SACL. It used to round-trip the path through `Get-Acl`/`Set-Acl`, and
+ * `Set-Acl` first tries to write the SACL as well. Without `SeSecurityPrivilege`, which a standard
+ * user's token does not hold, it retries without the SACL only when the new descriptor's
+ * audit-protection flag equals the target's DACL-protection flag. Once a path's DACL was protected
+ * those never matched, so every command after the first failed for a non-elevated user (#293).
  *
  * Paths arrive as JSON data and are never spliced into the script, so a hostile path cannot become
  * code. Each reply carries its request id back, so a failure can only be attributed to the path that
@@ -109,9 +118,12 @@ const WINDOWS_ACL_HELPER_SCRIPT = [
     "if($request.dir -eq 1){$flags='OICI'}else{$flags=''}; " +
     "if($request.op -eq 'apply'){ " +
     "$sddl='D:P(A;'+$flags+';FA;;;SY)(A;'+$flags+';FA;;;'+$sid+')'; " +
-    "$acl=Get-Acl -LiteralPath $path; $acl.SetSecurityDescriptorSddlForm($sddl); " +
-    "$acl.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
-    "Set-Acl -LiteralPath $path -AclObject $acl; $reply=[pscustomobject]@{i=$id;ok=$true} " +
+    "if($request.dir -eq 1){$security=[System.Security.AccessControl.DirectorySecurity]::new()}" +
+    "else{$security=[System.Security.AccessControl.FileSecurity]::new()}; " +
+    "$security.SetSecurityDescriptorSddlForm($sddl,[System.Security.AccessControl.AccessControlSections]::Access); " +
+    "$security.SetOwner([System.Security.Principal.SecurityIdentifier]::new($sid)); " +
+    "if($request.dir -eq 1){[System.IO.Directory]::SetAccessControl($path,$security)}" +
+    "else{[System.IO.File]::SetAccessControl($path,$security)}; $reply=[pscustomobject]@{i=$id;ok=$true} " +
     "}elseif($request.op -eq 'inspect'){ " +
     "$acl=Get-Acl -LiteralPath $path; $owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; " +
     "$descriptor=[System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl); " +

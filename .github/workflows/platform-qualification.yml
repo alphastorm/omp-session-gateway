@@ -131,6 +131,92 @@ jobs:
             Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
           if ($null -ne $process) { throw "gateway process remained after uninstall" }
+      - name: Install, reinstall, start, and uninstall as a standard user
+        # Every step above runs as the runner's administrator, whose token holds SeSecurityPrivilege
+        # and may register a task for any user's logon. A standard user's token has neither, and a
+        # non-elevated install failed on both counts (#293, #294) while this job stayed green. The
+        # administrator's task is gone by now, so this user's install owns the task name outright.
+        shell: pwsh
+        run: |
+          $user = "ompgatewaystandard"
+          # Fourteen characters at most: `net user` asks for confirmation beyond that and fails unanswered.
+          $password = "Omp!" + [Guid]::NewGuid().ToString("N").Substring(0, 8) + "1"
+          & net.exe user $user $password /add /expires:never
+          if ($LASTEXITCODE -ne 0) { throw "failed to create the standard user" }
+          $shared = "C:\omp-gateway-standard-user"
+          try {
+            # setup-bun installs under the administrator's profile, which no other user can read.
+            New-Item -ItemType Directory -Force -Path $shared | Out-Null
+            Copy-Item -LiteralPath (Get-Command bun).Source -Destination "$shared\bun.exe"
+            foreach ($path in @($shared, $env:GITHUB_WORKSPACE)) {
+              & icacls.exe $path /grant "${user}:(OI)(CI)RX" /Q | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "failed to grant the standard user read access to $path" }
+            }
+            $credential = [pscredential]::new("$env:COMPUTERNAME\$user", (ConvertTo-SecureString $password -AsPlainText -Force))
+            function Invoke-AsStandardUser([string]$file, [string[]]$arguments) {
+              $stdoutPath = Join-Path $shared "stdout.txt"
+              $stderrPath = Join-Path $shared "stderr.txt"
+              # -UseNewEnvironment builds the child's environment from its own profile. Without it
+              # the child inherits this process's LOCALAPPDATA and installs into the administrator's.
+              $process = Start-Process -FilePath $file -ArgumentList $arguments -Credential $credential `
+                -LoadUserProfile -UseNewEnvironment -WorkingDirectory $env:GITHUB_WORKSPACE `
+                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru
+              $result = [pscustomobject]@{
+                ExitCode = $process.ExitCode
+                Stdout = Get-Content -Raw -LiteralPath $stdoutPath
+                Stderr = Get-Content -Raw -LiteralPath $stderrPath
+              }
+              Write-Host "$file $($arguments -join ' ') exited $($result.ExitCode)"
+              if ($result.Stdout) { Write-Host $result.Stdout }
+              if ($result.Stderr) { Write-Host $result.Stderr }
+              $result
+            }
+            # Evidence only if the token really lacks what an administrator's holds.
+            $privileges = Invoke-AsStandardUser "whoami.exe" @("/priv")
+            if ($privileges.ExitCode -ne 0 -or -not $privileges.Stdout -or $privileges.Stdout -match "SeSecurityPrivilege") {
+              throw "the standard user's token holds SeSecurityPrivilege, so this step would prove nothing"
+            }
+            $cli = "apps\gateway\src\cli.ts"
+            $install = @($cli, "install", "--no-start", "--origin", "https://gateway.example.ts.net", "--allow", "allowed@example.com")
+            # The second install re-secures every private path the first one protected.
+            foreach ($attempt in 1..2) {
+              if ((Invoke-AsStandardUser "$shared\bun.exe" $install).ExitCode -ne 0) { throw "standard-user install $attempt failed" }
+            }
+            # --no-start leaves the task idle, so status exits 1 for inactivity; its report still has to hold.
+            $status = (Invoke-AsStandardUser "$shared\bun.exe" @($cli, "status")).Stdout | ConvertFrom-Json
+            if (-not $status.installed -or $status.active -or $status.diverged -or -not $status.activeVersion -or $status.activeVersion -ne $status.serviceVersion) {
+              throw "standard-user install did not register an idle task for the version it activated"
+            }
+            # No logon session exists here to fire the trigger, so start the command the task would:
+            # the installed runtime, as this user, from Task Scheduler's default directory. It
+            # re-secures every private path at startup and has to answer readiness as that user.
+            $action = @((Get-ScheduledTask -TaskName 'OMP Session Gateway').Actions)[0]
+            $serveStdout = Join-Path $shared "serve-stdout.txt"
+            $serveStderr = Join-Path $shared "serve-stderr.txt"
+            $serve = Start-Process -FilePath $action.Execute -ArgumentList $action.Arguments -Credential $credential `
+              -LoadUserProfile -UseNewEnvironment -WorkingDirectory "$env:SystemRoot\System32" `
+              -RedirectStandardOutput $serveStdout -RedirectStandardError $serveStderr -PassThru
+            try {
+              # The Windows install readiness budget, which covers the ACL helper's cold start.
+              $deadline = (Get-Date).AddSeconds(60)
+              do {
+                Start-Sleep -Seconds 3
+                $status = (Invoke-AsStandardUser "$shared\bun.exe" @($cli, "status")).Stdout | ConvertFrom-Json
+              } until ($status.ready -or (Get-Date) -gt $deadline)
+              if (-not $status.ready) {
+                Get-Content -LiteralPath $serveStdout, $serveStderr -ErrorAction SilentlyContinue | Write-Host
+                throw "the installed gateway never answered readiness as the standard user"
+              }
+            } finally {
+              Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue
+            }
+            if ((Invoke-AsStandardUser "$shared\bun.exe" @($cli, "uninstall")).ExitCode -ne 0) { throw "standard-user uninstall failed" }
+            if ($null -ne (Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue)) {
+              throw "scheduled task remained after the standard user's uninstall"
+            }
+          } finally {
+            & net.exe user $user /delete | Out-Null
+          }
 
   # Native aarch64 coverage for the repository's own suites and for the pinned mainline OMP source.
   #
