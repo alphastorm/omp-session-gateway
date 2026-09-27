@@ -12,7 +12,7 @@ import { parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./
 import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
-import { readProvider } from "./provider-read.ts";
+import { confirmAbsence, readProvider } from "./provider-read.ts";
 
 const root = resolve(import.meta.dir, "..");
 const privateRoot = join(homedir(), ".local/share/omp-session-gateway/qualification");
@@ -192,8 +192,8 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
   const provider = {
     instances: () => list<WindowsInstance>("instances", "instances"),
     firewalls: () => list<WindowsFirewall>("firewalls", "firewall_groups"),
-    instance: async (id: string) => (await api<{ instance: WindowsInstance }>(`instances/${encodeURIComponent(id)}`))?.instance,
-    firewall: async (id: string) => (await api<{ firewall_group: WindowsFirewall }>(`firewalls/${encodeURIComponent(id)}`))?.firewall_group,
+    instance: (id: string) => confirmAbsence(async () => (await api<{ instance: WindowsInstance }>(`instances/${encodeURIComponent(id)}`))?.instance),
+    firewall: (id: string) => confirmAbsence(async () => (await api<{ firewall_group: WindowsFirewall }>(`firewalls/${encodeURIComponent(id)}`))?.firewall_group),
     async createFirewall(label: string) {
       if (!egress) throw new Error("Windows preflight was not performed");
       const item = await api<{ firewall_group: WindowsFirewall }>("firewalls", "POST", { description: label });
@@ -496,7 +496,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       if (!listing) throw new Error("tailnet listing failed");
       const matches = listing.devices.filter(item => item.hostname === windowsCampaignLabel(context.epoch));
       for (const match of matches) {
-        const fresh = await request<{ id: string; hostname: string }>(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders);
+        const fresh = await confirmAbsence(() => request<{ id: string; hostname: string }>(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders));
         if (!fresh) continue;
         if (fresh.hostname !== windowsCampaignLabel(context.epoch)) throw new Error("tailnet ownership changed");
         await context.beforeEffect(); await request(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders, "DELETE");
