@@ -338,12 +338,15 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 async function windowsTaskActive(host: ServiceHost): Promise<boolean> {
+  // The Task Scheduler's own COM interface, not its CIM cmdlets: WMI refuses a standard user's network
+  // logon (SSH, WinRM), where `Get-ScheduledTask` failed and a running task read as stopped. State 4
+  // is TASK_STATE_RUNNING; GetTask throws when no task carries the name.
   return host.succeeds([
     "powershell.exe",
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "if ((Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction Stop).State -eq 'Running') { exit 0 } else { exit 1 }",
+    "try { $scheduler = New-Object -ComObject Schedule.Service; $scheduler.Connect(); if ($scheduler.GetFolder('\\').GetTask('OMP Session Gateway').State -eq 4) { exit 0 } } catch {}; exit 1",
   ]);
 }
 

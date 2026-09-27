@@ -34,6 +34,11 @@ hold (#293), and the logon task could only be registered by an administrator (#2
   logon trigger named no user, so it fired on any user's logon, and only an administrator may
   register that. The trigger now names the installing user's SID. The gateway still starts at that
   user's interactive logon, with that user's token and least privilege.
+- On Windows, `status` and `doctor` reported a standard user's running gateway as stopped when run
+  over SSH or another network logon, and an upgrade or uninstall then stopped waiting for the task
+  to end. The gateway read the task's state through `Get-ScheduledTask`, and WMI refuses those
+  cmdlets to a standard user's network logon. It now asks the Task Scheduler's COM interface, which
+  answers any account for its own task. The stable qualification's standard-user lane found this.
 
 ## [v0.6.2] — 2026-09-26
 

@@ -225,7 +225,7 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Windows installs and runs from a standard (non-elevated) account. v0.6.2 and earlier failed there twice: re-securing private folders required SeSecurityPrivilege, which only administrators hold (#293), and the scheduled task's logon trigger named no user, which only an administrator may register (#294). The trigger now names the installing user.
+          - Windows installs and runs from a standard (non-elevated) account. v0.6.2 and earlier failed there twice: re-securing private folders required SeSecurityPrivilege, which only administrators hold (#293), and the scheduled task's logon trigger named no user, which only an administrator may register (#294). The trigger now names the installing user. Over SSH or another network logon, status and doctor also read a standard account's running gateway as stopped, because WMI refuses that logon the Task Scheduler's cmdlets; the gateway now asks the Task Scheduler directly.
           - The Windows Server 2025 qualification also installs the candidate as a standard local user and proves that account's reboot, automatic start at its own logon, doctor, readiness rotation, and uninstall. The predecessor, upgrade, rollback, OMP, and Pixel steps still run as Administrator, because v0.6.2 cannot run without elevation.
           - The rest of the qualified matrix is unchanged; every lane passed again on these bytes.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
@@ -276,7 +276,7 @@ jobs:
 
           ### Changes to test
 
-          - Windows install, restart, readiness rotation, and uninstall from a standard (non-elevated) account: private folders are re-secured without SeSecurityPrivilege (#293), and the scheduled task's logon trigger names the installing user (#294).
+          - Windows install, restart, readiness rotation, and uninstall from a standard (non-elevated) account: private folders are re-secured without SeSecurityPrivilege (#293), the scheduled task's logon trigger names the installing user (#294), and status and doctor read the task's state through the Task Scheduler's COM interface, including over a network logon.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 

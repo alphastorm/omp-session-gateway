@@ -757,7 +757,7 @@ function fakeManager(
       state.running = initial.adopts !== undefined;
       return { ok: true };
     }
-    // `Get-ScheduledTask -ErrorAction Stop` fails outright when no task carries the name.
+    // The Task Scheduler's GetTask throws when no task carries the name, which reads as not running.
     if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
     if (is("whoami.exe", "/user", "/fo", "csv", "/nh")) return { ok: true, stdout: `"desktop\\gateway-user","${windowsUserSid}"\r\n` };
     if (is("schtasks.exe", "/Query")) return { ok: true };
