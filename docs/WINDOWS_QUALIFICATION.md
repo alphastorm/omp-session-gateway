@@ -174,6 +174,40 @@ Development resume is refused after three hours, and every VM must be destroyed 
 hours of creation. The current development campaign permits six total VM creations, one at a
 time. Production failures retain their unconditional cleanup semantics.
 
+### Development evidence — 2026-09-27: standard-user sub-lane
+
+Tested evidence only; none of it qualifies a release. Both runs paired the candidate with published
+v0.6.2.
+
+On `v0.6.3-prealpha.1`, one VM passed every Administrator phase, including the Pixel, then the
+account's token check, the Tailscale handover, and the account's tagged join and first RDP logon. It
+failed four times on the way, each diagnosed on the retained guest:
+
+- The WinRM bootstrap read `WSMan:\localhost\Service\AllowUnencrypted` for every account. A standard
+  account cannot and got `ItemNotFoundException`, so the check now runs for the Administrator only.
+- Vultr answered one lookup of the running, owned VM as absent, failing the lane with the VM
+  healthy. An owned instance, firewall, or tailnet device is now absent only when a second read,
+  five seconds later, agrees.
+- `Get-NetAdapter` threw `CimJobException` as the account. Over its network logon, WMI refused every
+  CIM query (`Win32_Process`, `Get-NetTCPConnection`, `Get-ScheduledTask`, `Get-NetAdapter`), while
+  the Task Scheduler's COM interface and .NET's interface and listener tables answered. The join now
+  reads the interface table, and the Administrator observes the account's task, processes, and
+  listener.
+- The account's fresh install then read `active: false` from the product's own `status` while its
+  task ran (COM state 4). That was a product defect: WMI refused `Get-ScheduledTask` to a standard
+  user's network logon, including SSH. PR #298 fixed it and the stop race its faster query exposed.
+
+Cleanup after the handover ran as the standard account and passed on its first attempt.
+
+On `v0.6.3-prealpha.2` (archive `5a1ba40e79a0…`), a fresh VM passed the whole lane with no failed
+phase attempt. The account's token carried neither Administrators nor `SeSecurityPrivilege`, and its
+fresh install became ready. Three pre-login samples over 63,487 ms held its task present but not
+running, with no process or listener. Its logon started the gateway in 72,072 ms. Its doctor passed
+15/18, with the Administrator's tagged-node false set (`identityAllowed`, `pwa`, `sessionHealth`).
+Rotation changed readiness and kept the config, and uninstall kept both. The eleven standard phases
+took 487 s. Both accounts' tasks named their own account in the logon trigger. Cleanup left zero
+instances and firewall groups, deleted the tailnet node, and removed the vault.
+
 ### Development evidence — 2026-09-24
 
 Published v0.5.3 and predecessor v0.5.2 passed local checksum, signed-tag, GitHub attestation,
