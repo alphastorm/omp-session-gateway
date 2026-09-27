@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fail closed on Windows when the gateway's scheduled task cannot be queried. Any failure other than
+  a missing task read as a stopped gateway, which is how the WMI refusal fixed in v0.6.3 misreported
+  a running one. Acting on that answer, `uninstall` could delete the task while the gateway kept
+  running, and `stop`, readiness-token rotation and `install --no-start` could treat it as stopped.
+  They now fail with the error, `status` reports it, and `doctor` fails its two service checks while
+  keeping the rest of its report.
+
 ## [v0.6.3] — 2026-09-27
 
 On Windows, the gateway installs and runs from a standard (non-elevated) account. v0.6.2 and

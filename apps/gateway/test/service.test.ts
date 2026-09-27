@@ -695,6 +695,8 @@ function fakeManager(
     readonly adopts?: string;
     /** The stop cannot end the gateway's process before its deadline. */
     readonly stopHangs?: boolean;
+    /** The Task Scheduler answers no query at all, as WMI once refused a standard user's network logon. */
+    readonly schedulerUnavailable?: boolean;
     readonly homeDirectory?: string;
   } = {},
 ): FakeManager {
@@ -765,14 +767,18 @@ function fakeManager(
       state.running = initial.adopts !== undefined;
       return { ok: true };
     }
+    // Neither Task Scheduler script gets an answer from a scheduler that cannot be reached.
+    if (command[0] === "powershell.exe" && initial.schedulerUnavailable) return { ok: false };
     // Stopping ends every instance and waits for the gateway's process; a missing task has nothing to stop.
     if (isWindowsTaskStop(command)) {
       if (initial.stopHangs && state.running) return { ok: false };
       state.running = false;
       return { ok: true };
     }
-    // The Task Scheduler's GetTask throws when no task carries the name, which reads as not running.
-    if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
+    // The state query names what the scheduler holds: no task by that name, an idle one, or a running one.
+    if (command[0] === "powershell.exe") {
+      return { ok: true, stdout: state.program === undefined ? "absent\r\n" : state.running ? "running\r\n" : "stopped\r\n" };
+    }
     if (is("whoami.exe", "/user", "/fo", "csv", "/nh")) return { ok: true, stdout: `"desktop\\gateway-user","${windowsUserSid}"\r\n` };
     if (is("schtasks.exe", "/Query")) return { ok: true };
     if (is("schtasks.exe", "/Query", "/TN", task, "/XML")) {
@@ -1271,5 +1277,21 @@ describe("service ownership across install roots", () => {
 
     expect(mutations(manager.commands)).toEqual(["Task Scheduler: stop OMP Session Gateway"]);
     expect(manager.state.program).toBe(current);
+  });
+
+  test("fails closed when the task's state cannot be read, before touching the task", async () => {
+    // A refused scheduler query once read as a stopped gateway: an uninstall trusting that answer
+    // skips the stop and deletes the task while the gateway keeps running without it.
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const manager = fakeManager("win32", { program, running: true, schedulerUnavailable: true });
+
+    await expect(uninstallUserService(target, true, manager.host)).rejects.toThrow(
+      "cannot read the Windows gateway task's state",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(manager.state.program).toBe(program);
   });
 });

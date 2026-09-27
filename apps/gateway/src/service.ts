@@ -341,8 +341,12 @@ async function fileExists(path: string): Promise<boolean> {
 // logon (SSH, WinRM), where `Get-ScheduledTask` failed and a running task read as stopped.
 const WINDOWS_SCHEDULER = "$scheduler=New-Object -ComObject Schedule.Service; $scheduler.Connect()";
 const WINDOWS_TASK = "$task=$scheduler.GetFolder('\\').GetTask('OMP Session Gateway')";
-// State 4 is TASK_STATE_RUNNING; GetTask throws when no task carries the name.
-const WINDOWS_TASK_ACTIVE_SCRIPT = `try { ${WINDOWS_SCHEDULER}; ${WINDOWS_TASK}; if ($task.State -eq 4) { exit 0 } } catch {}; exit 1`;
+// GetTask's ERROR_FILE_NOT_FOUND (0x80070002) is the one failure meaning no task carries the name.
+// Anything else, such as a refused scheduler, is unknown state: rethrow it rather than report no task.
+const WINDOWS_TASK_ABSENT_ONLY =
+  "$e=$_.Exception; while ($e.InnerException) { $e=$e.InnerException }; if ($e.HResult -ne -2147024894) { throw }";
+// State 4 is TASK_STATE_RUNNING.
+const WINDOWS_TASK_STATE_SCRIPT = `$ErrorActionPreference='Stop'; ${WINDOWS_SCHEDULER}; try { ${WINDOWS_TASK} } catch { ${WINDOWS_TASK_ABSENT_ONLY}; 'absent'; exit 0 }; if ($task.State -eq 4) { 'running' } else { 'stopped' }`;
 // Ending a task reports it Ready at once, while the gateway it ran can hold its port for about 600 ms
 // more (run 36291384690), so a restart inside that window failed to bind. Wait for the process itself,
 // through a handle opened before the stop, so a reused PID cannot stand in for it. A missing task has
@@ -350,7 +354,7 @@ const WINDOWS_TASK_ACTIVE_SCRIPT = `try { ${WINDOWS_SCHEDULER}; ${WINDOWS_TASK};
 const WINDOWS_TASK_STOP_SCRIPT = [
   "$ErrorActionPreference='Stop'",
   WINDOWS_SCHEDULER,
-  `try { ${WINDOWS_TASK} } catch { exit 0 }`,
+  `try { ${WINDOWS_TASK} } catch { ${WINDOWS_TASK_ABSENT_ONLY}; exit 0 }`,
   "$processes=@($task.GetInstances(0) | ForEach-Object { Get-Process -Id $_.EnginePID -ErrorAction SilentlyContinue })",
   "foreach ($process in $processes) { try { [void]$process.Handle } catch {} }",
   "try { $task.Stop(0) } catch {}",
@@ -360,8 +364,14 @@ const WINDOWS_TASK_STOP_SCRIPT = [
   "exit 0",
 ].join("; ");
 
+/** Whether the gateway's task is running. A scheduler that cannot be read is never a stopped task. */
 async function windowsTaskActive(host: ServiceHost): Promise<boolean> {
-  return host.succeeds(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_TASK_ACTIVE_SCRIPT]);
+  const state = (
+    await host.output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_TASK_STATE_SCRIPT])
+  )?.trim();
+  if (state === "running") return true;
+  if (state === "stopped" || state === "absent") return false;
+  throw new Error("cannot read the Windows gateway task's state");
 }
 
 export async function assertServiceInstallPreflight(
