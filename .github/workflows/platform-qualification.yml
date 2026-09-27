@@ -126,7 +126,9 @@ jobs:
           if ($null -ne (Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue)) {
             throw "scheduled task remained after uninstall"
           }
-          Start-Sleep -Milliseconds 500
+          # No grace period: uninstall returns only after the gateway's process has exited. Ending a
+          # task reports it Ready at once while its process can hold the port ~600 ms longer (run
+          # 36291384690), and a restart inside that window failed to bind.
           $process = Get-CimInstance Win32_Process |
             Where-Object { $_.Name -eq 'bun.exe' -and $_.CommandLine -like '*OMP Session Gateway\state\installation\versions\*\apps\gateway\src\cli.js*serve*' } |
             Select-Object -First 1
