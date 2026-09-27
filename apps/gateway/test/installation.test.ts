@@ -17,6 +17,9 @@ import {
 } from "../src/installation.ts";
 import { serviceDefinition } from "../src/service.ts";
 
+/** Every Windows task definition names its installing account; any valid SID stands in for it here. */
+const windowsUserSid = "S-1-5-21-1111111111-2222222222-3333333333-1001";
+
 function config(root: string): GatewayConfig {
   return {
     http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "http://127.0.0.1:4317" },
@@ -267,7 +270,10 @@ test("recognizes its own service runtime when the state path needs escaping", as
     for (const runtime of [first, second]) await activateRuntime(gatewayConfig, runtime);
     for (const platform of ["darwin", "win32", "linux"] as const) {
       const definitionPath = join(root, `service-${platform}`);
-      await writeFile(definitionPath, serviceDefinition(gatewayConfig, platform, second.cliPath).content);
+      await writeFile(
+        definitionPath,
+        serviceDefinition(gatewayConfig, platform, second.cliPath, undefined, undefined, windowsUserSid).content,
+      );
       const state = await activationState(gatewayConfig, definitionPath);
       expect({ platform, serviceVersion: state.serviceVersion, diverged: state.diverged }).toEqual({
         platform,
@@ -524,7 +530,7 @@ test("divergence detection reads every platform's service-definition encoding", 
     }
 
     // Windows task XML is written as UTF-16LE with a BOM, exactly as `installUserService` encodes it.
-    const taskXml = serviceDefinition(gatewayConfig, "win32", staged.cliPath).content;
+    const taskXml = serviceDefinition(gatewayConfig, "win32", staged.cliPath, undefined, undefined, windowsUserSid).content;
     await writeFile(
       definitionPath,
       Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(taskXml, "utf16le")]),

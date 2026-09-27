@@ -10,7 +10,7 @@ Three hosted `windows-latest` lanes now exercise the mainline Windows host path:
 | Lane | Runs | What it exercises |
 |---|---|---|
 | `portable-source (windows-latest)` | every change | repository scan, typecheck, web build, 47 of 52 test files, both leak scans; `scripts/test-portable.ts` names the five host-bound exclusions and why |
-| `windows-service-lifecycle` | every change | gateway install as a current-user scheduled task, readiness, another local user denied the readiness token, rotation, port-changing reinstall, no-stop refusal, uninstall |
+| `windows-service-lifecycle` | every change | gateway install as a current-user scheduled task, readiness, another local user denied the readiness token, rotation, port-changing reinstall, no-stop refusal, uninstall; then, as a standard local user without `SeSecurityPrivilege`, install, reinstall, status, and uninstall with `--no-start` (#293, #294) |
 | `canary-windows` (upstream canary) | daily against latest stock OMP, and on canary or reader changes | stock OMP starts in its own hidden console and publishes its named pipe; the unchanged `OmpHostReader` reads the discovery entry, queries a snapshot, refuses a stale generation, and releases View and Control; both join through the default relay and Control's prompt echoes; the host tree is ended and its pipe observed gone |
 
 The Windows canary passed all six stages against stock OMP 18.3.0 in discovery runs

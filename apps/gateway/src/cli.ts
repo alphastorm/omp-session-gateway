@@ -37,7 +37,7 @@ import {
   assertServiceInstallPreflight,
   assertUserServiceOwnership,
   installUserService,
-  serviceDefinition,
+  serviceDefinitionPath,
   uninstallUserService,
   stopUserService,
   userServiceStatus,
@@ -412,7 +412,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
   // Cleanup is outside the revert boundary and only follows a readiness-proven activation.
   // --no-start commits a stopped runtime but cannot prove it is safe to discard older payloads.
   if (activate && config !== undefined) {
-    const counts = await pruneSupersededRuntimes(config, serviceDefinition(config).path);
+    const counts = await pruneSupersededRuntimes(config, serviceDefinitionPath(config));
     console.log(`Staged runtimes: retained ${counts.retained}, removed ${counts.removed}, failed ${counts.failed}.`);
   }
 }
@@ -479,7 +479,7 @@ async function runStatus(): Promise<void> {
   const [ready, service, activation] = await Promise.all([
     gatewayReady(config, readinessToken),
     userServiceStatus(config),
-    activationState(config, serviceDefinition(config).path),
+    activationState(config, serviceDefinitionPath(config)),
   ]);
   console.log(
     JSON.stringify({

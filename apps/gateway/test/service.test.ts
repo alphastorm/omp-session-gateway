@@ -7,6 +7,7 @@ import type { GatewayConfig } from "../src/config.ts";
 import {
   installUserService,
   serviceDefinition,
+  serviceDefinitionPath,
   type ServiceHost,
   serviceProgramBelongsTo,
   stopUserService,
@@ -39,6 +40,8 @@ const installedCliPath = join(config.paths.stateDir, "installation", "versions",
 const installedCliArgument = resolve(installedCliPath);
 /** 43 url-safe characters: one unpadded 256-bit base64url value, the only shape the code accepts. */
 const boundInstance = "readiness_Instance-9".padEnd(43, "x");
+/** The installing account every rendered Windows task is scoped to, as `whoami /user` reports it. */
+const windowsUserSid = "S-1-5-21-1111111111-2222222222-3333333333-1001";
 
 function withEnv(name: string, value: string | undefined, body: () => void): void {
   const previous = process.env[name];
@@ -223,7 +226,7 @@ describe("service packaging", () => {
   });
 
   test("generates least-privilege Windows logon task", () => {
-    const definition = serviceDefinition(config, "win32");
+    const definition = serviceDefinition(config, "win32", undefined, undefined, undefined, windowsUserSid);
     expect(definition.path).toEndWith("omp-session-gateway-task.xml");
     expect(definition.content).toStartWith('<?xml version="1.0" encoding="UTF-16"?>');
     expect(definition.content).toContain("<LogonType>InteractiveToken</LogonType>");
@@ -460,12 +463,14 @@ describe("macOS launch agent", () => {
 });
 
 describe("windows scheduled task", () => {
-  test("starts at interactive logon rather than at boot (#90)", () => {
+  test("starts at the installing user's interactive logon rather than at boot (#90, #294)", () => {
     // Deliberate and documented: the gateway serves a logged-in user's sessions with that user's
-    // token, so it starts with the session, not with the machine. Moving to boot-start means
-    // changing this test on purpose rather than changing behaviour by accident.
-    const content = serviceDefinition(config, "win32", installedCliPath).content;
-    expect(content).toContain("<LogonTrigger><Enabled>true</Enabled></LogonTrigger>");
+    // token, so it starts with that user's session, not with the machine. The trigger names the user:
+    // without a UserId it fires on anyone's logon, which only an administrator may register. Moving
+    // to boot-start means changing this test on purpose rather than changing behaviour by accident.
+    const content = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
+    expect(content).toContain(`<LogonTrigger><Enabled>true</Enabled><UserId>${windowsUserSid}</UserId></LogonTrigger>`);
+    expect(xmlElements(content).filter(element => element.endsWith("Trigger"))).toEqual(["LogonTrigger"]);
     expect(xmlText(content, "LogonType")).toBe("InteractiveToken");
     expect(content).not.toContain("BootTrigger");
     expect(content).not.toContain("ServiceAccount");
@@ -473,18 +478,29 @@ describe("windows scheduled task", () => {
     expect(content).not.toContain("Password");
   });
 
+  test("refuses to render a task without the installing user's SID (#294)", () => {
+    // Nothing but a SID may reach the trigger: an absent one is a task any logon starts, and markup
+    // in one could add a principal or a second trigger.
+    const rejected = [undefined, "", "DESKTOP\\gateway-user", "s-1-5-21-1001", `${windowsUserSid}</UserId><UserId>S-1-5-18`];
+    for (const sid of rejected) {
+      expect(() => serviceDefinition(config, "win32", installedCliPath, undefined, undefined, sid)).toThrow(
+        "a Windows task definition needs the installing user's SID",
+      );
+    }
+  });
+
   test("declares the UTF-16 encoding the installer writes and carries no BOM of its own", () => {
     // The installer serializes this document as UTF-16LE behind a hand-written BOM. Task Scheduler
     // refuses XML whose declaration disagrees with its bytes, and a BOM already in the string would
     // be encoded a second time and sit as a stray character in front of the declaration.
-    const content = serviceDefinition(config, "win32", installedCliPath).content;
+    const content = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
     expect(content).toStartWith('<?xml version="1.0" encoding="UTF-16"?>');
     expect(content).not.toContain("UTF-8");
     expect(content).not.toContain("\uFEFF");
   });
 
   test("splits the runtime from its arguments the way schtasks expects", () => {
-    const content = serviceDefinition(config, "win32", installedCliPath).content;
+    const content = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
     expect(xmlText(content, "Command")).toBe(process.execPath);
     expect(taskArguments(content)).toEqual([installedCliArgument, "serve"]);
     // Repeating the executable in <Arguments> would launch the runtime with itself as its script.
@@ -494,7 +510,7 @@ describe("windows scheduled task", () => {
   test("writes the task definition inside the config directory it was given", () => {
     // schtasks reads this path, and install mkdirs its parent at 0700. A path outside the config
     // root escapes every sandbox an isolated install sets up.
-    const definition = serviceDefinition(config, "win32", installedCliPath);
+    const definition = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid);
     expect(definition.path).toBe(join(config.paths.configDir, "omp-session-gateway-task.xml"));
   });
 
@@ -502,7 +518,7 @@ describe("windows scheduled task", () => {
     // IgnoreNew keeps a second logon from starting a rival daemon on the same socket;
     // AllowHardTerminate is what makes `schtasks /End` able to stop it; PT0S is what stops Task
     // Scheduler from killing a long-running service when the default execution time limit expires.
-    const content = serviceDefinition(config, "win32", installedCliPath).content;
+    const content = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
     expect(content).toContain("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>");
     expect(content).toContain("<AllowHardTerminate>true</AllowHardTerminate>");
     expect(content).toContain("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>");
@@ -510,8 +526,8 @@ describe("windows scheduled task", () => {
 
   test("escapes markup in a program path instead of emitting another task element", () => {
     const hostile = join(sep, "tmp", "gateway&danger", "</Arguments><Exec><Command>evil.exe</Command><Arguments>cli.js");
-    const benign = serviceDefinition(config, "win32", join(sep, "tmp", "gateway", "cli.js")).content;
-    const injected = serviceDefinition(config, "win32", hostile).content;
+    const benign = serviceDefinition(config, "win32", join(sep, "tmp", "gateway", "cli.js"), undefined, undefined, windowsUserSid).content;
+    const injected = serviceDefinition(config, "win32", hostile, undefined, undefined, windowsUserSid).content;
     expect(xmlElements(injected)).toEqual(xmlElements(benign));
     expect(injected).toContain("&lt;Exec&gt;");
     expect(injected).toContain("&amp;danger");
@@ -529,7 +545,7 @@ describe("service argv", () => {
       expect(unitTokens(serviceDefinition(config, "linux", installedCliPath).content, "ExecStart")).toEqual(expected);
     });
     expect(plistProgramArguments(serviceDefinition(config, "darwin", installedCliPath).content)).toEqual(expected);
-    const task = serviceDefinition(config, "win32", installedCliPath).content;
+    const task = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
     expect([xmlText(task, "Command"), ...taskArguments(task)]).toEqual(expected);
   });
 
@@ -544,7 +560,7 @@ describe("service argv", () => {
     });
     const plist = serviceDefinition(config, "darwin", installedCliPath, boundInstance).content;
     expect(plistProgramArguments(plist)).toEqual(expected);
-    const task = serviceDefinition(config, "win32", installedCliPath, boundInstance).content;
+    const task = serviceDefinition(config, "win32", installedCliPath, boundInstance, undefined, windowsUserSid).content;
     expect([xmlText(task, "Command"), ...taskArguments(task)]).toEqual(expected);
   });
 
@@ -552,7 +568,8 @@ describe("service argv", () => {
     // An empty or dangling `--readiness-instance` would make the daemon refuse to start; the flag
     // has to be absent, not present-and-empty.
     for (const platform of ["linux", "darwin", "win32"] as const) {
-      expect(serviceDefinition(config, platform, installedCliPath).content).not.toContain("--readiness-instance");
+      const content = serviceDefinition(config, platform, installedCliPath, undefined, undefined, windowsUserSid).content;
+      expect(content).not.toContain("--readiness-instance");
     }
   });
 
@@ -742,6 +759,7 @@ function fakeManager(
     }
     // `Get-ScheduledTask -ErrorAction Stop` fails outright when no task carries the name.
     if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
+    if (is("whoami.exe", "/user", "/fo", "csv", "/nh")) return { ok: true, stdout: `"desktop\\gateway-user","${windowsUserSid}"\r\n` };
     if (is("schtasks.exe", "/Query")) return { ok: true };
     if (is("schtasks.exe", "/Query", "/TN", task, "/XML")) {
       return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
@@ -944,7 +962,7 @@ describe("service ownership across install roots", () => {
     const target = rootedConfig(root);
     const foreign = foreignProgram(root);
     const manager = fakeManager("win32", { program: foreign, running: false });
-    const definitionPath = serviceDefinition(target, "win32").path;
+    const definitionPath = serviceDefinitionPath(target, "win32");
 
     await expect(
       installUserService(target, true, stagedProgram(target.paths.stateDir, "0.1.0-111111111111"), boundInstance, manager.host),
@@ -1035,10 +1053,33 @@ describe("service ownership across install roots", () => {
     const written = await readFile(definition.path);
     expect([...written.subarray(0, 2)]).toEqual([0xff, 0xfe]);
     expect(written.subarray(2).toString("utf16le")).toBe(definition.content);
+    // The trigger names the account `whoami` reported, never any user's logon (#294).
+    expect(xmlText(definition.content, "UserId")).toBe(windowsUserSid);
     expect(mutations(manager.commands)).toEqual([
       `schtasks.exe /Create /TN OMP Session Gateway /XML ${definition.path} /F`,
       "schtasks.exe /Run /TN OMP Session Gateway",
     ]);
+  });
+
+  test("registers nothing when the installing user's SID is unavailable (#294)", async () => {
+    // Falling back to a trigger without a UserId would register a task any logon starts, or fail
+    // for a standard user only after the definition had been written.
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const program = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const manager = fakeManager("win32", { adopts: program });
+    const host: ServiceHost = {
+      ...manager.host,
+      output: async command => (command[0] === "whoami.exe" ? undefined : manager.host.output(command)),
+    };
+
+    await expect(installUserService(target, true, program, boundInstance, host)).rejects.toThrow(
+      "cannot determine the installing Windows user's SID",
+    );
+
+    expect(mutations(manager.commands)).toEqual([]);
+    expect(existsSync(serviceDefinitionPath(target, "win32"))).toBe(false);
+    expect(manager.state.program).toBeUndefined();
   });
 
   test("stops, recreates and runs a task this root already owns", async () => {
@@ -1069,7 +1110,7 @@ describe("service ownership across install roots", () => {
     const target = rootedConfig(root);
     const foreign = foreignProgram(root);
     const manager = fakeManager("win32", { program: foreign, running: true });
-    const definitionPath = serviceDefinition(target, "win32").path;
+    const definitionPath = serviceDefinitionPath(target, "win32");
     await mkdir(dirname(definitionPath), { recursive: true, mode: 0o700 });
     await writeFile(definitionPath, "definition owned by the other root\n");
 

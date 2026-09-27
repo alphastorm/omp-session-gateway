@@ -123,10 +123,10 @@ Service mechanisms (qualification is limited to the exact release matrix):
 - Linux: systemd user service named `omp-session-gateway.service`; Debian 13 x86-64 is qualified,
   not every Linux distribution or non-systemd host;
 - macOS: LaunchAgent under the current user; starts after that user logs in, not at unattended boot;
-- Windows: current-user scheduled task that starts at interactive logon, not at unattended boot;
-  Windows Server 2025 x86-64 is qualified ([Windows qualification](WINDOWS_QUALIFICATION.md)), and
-  other versions are supported and CI-tested (service lifecycle on every change, a daily stock-OMP
-  named-pipe canary).
+- Windows: current-user scheduled task that starts at that user's interactive logon, not at
+  unattended boot; Windows Server 2025 x86-64 is qualified
+  ([Windows qualification](WINDOWS_QUALIFICATION.md)), and other versions are supported and
+  CI-tested (service lifecycle on every change, a daily stock-OMP named-pipe canary).
 
 Operator commands:
 

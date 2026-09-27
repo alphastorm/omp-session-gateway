@@ -6,6 +6,28 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- The `windows-service-lifecycle` CI lane also installs, reinstalls, and uninstalls the gateway as
+  a standard local user, whose token has no `SeSecurityPrivilege` and may register tasks only for
+  its own logon. Every earlier step runs as the runner's administrator, which is why neither defect
+  below was caught.
+
+### Fixed
+
+- On Windows, a standard (non-elevated) user's install failed with "The process does not possess
+  the 'SeSecurityPrivilege' privilege" and rolled back
+  ([#293](https://github.com/alphastorm/omp-session-gateway/issues/293)). The private-ACL helper
+  re-secured each private path through `Get-Acl` and `Set-Acl`. Once a path's DACL was protected,
+  `Set-Acl` also tried to write its SACL, which needs a privilege only administrators hold, so every
+  command after the first failed. The helper now writes only the owner and the DACL, from a fresh
+  security object, whether or not the caller is elevated. The ACL it checks for is unchanged.
+- On Windows, a standard user's install also failed with "Access is denied" from `schtasks`
+  ([#294](https://github.com/alphastorm/omp-session-gateway/issues/294)). The scheduled task's
+  logon trigger named no user, so it fired on any user's logon, and only an administrator may
+  register that. The trigger now names the installing user's SID. The gateway still starts at that
+  user's interactive logon, with that user's token and least privilege.
+
 ## [v0.6.2] — 2026-09-26
 
 The gateway, PWA, and collaboration client are unchanged from v0.6.1. This release qualifies iPhone,
