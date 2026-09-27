@@ -29,3 +29,6 @@ site/logo.svg
 site/favicon.svg
 site/og.png
 site/product-flow.png
+
+# Python bytecode
+__pycache__/
