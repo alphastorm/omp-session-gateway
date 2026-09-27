@@ -1,13 +1,16 @@
 # Upgrade and rollback lane
 
-## v0.6.2 predecessor compatibility
+## v0.6.3 predecessor compatibility
 
-The selected predecessor is published v0.6.1. Gateway rollback does not change the separately
-running OMP process. The two signed archives hold the same 50 files and differ only in version
-strings and release metadata, so rollback changes no gateway, PWA, or collaboration-client
-behavior. After a v0.6.2 install, `rollback --to` can select only the runtimes pruning retained.
-v0.6.0, one step further back, cannot enable background alerts on iPhone or iPad: it rejects
-WebKit's push subscription, which leaves out a null `expirationTime` (#274).
+The selected predecessor is published v0.6.2. Gateway rollback does not change the separately
+running OMP process. v0.6.2 cannot be installed or run from a standard (non-elevated) Windows
+account: its install fails on `SeSecurityPrivilege` (#293) and then on registering the logon task
+(#294). Rolling back to it on Windows therefore needs an elevated install. There, its `status` and
+`doctor` read a standard user's running gateway as stopped over SSH, and its stop can return before
+the gateway's process exits. Linux and macOS behavior does not differ between the two. After a
+v0.6.3 install, `rollback --to` can select only the runtimes pruning retained. v0.6.0, further back,
+cannot enable background alerts on iPhone or iPad: it rejects WebKit's push subscription, which
+leaves out a null `expirationTime` (#274).
 
 ## Staged-runtime retention from v0.5.2
 
