@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.6.3] — 2026-09-27
+
+On Windows, the gateway installs and runs from a standard (non-elevated) account. v0.6.2 and
+earlier failed there twice: re-securing private folders required a privilege only administrators
+hold (#293), and the logon task could only be registered by an administrator (#294).
+
 ### Added
 
 - The `windows-service-lifecycle` CI lane also installs, reinstalls, and uninstalls the gateway as

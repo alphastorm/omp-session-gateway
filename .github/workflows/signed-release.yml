@@ -225,8 +225,9 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - iPhone, iPad, and Galaxy browsers enter the qualified matrix on real devices in TestingBot's cloud: the signed candidate passed the directory, View, Control, prompt, and capability-sink journey on each, and on the iPhone the Home Screen app enabled background alerts and a delivered alert opened Control. The gateway is unchanged from v0.6.1.
-          - The rest of the qualified matrix is unchanged, including the Windows Server 2025 host and background Web Push on the Pixel; every lane passed again on these bytes.
+          - Windows installs and runs from a standard (non-elevated) account. v0.6.2 and earlier failed there twice: re-securing private folders required SeSecurityPrivilege, which only administrators hold (#293), and the scheduled task's logon trigger named no user, which only an administrator may register (#294). The trigger now names the installing user.
+          - The Windows Server 2025 qualification also installs the candidate as a standard local user and proves that account's reboot, automatic start at its own logon, doctor, readiness rotation, and uninstall. The predecessor, upgrade, rollback, OMP, and Pixel steps still run as Administrator, because v0.6.2 cannot run without elevation.
+          - The rest of the qualified matrix is unchanged; every lane passed again on these bytes.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -235,7 +236,7 @@ jobs:
           |---|---|
           | host | Debian 13 (trixie) x86-64 |
           | host | macOS arm64 (Mac14,3) |
-          | host | Windows Server 2025 x86-64, started at interactive logon |
+          | host | Windows Server 2025 x86-64, started at interactive logon; Administrator lifecycle plus a fresh standard-user install |
           | client | Chrome on Android (Pixel 10 Pro), including background Web Push |
           | client | Safari on iPhone and iPad, real devices in TestingBot's cloud, in the browser; iPhone background alerts in the Home Screen app |
           | client | Chrome on a Galaxy phone, a real device in TestingBot's cloud, in the browser |
@@ -260,7 +261,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.6.1 predecessor runs the same gateway code; only its version and qualification record differ. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.6.2 predecessor cannot be installed or run from a standard Windows account (#293, #294), so rolling back to it on Windows needs an elevated install. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -275,7 +276,7 @@ jobs:
 
           ### Changes to test
 
-          - No gateway, PWA, or collaboration-client changes from v0.6.1; this candidate exists to qualify iPhone, iPad, and Galaxy browsers on real devices in TestingBot's cloud (ADR-032).
+          - Windows install, restart, readiness rotation, and uninstall from a standard (non-elevated) account: private folders are re-secured without SeSecurityPrivilege (#293), and the scheduled task's logon trigger names the installing user (#294).
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -287,12 +288,12 @@ jobs:
 
           - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
-          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host, Chrome on the physical Pixel, including its background-Push lane, and real iPhone, iPad, and Galaxy devices in TestingBot's cloud must pass against these exact signed bytes before stable promotion.
+          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install), Chrome on the physical Pixel, including its background-Push lane, and real iPhone, iPad, and Galaxy devices in TestingBot's cloud must pass against these exact signed bytes before stable promotion.
           - The Chrome process-wide network wedge remains a disclosed environment limitation; Portal Tunnel and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          The selected predecessor is v0.6.1, which runs the same gateway code; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.6.2; pruning keeps it installed as the recorded rollback target. v0.6.2 cannot be installed or run from a standard Windows account, so rolling back to it on Windows needs an elevated install. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

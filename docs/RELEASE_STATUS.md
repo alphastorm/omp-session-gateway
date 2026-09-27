@@ -1,5 +1,25 @@
 # Release status
 
+## v0.6.3 preparation — not yet qualified or published
+
+The candidate fixes two Windows defects that made every install from a standard (non-elevated)
+account fail (#293, #294; PR #295): re-securing a private folder whose DACL was already protected
+demanded `SeSecurityPrivilege`, and the scheduled task's logon trigger named no user, which only an
+administrator may register. Hosted CI (`windows-service-lifecycle`) now installs, reinstalls,
+starts, and uninstalls as a standard local user. Before the fixes that step failed with
+`SeSecurityPrivilege`
+([36284537360](https://github.com/alphastorm/omp-session-gateway/actions/runs/36284537360)); with
+only #293 fixed, `schtasks` refused the task
+([36284539088](https://github.com/alphastorm/omp-session-gateway/actions/runs/36284539088)); with
+both it passed
+([36284540799](https://github.com/alphastorm/omp-session-gateway/actions/runs/36284540799),
+[36285442942](https://github.com/alphastorm/omp-session-gateway/actions/runs/36285442942)). That is
+CI evidence, not qualification. Before the campaign, the Windows qualification lane gains a fresh
+install, reboot, logon start, doctor, rotation, and uninstall as a standard local user; its
+predecessor, upgrade, rollback, OMP, and Pixel steps stay Administrator because v0.6.2 cannot run
+without elevation. Published v0.6.2 remains the predecessor and current stable; no v0.6.3
+qualification or publication is claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.6.2 — published stable
 
 **Updated:** 2026-09-26. [v0.6.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.2)
