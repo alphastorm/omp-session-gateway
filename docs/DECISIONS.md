@@ -823,7 +823,7 @@ qualified combinations as qualified, not as the limit of support.
 
 ## ADR-031 — Qualify a Windows host and Pixel background Web Push in every stable campaign
 
-**Status:** Accepted
+**Status:** Accepted; amended 2026-09-27 (standard-user fresh install)
 
 **Date:** 2026-09-25
 
@@ -863,6 +863,17 @@ installed app with notification permission for the retained Mac's origin. The Wi
 interactive logon, not at boot. Force-stop and Doze outcomes are recorded as observed variants,
 never as a delivery guarantee. Windows and background Push enter the qualified matrix only from a
 passed campaign on the exact signed candidate; development runs stay tested evidence.
+
+**Amendment — 2026-09-27:** Every campaign's Windows qualification had run as the built-in
+Administrator, so it could not see that a standard user's install failed twice: the ACL helper
+needed `SeSecurityPrivilege` (#293), and the account-less logon trigger needed elevation to register
+(#294). After the Administrator journey, the `windows` lane now installs the same candidate fresh as
+a local account outside Administrators whose token lacks `SeSecurityPrivilege`, reboots, and requires
+automatic start at that account's logon, a full doctor, rotation, and uninstall. Tailscale serves
+one Windows user at a time, so the Administrator signs out of it and the account joins as a new
+tagged node. Upgrade, rollback, OMP, and the Pixel stay on the Administrator path, because the
+predecessor cannot install without elevation. The receipt schema is unchanged; the new observations
+carry a `standard` prefix.
 
 ## ADR-032 — Qualify iPhone, iPad, and Android browsers on real cloud devices in every stable campaign
 

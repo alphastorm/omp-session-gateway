@@ -20,3 +20,19 @@ export async function readProvider(
     await sleep(2_000 * attempt);
   }
 }
+
+/**
+ * Absence is a different transient: Vultr once answered its own running instance's lookup as missing,
+ * between two WinRM calls a minute apart (2026-09-27), which failed the lane with its VM healthy. An
+ * owned resource is absent only when a second read, after a pause, agrees. A real deletion stays
+ * absent, so a caller waiting for one sees it a pause later.
+ */
+export async function confirmAbsence<T>(
+  read: () => Promise<T | undefined>,
+  options: { readonly sleep?: (milliseconds: number) => Promise<void> } = {},
+): Promise<T | undefined> {
+  const first = await read();
+  if (first !== undefined) return first;
+  await (options.sleep ?? (async (milliseconds: number) => void (await Bun.sleep(milliseconds))))(5_000);
+  return read();
+}

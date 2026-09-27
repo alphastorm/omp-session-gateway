@@ -39,20 +39,39 @@ function DoctorReport {
   if ($code -notin @(0, 1)) { throw 'doctor execution failed' }
   ($text | Out-String) | ConvertFrom-Json
 }
+function BackendState {
+  # Another Windows user's hold on Tailscale refuses the CLI outright; that reads as no state.
+  $previousPreference = $ErrorActionPreference
+  try { $ErrorActionPreference = 'Continue'; $text = & $ts status --json 2>$null | Out-String }
+  finally { $ErrorActionPreference = $previousPreference }
+  try { [string]($text | ConvertFrom-Json).BackendState } catch { '' }
+}
+function OwnedSessions($account, $names) {
+  # A process can exit between enumeration and GetOwner; it then belongs to no one.
+  @(Get-CimInstance Win32_Process | Where-Object { $_.SessionId -gt 0 -and $names -contains $_.Name } | Where-Object {
+    try { (Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction Stop).User -eq $account } catch { $false }
+  } | ForEach-Object { $_.SessionId } | Sort-Object -Unique)
+}
 function State {
   $task = Get-ScheduledTask -TaskName 'OMP Session Gateway' -ErrorAction SilentlyContinue
-  $logonTrigger = $false; $interactivePrincipal = $false
+  $logonTrigger = $false; $interactivePrincipal = $false; $logonTriggerScoped = $false
   if ($task) {
     $definition = [xml](Export-ScheduledTask -TaskName 'OMP Session Gateway')
     $triggers = @($definition.Task.Triggers.ChildNodes | Where-Object { $_ -is [Xml.XmlElement] })
     $principals = @($definition.Task.Principals.Principal)
     $logonTrigger = $triggers.Count -eq 1 -and $triggers[0].LocalName -eq 'LogonTrigger' -and $task.Triggers[0].Enabled -eq $true
     $interactivePrincipal = $principals.Count -eq 1 -and $principals[0].LogonType -eq 'InteractiveToken' -and $task.Principal.RunLevel -eq 'Limited'
+    # The trigger must name the account the task runs as: without a user it fires on anyone's logon (#294).
+    try {
+      $sid = { param($name) if ($name -match '^S-1-') { $name } else { ([Security.Principal.NTAccount]$name).Translate([Security.Principal.SecurityIdentifier]).Value } }
+      $triggerUser = [string]$task.Triggers[0].UserId
+      $logonTriggerScoped = $triggerUser.Length -gt 0 -and (& $sid $triggerUser) -eq (& $sid ([string]$task.Principal.UserId))
+    } catch { $logonTriggerScoped = $false }
   }
   $procs = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('OMP Session Gateway\state\') -and $_.CommandLine -match 'cli\.js.+serve' })
   $listeners = @(Get-NetTCPConnection -LocalPort 4317 -State Listen -ErrorAction SilentlyContinue)
   @{ taskPresent = $null -ne $task; taskRunning = $task.State -eq 'Running'; gatewayProcesses = $procs.Count; listeners = $listeners.Count;
-    loopbackOnly = $listeners.Count -eq 1 -and $listeners[0].LocalAddress -eq '127.0.0.1'; logonTrigger = $logonTrigger; interactivePrincipal = $interactivePrincipal }
+    loopbackOnly = $listeners.Count -eq 1 -and $listeners[0].LocalAddress -eq '127.0.0.1'; logonTrigger = $logonTrigger; interactivePrincipal = $interactivePrincipal; logonTriggerScoped = $logonTriggerScoped }
 }
 function Preserved {
   @{ configPreserved = (Digest "$base\config.json") -eq $p.configDigest;
@@ -63,9 +82,13 @@ function Installed($version) {
   if (-not $s.ready -or -not $s.installed -or -not $s.active -or $s.diverged -or $s.authMode -ne 'tailscale-serve' -or $s.activeVersion -ne $s.serviceVersion -or -not $s.activeVersion.StartsWith($version + '-')) { throw 'installed identity/readiness mismatch' }
   $config = Get-Content -Raw "$base\config.json" | ConvertFrom-Json
   if ($config.auth.mode -ne 'tailscale-serve' -or @($config.auth.allowedLogins).Count -ne 1 -or $config.auth.allowedLogins[0] -ne $p.login) { throw 'gateway exact-login allowlist mismatch' }
-  $state = State
-  if (-not $state.loopbackOnly) { throw 'gateway listener is not loopback-only' }
-  $r = Preserved; $r.ready = $true; $r.loopbackOnly = $true; $r
+  $r = Preserved; $r.ready = $true
+  # WMI refuses a standard account's network logon, so the Administrator observes its listener.
+  if ($p.principal -ne 'standard') {
+    if (-not (State).loopbackOnly) { throw 'gateway listener is not loopback-only' }
+    $r.loopbackOnly = $true
+  }
+  $r
 }
 switch ($p.action) {
   'transport' {
@@ -80,7 +103,58 @@ switch ($p.action) {
     if (@($cert).Count -ne 1) { throw 'active RDP certificate missing' }
     @{ fingerprint = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData))).Replace('-', '').ToLowerInvariant() } | ConvertTo-Json -Compress
   }
-  'interactive' { @{ interactive = @(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -gt 0 }).Count -gt 0 } | ConvertTo-Json -Compress }
+  'interactive' {
+    if ($p.account) {
+      # Another account's disconnected session also has an Explorer; only this account's counts.
+      @{ interactive = (OwnedSessions $p.account @('explorer.exe')).Count -gt 0 } | ConvertTo-Json -Compress
+    } else {
+      @{ interactive = @(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -gt 0 }).Count -gt 0 } | ConvertTo-Json -Compress
+    }
+  }
+  'createStandardUser' {
+    if ($p.account -notmatch '^ompstd[0-9a-f]{8}$') { throw 'invalid standard account name' }
+    if (-not $p.ompPath) { throw 'owned OMP build is absent' }
+    $secret = ConvertTo-SecureString $p.accountSecret -AsPlainText -Force
+    $user = Get-LocalUser -Name $p.account -ErrorAction SilentlyContinue
+    if ($user) { Set-LocalUser -Name $p.account -Password $secret }
+    else { $user = New-LocalUser -Name $p.account -Password $secret -PasswordNeverExpires -AccountNeverExpires }
+    # Remote Desktop Users, by well-known SID because group names are localized. Never Administrators.
+    if (@(Get-LocalGroupMember -SID 'S-1-5-32-555' | Where-Object { $_.SID -eq $user.SID }).Count -eq 0) { Add-LocalGroupMember -SID 'S-1-5-32-555' -Member $user }
+    # The lane drives the account through WinRS, which the listener's descriptor governs; Remote
+    # Management Users covers only PowerShell endpoints. Read and execute on the listener is the
+    # transport, not a privilege: the account's token is asserted separately.
+    $descriptor = New-Object Security.AccessControl.CommonSecurityDescriptor($false, $false, (Get-Item WSMan:\localhost\Service\RootSDDL).Value)
+    $descriptor.DiscretionaryAcl.AddAccess([Security.AccessControl.AccessControlType]::Allow, $user.SID, -1610612736,
+      [Security.AccessControl.InheritanceFlags]::None, [Security.AccessControl.PropagationFlags]::None)
+    Set-Item WSMan:\localhost\Service\RootSDDL -Value $descriptor.GetSddlForm([Security.AccessControl.AccessControlSections]::All) -Force
+    # Read and execute on exactly what a fresh install and its doctor run: Bun, the candidate and the
+    # pinned OMP build. Everything else in the staging root stays the Administrator's.
+    $grantee = '*' + $user.SID.Value
+    foreach ($folder in @("$root\bun", "$root\candidate", [IO.Path]::GetDirectoryName($p.ompPath))) { Run icacls.exe @($folder, '/grant', "${grantee}:(OI)(CI)RX") | Out-Null }
+    '{"prepared":true}'
+  }
+  'releaseTailnet' {
+    # Tailscale serves one Windows user at a time: another account's CLI is refused while the
+    # Administrator holds it unattended or its tray client stays connected. Leave the way a user
+    # handing the machine over would: sign out of Windows and Tailscale, which deletes the profile.
+    $holders = @('explorer.exe', 'tailscale-ipn.exe')
+    foreach ($session in OwnedSessions 'Administrator' $holders) { Run logoff.exe @([string]$session) | Out-Null }
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((OwnedSessions 'Administrator' $holders).Count -gt 0) { if ((Get-Date) -gt $deadline) { throw 'Administrator desktop did not sign out' }; Start-Sleep -Seconds 3 }
+    if ((BackendState) -ne 'NeedsLogin') {
+      Run $ts @('serve', 'reset') | Out-Null
+      Run $ts @('logout') | Out-Null
+    }
+    @{ released = (BackendState) -eq 'NeedsLogin' } | ConvertTo-Json -Compress
+  }
+  'identity' {
+    # Evidence from an administrator's token would say nothing about the path this sub-lane tests.
+    # whoami lists deny-only groups too, so a UAC-filtered administrator cannot pass as standard.
+    if ([Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1] -ne $p.account) { throw 'standard action ran under another account' }
+    $groups = Run whoami.exe @('/groups', '/fo', 'csv', '/nh') | Out-String
+    $privileges = Run whoami.exe @('/priv', '/fo', 'csv', '/nh') | Out-String
+    @{ standardUserNonAdmin = -not $groups.Contains('"S-1-5-32-544"'); standardUserNoSecurityPrivilege = -not $privileges.Contains('"SeSecurityPrivilege"') } | ConvertTo-Json -Compress
+  }
   'stage' {
     PrivateDirectory $root
     foreach ($folder in @('bun', 'candidate', 'predecessor', 'source', 'native', 'omp-winqual-fixture')) { PrivateDirectory "$root\$folder" }
@@ -115,7 +189,8 @@ switch ($p.action) {
     @{ unpacked = $true } | ConvertTo-Json -Compress
   }
   'join' {
-    $keyPath = "$root\join.key"
+    # The standard account cannot write to the Administrator's staging root, so its key stays in its own profile.
+    $keyPath = if ($p.principal -eq 'standard') { Join-Path $env:LOCALAPPDATA "omp-winqual-$($p.epoch).key" } else { "$root\join.key" }
     $status = (& $ts status --json 2>$null | Out-String) | ConvertFrom-Json
     if ($status.BackendState -ne 'Running') {
       try {
@@ -126,7 +201,8 @@ switch ($p.action) {
     $status = (Run $ts @('status', '--json') | Out-String) | ConvertFrom-Json
     if ($status.BackendState -ne 'Running' -or $status.Self.Tags -notcontains 'tag:omp-session-gateway') { throw 'tagged Tailscale join failed' }
 
-    $tun = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -match 'Tailscale' -and $_.Status -eq 'Up' }).Count -gt 0
+    # The interface table, as the gateway's doctor reads it: CIM refuses a standard account's network logon.
+    $tun = @([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.Description -match 'Tailscale' -and $_.OperationalStatus -eq 'Up' }).Count -gt 0
     if (-not $tun) { throw 'TUN adapter is not up' }
     Run $ts @('serve', '--bg', '--https=443', 'http://127.0.0.1:4317') | Out-Null
     $serve = (Run $ts @('serve', 'status', '--json') | Out-String) | ConvertFrom-Json
@@ -161,22 +237,33 @@ switch ($p.action) {
     @{ ready = $s.ready -and $s.activeVersion.StartsWith($p.previousVersion + '-'); configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
   }
   'inspectPredecessor' { Installed $p.previousVersion | ConvertTo-Json -Compress }
+  'installFresh' {
+    Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
+    $r = Installed $p.candidateVersion
+    @{ ready = $r.ready; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
+  }
   { $_ -in 'upgrade', 'restore' } {
     Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
     $r = Installed $p.candidateVersion; $r.restored = $_ -eq 'restore'; $r | ConvertTo-Json -Compress
   }
   'doctor' {
     $doctor = DoctorReport
-    $state = State
-    @{ checks = $doctor.checks; loopbackOnly = $state.loopbackOnly; logonTrigger = $state.logonTrigger; interactivePrincipal = $state.interactivePrincipal } | ConvertTo-Json -Compress -Depth 4
+    $r = @{ checks = $doctor.checks }
+    if ($p.principal -ne 'standard') {
+      $state = State
+      $r.loopbackOnly = $state.loopbackOnly; $r.logonTrigger = $state.logonTrigger; $r.interactivePrincipal = $state.interactivePrincipal; $r.logonTriggerScoped = $state.logonTriggerScoped
+    }
+    $r | ConvertTo-Json -Compress -Depth 4
   }
   'reboot' { Run shutdown.exe @('/r', '/t', '3', '/f') | Out-Null; '{"requested":true}' }
-  'prelogin' { State | ConvertTo-Json -Compress }
+  { $_ -in 'prelogin', 'state' } { State | ConvertTo-Json -Compress }
   'ready' {
     $status = Status
-    $task = State
-    $observed = @{ statusReady = [bool]$status.ready; taskRunning = [bool]$task.taskRunning; gatewayProcesses = $task.gatewayProcesses; listeners = $task.listeners;
-      tailscaleConnected = $false; loopbackTrustSound = $false }
+    $observed = @{ statusReady = [bool]$status.ready; tailscaleConnected = $false; loopbackTrustSound = $false }
+    if ($p.principal -ne 'standard') {
+      $task = State
+      $observed.taskRunning = [bool]$task.taskRunning; $observed.gatewayProcesses = $task.gatewayProcesses; $observed.listeners = $task.listeners
+    }
     if ($status.ready) {
       # HMAC readiness can precede the Windows TUN adapter after logon. Reuse the
       # artifact's real doctor rather than inventing a weaker network predicate.
@@ -276,8 +363,8 @@ switch ($p.action) {
   }
   'uninstall' {
     if (Test-Path $cli) { Run $bun @($cli, 'uninstall') | Out-Null }
-    $state = State
-    $r = @{ uninstalled = -not $state.taskPresent -and $state.gatewayProcesses -eq 0 -and $state.listeners -eq 0 }
+    $r = @{}
+    if ($p.principal -ne 'standard') { $state = State; $r.uninstalled = -not $state.taskPresent -and $state.gatewayProcesses -eq 0 -and $state.listeners -eq 0 }
     if ($p.configDigest) { $preserved = Preserved; $r.configPreserved = $preserved.configPreserved; $r.readinessPreserved = $preserved.readinessPreserved }
     $r | ConvertTo-Json -Compress
   }

@@ -46,6 +46,7 @@ class WinrmFramingTests(unittest.TestCase):
     def setUp(self):
         Transport.frames = []
         Transport.arguments = []
+        Transport.options = {}
         Transport.response = (b'{"ready":true}', b'', 0)
         Transport.closed = False
         module = types.ModuleType('winrm.protocol')
@@ -54,7 +55,7 @@ class WinrmFramingTests(unittest.TestCase):
             self.adapter = runpy.run_path(str(Path(__file__).with_name('windows-winrm.py')))
 
     def run_request(self, **payload):
-        request = {'host': '192.0.2.10', 'password': 'synthetic-transport-only', **payload}
+        request = {'host': '192.0.2.10', 'username': 'Administrator', 'password': 'synthetic-transport-only', **payload}
         output = io.StringIO()
         with patch.object(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(request).encode()))), contextlib.redirect_stdout(output):
             self.adapter['main']()
@@ -74,6 +75,21 @@ class WinrmFramingTests(unittest.TestCase):
         self.assertEqual(frame['script'], script)
         self.assertEqual(frame['input'], {'fixture': 'z' * 40000})
         self.assertTrue(Transport.closed)
+
+    def test_standard_account_connects_as_itself_without_its_password_in_arguments(self):
+        result = self.run_request(username='ompstd1a2b3c4d', password='synthetic-standard-only', script='synthetic')
+        self.assertEqual(result['exitCode'], 0)
+        self.assertEqual(Transport.options['username'], 'ompstd1a2b3c4d')
+        self.assertEqual(Transport.options['message_encryption'], 'always')
+        self.assertNotIn('synthetic-standard-only', repr(Transport.arguments))
+
+    def test_unknown_account_malformed_password_or_standard_upload_opens_no_connection(self):
+        upload = {'sourcePath': '/synthetic/source.tar', 'destinationPath': 'C:\\omp-winqual-11111111-1111-4111-8111-111111111111\\source.tar'}
+        for request in ({'username': 'Guest'}, {'username': 'ompstd1a2b3c4d\nAdministrator'}, {'password': ''},
+                        {'password': 'synthetic\nsecond-line'}, {'username': 'ompstd1a2b3c4d', 'upload': upload}):
+            with self.subTest(request=sorted(request)), self.assertRaises(ValueError):
+                self.run_request(script='synthetic', **request)
+            self.assertEqual(Transport.options, {})
 
     def test_binary_upload_is_bounded_and_has_exact_eof(self):
         content = bytes(range(256)) * 1025
@@ -116,7 +132,7 @@ class WinrmFramingTests(unittest.TestCase):
         def refuse(*_args):
             raise ConnectionError('synthetic teardown refusal')
         output = io.StringIO()
-        request = {'host': '192.0.2.10', 'password': 'synthetic-transport-only', 'script': 'synthetic'}
+        request = {'host': '192.0.2.10', 'username': 'Administrator', 'password': 'synthetic-transport-only', 'script': 'synthetic'}
         module = types.ModuleType('winrm.protocol')
         module.Protocol = Transport
         code = 0

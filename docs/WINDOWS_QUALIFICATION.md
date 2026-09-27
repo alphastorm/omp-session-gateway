@@ -114,6 +114,30 @@ ordinary Chrome pages and restores that baseline after a crash. A failed restore
 `pixelUnrestored: true` to fence the production lease. Development retains its exact-epoch lock
 until cleanup proves restoration; another lane's lock is never broken.
 
+**Standard-user fresh install.** The same VM then proves the non-elevated path (#293, #294).
+After the Administrator's uninstall the lane creates `ompstd` plus the epoch's first eight hex
+digits: a local account in Remote Desktop Users, never Administrators, whose controller-generated
+password lives only in the epoch vault and reaches the guest only as encrypted WinRM input. It
+gets read and execute on the staged Bun, the candidate and the pinned OMP build (doctor probes
+`omp --version`), and on the WinRM listener's descriptor, because the WinRS shell the adapter
+uses is outside Remote Management Users. Nothing else in the staging root is readable to it. Only
+an administrator can read the listener's configuration, so the Administrator's calls, not the
+account's, verify on every call that unencrypted WinRM stays off. WMI refuses a standard
+account's network logon, so the account runs only the gateway and Tailscale CLIs; the
+Administrator observes its task, processes and listener.
+Through its own WinRM shell the lane requires a token with neither `BUILTIN\Administrators`,
+deny-only included, nor `SeSecurityPrivilege`. Tailscale serves one Windows user at a time, so
+the Administrator then hands it over the way a person would: its desktop signs out (a connected
+tray client refuses every other account), Serve resets, and `tailscale logout` deletes its
+unattended profile. The lane deletes that node, and the standard account joins as a new tagged
+node under the same hostname; the join's origin is authoritative. After a pinned RDP logon as the
+account, the candidate installs fresh → reboot → at least three pre-login samples → pinned RDP
+logon and automatic startup → the full doctor as the account → readiness rotation → uninstall
+with private state preserved. Every doctor and pre-login sample, for either account, requires the
+logon trigger to name the account the task runs as. These observations carry a `standard`
+prefix. Predecessor, upgrade, rollback, OMP and Pixel journeys stay Administrator-only, because
+v0.6.2 cannot install without elevation.
+
 **Tagged-node doctor result.** Follow the existing [Debian identity convention](LINUX_QUALIFICATION.md#gap-3--denied-tailscale-identity),
 not an N/N claim. The tagged host's self-probe through Serve has no user identity. Record the
 true/total split and the exact false set: `identityAllowed`, `pwa`, and `sessionHealth`
@@ -135,7 +159,9 @@ tests reject divergence from `UPSTREAM.lock.json`; an upstream refresh must refr
 Windows pins too. No upstream lock/schema change is needed for the separate lane-owned pins.
 
 On a stable-campaign failure, cleanup still attempts guest teardown, Serve reset, logout, exact-label tailnet
-deletion, instance deletion, firewall deletion and vault removal. Each provider deletion
+deletion, instance deletion, firewall deletion and vault removal. Once the Administrator has
+handed Tailscale over, the gateway uninstall, Serve reset and logout run as the standard account:
+Windows refuses the Administrator's Tailscale CLI while another account holds it. Each provider deletion
 refetches ownership and applies the positive prefix and protected-resource checks. Lost create
 responses are recoverable by the exact epoch-derived label even without a vault. Cleanup polls
 for deletion and requires zero `omp-winqual-*` instances and firewall groups account-wide.
@@ -147,6 +173,40 @@ Failed phase resumes are counted in evidence; repair time is not called successf
 Development resume is refused after three hours, and every VM must be destroyed within four
 hours of creation. The current development campaign permits six total VM creations, one at a
 time. Production failures retain their unconditional cleanup semantics.
+
+### Development evidence — 2026-09-27: standard-user sub-lane
+
+Tested evidence only; none of it qualifies a release. Both runs paired the candidate with published
+v0.6.2.
+
+On `v0.6.3-prealpha.1`, one VM passed every Administrator phase, including the Pixel, then the
+account's token check, the Tailscale handover, and the account's tagged join and first RDP logon. It
+failed four times on the way, each diagnosed on the retained guest:
+
+- The WinRM bootstrap read `WSMan:\localhost\Service\AllowUnencrypted` for every account. A standard
+  account cannot and got `ItemNotFoundException`, so the check now runs for the Administrator only.
+- Vultr answered one lookup of the running, owned VM as absent, failing the lane with the VM
+  healthy. An owned instance, firewall, or tailnet device is now absent only when a second read,
+  five seconds later, agrees.
+- `Get-NetAdapter` threw `CimJobException` as the account. Over its network logon, WMI refused every
+  CIM query (`Win32_Process`, `Get-NetTCPConnection`, `Get-ScheduledTask`, `Get-NetAdapter`), while
+  the Task Scheduler's COM interface and .NET's interface and listener tables answered. The join now
+  reads the interface table, and the Administrator observes the account's task, processes, and
+  listener.
+- The account's fresh install then read `active: false` from the product's own `status` while its
+  task ran (COM state 4). That was a product defect: WMI refused `Get-ScheduledTask` to a standard
+  user's network logon, including SSH. PR #298 fixed it and the stop race its faster query exposed.
+
+Cleanup after the handover ran as the standard account and passed on its first attempt.
+
+On `v0.6.3-prealpha.2` (archive `5a1ba40e79a0…`), a fresh VM passed the whole lane with no failed
+phase attempt. The account's token carried neither Administrators nor `SeSecurityPrivilege`, and its
+fresh install became ready. Three pre-login samples over 63,487 ms held its task present but not
+running, with no process or listener. Its logon started the gateway in 72,072 ms. Its doctor passed
+15/18, with the Administrator's tagged-node false set (`identityAllowed`, `pwa`, `sessionHealth`).
+Rotation changed readiness and kept the config, and uninstall kept both. The eleven standard phases
+took 487 s. Both accounts' tasks named their own account in the logon trigger. Cleanup left zero
+instances and firewall groups, deleted the tailnet node, and removed the vault.
 
 ### Development evidence — 2026-09-24
 

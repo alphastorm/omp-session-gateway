@@ -1,10 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import pins from "./windows-qualification-pins.json";
 import { cleanupWindows, preflightWindows, runWindows, windowsCampaignLabel, windowsNeedsCleanup } from "./windows-stable-qualification.ts";
-import type { WindowsAdmission, WindowsArtifact, WindowsContext, WindowsFirewall, WindowsIdentity, WindowsInstance, WindowsPreflightInput, WindowsRuntime } from "./windows-stable-qualification.ts";
+import type { WindowsAdmission, WindowsArtifact, WindowsContext, WindowsFirewall, WindowsIdentity, WindowsInstance, WindowsPreflightInput, WindowsPrincipal, WindowsRuntime } from "./windows-stable-qualification.ts";
 import { parseQualificationPins, parseStableQualificationArgs, releaseArchivePath, verifyLaunchContracts, verifyRelease, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
 import { windowsHostScript } from "./upstream-canary.ts";
 import { OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
@@ -12,7 +12,7 @@ import { parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./
 import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
-import { readProvider } from "./provider-read.ts";
+import { confirmAbsence, readProvider } from "./provider-read.ts";
 
 const root = resolve(import.meta.dir, "..");
 const privateRoot = join(homedir(), ".local/share/omp-session-gateway/qualification");
@@ -31,6 +31,16 @@ interface Access extends Record<string, unknown> {
   ompPath?: string;
   ompPid?: number;
   pixelState?: { serial: string; component: string; launcherPackage: string; launcherCategory: string; wakefulness: string; keyguard: boolean };
+  /** The standard account the non-elevated sub-lane installs as; its password exists only here and in encrypted WinRM input. */
+  standardUser?: { account: string; password: string };
+  standardConfigDigest?: string;
+  standardCredentialDigest?: string;
+}
+/** The WinRM and RDP account for `principal`, refusing the standard one before it exists. */
+function account(access: Access, principal: WindowsPrincipal): { readonly account: string; readonly password: string } {
+  if (principal === "administrator") return { account: "Administrator", password: access.password };
+  if (!access.standardUser) throw new Error("the standard account has not been prepared");
+  return access.standardUser;
 }
 /**
  * The foreground restoration returns to. An idle charging Pixel shows its screensaver, a dream task
@@ -182,8 +192,8 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
   const provider = {
     instances: () => list<WindowsInstance>("instances", "instances"),
     firewalls: () => list<WindowsFirewall>("firewalls", "firewall_groups"),
-    instance: async (id: string) => (await api<{ instance: WindowsInstance }>(`instances/${encodeURIComponent(id)}`))?.instance,
-    firewall: async (id: string) => (await api<{ firewall_group: WindowsFirewall }>(`firewalls/${encodeURIComponent(id)}`))?.firewall_group,
+    instance: (id: string) => confirmAbsence(async () => (await api<{ instance: WindowsInstance }>(`instances/${encodeURIComponent(id)}`))?.instance),
+    firewall: (id: string) => confirmAbsence(async () => (await api<{ firewall_group: WindowsFirewall }>(`firewalls/${encodeURIComponent(id)}`))?.firewall_group),
     async createFirewall(label: string) {
       if (!egress) throw new Error("Windows preflight was not performed");
       const item = await api<{ firewall_group: WindowsFirewall }>("firewalls", "POST", { description: label });
@@ -222,7 +232,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     },
   };
   const guestScript = await readFile(join(import.meta.dir, "windows-qualification-guest.ps1"), "utf8");
-  const winrm = async (context: WindowsContext, script: string, input?: unknown, timeoutMs = 300_000, upload?: { sourcePath: string; destinationPath: string }, mutation = true): Promise<Record<string, unknown>> => {
+  const winrm = async (context: WindowsContext, script: string, input?: unknown, timeoutMs = 300_000, upload?: { sourcePath: string; destinationPath: string }, mutation = true, principal: WindowsPrincipal = "administrator"): Promise<Record<string, unknown>> => {
     const access = await loadAccess(context.epoch);
     if (mutation || !access.host) {
       const current = await provider.instance(access.instance);
@@ -234,19 +244,23 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
         access.host = current.main_ip; await context.beforeEffect(); await atomicPrivate(vaultPath(context.epoch), access);
       }
     }
-    const result = JSON.parse(await command([python, join(import.meta.dir, "windows-winrm.py")], { input: JSON.stringify({ host: access.host, password: access.password, script, input, upload }), timeoutMs, allowedExitCodes: [0, 1] })) as { exitCode: number; stdout: string; diagnostic: string };
+    const credential = account(access, principal);
+    const result = JSON.parse(await command([python, join(import.meta.dir, "windows-winrm.py")], { input: JSON.stringify({ host: access.host, username: credential.account, password: credential.password, script, input, upload }), timeoutMs, allowedExitCodes: [0, 1] })) as { exitCode: number; stdout: string; diagnostic: string };
     if (result.exitCode === -1) throw new Error(`WinRM transport not yet ready: ${result.diagnostic}`);
     if (result.exitCode !== 0) throw new Error(`WinRM guest failed (${result.exitCode}): ${result.diagnostic}`);
     try { return JSON.parse(result.stdout.trim()) as Record<string, unknown>; }
     catch { throw new Error("WinRM response is not a bounded observation"); }
   };
-  const ps = async (context: WindowsContext, action: string, extra: Record<string, unknown> = {}, timeoutMs?: number) => {
+  const ps = async (context: WindowsContext, action: string, extra: Record<string, unknown> = {}, timeoutMs?: number, principal: WindowsPrincipal = "administrator") => {
     const access = await loadAccess(context.epoch);
+    // The standard account has its own gateway state; it reaches the pinned OMP build only for doctor's version probe.
+    const identity = principal === "administrator"
+      ? { configDigest: access.configDigest, credentialDigest: access.credentialDigest, ompPath: access.ompPath, ompPid: access.ompPid }
+      : { configDigest: access.standardConfigDigest, credentialDigest: access.standardCredentialDigest, ompPath: access.ompPath, principal, account: account(access, principal).account };
     try {
-      return await winrm(context, guestScript, { origin: access.origin, configDigest: access.configDigest, credentialDigest: access.credentialDigest,
-        ompPath: access.ompPath, ompPid: access.ompPid, ...extra, action, epoch: context.epoch, pins,
+      return await winrm(context, guestScript, { origin: access.origin, ...identity, ...extra, action, epoch: context.epoch, pins,
         candidateVersion: releaseVersion(context.identity.candidate.tag), previousVersion: releaseVersion(context.identity.predecessor.tag),
-        login: environment.OMP_STABLE_WINDOWS_LOGIN ?? "alphastorm@github" }, timeoutMs, undefined, !["transport", "prelogin", "ready", "interactive", "publication"].includes(action));
+        login: environment.OMP_STABLE_WINDOWS_LOGIN ?? "alphastorm@github" }, timeoutMs, undefined, !["transport", "prelogin", "state", "ready", "interactive", "publication"].includes(action), principal);
     } catch (error) { throw new Error(`Windows ${action}: ${error instanceof Error ? error.message : "guest operation failed"}`); }
   };
   const upload = async (context: WindowsContext, local: string, name: string) => {
@@ -337,9 +351,27 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       await atomicPrivate(vaultPath(epoch), { instance: instance.id, host: instance.main_ip ?? "", password: instance.default_password });
     },
     async removeAccess(epoch) { await rm(vaultPath(epoch), { force: true }); },
-    async guest(context, action) {
+    async guest(context, action, principal = "administrator") {
       const access = await loadAccess(context.epoch);
       const save = async (changes: Record<string, unknown>) => atomicPrivate(vaultPath(context.epoch), { ...await loadAccess(context.epoch), ...changes });
+      if (action === "prepareStandardUser") {
+        // The account derives from the epoch and its password stays in the vault, so a resumed attempt reconciles the same account.
+        const standardUser = access.standardUser ?? { account: `ompstd${context.epoch.replaceAll("-", "").slice(0, 8)}`, password: `Omp!${randomBytes(18).toString("base64url")}7a` };
+        if (!access.standardUser) { await context.beforeEffect(); await save({ standardUser }); }
+        await context.beforeEffect();
+        return ps(context, "createStandardUser", { account: standardUser.account, accountSecret: standardUser.password });
+      }
+      if (action === "join") {
+        await context.beforeEffect(); const joined = await ps(context, "join", { joinValue }, 300_000, principal);
+        // A new node answers under the name the deleted one had; take its identity from the join, never from the vault.
+        await save({ origin: joined.origin, machine: joined.machine });
+        return { taggedNode: joined.taggedNode, tunMode: joined.tunMode, funnelOff: joined.funnelOff };
+      }
+      if (action === "installFresh") {
+        await context.beforeEffect(); const installed = await ps(context, "installFresh", {}, 300_000, principal);
+        await save({ standardConfigDigest: installed.configDigest, standardCredentialDigest: installed.credentialDigest });
+        return { ready: installed.ready };
+      }
       if (action === "transport") {
         const deadline = Date.now() + 12 * 60_000;
         // Creation can return a provisional address. Wait for provider allocation,
@@ -409,18 +441,22 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       if (options.development && action === "installPredecessor" && access.configDigest && access.credentialDigest) {
         return ps(context, "inspectPredecessor");
       }
-      await context.beforeEffect(); const result = await ps(context, action);
-      if (action === "installPredecessor" || action === "rotate") await save({ configDigest: result.configDigest ?? access.configDigest, credentialDigest: result.credentialDigest });
+      await context.beforeEffect(); const result = await ps(context, action, {}, undefined, principal);
+      if (principal === "standard" && action === "rotate") await save({ standardCredentialDigest: result.credentialDigest });
+      else if (action === "installPredecessor" || action === "rotate") await save({ configDigest: result.configDigest ?? access.configDigest, credentialDigest: result.credentialDigest });
       return result;
     },
-    async rdp(context) {
+    async rdp(context, principal = "administrator") {
       const access = await loadAccess(context.epoch);
+      const credential = account(access, principal);
       const cert = await ps(context, "fingerprint");
       if (typeof cert.fingerprint !== "string" || !SHA.test(cert.fingerprint)) throw new Error("RDP certificate SHA-256 unavailable");
       await context.beforeEffect();
-      const child = Bun.spawn(["sdl-freerdp", `/v:${access.host}`, "/u:Administrator", "/from-stdin:force", `/cert:fingerprint:sha256:${cert.fingerprint}`, "/size:800x600", "/log-level:OFF"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
-      child.stdin.write(`${access.password}\n`); child.stdin.end();
-      try { await poll(async () => (await ps(context, "interactive")).interactive === true, 120_000, "certificate-pinned interactive RDP"); }
+      const child = Bun.spawn(["sdl-freerdp", `/v:${access.host}`, `/u:${credential.account}`, "/from-stdin:force", `/cert:fingerprint:sha256:${cert.fingerprint}`, "/size:800x600", "/log-level:OFF"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+      child.stdin.write(`${credential.password}\n`); child.stdin.end();
+      // A new account's first logon builds its profile before Explorer starts, which the provider's Administrator never waits for.
+      const session = principal === "administrator" ? {} : { account: credential.account };
+      try { await poll(async () => (await ps(context, "interactive", session)).interactive === true, principal === "administrator" ? 120_000 : 240_000, "certificate-pinned interactive RDP"); }
       finally { child.kill(); await child.exited; }
     },
     async pixel(context) {
@@ -460,7 +496,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       if (!listing) throw new Error("tailnet listing failed");
       const matches = listing.devices.filter(item => item.hostname === windowsCampaignLabel(context.epoch));
       for (const match of matches) {
-        const fresh = await request<{ id: string; hostname: string }>(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders);
+        const fresh = await confirmAbsence(() => request<{ id: string; hostname: string }>(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders));
         if (!fresh) continue;
         if (fresh.hostname !== windowsCampaignLabel(context.epoch)) throw new Error("tailnet ownership changed");
         await context.beforeEffect(); await request(`https://api.tailscale.com/api/v2/device/${encodeURIComponent(match.id)}`, tsHeaders, "DELETE");
