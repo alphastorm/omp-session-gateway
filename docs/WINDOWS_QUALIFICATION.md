@@ -120,7 +120,11 @@ digits: a local account in Remote Desktop Users, never Administrators, whose con
 password lives only in the epoch vault and reaches the guest only as encrypted WinRM input. It
 gets read and execute on the staged Bun, the candidate and the pinned OMP build (doctor probes
 `omp --version`), and on the WinRM listener's descriptor, because the WinRS shell the adapter
-uses is outside Remote Management Users. Nothing else in the staging root is readable to it.
+uses is outside Remote Management Users. Nothing else in the staging root is readable to it. Only
+an administrator can read the listener's configuration, so the Administrator's calls, not the
+account's, verify on every call that unencrypted WinRM stays off. WMI refuses a standard
+account's network logon, so the account runs only the gateway and Tailscale CLIs; the
+Administrator observes its task, processes and listener.
 Through its own WinRM shell the lane requires a token with neither `BUILTIN\Administrators`,
 deny-only included, nor `SeSecurityPrivilege`. Tailscale serves one Windows user at a time, so
 the Administrator then hands it over the way a person would: its desktop signs out (a connected

@@ -82,9 +82,13 @@ function Installed($version) {
   if (-not $s.ready -or -not $s.installed -or -not $s.active -or $s.diverged -or $s.authMode -ne 'tailscale-serve' -or $s.activeVersion -ne $s.serviceVersion -or -not $s.activeVersion.StartsWith($version + '-')) { throw 'installed identity/readiness mismatch' }
   $config = Get-Content -Raw "$base\config.json" | ConvertFrom-Json
   if ($config.auth.mode -ne 'tailscale-serve' -or @($config.auth.allowedLogins).Count -ne 1 -or $config.auth.allowedLogins[0] -ne $p.login) { throw 'gateway exact-login allowlist mismatch' }
-  $state = State
-  if (-not $state.loopbackOnly) { throw 'gateway listener is not loopback-only' }
-  $r = Preserved; $r.ready = $true; $r.loopbackOnly = $true; $r
+  $r = Preserved; $r.ready = $true
+  # WMI refuses a standard account's network logon, so the Administrator observes its listener.
+  if ($p.principal -ne 'standard') {
+    if (-not (State).loopbackOnly) { throw 'gateway listener is not loopback-only' }
+    $r.loopbackOnly = $true
+  }
+  $r
 }
 switch ($p.action) {
   'transport' {
@@ -197,7 +201,8 @@ switch ($p.action) {
     $status = (Run $ts @('status', '--json') | Out-String) | ConvertFrom-Json
     if ($status.BackendState -ne 'Running' -or $status.Self.Tags -notcontains 'tag:omp-session-gateway') { throw 'tagged Tailscale join failed' }
 
-    $tun = @(Get-NetAdapter | Where-Object { $_.InterfaceDescription -match 'Tailscale' -and $_.Status -eq 'Up' }).Count -gt 0
+    # The interface table, as the gateway's doctor reads it: CIM refuses a standard account's network logon.
+    $tun = @([Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.Description -match 'Tailscale' -and $_.OperationalStatus -eq 'Up' }).Count -gt 0
     if (-not $tun) { throw 'TUN adapter is not up' }
     Run $ts @('serve', '--bg', '--https=443', 'http://127.0.0.1:4317') | Out-Null
     $serve = (Run $ts @('serve', 'status', '--json') | Out-String) | ConvertFrom-Json
@@ -235,7 +240,7 @@ switch ($p.action) {
   'installFresh' {
     Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
     $r = Installed $p.candidateVersion
-    @{ ready = $r.ready; loopbackOnly = $r.loopbackOnly; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
+    @{ ready = $r.ready; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
   }
   { $_ -in 'upgrade', 'restore' } {
     Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
@@ -243,16 +248,22 @@ switch ($p.action) {
   }
   'doctor' {
     $doctor = DoctorReport
-    $state = State
-    @{ checks = $doctor.checks; loopbackOnly = $state.loopbackOnly; logonTrigger = $state.logonTrigger; interactivePrincipal = $state.interactivePrincipal; logonTriggerScoped = $state.logonTriggerScoped } | ConvertTo-Json -Compress -Depth 4
+    $r = @{ checks = $doctor.checks }
+    if ($p.principal -ne 'standard') {
+      $state = State
+      $r.loopbackOnly = $state.loopbackOnly; $r.logonTrigger = $state.logonTrigger; $r.interactivePrincipal = $state.interactivePrincipal; $r.logonTriggerScoped = $state.logonTriggerScoped
+    }
+    $r | ConvertTo-Json -Compress -Depth 4
   }
   'reboot' { Run shutdown.exe @('/r', '/t', '3', '/f') | Out-Null; '{"requested":true}' }
-  'prelogin' { State | ConvertTo-Json -Compress }
+  { $_ -in 'prelogin', 'state' } { State | ConvertTo-Json -Compress }
   'ready' {
     $status = Status
-    $task = State
-    $observed = @{ statusReady = [bool]$status.ready; taskRunning = [bool]$task.taskRunning; gatewayProcesses = $task.gatewayProcesses; listeners = $task.listeners;
-      tailscaleConnected = $false; loopbackTrustSound = $false }
+    $observed = @{ statusReady = [bool]$status.ready; tailscaleConnected = $false; loopbackTrustSound = $false }
+    if ($p.principal -ne 'standard') {
+      $task = State
+      $observed.taskRunning = [bool]$task.taskRunning; $observed.gatewayProcesses = $task.gatewayProcesses; $observed.listeners = $task.listeners
+    }
     if ($status.ready) {
       # HMAC readiness can precede the Windows TUN adapter after logon. Reuse the
       # artifact's real doctor rather than inventing a weaker network predicate.
@@ -352,8 +363,8 @@ switch ($p.action) {
   }
   'uninstall' {
     if (Test-Path $cli) { Run $bun @($cli, 'uninstall') | Out-Null }
-    $state = State
-    $r = @{ uninstalled = -not $state.taskPresent -and $state.gatewayProcesses -eq 0 -and $state.listeners -eq 0 }
+    $r = @{}
+    if ($p.principal -ne 'standard') { $state = State; $r.uninstalled = -not $state.taskPresent -and $state.gatewayProcesses -eq 0 -and $state.listeners -eq 0 }
     if ($p.configDigest) { $preserved = Preserved; $r.configPreserved = $preserved.configPreserved; $r.readinessPreserved = $preserved.readinessPreserved }
     $r | ConvertTo-Json -Compress
   }

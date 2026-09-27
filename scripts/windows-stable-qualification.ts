@@ -54,7 +54,7 @@ export interface WindowsContext {
 }
 export type WindowsGuestAction = "transport" | "stage" | "installPredecessor" | "upgrade" | "doctor" | "reboot" |
   "prelogin" | "ready" | "publish" | "launch" | "stopOmp" | "revoked" | "rotate" | "rollback" | "restore" |
-  "uninstall" | "resetServe" | "logout" | "prepareStandardUser" | "identity" | "releaseTailnet" | "join" | "installFresh";
+  "uninstall" | "resetServe" | "logout" | "prepareStandardUser" | "identity" | "releaseTailnet" | "join" | "installFresh" | "state";
 /** The Windows account a guest action or RDP logon runs as. */
 export type WindowsPrincipal = "administrator" | "standard";
 export interface WindowsRuntime {
@@ -327,10 +327,12 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
       const joined = await guest("join", "standard");
       requireFact(joined.taggedNode === true && joined.tunMode === true && joined.funnelOff === true, "standard tagged Tailscale join failed");
     });
+    // The account acts; the Administrator observes its task, processes and listener, because WMI
+    // refuses a standard account's network logon.
     await step("standard_interactive_ready", async () => { await runtime.rdp(context, "standard"); });
     await step("standard_candidate_installed", async () => {
-      const result = await guest("installFresh", "standard");
-      requireFact(result.ready === true && result.loopbackOnly === true, "standard fresh install did not become ready");
+      const result = await guest("installFresh", "standard"); const state = await guest("state");
+      requireFact(result.ready === true && state.loopbackOnly === true, "standard fresh install did not become ready");
     });
     await step("standard_reboot_requested", async () => { await guest("reboot"); });
     await step("standard_prelogin_verified", async () => {
@@ -338,7 +340,9 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
     });
     await step("standard_postlogin_ready", async () => { facts({ standardAutomaticStartMs: await postlogin("standard") }); });
     await step("standard_doctor_passed", async () => {
-      const doctor = verifyWindowsDoctor(await guest("doctor", "standard"));
+      const { checks } = await guest("doctor", "standard"); const state = await guest("state");
+      const doctor = verifyWindowsDoctor({ checks, loopbackOnly: state.loopbackOnly, logonTrigger: state.logonTrigger,
+        interactivePrincipal: state.interactivePrincipal, logonTriggerScoped: state.logonTriggerScoped });
       facts({ standardDoctorChecks: doctor.doctorChecks, standardDoctorTrue: doctor.doctorTrue });
     });
     await step("standard_readiness_rotated", async () => {
@@ -347,8 +351,9 @@ export async function runWindows(input: WindowsLaneInput): Promise<Record<string
       facts({ standardReadinessChanged: true });
     });
     await step("standard_candidate_uninstalled", async () => {
-      const result = await guest("uninstall", "standard");
-      requireFact(result.uninstalled === true && result.configPreserved === true && result.readinessPreserved === true, "standard uninstall preservation invariant failed");
+      const result = await guest("uninstall", "standard"); const state = await guest("state");
+      requireFact(state.taskPresent === false && state.gatewayProcesses === 0 && state.listeners === 0 && result.configPreserved === true && result.readinessPreserved === true,
+        "standard uninstall preservation invariant failed");
       facts({ standardUninstalled: true, standardConfigPreserved: true, standardReadinessPreserved: true });
     });
     await step("evidence_complete", async () => {});

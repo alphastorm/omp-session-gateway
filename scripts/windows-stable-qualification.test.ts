@@ -107,6 +107,7 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
   const events: string[] = [];
   let instances: WindowsInstance[] = [];
   let firewalls: WindowsFirewall[] = [];
+  let standardUninstalled = false;
   const runtime: WindowsRuntime = {
     development: options.development === true,
     environment: options.protected ? { OMP_QUAL_PROTECTED_INSTANCES: "synthetic-owned" } : {},
@@ -133,8 +134,9 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
     guest: async (_context: WindowsContext, action: WindowsGuestAction, principal?: WindowsPrincipal) => {
       now += 1_000; events.push(principal === "standard" ? `${action}@standard` : action);
       if (options.fail === action) throw new Error("guest operation failed");
+      if (action === "uninstall" && principal === "standard") standardUninstalled = true;
       return {
-        ready: !options.neverStarts, taskPresent: true, taskRunning: false, gatewayProcesses: 0, listeners: options.listener ? 1 : 0,
+        ready: !options.neverStarts, taskPresent: !(action === "state" && standardUninstalled), taskRunning: false, gatewayProcesses: 0, listeners: options.listener ? 1 : 0,
         configPreserved: true, readinessPreserved: true, readinessChanged: true, checks: taggedDoctorChecks, ...doctorState,
         namedPipe: true, generation: 1, viewStatus: 200, controlStatus: 200, staleViewStatus: options.stale ?? 409, staleControlStatus: 409, noStore: true,
         revoked: true, historySelected: true, restored: true, uninstalled: true,

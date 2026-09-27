@@ -260,7 +260,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     try {
       return await winrm(context, guestScript, { origin: access.origin, ...identity, ...extra, action, epoch: context.epoch, pins,
         candidateVersion: releaseVersion(context.identity.candidate.tag), previousVersion: releaseVersion(context.identity.predecessor.tag),
-        login: environment.OMP_STABLE_WINDOWS_LOGIN ?? "alphastorm@github" }, timeoutMs, undefined, !["transport", "prelogin", "ready", "interactive", "publication"].includes(action), principal);
+        login: environment.OMP_STABLE_WINDOWS_LOGIN ?? "alphastorm@github" }, timeoutMs, undefined, !["transport", "prelogin", "state", "ready", "interactive", "publication"].includes(action), principal);
     } catch (error) { throw new Error(`Windows ${action}: ${error instanceof Error ? error.message : "guest operation failed"}`); }
   };
   const upload = async (context: WindowsContext, local: string, name: string) => {
@@ -370,7 +370,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       if (action === "installFresh") {
         await context.beforeEffect(); const installed = await ps(context, "installFresh", {}, 300_000, principal);
         await save({ standardConfigDigest: installed.configDigest, standardCredentialDigest: installed.credentialDigest });
-        return { ready: installed.ready, loopbackOnly: installed.loopbackOnly };
+        return { ready: installed.ready };
       }
       if (action === "transport") {
         const deadline = Date.now() + 12 * 60_000;
