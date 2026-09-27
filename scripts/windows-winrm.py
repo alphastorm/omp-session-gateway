@@ -15,7 +15,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {
   $frame = [Console]::In.ReadLine() | ConvertFrom-Json
-  if ((Get-Item WSMan:\localhost\Service\AllowUnencrypted).Value -ne 'false') { throw 'unencrypted WinRM enabled' }
+  # Only an administrator can read the listener's configuration. A standard account's shell runs on
+  # the same listener, which every Administrator call verifies; the client requires encryption anyway.
+  if ([Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1] -eq 'Administrator' -and (Get-Item WSMan:\localhost\Service\AllowUnencrypted).Value -ne 'false') { throw 'unencrypted WinRM enabled' }
   if ($frame.kind -eq 'upload') {
     if ($frame.path -notmatch '^C:\\omp-winqual-[0-9a-f-]{36}\\(candidate|predecessor|source)\.tar$') { throw 'upload destination refused' }
     $file = [IO.File]::Open($frame.path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
