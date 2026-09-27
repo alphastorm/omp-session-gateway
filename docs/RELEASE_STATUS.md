@@ -17,8 +17,19 @@ both it passed
 CI evidence, not qualification. Before the campaign, the Windows qualification lane gains a fresh
 install, reboot, logon start, doctor, rotation, and uninstall as a standard local user; its
 predecessor, upgrade, rollback, OMP, and Pixel steps stay Administrator because v0.6.2 cannot run
-without elevation. Published v0.6.2 remains the predecessor and current stable; no v0.6.3
-qualification or publication is claimed, and the stable lock remains unchanged until approval.
+without elevation.
+
+A development run of that lane on `v0.6.3-prealpha.1` (tested evidence only) passed the whole
+Administrator journey, the standard account's token check, the Tailscale handover, its tagged join
+and its first RDP logon, then failed its fresh install: over the account's WinRM network logon,
+`status` reported the installed, ready gateway as `active: false`. On that guest, as that account,
+`Get-ScheduledTask` threw `CimJobException` while the Task Scheduler's COM interface reported the
+task running (state 4), and a COM-based query exited 0. WMI refuses a standard user's network logon,
+so the same misreport reaches a standard user running `status` or `doctor` over SSH, and an upgrade
+or uninstall stopped waiting for the task at once. The candidate therefore also reads the task's
+state through the COM interface, and qualification moves to `v0.6.3-prealpha.2`. Published v0.6.2
+remains the predecessor and current stable; no v0.6.3 qualification or publication is claimed, and
+the stable lock remains unchanged until approval.
 
 ## Mainline v0.6.2 — published stable
 
