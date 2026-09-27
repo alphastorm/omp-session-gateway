@@ -516,7 +516,7 @@ describe("windows scheduled task", () => {
 
   test("registers one hard-terminable instance with no execution time limit", () => {
     // IgnoreNew keeps a second logon from starting a rival daemon on the same socket;
-    // AllowHardTerminate is what makes `schtasks /End` able to stop it; PT0S is what stops Task
+    // AllowHardTerminate is what lets the Task Scheduler end it; PT0S is what stops Task
     // Scheduler from killing a long-running service when the default execution time limit expires.
     const content = serviceDefinition(config, "win32", installedCliPath, undefined, undefined, windowsUserSid).content;
     expect(content).toContain("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>");
@@ -662,12 +662,18 @@ const mutatingVerbs = new Set([
   "bootstrap",
   "/Create",
   "/Run",
-  "/End",
   "/Delete",
 ]);
 
+/** The Task Scheduler stop runs as a COM script; name it by its effect, not its source text. */
+function isWindowsTaskStop(command: readonly string[]): boolean {
+  return command[0] === "powershell.exe" && (command.at(-1) ?? "").includes("$task.Stop(");
+}
+
 function mutations(commands: readonly (readonly string[])[]): readonly string[] {
-  return commands.filter(command => command.some(token => mutatingVerbs.has(token))).map(command => command.join(" "));
+  return commands
+    .filter(command => isWindowsTaskStop(command) || command.some(token => mutatingVerbs.has(token)))
+    .map(command => (isWindowsTaskStop(command) ? "Task Scheduler: stop OMP Session Gateway" : command.join(" ")));
 }
 
 /**
@@ -687,6 +693,8 @@ function fakeManager(
     readonly running?: boolean;
     readonly startLimited?: boolean;
     readonly adopts?: string;
+    /** The stop cannot end the gateway's process before its deadline. */
+    readonly stopHangs?: boolean;
     readonly homeDirectory?: string;
   } = {},
 ): FakeManager {
@@ -757,6 +765,12 @@ function fakeManager(
       state.running = initial.adopts !== undefined;
       return { ok: true };
     }
+    // Stopping ends every instance and waits for the gateway's process; a missing task has nothing to stop.
+    if (isWindowsTaskStop(command)) {
+      if (initial.stopHangs && state.running) return { ok: false };
+      state.running = false;
+      return { ok: true };
+    }
     // The Task Scheduler's GetTask throws when no task carries the name, which reads as not running.
     if (command[0] === "powershell.exe") return { ok: state.program !== undefined && state.running };
     if (is("whoami.exe", "/user", "/fo", "csv", "/nh")) return { ok: true, stdout: `"desktop\\gateway-user","${windowsUserSid}"\r\n` };
@@ -765,10 +779,6 @@ function fakeManager(
       return state.program === undefined ? { ok: false } : { ok: true, stdout: rendered(state.program) };
     }
     if (is("schtasks.exe", "/Query", "/TN", task)) return { ok: state.program !== undefined };
-    if (is("schtasks.exe", "/End", "/TN", task)) {
-      state.running = false;
-      return { ok: true };
-    }
     if (command[0] === "schtasks.exe" && command[1] === "/Create") {
       state.program = initial.adopts;
       return { ok: true };
@@ -1095,7 +1105,7 @@ describe("service ownership across install roots", () => {
     const definition = await installUserService(target, true, next, boundInstance, manager.host);
 
     expect(mutations(manager.commands)).toEqual([
-      "schtasks.exe /End /TN OMP Session Gateway",
+      "Task Scheduler: stop OMP Session Gateway",
       `schtasks.exe /Create /TN OMP Session Gateway /XML ${definition.path} /F`,
       "schtasks.exe /Run /TN OMP Session Gateway",
     ]);
@@ -1243,7 +1253,23 @@ describe("service ownership across install roots", () => {
 
     await stopUserService(target, manager.host);
 
-    expect(mutations(manager.commands)).toEqual(["schtasks.exe /End /TN OMP Session Gateway"]);
+    expect(mutations(manager.commands)).toEqual(["Task Scheduler: stop OMP Session Gateway"]);
     expect(manager.state.running).toBe(false);
+  });
+
+  test("fails closed when a stop cannot end the gateway, before re-registering", async () => {
+    // Ending a task reports it Ready at once; only the process's exit frees its port for a restart.
+    const root = await isolatedRoot();
+    const target = rootedConfig(root);
+    const current = stagedProgram(target.paths.stateDir, "0.1.0-111111111111");
+    const next = stagedProgram(target.paths.stateDir, "0.1.0-222222222222");
+    const manager = fakeManager("win32", { program: current, running: true, adopts: next, stopHangs: true });
+
+    await expect(installUserService(target, true, next, boundInstance, manager.host)).rejects.toThrow(
+      "running gateway task did not stop",
+    );
+
+    expect(mutations(manager.commands)).toEqual(["Task Scheduler: stop OMP Session Gateway"]);
+    expect(manager.state.program).toBe(current);
   });
 });
