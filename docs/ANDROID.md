@@ -176,6 +176,11 @@ unique synthetic project label after checking its OS record.
 Presentation and privacy checks are limited to that record's observed Android notification-content
 subtree; text from an unrelated shade row is not attributed to the fixture.
 
+Turn off the Pixel's hotspot, USB and Bluetooth tethering too, and keep the controller on its own
+network. The lane switches Airplane mode, Wi-Fi and mobile data, which disconnects every tethered
+client; a controller on the Pixel's hotspot loses WinRM, SSH and the gateway origin mid-campaign.
+Preflight reads `dumpsys tethering` and refuses while anything is tethered.
+
 The origin must already have granted notification permission before the run. The lane never accepts
 a permission prompt as part of admission. For its negative window, it retains a browser-only CDP
 connection holding an origin-scoped denial while the WebAPK task is closed. Chrome removes this

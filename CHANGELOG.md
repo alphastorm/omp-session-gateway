@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stable qualification refuses to start while the Pixel under test shares its connection through
+  a hotspot, USB or Bluetooth tethering. The background Push lane switches the Pixel's radios, so a
+  controller on its hotspot lost WinRM, SSH and the gateway origin mid-campaign; this failed two
+  v0.7.0-prealpha.1 campaign attempts.
+
 ## [v0.7.0] — 2026-09-29
 
 The embedded collaboration client moves to OMP 18.4.2's redesigned web client, and the OMP

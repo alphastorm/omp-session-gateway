@@ -5,6 +5,7 @@ import {
   assertDevtoolsEndpointMatchesPackage,
   assertBrowserVersionMatchesPackage,
   parseAndroidPackageVersion,
+  parseAndroidTethering,
   parseKeyguardShowing,
   readAndroidQualificationPin,
   requireSingleDevice,
@@ -189,6 +190,17 @@ describe("Android display bootstrap", () => {
     expect(() => parseKeyguardShowing("mWakefulness=Awake")).toThrow(
       "Android window state is missing isKeyguardShowing",
     );
+  });
+
+  test("detects hotspot, USB and Bluetooth tethering and rejects a missing tethering state", () => {
+    const state = (lines: string) => `Tethering:\n  Tether state:\n${lines}    Upstream wanted: %s\n    Current upstream interface(s): null\n`;
+    expect(parseAndroidTethering(state("").replace("%s", "false"))).toBe(false);
+    expect(parseAndroidTethering(state("    wlan1 - AvailableState - lastError = 0\n").replace("%s", "false"))).toBe(false);
+    for (const iface of ["wlan1", "ncm0", "bt-pan"]) {
+      expect(parseAndroidTethering(state(`    ${iface} - TetheredState - lastError = 0\n`).replace("%s", "false"))).toBe(true);
+    }
+    expect(parseAndroidTethering(state("").replace("%s", "true"))).toBe(true);
+    expect(() => parseAndroidTethering("Tethering:\n  Configuration:\n")).toThrow("Android tethering state is missing Upstream wanted");
   });
 
   test("waking an unlocked phone preserves the page instead of opening its menu", async () => {

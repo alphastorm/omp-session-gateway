@@ -306,6 +306,16 @@ export function parseKeyguardShowing(output: string): boolean {
   return value === "true";
 }
 
+/**
+ * Whether the Pixel shares its connection through a hotspot, USB or Bluetooth tethering.
+ * `dumpsys tethering` reports `Upstream wanted: true` while any downstream is tethered.
+ */
+export function parseAndroidTethering(output: string): boolean {
+  const wanted = output.match(/^\s*Upstream wanted: (true|false)\r?$/mu)?.[1];
+  if (wanted === undefined) throw new Error("Android tethering state is missing Upstream wanted");
+  return wanted === "true" || /^\s*\S+ - TetheredState - lastError = -?\d+\r?$/mu.test(output);
+}
+
 /** Pixel SystemUI's standalone fingerprint (alternate) bouncer window holds input focus. */
 export function parseAlternateBouncerFocused(output: string): boolean {
   return /^\s*mCurrentFocus=Window\{\S+ u\d+ AlternateBouncerView\}$/mu.test(output);
