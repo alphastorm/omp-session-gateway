@@ -180,8 +180,14 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
   const list = async <T>(path: string, key: string): Promise<T[]> => {
     let cursor = ""; const items: T[] = [];
     do {
-      const page = await api<Record<string, unknown>>(`${path}?per_page=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-      if (!page || !Array.isArray(page[key])) throw new Error("invalid provider listing");
+      const url = `${path}?per_page=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+      // Vultr has answered a listing without its array while the lane polled for allocation
+      // (2026-09-29), as it once answered a lookup: an invalid page is final only if a second read agrees.
+      const page = await confirmAbsence(async () => {
+        const read = await api<Record<string, unknown>>(url);
+        return read !== undefined && Array.isArray(read[key]) ? read : undefined;
+      });
+      if (!page) throw new Error("invalid provider listing");
       items.push(...page[key] as T[]);
       cursor = ((page.meta as { links?: { next?: string } } | undefined)?.links?.next ?? "");
     } while (cursor);

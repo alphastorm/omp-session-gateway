@@ -12,6 +12,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   a hotspot, USB or Bluetooth tethering. The background Push lane switches the Pixel's radios, so a
   controller on its hotspot lost WinRM, SSH and the gateway origin mid-campaign; this failed two
   v0.7.0-prealpha.1 campaign attempts.
+- Background Push qualification enables the Pixel's mobile data only after Wi-Fi validates when it
+  leaves Airplane mode. Mobile data validated first, Play Services opened its push socket there, and
+  once Wi-Fi took over that socket held the authoritative clear past the 160-second recovery window.
+- A Vultr instance or firewall listing that comes back without its array is re-read once after five
+  seconds before the Windows lane fails, as a missing lookup already was. One such answer failed a
+  v0.7.0-prealpha.1 attempt while its VM was still booting.
 
 ## [v0.7.0] — 2026-09-29
 

@@ -316,6 +316,21 @@ export function parseAndroidTethering(output: string): boolean {
   return wanted === "true" || /^\s*\S+ - TetheredState - lastError = -?\d+\r?$/mu.test(output);
 }
 
+/**
+ * Whether a live Wi-Fi network is connected and validated, read only from the `Current Networks:`
+ * section of `dumpsys connectivity`: requests and histories elsewhere also name Wi-Fi.
+ */
+export function parseValidatedWifi(output: string): boolean {
+  const lines = output.split(/\r?\n/u);
+  const start = lines.findIndex(line => /^Current Networks:\s*$/u.test(line));
+  if (start < 0) throw new Error("Android connectivity state is missing Current Networks");
+  for (const line of lines.slice(start + 1)) {
+    if (/^\S/u.test(line)) break;
+    if (/^\s+NetworkAgentInfo\{/u.test(line) && /\bni\{WIFI CONNECTED\b/u.test(line) && /\blastValidated\b/u.test(line)) return true;
+  }
+  return false;
+}
+
 /** Pixel SystemUI's standalone fingerprint (alternate) bouncer window holds input focus. */
 export function parseAlternateBouncerFocused(output: string): boolean {
   return /^\s*mCurrentFocus=Window\{\S+ u\d+ AlternateBouncerView\}$/mu.test(output);
