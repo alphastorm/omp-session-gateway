@@ -623,6 +623,34 @@ describe("HTTP boundary", () => {
     await reader.cancel();
   });
 
+  test("closes an unread SSE stream after keepalive saturation without registry changes", async () => {
+    const registry = populatedRegistry();
+    const handler = createTestHttpHandler({ config: config(), registry, staticAssets: assets, sseKeepaliveMs: 1 });
+    const sse = await handler(request("/api/v1/events"), peer);
+    expect(sse.status).toBe(200);
+    const reader = sse.body?.getReader();
+    if (reader === undefined) throw new Error("missing SSE body");
+    try {
+      // Leave the body unread across more timer turns than its bounded queue can hold.
+      // Separate waits let keepalives run even when the test process is heavily scheduled.
+      for (let tick = 0; tick < 100; tick += 1) await Bun.sleep(2);
+      expect(await readSseEvent(reader)).toContain("event: snapshot");
+      // The snapshot and at most 64 keepalives fit before the slow-consumer cutoff.
+      let closed = false;
+      for (let frame = 0; frame < 65; frame += 1) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          closed = true;
+          break;
+        }
+        expect(new TextDecoder().decode(chunk.value)).toBe("event: keepalive\ndata: {}\n\n");
+      }
+      expect(closed).toBe(true);
+    } finally {
+      await reader.cancel();
+    }
+  });
+
   test("admits an SSE stream with one snapshot and no repeated or reordered revision", async () => {
     let monotonic = 1_000;
     const registry = new SessionRegistry({

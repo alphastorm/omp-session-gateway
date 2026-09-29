@@ -198,12 +198,14 @@ function eventStream(
             close();
             return;
           }
-          if ((controller.desiredSize ?? 1) >= -32) {
-            try {
-              controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
-            } catch {
-              release();
-            }
+          if ((controller.desiredSize ?? 1) < -32) {
+            close();
+            return;
+          }
+          try {
+            controller.enqueue(encoder.encode("event: keepalive\ndata: {}\n\n"));
+          } catch {
+            release();
           }
         }, keepaliveMs);
       },
