@@ -1,16 +1,17 @@
 # Upgrade and rollback lane
 
-## v0.6.3 predecessor compatibility
+## v0.7.0 predecessor compatibility
 
-The selected predecessor is published v0.6.2. Gateway rollback does not change the separately
-running OMP process. v0.6.2 cannot be installed or run from a standard (non-elevated) Windows
-account: its install fails on `SeSecurityPrivilege` (#293) and then on registering the logon task
-(#294). Rolling back to it on Windows therefore needs an elevated install. There, its `status` and
-`doctor` read a standard user's running gateway as stopped over SSH, and its stop can return before
-the gateway's process exits. Linux and macOS behavior does not differ between the two. After a
-v0.6.3 install, `rollback --to` can select only the runtimes pruning retained. v0.6.0, further back,
-cannot enable background alerts on iPhone or iPad: it rejects WebKit's push subscription, which
-leaves out a null `expirationTime` (#274).
+The selected predecessor is published v0.6.3. Gateway rollback does not change the separately
+running OMP process. Rolling back restores v0.6.3's embedded collaboration client, built from OMP
+18.3.0's `collab-web` with React's development build, and its zoom into the composer when iOS
+Safari focuses it on an iPad or a landscape phone (#305). On Windows, v0.6.3 reads any
+scheduled-task query failure other than a missing task as a stopped gateway, so its `status`,
+`stop`, readiness-token rotation, `install --no-start`, and `uninstall` can act on a running
+gateway as if it had stopped (#301). Both versions install and run from a standard (non-elevated)
+Windows account. After a v0.7.0 install, `rollback --to` can select only the runtimes pruning
+retained. v0.6.2, further back, cannot be installed or run from a standard Windows account (#293,
+#294), and v0.6.0 cannot enable background alerts on iPhone or iPad (#274).
 
 ## Staged-runtime retention from v0.5.2
 

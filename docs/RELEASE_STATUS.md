@@ -1,6 +1,16 @@
 # Release status
 
-## v0.7.0 preparation — not yet qualified or published
+## Mainline v0.7.0 — qualified; stable publication pending
+
+**Updated:** 2026-09-29. The exact candidate below is approved for stable promotion. Published
+v0.6.3 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
+smoke is still pending; candidate qualification is not evidence of that separate outcome.
+
+**Candidate:** [v0.7.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0-prealpha.1).<br>
+**Source:** `53d7629accb7a2c547b244412dcf43180d7a33c9`.<br>
+**Archive SHA-256:** `b8488c29e85c86d28e33e1b0dcf669a8a2b1211d06a2770f7596d90b73bfd95f`.<br>
+**Predecessor:** published `v0.6.3`. Rollback does not change OMP; see
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v070-predecessor-compatibility).
 
 The candidate refreshes the embedded collaboration client and the OMP engineering baseline to
 published v18.4.2 (#307): upstream's redesigned client surfaces and buffered snapshot publication,
@@ -9,9 +19,94 @@ explicit transcript expansion kept, and OMP's artwork excluded. It also ships Re
 build in the collaboration client (#306; its JavaScript drops from 884 KB to 644 KB), keeps text
 fields at 16px on every touch screen so iOS Safari does not zoom into the composer on an iPad or a
 landscape phone (#305), and fails closed on Windows when the scheduled task cannot be queried
-(#301). The daily upstream canary exercises stock OMP 18.4.2; that is compatibility evidence, not
-qualification. Published v0.6.3 remains the predecessor and current stable; no v0.7.0
-qualification or publication is claimed, and the stable lock remains unchanged until approval.
+(#301).
+
+### Candidate evidence — 2026-09-29
+
+Twelve lanes come from the campaign run by orchestrator
+`156a6974b0848808d056aa2119a1a02db25845be`, 10:38:02Z–11:26:53Z, where each passed on its first
+attempt. That campaign's Windows lane failed while building stock OMP on the guest; the Windows
+evidence comes from a one-time maintainer exception, described under **Attempts**.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; release run [36516806998](https://github.com/alphastorm/omp-session-gateway/actions/runs/36516806998); predecessor v0.6.3 verified the same way |
+| Debian | [36556876186](https://github.com/alphastorm/omp-session-gateway/actions/runs/36556876186) succeeded against the candidate archive; Debian 13 (trixie), Linux 6.12.94+deb13-amd64; stock OMP v18.4.2 built from source; 83/83 migration/recovery invariants |
+| Mac | Mac14,3, macOS 26.6.1 arm64; stock OMP v18.4.2 built from source with native addon `02135de929e1`; doctor 18/18, rollback 23/23, rotation, and reboot-to-login persistence with the readiness token unchanged; neither the tailnet nor the public address gave the backend an HTTP answer |
+| Windows | Windows Server 2025 build 26100 on a disposable 4-vCPU/8-GiB VM (`vc2-4c-8gb`), from a development run of the final orchestrator (see the exception below). As Administrator, the candidate installed over published v0.6.3 with stock OMP v18.4.2, built from source on the guest in 673 s. It survived a real reboot (three pre-login samples over 65.7 s) and started automatically 69.2 s after interactive logon. Doctor passed 15/18, with only the tagged node's `identityAllowed`, `pwa`, and `sessionHealth` false. The named pipe published at generation 1, View and Control returned `200`, stale generations `409`, all `no-store`. The Pixel accepted the user identity, with View read-only, Control writable, the prompt accepted, and the return to directory. Revocation, readiness rotation, history-selected rollback, restoration, and uninstall preserved configuration and the readiness credential. Then, on the same VM, a standard local account's token held neither Administrators nor `SeSecurityPrivilege`. After the Administrator signed out of Tailscale and the account joined as a new tagged node, the account's fresh install became ready. It survived a real reboot (three pre-login samples over 61.4 s) and started 41.7 s after the account's logon. Its doctor passed 15/18, rotation changed readiness and kept the configuration, and uninstall kept both |
+| OMP publication | stock v18.4.2 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked |
+| Android | Pixel 10 Pro, Android 17 CP3A.260905.009, Chrome 154.0.8037.57; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 2,268 ms, Airplane 5,799 ms, Doze 484 ms |
+| Background Push | the installed app closed: Private, Session, and Preview delivery on the lock screen in 1.9–4.0 s, each a single notification with matching detail; tap to current Control, stop tap to View only after two known-busy polls, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery; force-stop `delivered_while_force_stopped` and Doze `delivered_after_doze_exit` as observed variants; ten forbidden sinks detectable and clean; device, browser, and fixture restored |
+| Device cloud | TestingBot real devices ran through the pinned tunnel 4.9. Its proxy refused every destination but the candidate origin and its `connect-src` sources (9, 27, and 28 refusals). On the iPhone 17 Pro Max (iOS 26.6, Safari 26.6), View was read-only, Control writable, the prompt accepted, and the return to directory worked on the candidate's app bundle. Its Home Screen app enabled alerts with a real tap, and the subscription omitted `expirationTime` on `web.push.apple.com`. An attention alert arrived in 15,549 ms with the app in the background, its tap opened current Control with a scrubbed address, and alerts were then turned off. The iPad (9th generation, iPadOS 26.6, Safari 26.6) and the Galaxy S26 (`SM-S942B`, Android 16.0.0, Chrome 145.0.7632.159) passed the same journey. Each device's seven sinks were detectable and clean, and TestingBot's three test records held no live link, video, or screenshot |
+| Secret sinks | all seven sinks detectable and clean |
+| Relay | 1,800 seconds, 2026-09-29T10:55:19.772Z–11:25:19.779Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts; the Mac's OMP binary and source removed; each Windows VM, its firewall, and its tailnet node destroyed, and its access vault removed |
+
+**Attempts:** the candidate took three campaigns. The first two failed on the qualification
+harness and the operator's network, not the candidate.
+
+1. Orchestrator `52a4216`: the Mac lane's exposure probe misread the operator's carrier network,
+   which completed TCP handshakes even to unroutable addresses; the probe now judges exposure by an
+   HTTP answer (#310, #311). The Windows lane failed building stock OMP on the guest
+   (`bun.exe exit 1`). Development runs of the Windows lane (tested evidence only) then fixed
+   status reads that trailed proven readiness on a loaded guest (#312), a DevTools endpoint race on
+   the Pixel (#313), and the device journey's match for 18.4.2's read-only placeholder (#314).
+2. Orchestrator `12f6612`, with two receipt resumes: the operator's network changed mid-run, and
+   then the controller was tethered to the Pixel, whose radio changes in the Push lane cut the
+   controller's own network. Windows lost WinRM, and its cleanup waited until the new egress `/32`
+   was allowlisted. Qualification now refuses to start while the Pixel is tethering (#315). The
+   second resume, on a stable network, found two harness defects: after Airplane mode, Play
+   Services opened its push socket on mobile data and held the authoritative clear once Wi-Fi took
+   over, and a Vultr listing came back without its array. Mobile data now returns only after Wi-Fi
+   validates, and an invalid listing is read again (#316).
+3. Orchestrator `156a697`: every lane but Windows passed. Windows again failed building stock OMP
+   on the 2-vCPU/4-GiB guest (`omp-build exit 1`), which had failed in two of the three stable
+   attempts that reached that step. The lane moved to a 4-vCPU/8-GiB VM, keeps the build's output on
+   the guest for inspection, and pins the controller's FreeRDP 3.32.1 after a Homebrew upgrade
+   (#317).
+
+**One-time exception (maintainer-approved 2026-09-29):** the Windows row comes from a
+development-mode run of the Windows lane rather than from the campaign's own Windows lane. The
+development CLI runs the same lane code (`runWindows`) against the same verified candidate and
+predecessor; it differs only in keeping a failed VM for repair and in its VM creation cap. The run,
+12:07:55Z–12:45:23Z on a fresh VM, recorded no failed or resumed phase. It ran tree
+`204b731d936e9ad78b2e87d3c6dc0ca8ddb5ade4`, the tree of `main` at `3431e59` (#317). That commit
+differs from the campaign's `156a697` in the Windows lane's guest script, pins, test, and docs, and
+in the provider-read retry budget that the orchestrator and the device-cloud lane share: five reads
+over about 30 s instead of three over about 6 s. A longer 5xx retry cannot change a read that
+succeeded, so the twelve passed lanes would have run identically on the final code. The maintainer
+also raised this candidate's Windows VM creation cap. Two development attempts on the final branch
+stopped before any product phase, and each led to a fix in #317: the guest's shape check
+hard-coded two processors, and Vultr answered 502 to all three reads of a staging lookup. A third,
+on `vhp-4c-8gb-amd`, was refused by Vultr (HTTP 400) before any VM existed. None of them is
+evidence. The run's teardown destroyed the VM, its firewall, and its tailnet node and removed its
+access vault, but reported a harness defect: its OMP stop refused a stored process ID that an
+unrelated process held after the lane's reboots. A repeated cleanup then showed a second: it
+cannot restore the Pixel once the vault is gone. Neither touches the lane's evidence; zero
+`omp-winqual-*` instances, firewall groups, and tailnet nodes remained, and no vault.
+
+**Windows build capacity:** on the 8 GiB VM, stock OMP 18.4.2 built in 673 s (1,197 s in the
+earlier 4 GiB development run) and peaked at 4,530 MB committed, Bun at 2,205 MB private, against
+a 9,210 MB commit limit with the image's fixed 1,024 MB pagefile. With the same pagefile, a 4 GiB
+VM's limit is about 5.1 GB. The two failed builds there left no output, so memory exhaustion is the
+likely cause, not an observed one; the guest now keeps that output.
+
+**Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
+all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
+re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+
+**Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
+gate, as every mainline release has. Eight-hour endurance and bounded memory growth are not
+claimed. Windows is qualified only as Windows Server 2025 x86-64 started at interactive logon, from
+the Administrator and from a fresh standard-account install; the lane runs the upgrade, rollback,
+OMP, and Pixel journeys as the Administrator. Background Web Push is qualified in full only on the
+Pixel, with force-stop and Doze outcomes as observed variants. The cloud devices are qualified in
+the browser at the exact models and versions above. The tunnel ran on the workstation, so Serve saw
+the workstation's allowlisted login, not a phone's. The iPhone's alert was proven with the device
+unlocked and the app in the background, not on the lock screen; lock, Airplane, Doze, force-stop,
+and cellular behavior stay Pixel-only. Desktop Safari, specialized attention/branch-resume, and
+broader host/browser combinations remain unqualified. Every other release gate stays required.
 
 ## Mainline v0.6.3 — published stable
 

@@ -65,28 +65,30 @@ gateway change. The current checkout's engineering baseline is v18.4.2 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Published stable:** [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3),
-GitHub Latest, promoted from v0.6.3-prealpha.2 with identical runtime bytes. Its published-byte
-local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. On Windows,
-v0.6.3 installs and runs from a standard (non-elevated) account (#293, #294), reads its task's
-state through the Task Scheduler's COM interface, and waits for the gateway's process when stopping
-it. Its Windows qualification adds a fresh install from such an account. The
-[release ledger](RELEASE_STATUS.md) records the qualification lanes, the development runs that found
-the third Windows defect, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md)
-covers the rollback predecessor, v0.6.2.
+**Qualified for stable promotion:** [v0.7.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0-prealpha.1),
+for [v0.7.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0). Publication
+and the separate published-byte local/Pixel smoke are pending; published v0.6.3 remains GitHub
+Latest until promotion. v0.7.0 embeds OMP 18.4.2's redesigned collaboration client with React's
+production build, keeps text fields at 16px on touch screens so iOS Safari does not zoom into the
+composer, and fails closed on Windows when its scheduled task cannot be queried. Its Windows
+evidence is a clean development run of the final orchestrator on a 4-vCPU/8-GiB VM, paired with the
+campaign's other twelve lanes under a one-time maintainer exception. The
+[release ledger](RELEASE_STATUS.md) records the qualification lanes, the failed attempts and the
+exception, and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md) covers
+the rollback predecessor, v0.6.3.
 
 | Surface | Current contract | Qualification |
 |---|---|---|
-| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.3.0` publication, View/Control, stale-generation rejection, and revocation passed |
-| Exact qualified source | `v18.3.0`, `62bc57be1b03ef0802a33cf7f5f530e534527531` | Fresh signed-candidate evidence; no fork-era transfer |
+| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.4.2` publication, View/Control, stale-generation rejection, and revocation passed |
+| Exact qualified source | `v18.4.2`, `4620bb8338e0ecace7ea237da9d5088d16068617` | Fresh signed-candidate evidence; no fork-era transfer |
 | Gateway build/runtime | Bun `1.4.0` | Signed artifact and 46-file non-metadata runtime equivalence passed |
 | Debian host | Debian 13 (trixie) x86-64 | Lifecycle, persistence, 83/83 migration/recovery invariants, and teardown passed |
 | Mac host | macOS 26.6.1 arm64, `Mac14,3` | Doctor 18/18, rollback 23/23, rotation and reboot-to-login persistence passed |
-| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon, from an Administrator or a standard (non-elevated) account | Upgrade from v0.6.2, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM; a fresh install from a standard account, its token without `SeSecurityPrivilege`, then passed reboot, automatic start at that account's logon, doctor, rotation, and uninstall |
-| Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `153.0.8010.53` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
+| Windows host | Windows Server 2025 x86-64, build `26100`, started at interactive logon, from an Administrator or a standard (non-elevated) account | Upgrade from v0.6.3, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, rollback, and uninstall passed on a disposable VM; a fresh install from a standard account, its token without `SeSecurityPrivilege`, then passed reboot, automatic start at that account's logon, doctor, rotation, and uninstall |
+| Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `154.0.8037.57` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
 | Background Web Push | Pixel 10 Pro, the installed OMP Sessions app closed | Delivery at each detail level on the lock screen, taps to current Control and View, stale-generation refusal, authoritative clear, permission revocation, and network changes passed; force-stop and Doze recorded as observed variants |
 | Cloud browsers | iPhone 17 Pro Max, iOS 26.6, Safari 26.6; iPad (9th generation), iPadOS 26.6, Safari 26.6; Galaxy S26 (`SM-S942B`), Android 16, Chrome `145.0.7632.159`; TestingBot real devices | View/Control on the candidate's app bundle and seven detectable clean capability sinks on each; no vendor test record held a live link, video, or screenshot. Serve saw the workstation's allowlisted login, not a phone's |
-| iPhone background alerts | The iPhone above, unlocked, its Home Screen app in the background | Alerts enabled with a real tap, delivery in 10.3 s through `web.push.apple.com`, and the tap into current Control with a scrubbed address; not lock-screen presentation |
+| iPhone background alerts | The iPhone above, unlocked, its Home Screen app in the background | Alerts enabled with a real tap, delivery in 15.5 s through `web.push.apple.com`, and the tap into current Control with a scrubbed address; not lock-screen presentation |
 | Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Mac/Pixel allowed-user access, Debian tagged-user denial, direct backend refusal |
 | Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
 
