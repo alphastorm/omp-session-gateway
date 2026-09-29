@@ -325,6 +325,8 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
         return "List of devices attached\n" + devices + "\n";
       }
       if (invocation === "adb -s private-device shell getprop ro.product.model") return "Pixel 10";
+      if (invocation === "adb -s private-device shell dumpsys tethering") return "    Upstream wanted: false\n";
+      if (invocation === "adb -s private-device shell settings get global zen_mode") return "0\n";
       if (invocation === "adb -s private-device shell getprop ro.build.version.release") return "16";
       if (invocation === "adb -s private-device shell getprop ro.build.id") return "fixture-build";
       if (invocation === "adb -s private-device shell dumpsys package com.android.chrome") return "versionName=150.0.1";
@@ -351,6 +353,52 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
 }
 
 describe("stable qualification read-only admission", () => {
+  test.each([
+    ["    Upstream wanted: true\n", "0", "tethering"],
+    ["    wlan1 - TetheredState - lastError = 0\n    Upstream wanted: false\n", "0", "tethering"],
+    ["    ncm0 - TetheredState - lastError = 0\n    Upstream wanted: false\n", "0", "tethering"],
+    ["    bt-pan - TetheredState - lastError = 0\n    Upstream wanted: false\n", "0", "tethering"],
+    ["Tethering: unknown output\n", "0", "tethering"],
+    ["probe-failure", "0", "tethering"],
+    ["    Upstream wanted: false\n", "1", "Do Not Disturb"],
+    ["    Upstream wanted: false\n", "null", "Do Not Disturb"],
+    ["    Upstream wanted: false\n", "probe-failure", "Do Not Disturb"],
+  ] as const)("unsafe tethering/notification state refuses before provider lookup, lane admission or receipts: %s %s", async (tethering, zenMode, diagnostic) => {
+    const root = await mkdtemp(join(tmpdir(), "stable-tethering-refusal-"));
+    try {
+      const fixture = await preflightFixture(root);
+      let providerLookups = 0, laneAdmissions = 0;
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        recoverMac: async options => { providerLookups += 1; return fixture.recoverMac(options); },
+        output: async command => {
+          if (command.slice(-3).join(" ") === "shell dumpsys tethering") {
+            if (tethering === "probe-failure") throw new Error("synthetic-private-device probe failure");
+            return tethering;
+          }
+          if (command.slice(-5).join(" ") === "shell settings get global zen_mode") {
+            if (zenMode === "probe-failure") throw new Error("synthetic-private-device settings failure");
+            return zenMode;
+          }
+          return fixture.output(command);
+        },
+      };
+      const fixtureLanes = admissionLanes();
+      const refusal = <T extends object>(lane: ExternalLaneModule<T>): ExternalLaneModule<T> => ({
+        ...lane,
+        preflight: async () => { laneAdmissions += 1; throw new Error("fixture refuses external admission"); },
+      });
+      const lanes = { ...fixtureLanes, windows: refusal(fixtureLanes.windows), androidPush: refusal(fixtureLanes.androidPush), deviceCloud: refusal(fixtureLanes.deviceCloud) };
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, lanes));
+      expect(error).toContain(diagnostic);
+      expect(error).not.toContain("synthetic-private-device");
+      expect({ providerLookups, laneAdmissions }).toEqual({ providerLookups: 0, laneAdmissions: 0 });
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test.each([
     ["absent", "authorized Android"],
     ["unauthorized", "authorized Android"],

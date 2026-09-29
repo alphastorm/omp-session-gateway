@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
-import { parseAndroidPackageVersion, readAndroidQualificationPin, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
+import { parseAndroidPackageVersion, readAndroidQualificationPin, requireAndroidDevicePreconditions, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { readProvider } from "./provider-read.ts";
 import { releaseVersion } from "./release-policy.ts";
@@ -1206,6 +1206,7 @@ export async function preflightStableQualification(
   const serial = await prerequisite("attach exactly one authorized Android device; resolve absent, unauthorized or ambiguous adb devices", () =>
     requireSingleDevice((...args) => runtime.output(["adb", ...args])),
   );
+  await requireAndroidDevicePreconditions((...args) => runtime.output(["adb", "-s", serial, ...args]), { switchesRadios: true, needsNotifications: true });
   await prerequisite("attached Android must be an identified Pixel with the selected browser installed", async () => {
     const model = await runtime.output(["adb", "-s", serial, "shell", "getprop", "ro.product.model"]);
     if (!model.startsWith("Pixel ")) throw new Error("not a Pixel");

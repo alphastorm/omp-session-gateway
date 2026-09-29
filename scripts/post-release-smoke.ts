@@ -26,6 +26,7 @@ import {
 } from "./android-stages.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { releaseVersion } from "./release-policy.ts";
+import { requireAndroidDevicePreconditions, type AndroidAdbCommand } from "./android-device.ts";
 import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1044,12 +1045,20 @@ async function runAndroidLanes(
   await verifyInstalledWebApk(config.http.publicOrigin);
 }
 
+/** Admit the Android lanes before release downloads or host changes; none needs notifications. */
+export async function preflightPostReleaseAndroid(
+  command: AndroidAdbCommand = (...args) => commandOutput("Android device preflight", ["adb", ...args]),
+  requestedSerial?: string,
+): Promise<void> {
+  const serial = selectAdbDevice(await command("devices", "-l"), requestedSerial);
+  await requireAndroidDevicePreconditions((...args) => command("-s", serial, ...args), { switchesRadios: true, needsNotifications: false });
+}
+
 async function assertRequiredTools(): Promise<void> {
   for (const tool of ["gh", "cosign", "git", "shasum", "tar", "plutil", "tailscale", "tmux", "adb"]) {
     await runCommand(`${tool} prerequisite`, ["sh", "-c", `command -v ${tool} >/dev/null`]);
   }
-  const devices = await commandOutput("Android device preflight", ["adb", "devices", "-l"]);
-  selectAdbDevice(devices, process.env.OMP_ANDROID_SERIAL);
+  await preflightPostReleaseAndroid(undefined, process.env.OMP_ANDROID_SERIAL);
 }
 
 export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Promise<Record<string, unknown>> {

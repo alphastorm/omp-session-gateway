@@ -316,6 +316,34 @@ export function parseAndroidTethering(output: string): boolean {
   return wanted === "true" || /^\s*\S+ - TetheredState - lastError = -?\d+\r?$/mu.test(output);
 }
 
+/** Read-only admission, selected by the effects each entry point actually exercises. Never changes DND. */
+export async function requireAndroidDevicePreconditions(
+  command: AndroidAdbCommand,
+  requirements: { readonly switchesRadios: boolean; readonly needsNotifications: boolean },
+): Promise<void> {
+  if (requirements.switchesRadios) {
+    let tethering: boolean;
+    try {
+      tethering = parseAndroidTethering(await command("shell", "dumpsys", "tethering"));
+    } catch {
+      throw new Error("cannot verify Android tethering state; refuse radio-switching qualification");
+    }
+    if (tethering) {
+      throw new Error("turn off hotspot, USB and Bluetooth tethering on the Pixel: qualification switches its radios, which disconnects every tethered client, including this controller");
+    }
+  }
+  if (requirements.needsNotifications) {
+    let zenMode: string;
+    try {
+      zenMode = (await command("shell", "settings", "get", "global", "zen_mode")).trim();
+    } catch {
+      throw new Error("cannot verify Android Do Not Disturb state; refuse notification qualification");
+    }
+    if (!/^[0-3]$/u.test(zenMode)) throw new Error("cannot verify Android Do Not Disturb state; refuse notification qualification");
+    if (zenMode !== "0") throw new Error("turn Do Not Disturb off on the Pixel for the qualification window");
+  }
+}
+
 /**
  * Whether a live Wi-Fi network is connected and validated, read only from the `Current Networks:`
  * section of `dumpsys connectivity`: requests and histories elsewhere also name Wi-Fi.
