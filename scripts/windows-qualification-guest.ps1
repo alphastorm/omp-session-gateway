@@ -369,8 +369,9 @@ switch ($p.action) {
     if ($p.ompPid) {
       if ($p.ompPid -le 0) { throw 'owned OMP PID is invalid' }
       $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ompPid)"
-      if ($process) {
-        if ($process.ExecutablePath -ne $p.ompPath) { throw 'owned OMP PID was reused' }
+      # The lane reboots its guest, and Windows then reuses process IDs: a stored ID that now names
+      # another executable means the owned OMP has already exited, and that process is left alone.
+      if ($process -and $process.ExecutablePath -eq $p.ompPath) {
         Run taskkill.exe @('/PID', [string]$p.ompPid, '/T', '/F') | Out-Null
       }
     }
