@@ -224,11 +224,18 @@ configured Tailscale Serve origin; and the **OMP Sessions** WebAPK already insta
 origin. The Android qualification PIN stays in the documented macOS Keychain service.
 
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
-fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
+fixture creation. Every Android path uses the shared single-device admission; disconnect other
+devices instead of selecting one with an environment override. The former `OMP_ANDROID_SERIAL`
+override is removed: it applied only to smoke preflight, not the subsequent device journeys.
 
 Post-release smoke also refuses active or unobservable tethering before those effects: its Android
 acceptance lane switches the device radios. Do Not Disturb/Bedtime may remain on because these
 smoke lanes do not exercise notifications; the harness never changes DND.
+
+Acceptance snapshots airplane, Wi-Fi and mobile-data state after admission and restores and
+verifies that exact baseline, rather than unconditionally enabling both radios. It also attempts
+Doze and battery reset after a failed radio restoration. Restoration and owned-fixture cleanup
+failures are reported with, never instead of, the primary qualification failure.
 
 This fork-era example ran from the `v0.2.1` checkout with its own Bun and OMP pins. The later
 fork-era v0.3.0 engineering source used Bun 1.4.0 and OMP v18.1.14; neither set of bytes is the
@@ -270,7 +277,7 @@ gateway, config/token, Bun runtime, mainline OMP, Serve configuration, and WebAP
 `--force-reinstall` retests an already active stable gateway. `--plan` prints the
 bounded effects without network, service, Tailscale, OMP, or Android changes.
 
-If the orchestrator is killed before its `finally` cleanup runs, inspect tmux for the single
+If the orchestrator is killed before its restoration owner runs cleanup, inspect tmux for the single
 `omp-post-release-*` name and require the matching
 `~/<label>/.omp-session-gateway-post-release-smoke` marker before killing or removing anything.
 Never wildcard-delete fixture directories or touch unrelated tmux sessions or Serve mappings.

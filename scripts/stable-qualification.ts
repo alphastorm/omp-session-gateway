@@ -5,12 +5,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
-import { parseAndroidPackageVersion, readAndroidQualificationPin, requireAndroidDevicePreconditions, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
+import { runAdb, parseAndroidPackageVersion, readAndroidQualificationPin, requireAndroidDevicePreconditions, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { readProvider } from "./provider-read.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
+import { pixelUnrestored } from "./restoration.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
@@ -529,7 +530,7 @@ export function createPixelLease(log: (line: string) => void = line => console.e
       try {
         return await action();
       } catch (error) {
-        if (isRecord(error) && error.pixelUnrestored === true) unrestoredBy = owner;
+        if (pixelUnrestored(error)) unrestoredBy = owner;
         throw error;
       } finally {
         holder = undefined;
@@ -702,6 +703,19 @@ async function runCommand(command: readonly string[], options: CommandOptions = 
     throw new Error(`${command.join(" ")} failed with exit ${exitCode}:\n${tail(stderr || stdout)}`);
   }
   return { exitCode, stdout, stderr };
+}
+
+/**
+ * Runs a child that mutates the Pixel and restores it itself. From outside, a failed or timed-out
+ * child cannot prove its restoration ran (a killed process restores nothing, and a restoration
+ * failure arrives only as text), so its failure leaves the Pixel lease refusing later device lanes.
+ */
+export async function runPixelRestoringChild(command: readonly string[], options: CommandOptions): Promise<CommandResult> {
+  try {
+    return await runCommand(command, options);
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error("Pixel child failed"), { pixelUnrestored: true });
+  }
 }
 
 async function commandOutput(command: readonly string[], options: CommandOptions = {}): Promise<string> {
@@ -1164,6 +1178,7 @@ export interface StablePreflightRuntime {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly executable: (name: string) => string | null;
   readonly output: (command: readonly string[]) => Promise<string>;
+  readonly adb: (serial: string | undefined, args: readonly string[]) => Promise<string>;
   readonly recoverMac: (options: StableQualificationOptions) => Promise<MacTarget>;
 }
 
@@ -1174,6 +1189,7 @@ const defaultPreflightRuntime: StablePreflightRuntime = {
   environment: process.env,
   executable: Bun.which,
   output: command => commandOutput(command, { timeoutMs: 15_000 }),
+  adb: (serial, args) => runAdb(serial, args, { timeoutMs: 15_000 }),
   recoverMac: recoverRetainedMac,
 };
 
@@ -1204,16 +1220,16 @@ export async function preflightStableQualification(
   }
   const browser = resolveAndroidBrowserTarget(runtime.environment);
   const serial = await prerequisite("attach exactly one authorized Android device; resolve absent, unauthorized or ambiguous adb devices", () =>
-    requireSingleDevice((...args) => runtime.output(["adb", ...args])),
+    requireSingleDevice((...args) => runtime.adb(undefined, args)),
   );
-  await requireAndroidDevicePreconditions((...args) => runtime.output(["adb", "-s", serial, ...args]), { switchesRadios: true, needsNotifications: true });
+  await requireAndroidDevicePreconditions((...args) => runtime.adb(serial, args), { switchesRadios: true, needsNotifications: true });
   await prerequisite("attached Android must be an identified Pixel with the selected browser installed", async () => {
-    const model = await runtime.output(["adb", "-s", serial, "shell", "getprop", "ro.product.model"]);
+    const model = await runtime.adb(serial, ["shell", "getprop", "ro.product.model"]);
     if (!model.startsWith("Pixel ")) throw new Error("not a Pixel");
     for (const property of ["ro.build.version.release", "ro.build.id"]) {
-      if (await runtime.output(["adb", "-s", serial, "shell", "getprop", property]) === "") throw new Error("missing build");
+      if ((await runtime.adb(serial, ["shell", "getprop", property])).trim() === "") throw new Error("missing build");
     }
-    parseAndroidPackageVersion(await runtime.output(["adb", "-s", serial, "shell", "dumpsys", "package", browser.packageName]));
+    parseAndroidPackageVersion(await runtime.adb(serial, ["shell", "dumpsys", "package", browser.packageName]));
   });
   await prerequisite("device-scoped Android qualification PIN is unavailable or invalid in the macOS Keychain", async () => {
     const pin = await readAndroidQualificationPin(serial, async (account, service) =>
@@ -1596,7 +1612,7 @@ async function runAndroidAcceptance(
     OMP_ANDROID_BROWSER_ACTIVITY: browser.activity,
     OMP_ANDROID_DEVTOOLS_SOCKET: browser.devtoolsSocket,
   };
-  const acceptance = await runCommand(
+  const acceptance = await runPixelRestoringChild(
     [process.execPath, "scripts/android-acceptance.ts", context.publicOrigin, options.sessionLabel],
     { env: androidEnvironment, timeoutMs: 15 * 60 * 1_000, echo: true },
   );
@@ -1610,9 +1626,9 @@ async function runAndroidAcceptance(
   const serial = summary.serial;
   if (typeof serial !== "string" || serial === "") throw new Error("physical Android acceptance did not identify its device");
   const [model, androidRelease, buildId] = await Promise.all([
-    commandOutput(["adb", "-s", serial, "shell", "getprop", "ro.product.model"]),
-    commandOutput(["adb", "-s", serial, "shell", "getprop", "ro.build.version.release"]),
-    commandOutput(["adb", "-s", serial, "shell", "getprop", "ro.build.id"]),
+    runAdb(serial, ["shell", "getprop", "ro.product.model"], { timeoutMs: 120_000 }).then(value => value.trim()),
+    runAdb(serial, ["shell", "getprop", "ro.build.version.release"], { timeoutMs: 120_000 }).then(value => value.trim()),
+    runAdb(serial, ["shell", "getprop", "ro.build.id"], { timeoutMs: 120_000 }).then(value => value.trim()),
   ]);
   if (!model.startsWith("Pixel ") || androidRelease === "" || buildId === "") {
     throw new Error("physical Android acceptance did not run on an identified Pixel build");

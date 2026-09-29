@@ -8,7 +8,7 @@ import type { WindowsAdmission, WindowsArtifact, WindowsContext, WindowsFirewall
 import { parseQualificationPins, parseStableQualificationArgs, releaseArchivePath, verifyLaunchContracts, verifyRelease, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
 import { windowsHostScript } from "./upstream-canary.ts";
 import { OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
-import { parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./android-device.ts";
+import { runAdb, parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./android-device.ts";
 import { runAndroidCollabSmoke } from "./android-collab-smoke.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { firewallEligibility, instanceEligibility, QUAL_LABEL_PREFIX } from "./vultr-target.ts";
@@ -309,18 +309,18 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
       }
     });
     await context.beforeEffect();
-    await command(["adb", "-s", serial, "shell", "monkey", "-p", baseline.launcherPackage, "-c", baseline.launcherCategory, "1"], { timeoutMs: 30_000 });
+    await runAdb(serial, ["shell", "monkey", "-p", baseline.launcherPackage, "-c", baseline.launcherCategory, "1"], { timeoutMs: 30_000 });
     if (baseline.keyguard || baseline.wakefulness !== "Awake") {
-      await context.beforeEffect(); await command(["adb", "-s", serial, "shell", "input", "keyevent", "223"]);
+      await context.beforeEffect(); await runAdb(serial, ["shell", "input", "keyevent", "223"], { timeoutMs: 120_000 });
       if (baseline.wakefulness === "Awake") {
-        await context.beforeEffect(); await command(["adb", "-s", serial, "shell", "input", "keyevent", "224"]);
+        await context.beforeEffect(); await runAdb(serial, ["shell", "input", "keyevent", "224"], { timeoutMs: 120_000 });
       }
     }
-    const restoredKeyguard = parseKeyguardShowing(await command(["adb", "-s", serial, "shell", "dumpsys", "window"]));
-    const power = await command(["adb", "-s", serial, "shell", "dumpsys", "power"]);
+    const restoredKeyguard = parseKeyguardShowing(await runAdb(serial, ["shell", "dumpsys", "window"], { timeoutMs: 120_000 }));
+    const power = await runAdb(serial, ["shell", "dumpsys", "power"], { timeoutMs: 120_000 });
     const awake = /mWakefulness=Awake/u.test(power);
     if (restoredKeyguard !== baseline.keyguard || awake !== (baseline.wakefulness === "Awake")) throw new Error("Pixel display baseline restoration failed");
-    const activities = await command(["adb", "-s", serial, "shell", "dumpsys", "activity", "activities"]);
+    const activities = await runAdb(serial, ["shell", "dumpsys", "activity", "activities"], { timeoutMs: 120_000 });
     const component = windowsPixelForeground(activities);
     if (component !== baseline.component) throw new Error("Pixel foreground baseline restoration failed");
     delete access.pixelState; await atomicPrivate(vaultPath(context.epoch), access);
@@ -478,14 +478,14 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     async pixel(context) {
       const access = await loadAccess(context.epoch);
       const serial = await requireSingleDevice();
-      const activities = await command(["adb", "-s", serial, "shell", "dumpsys", "activity", "activities"]);
+      const activities = await runAdb(serial, ["shell", "dumpsys", "activity", "activities"], { timeoutMs: 120_000 });
       const component = windowsPixelForeground(activities);
-      const power = await command(["adb", "-s", serial, "shell", "dumpsys", "power"]);
+      const power = await runAdb(serial, ["shell", "dumpsys", "power"], { timeoutMs: 120_000 });
       const wakefulness = /mWakefulness=(Awake|Asleep|Dozing|Dreaming)/u.exec(power)?.[1];
-      const keyguard = parseKeyguardShowing(await command(["adb", "-s", serial, "shell", "dumpsys", "window"]));
+      const keyguard = parseKeyguardShowing(await runAdb(serial, ["shell", "dumpsys", "window"], { timeoutMs: 120_000 }));
       if (!component || !wakefulness) throw new Error("Pixel baseline is incomplete");
       const launcher = windowsPixelLauncher(activities, component);
-      if ((await command(["adb", "forward", "--list"])).includes("tcp:9222")) throw new Error("Pixel debugging port already has an owner");
+      if ((await runAdb(undefined, ["forward", "--list"], { timeoutMs: 120_000 })).includes("tcp:9222")) throw new Error("Pixel debugging port already has an owner");
       await context.beforeEffect(); await atomicPrivate(vaultPath(context.epoch), { ...access, pixelState: { serial, component, launcherPackage: launcher.packageName, launcherCategory: launcher.category, wakefulness, keyguard } });
       let result: Record<string, unknown> | undefined;
       let primary: unknown;

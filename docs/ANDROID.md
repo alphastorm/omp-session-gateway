@@ -108,6 +108,13 @@ environment variable, command argument, file, log, receipt, or CI secret. Patter
 supported qualification setup: ADB's single swipe command cannot reproduce arbitrary multi-segment
 patterns without weakening the physical lock/resume gate.
 
+Acceptance captures airplane, Wi-Fi and mobile-data state after admission and before device
+mutation. On success or failure it restores and reads back that exact baseline, then exits forced
+Doze and resets battery emulation; a phone that started with mobile data off finishes with it off.
+Push and acceptance share the Wi-Fi-validation-before-mobile-data sequence. Every restoration step
+is attempted, and restoration failures are reported alongside, never instead of, the phase failure.
+A killed process cannot run restoration; inspect and restore the device before another attempt.
+
 Every acceptance record includes the package name, Android package version, complete
 Browser.getVersion result, launch activity, and DevTools socket. Before recording evidence, the
 driver reads the forwarded endpoint's Android-Package, Browser, and loopback WebSocket URL and
@@ -214,7 +221,8 @@ Setup uses the browser's Install app UI and verifies Android package ownership; 
 idempotent. Chrome's native `universal_install` action identifies the install entry without
 assuming a fixed "Install app" caption. Bounded UI observations wait for each control; the optional
 Install/Create shortcut sheet and the final Install confirmation are separate transitions. Setup
-closes its own menu/dialog on failure and retains the lease if native UI restoration fails. The
+closes its own menu/dialog on failure and retains the lease if native UI restoration fails, even
+when that failure is nested in an aggregate with the setup error. The
 retained-origin install completed in 52.675 s on Chrome 153.0.8010.52; its authorized notification
 grant and subscription persisted across disconnect, with the equipment baseline restored and
 the lease released. Obtain authorization before installing for another origin. The installed app is

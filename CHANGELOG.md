@@ -25,6 +25,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   path. Without a PID the soak takes no gateway measurement. The procedure had required start/end
   memory readings before any bounded-growth claim without taking them.
 
+### Removed
+
+- Post-release smoke no longer accepts `OMP_ANDROID_SERIAL` to bypass ambiguous device admission.
+  All Android paths require exactly one authorized device; disconnect other devices before running.
+
 ### Fixed
 
 - SSE streams that stop reading now release their subscription and keepalive timer when the queue
@@ -45,6 +50,17 @@ The format is based on Keep a Changelog and Semantic Versioning.
   for its five-second keepalives: a backgrounded Pixel received them for all of a twelve-minute
   measurement. The page now closes the stream when it is frozen and rebuilds it from a fresh
   snapshot when it is shown again; a briefly hidden page keeps its stream.
+- Android harness commands share one adb runner that rejects non-zero exits and withholds device
+  identifiers, argv and subprocess output from errors. Acceptance no longer treats a failed device
+  mutation as success. Shared restoration attempts every step and reports restoration failures with,
+  never instead of, the phase failure. Acceptance restores and verifies the airplane, Wi-Fi and
+  mobile-data baseline it found, leaving data off when it started off. On a multi-SIM phone, mobile
+  data is read from the default data subscription, as the Push lane now does too, because the global
+  setting can stay stale. Nested restoration errors retain the unrestored-Pixel flag, and a failed or
+  timed-out acceptance child, whose restoration cannot be verified from outside, leaves the campaign
+  refusing later Pixel lanes. Repository checks reject unsafe throws/returns in finally.
+  Reachability observations consume ping failures inside the device shell, including Toybox's
+  unknown-host exit during Airplane mode, while adb transport failures still fail the lane.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
   a hotspot, USB or Bluetooth tethering. This is checked at orchestrator admission, before provider
   lookup or any lane, and independently by Android acceptance, post-release smoke and the background

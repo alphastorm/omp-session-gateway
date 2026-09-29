@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { runWithRestoration } from "./restoration.ts";
 
 /** Development only. Stable qualification supplies its own in-process pixel() lease. */
 export async function withDevelopmentPixelLease<T>(
@@ -19,7 +20,9 @@ export async function withDevelopmentPixelLease<T>(
   }
   if (created) {
     try { await writeFile(path, marker, { mode: 0o600, flag: "wx" }); }
-    catch (error) { await rm(directory, { recursive: true }); throw error; }
+    catch (error) {
+      await runWithRestoration("Pixel lease creation", () => { throw error; }, [() => rm(directory, { recursive: true })]);
+    }
   } else {
     const previous = await readFile(path, "utf8");
     const record: unknown = JSON.parse(previous);
@@ -32,16 +35,15 @@ export async function withDevelopmentPixelLease<T>(
     // Serializes two cleanup processes without releasing the device to another lane.
     const recovery = join(directory, "recovery");
     await mkdir(recovery, { mode: 0o700 });
-    try {
+    await runWithRestoration("Pixel lease recovery", async () => {
       if (await readFile(path, "utf8") !== previous) throw new Error("Pixel lease ownership changed; refusing recovery");
       await writeFile(path, marker, { mode: 0o600 });
-    } finally { await rm(recovery, { recursive: true }); }
+    }, [() => rm(recovery, { recursive: true })]);
   }
-  try { return await action(); }
-  finally {
+  return runWithRestoration("Pixel lease", action, [async () => {
     if (restored()) {
       if (await readFile(path, "utf8") !== marker) throw new Error("Pixel lease ownership changed; refusing release");
       await rm(directory, { recursive: true });
     }
-  }
+  }]);
 }

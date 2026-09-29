@@ -332,7 +332,9 @@ async function runCanary(args: readonly string[]): Promise<{ summary: CanarySumm
     failedStage = stage;
     // Never forward exceptions from OMP, the reader, or GuestClient: they may contain bearer data.
     reason = error instanceof CanaryFailure ? error.message : "operation failed";
-  } finally {
+  }
+  // The primary outcome is already captured above; cleanup appends its own redacted verdict.
+  {
     let cleanupFailed = false;
     for (const guest of guests) {
       try { guest.close(); } catch { cleanupFailed = true; }

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { runWithRestoration } from "./restoration.ts";
 import { spawn } from "node:child_process";
 import {
   chmod,
@@ -26,7 +27,7 @@ import {
 } from "./android-stages.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { releaseVersion } from "./release-policy.ts";
-import { requireAndroidDevicePreconditions, type AndroidAdbCommand } from "./android-device.ts";
+import { requireAndroidDevicePreconditions, requireSingleDevice, runAdb, type AndroidAdbCommand } from "./android-device.ts";
 import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -229,22 +230,6 @@ export function assertFixtureOwnership(actualMarker: string, runId: string): voi
   if (actualMarker !== `${runId}\n`) {
     throw new Error("smoke fixture ownership marker changed; refusing directory cleanup");
   }
-}
-
-export function selectAdbDevice(devicesOutput: string, requestedSerial?: string): string {
-  const devices = devicesOutput
-    .split(/\r?\n/u)
-    .slice(1)
-    .map(line => line.trim().split(/\s+/u))
-    .filter((fields): fields is [string, string, ...string[]] => fields.length >= 2 && fields[1] === "device");
-  if (requestedSerial !== undefined) {
-    if (!devices.some(([serial]) => serial === requestedSerial)) {
-      throw new Error("configured Android device is not attached and authorized");
-    }
-    return requestedSerial;
-  }
-  if (devices.length !== 1) throw new Error("post-release smoke requires exactly one attached and authorized Android device");
-  return devices[0]![0];
 }
 
 export function assertWebApkActiveTask(activities: string, packageName: string): void {
@@ -966,40 +951,40 @@ export function isWebApkAppTarget(
 }
 
 async function verifyInstalledWebApk(origin: string): Promise<void> {
+  const serial = await requireSingleDevice();
+  const device = (...args: string[]) => runAdb(serial, args, { timeoutMs: 120_000 });
   const host = new URL(origin).hostname;
-  const packageList = await commandOutput("installed WebAPK list", ["adb", "shell", "cmd", "package", "list", "packages", "org.chromium.webapk"]);
+  const packageList = await device("shell", "cmd", "package", "list", "packages", "org.chromium.webapk");
   const packages = packageList
     .split(/\r?\n/u)
     .map(line => line.trim().replace(/^package:/u, ""))
     .filter(Boolean);
   const packageDumps: Record<string, string> = {};
   for (const packageName of packages) {
-    packageDumps[packageName] = await commandOutput("installed WebAPK metadata", ["adb", "shell", "dumpsys", "package", packageName]);
+    packageDumps[packageName] = await device("shell", "dumpsys", "package", packageName);
   }
   const packageName = findWebApkForHost(packageList, packageDumps, host);
   if (packageName === undefined) throw new Error("OMP Sessions WebAPK is not installed for the gateway origin");
 
-  await runCommand(
-    "installed WebAPK launch",
-    ["adb", "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"],
+  await runAdb(
+    serial,
+    ["shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"],
     { timeoutMs: 30_000 },
   );
   await sleep(2_000);
-  const activities = await commandOutput("installed WebAPK activity", ["adb", "shell", "dumpsys", "activity", "activities"]);
+  const activities = await device("shell", "dumpsys", "activity", "activities");
   assertWebApkActiveTask(activities, packageName);
 
   const port = await chooseLoopbackPort();
-  await runCommand("WebAPK DevTools forward", ["adb", "forward", `tcp:${port}`, "localabstract:chrome_devtools_remote"]);
-  try {
+  await device("forward", `tcp:${port}`, "localabstract:chrome_devtools_remote");
+  await runWithRestoration("WebAPK verification", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`);
     if (!response.ok) throw new Error("WebAPK DevTools target list was unavailable");
     const targets = (await response.json()) as Array<{ type?: string; title?: string; url?: string }>;
     if (!targets.some(target => isWebApkAppTarget(target, origin))) {
       throw new Error("installed WebAPK did not render the OMP Sessions origin");
     }
-  } finally {
-    await runCommand("WebAPK DevTools cleanup", ["adb", "forward", "--remove", `tcp:${port}`]);
-  }
+  }, [() => device("forward", "--remove", `tcp:${port}`)]);
 }
 
 async function runAndroidLanes(
@@ -1047,10 +1032,9 @@ async function runAndroidLanes(
 
 /** Admit the Android lanes before release downloads or host changes; none needs notifications. */
 export async function preflightPostReleaseAndroid(
-  command: AndroidAdbCommand = (...args) => commandOutput("Android device preflight", ["adb", ...args]),
-  requestedSerial?: string,
+  command: AndroidAdbCommand = (...args) => runAdb(undefined, args, { timeoutMs: 120_000 }),
 ): Promise<void> {
-  const serial = selectAdbDevice(await command("devices", "-l"), requestedSerial);
+  const serial = await requireSingleDevice(command);
   await requireAndroidDevicePreconditions((...args) => command("-s", serial, ...args), { switchesRadios: true, needsNotifications: false });
 }
 
@@ -1058,7 +1042,7 @@ async function assertRequiredTools(): Promise<void> {
   for (const tool of ["gh", "cosign", "git", "shasum", "tar", "plutil", "tailscale", "tmux", "adb"]) {
     await runCommand(`${tool} prerequisite`, ["sh", "-c", `command -v ${tool} >/dev/null`]);
   }
-  await preflightPostReleaseAndroid(undefined, process.env.OMP_ANDROID_SERIAL);
+  await preflightPostReleaseAndroid();
 }
 
 export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Promise<Record<string, unknown>> {
@@ -1090,8 +1074,7 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
   const staging = await mkdtemp(join(tmpdir(), "omp-gateway-post-release-"));
   await chmod(staging, 0o700);
   let fixture: FixtureHandle | undefined;
-  let primaryError: unknown;
-  try {
+  return runWithRestoration("post-release smoke", async () => {
     const release = await verifyPublishedRelease(options, staging, packageManifest);
     const bunExecutable = await ensurePersistentBun(release.bunVersion);
     // An unusable OMP fails the run before the installed gateway changes.
@@ -1125,26 +1108,7 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
       },
       leaveInstalled: { gateway: true, mainlineOmp: true, webApk: true },
     };
-  } catch (error) {
-    primaryError = error;
-    throw error;
-  } finally {
-    const cleanupErrors: unknown[] = [];
-    try {
-      await stopFixture(fixture);
-    } catch (error) {
-      cleanupErrors.push(error);
-    }
-    try {
-      await rm(staging, { recursive: true });
-    } catch (error) {
-      cleanupErrors.push(error);
-    }
-    if (cleanupErrors.length > 0) {
-      if (primaryError !== undefined) throw new AggregateError([primaryError, ...cleanupErrors], "post-release smoke and cleanup failed");
-      throw new AggregateError(cleanupErrors, "post-release smoke cleanup failed");
-    }
-  }
+  }, [() => stopFixture(fixture), () => rm(staging, { recursive: true })], "cleanup");
 }
 
 if (import.meta.main) {

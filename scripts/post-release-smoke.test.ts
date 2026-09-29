@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { isProtectedLabel } from "./acceptance-target.ts";
 import { parseAndroidCollabSmokeArgs } from "./android-collab-smoke.ts";
 import { ANDROID_COLLAB_STAGES } from "./android-stages.ts";
+import { requireSingleDevice } from "./android-device.ts";
 import {
   assertFixtureOwnership,
   assertWebApkActiveTask,
@@ -22,7 +23,6 @@ import {
   preflightPostReleaseAndroid,
   releaseAssetNames,
   unrelatedServeSnapshot,
-  selectAdbDevice,
 } from "./post-release-smoke.ts";
 
 const SOURCE_COMMIT = "07ba8be884c268375890d50b1a6af51f22bdb16a";
@@ -342,15 +342,11 @@ describe("physical Android release target", () => {
     ).toThrow("multiple installed WebAPKs");
   });
 
-  test("refuses a missing or ambiguous adb device before release effects", () => {
+  test("refuses a missing or ambiguous adb device before release effects", async () => {
     const oneDevice = "List of devices attached\nPIXEL_SERIAL\tdevice product:pixel model:Pixel transport_id:1\n";
-    expect(selectAdbDevice(oneDevice)).toBe("PIXEL_SERIAL");
-    expect(selectAdbDevice(oneDevice, "PIXEL_SERIAL")).toBe("PIXEL_SERIAL");
-    expect(() => selectAdbDevice("List of devices attached\n\n")).toThrow("exactly one attached");
-    expect(() =>
-      selectAdbDevice("List of devices attached\nFIRST\tdevice\nSECOND\tdevice\n"),
-    ).toThrow("exactly one attached");
-    expect(() => selectAdbDevice(oneDevice, "OTHER_SERIAL")).toThrow("configured Android device");
+    expect(await requireSingleDevice(async () => oneDevice)).toBe("PIXEL_SERIAL");
+    await expect(requireSingleDevice(async () => "List of devices attached\n\n")).rejects.toThrow("no authorized adb device");
+    await expect(requireSingleDevice(async () => "List of devices attached\nFIRST\tdevice\nSECOND\tdevice\n")).rejects.toThrow("expected one authorized adb device");
   });
 
   test("Android smoke admission permits Bedtime DND but refuses tethering", async () => {

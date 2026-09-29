@@ -164,15 +164,43 @@ export const ANDROID_DIRECTORY_SURFACE_EXPRESSION =
   `(${captureAndroidDirectorySurface.toString()})(document, navigator, performance)`;
 
 
-async function adb(serial: string | undefined, ...args: readonly string[]): Promise<string> {
-  const argv = serial === undefined ? ["adb", ...args] : ["adb", "-s", serial, ...args];
-  const subprocess = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
-  ]);
-  if ((await subprocess.exited) !== 0) throw new Error(`${argv.join(" ")} failed: ${stderr.trim()}`);
-  return stdout;
+export class AndroidAdbError extends Error {
+  constructor(readonly exitCode?: number) {
+    super(exitCode === undefined ? "adb command failed; output withheld" : "adb exited " + exitCode + "; output withheld");
+  }
+}
+
+export type AndroidAdbSpawner = (
+  argv: string[],
+  options: { stdin: "ignore" | Uint8Array; stdout: "pipe"; stderr: "pipe" },
+) => { stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill: () => void };
+
+/** The only adb subprocess owner. Never include argv, device identifiers, output or raw causes in failures. */
+export async function runAdb(
+  serial: string | undefined,
+  args: readonly string[],
+  options: { readonly input?: Uint8Array; readonly timeoutMs?: number; readonly spawn?: AndroidAdbSpawner } = {},
+): Promise<string> {
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const argv = serial === undefined ? ["adb", ...args] : ["adb", "-s", serial, ...args];
+    const child = (options.spawn ?? ((argv, options) => Bun.spawn(argv, options)))(argv, {
+      stdin: options.input ?? "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    if (options.timeoutMs !== undefined) deadline = setTimeout(() => child.kill(), options.timeoutMs);
+    const [stdout, , code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).arrayBuffer(),
+      child.exited,
+    ]);
+    if (code !== 0) throw new AndroidAdbError(code);
+    return stdout;
+  } catch (error) {
+    if (error instanceof AndroidAdbError) throw error;
+    throw new AndroidAdbError();
+  } finally {
+    clearTimeout(deadline);
+  }
 }
 
 export function parseAndroidPackageVersion(dumpsys: string): string {
@@ -184,6 +212,55 @@ export function parseAndroidPackageVersion(dumpsys: string): string {
 }
 
 export type AndroidAdbCommand = (...args: string[]) => Promise<string>;
+
+export interface AndroidRadioBaseline {
+  readonly airplane: boolean;
+  readonly wifi: boolean;
+  readonly mobile: boolean;
+}
+
+export async function readAndroidRadioBaseline(command: AndroidAdbCommand): Promise<AndroidRadioBaseline> {
+  const read = async (name: string) => (await command("shell", "settings", "get", "global", name)).trim();
+  // Multi-SIM devices keep mobile data per subscription, and `svc data` toggles the default data
+  // subscription's key while the global one can stay stale: a Pixel 10 Pro read `mobile_data=1` with
+  // data off. An absent per-subscription key falls back to the global key, never to "off".
+  const subscription = await read("multi_sim_data_call");
+  const perSubscription = /^[1-9][0-9]*$/u.test(subscription) ? await read(`mobile_data${subscription}`) : "null";
+  const mobile = perSubscription === "0" || perSubscription === "1" ? perSubscription : await read("mobile_data");
+  return { wifi: await read("wifi_on") === "1", mobile: mobile === "1", airplane: await read("airplane_mode_on") === "1" };
+}
+
+export async function restoreAndroidRadios(
+  state: AndroidRadioBaseline,
+  command: AndroidAdbCommand,
+  mutate: AndroidAdbCommand = command,
+): Promise<void> {
+  await mutate("shell", "cmd", "connectivity", "airplane-mode", state.airplane ? "enable" : "disable");
+  await mutate("shell", "svc", "wifi", state.wifi ? "enable" : "disable");
+  // Leaving Airplane mode with both radios on, mobile data validates before Wi-Fi rejoins. Play
+  // Services opens its push socket there, and once Wi-Fi becomes the default network that socket
+  // delivers nothing until its next heartbeat (18.6 min on 2026-09-29), holding every push. Mobile
+  // data therefore returns only after Wi-Fi validates; a Wi-Fi that never validates is left to the
+  // caller's own reachability check.
+  if (state.wifi && state.mobile) {
+    const deadline = Date.now() + 45_000;
+    while (Date.now() < deadline && !parseValidatedWifi(await command("shell", "dumpsys", "connectivity"))) await Bun.sleep(500);
+  }
+  await mutate("shell", "svc", "data", state.mobile ? "enable" : "disable");
+}
+
+/** Remote ping failure is an unreachable observation; failure to run the adb shell is fatal. */
+export async function androidDeviceReachesHost(host: string, command: AndroidAdbCommand): Promise<boolean> {
+  // The caller supplies URL.hostname. Assert a shell-safe hostname/IP alphabet before embedding
+  // it; accepting arbitrary shell operands here would turn a read-only probe into a mutation.
+  if (!/^(?:[A-Za-z0-9][A-Za-z0-9._:-]*|\[[A-Fa-f0-9:.]+\])$/u.test(host)) {
+    throw new Error("invalid Android reachability host");
+  }
+  // Toybox uses exit 2 for unknown host during Airplane mode, not just exit 1 for packet loss.
+  // Consume ping's status on the device, never adb's status on the controller.
+  const output = await command("shell", `ping -c 1 -W 2 '${host}' || true`);
+  return output.includes("1 received");
+}
 
 export const ANDROID_QUALIFICATION_PIN_KEYCHAIN_SERVICE =
   "omp-session-gateway.android-qualification-pin";
@@ -260,14 +337,8 @@ function androidPinKeyeventStream(pin: Uint8Array): Uint8Array {
 }
 
 async function runAndroidInteractiveAdbShell(serial: string, input: Uint8Array): Promise<number> {
-  const child = Bun.spawn(["adb", "-s", serial, "shell"], {
-    stdin: "pipe",
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  child.stdin.write(input);
-  await child.stdin.end();
-  return child.exited;
+  await runAdb(serial, ["shell"], { input });
+  return 0;
 }
 
 /** Authenticates once through one interactive adb shell; every failure is deliberately redacted. */
@@ -478,12 +549,12 @@ export function assertDevtoolsEndpointMatchesPackage(
 }
 
 async function androidPackageVersion(serial: string, packageName: string): Promise<string> {
-  return parseAndroidPackageVersion(await adb(serial, "shell", "dumpsys", "package", packageName));
+  return parseAndroidPackageVersion(await runAdb(serial, ["shell", "dumpsys", "package", packageName]));
 }
 
 /** The single authorized device; failure messages never expose device identifiers. */
 export async function requireSingleDevice(
-  command: AndroidAdbCommand = (...args) => adb(undefined, ...args),
+  command: AndroidAdbCommand = (...args) => runAdb(undefined, args),
 ): Promise<string> {
   const listed = await command("devices");
   const serials = listed
@@ -505,7 +576,7 @@ export async function requireSingleDevice(
 export async function wakeAndroidChrome(
   serial: string,
   target: AndroidBrowserTarget,
-  command: AndroidAdbCommand = (...args) => adb(serial, ...args),
+  command: AndroidAdbCommand = (...args) => runAdb(serial, args),
   pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
   unlockKeyguard: AndroidKeyguardUnlock = () => unlockAndroidKeyguard(serial),
 ): Promise<void> {
@@ -571,7 +642,7 @@ export async function withAndroidChrome<T>(
   const serial = await requireSingleDevice();
   const packageVersion = await androidPackageVersion(serial, target.packageName);
   if (options.launchBrowser !== false) await wakeAndroidChrome(serial, target);
-  await adb(serial, "forward", "tcp:" + port, target.devtoolsSocket);
+  await runAdb(serial, ["forward", "tcp:" + port, target.devtoolsSocket]);
 
   let webSocketDebuggerUrl: string;
   try {
@@ -586,7 +657,7 @@ export async function withAndroidChrome<T>(
       port,
     );
   } catch (error) {
-    await adb(serial, "forward", "--remove", "tcp:" + port).catch(() => {});
+    await runAdb(serial, ["forward", "--remove", "tcp:" + port]).catch(() => {});
     throw error;
   }
   const socket = new WebSocket(webSocketDebuggerUrl);
@@ -735,13 +806,13 @@ export async function withAndroidChrome<T>(
       await send("Target.closeTarget", { targetId }, false).catch(() => {});
     }
     socket.close();
-    await adb(serial, "forward", "--remove", `tcp:${port}`).catch(() => {});
+    await runAdb(serial, ["forward", "--remove", `tcp:${port}`]).catch(() => {});
   }
 }
 
 /** Device identity for an evidence record. */
 export async function deviceIdentity(serial: string): Promise<Record<string, string>> {
-  const property = async (name: string) => (await adb(serial, "shell", "getprop", name)).trim();
+  const property = async (name: string) => (await runAdb(serial, ["shell", "getprop", name])).trim();
   return {
     serial,
     androidRelease: await property("ro.build.version.release"),
