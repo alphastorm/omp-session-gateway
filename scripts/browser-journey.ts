@@ -8,6 +8,21 @@ export interface JourneyPage {
 
 export const APP_ASSET_PATTERN = /^\/assets\/app\.[0-9a-f]+\.js$/u;
 
+/**
+ * The device journey's View assertion. The browser e2e evaluates this same expression against the
+ * built client, so a client refresh that changes its read-only surface fails CI rather than a device
+ * lane (OMP 18.4.2 capitalized the placeholder and only a Pixel run noticed).
+ */
+export const JOURNEY_VIEW_STATE = `(() => {
+  const editor = document.querySelector(".sh-composer-input");
+  const control = document.querySelector(".shell-control");
+  return {
+    readOnly: editor instanceof HTMLTextAreaElement && editor.disabled && editor.placeholder === "Read-only session — watching only",
+    controlVisible: control instanceof HTMLButtonElement && !control.hidden,
+    rootMounted: document.querySelector("#root[role=application]") !== null,
+  };
+})()`;
+
 export interface CollaborationJourneyOptions {
   readonly origin: string;
   readonly label: string;
@@ -103,15 +118,7 @@ export async function runCollaborationJourney(
       `location.pathname === "/client/" && document.querySelector(".conn-chip")?.dataset.state === "connected" && document.querySelector(".sh-composer-input") instanceof HTMLTextAreaElement`,
       120,
     );
-    const view = await page.evaluate<{ readOnly: boolean; controlVisible: boolean; rootMounted: boolean }>(`(() => {
-      const editor = document.querySelector(".sh-composer-input");
-      const control = document.querySelector(".shell-control");
-      return {
-        readOnly: editor instanceof HTMLTextAreaElement && editor.disabled && editor.placeholder === "read-only session — watching only",
-        controlVisible: control instanceof HTMLButtonElement && !control.hidden,
-        rootMounted: document.querySelector("#root[role=application]") !== null,
-      };
-    })()`);
+    const view = await page.evaluate<{ readOnly: boolean; controlVisible: boolean; rootMounted: boolean }>(JOURNEY_VIEW_STATE);
     if (!view.readOnly || !view.controlVisible || !view.rootMounted) throw new Error("View did not remain read-only");
 
     options.announce?.("Control");

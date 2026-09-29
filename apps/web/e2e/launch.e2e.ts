@@ -5,6 +5,7 @@ import {
   relaySocketCount,
   startDashboardFixture,
 } from "./fixture-server.ts";
+import { JOURNEY_VIEW_STATE } from "../../../scripts/browser-journey.ts";
 
 const SESSION_TITLE = "Implement seamless registry recovery across long-running upgraded OMP sessions";
 
@@ -187,6 +188,8 @@ test("installed-PWA View and Control mount in the current window without losing 
     await expect(page.locator(".triage-bar")).toBeHidden();
     await expect(page.locator("#root > .sh-app")).toHaveCount(1);
     await expect(page.locator(".co-connect, .sh-connect, .sh-header, .sh-rail, .sh-banner, .sh-ended")).toHaveCount(0);
+    // The real-device journey's exact View assertion must hold against the client this build ships.
+    expect(await page.evaluate(JOURNEY_VIEW_STATE)).toEqual({ readOnly: true, controlVisible: true, rootMounted: true });
     const shippedClient = await page.evaluate(async () => {
       const asset = performance.getEntriesByType("resource").find(entry =>
         /\/assets\/collab-client\.[a-f0-9]+\.js$/u.test(entry.name),
