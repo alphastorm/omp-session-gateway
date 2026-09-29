@@ -65,10 +65,10 @@ gateway change. The current checkout's engineering baseline is v18.4.2 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Qualified for stable promotion:** [v0.7.0-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0-prealpha.1),
-for [v0.7.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0). Publication
-and the separate published-byte local/Pixel smoke are pending; published v0.6.3 remains GitHub
-Latest until promotion. v0.7.0 embeds OMP 18.4.2's redesigned collaboration client with React's
+**Published stable:** [v0.7.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0),
+GitHub Latest, promoted from v0.7.0-prealpha.1 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the first attempt against Bun's global stock OMP 18.1.20. v0.7.0
+embeds OMP 18.4.2's redesigned collaboration client with React's
 production build, keeps text fields at 16px on touch screens so iOS Safari does not zoom into the
 composer, and fails closed on Windows when its scheduled task cannot be queried. Its Windows
 evidence is a clean development run of the final orchestrator on a 4-vCPU/8-GiB VM, paired with the
