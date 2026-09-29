@@ -225,11 +225,10 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - The embedded collaboration client moves to OMP 18.4.2's redesigned web client: a single session panel, a docked composer, prompts shown as cards, and a sectioned agents rail. A snapshot now appears in one step once complete, and a reconnect keeps the transcript on screen until the replacement arrives. The gateway's own header, photo and Ask composer, and recovery behavior are unchanged, and OMP's artwork is not shipped.
-          - The collaboration client ships React's production build, which is smaller (884 KB to 644 KB of JavaScript) and faster than the development build earlier releases carried.
-          - On an iPad or a phone in landscape, iOS Safari no longer zooms into the composer when it takes focus.
-          - On Windows, commands fail closed when the gateway's scheduled task cannot be queried, so uninstall can no longer remove the task of a gateway that is still running.
-          - The OMP engineering baseline moves to v18.4.2. Mainline OMP >=18.1.20 is still required and supported; the qualified matrix is otherwise unchanged, and every lane passed again on these bytes.
+          - Tapping a notification no longer reloads an open collaboration. In the installed Android app, the tap reloaded the open page: the live collaboration and any unsent composer text were lost, and an activity-stop alert reopened a Control session as View. The open page now takes the tap and switches in place, and a tap for the session already open keeps it.
+          - A session list left in the background closes its live-update stream when the browser freezes it and rebuilds it from a fresh snapshot when shown again, so a backgrounded phone no longer wakes for keepalives every five seconds.
+          - The gateway releases an event stream whose client stops reading once its queue fills, even while the session directory is quiet, instead of keeping its subscription and keepalive timer.
+          - The OMP engineering baseline stays v18.4.2. Mainline OMP >=18.1.20 is still required and supported; the qualified matrix is unchanged, and every lane passed again on these bytes.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -263,7 +262,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.6.3 predecessor embeds the OMP 18.3.0 collaboration client. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.7.0 predecessor embeds the same OMP 18.4.2 collaboration client; rolling back to it restores its notification taps, which reload an open collaboration. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -278,8 +277,8 @@ jobs:
 
           ### Changes to test
 
-          - The embedded collaboration client refreshed to OMP 18.4.2: redesigned panel, composer, transcript, and agent surfaces; a snapshot published once when complete (on its final chunk or once every promised entry arrived) with live entries queued behind it; the transcript kept on screen through reconnects; and a pending Ask response resent after every snapshot completion. Gateway chrome, the photo and Ask composer, explicit Show earlier expansion, and bounded relay recovery are retained; OMP's artwork is excluded.
-          - React's production build in the collaboration client, the 16px composer on every touch screen (no iOS focus zoom on an iPad or a landscape phone), and Windows commands that fail closed when the scheduled task cannot be queried.
+          - A notification tap while a page is open: the worker hands it to that page, which revalidates it against fresh metadata and switches in place; a tap for the session already shown keeps it (Control is never downgraded to View), and with no open page the tap opens its route as before.
+          - A frozen session-list page closes its live-update stream and rebuilds it from a fresh snapshot when shown again; a briefly hidden page keeps its stream. Gateway event streams that stop reading are released once their queue fills, even while the directory is quiet.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -296,7 +295,7 @@ jobs:
 
           ### Rollback
 
-          The selected predecessor is v0.6.3; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.7.0; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

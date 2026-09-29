@@ -1,5 +1,17 @@
 # Release status
 
+## v0.7.1 preparation — not yet qualified or published
+
+The candidate carries three runtime fixes since v0.7.0. A tapped notification is handed to the open
+page, which switches in place instead of being reloaded (#327; ADR-017, amended 2026-09-30). A
+frozen session-list page releases its live-update stream (#328). The gateway releases event streams
+that stop reading (#321). The other changes are qualification tooling (#322–#326) and the first
+eight-hour observations (#332), which are tested evidence, not qualification. The daily upstream
+canary passed against stock OMP 18.4.4 on 2026-09-30; that is compatibility evidence, and the OMP
+engineering baseline stays v18.4.2. Published v0.7.0 remains the predecessor and current stable; no
+v0.7.1 qualification or publication is claimed, and the stable lock remains unchanged until
+approval.
+
 ## Mainline v0.7.0 — published stable
 
 **Updated:** 2026-09-29. [v0.7.0](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.0)
