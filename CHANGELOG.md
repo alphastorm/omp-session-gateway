@@ -19,6 +19,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
   focus, only for screens narrower than 640px; it now does so for any touch screen. This adopts
   upstream collab-web [#13371](https://github.com/can1357/oh-my-pi/pull/13371), first shipped in
   OMP v18.4.1, ahead of the next client refresh.
+- The collaboration client shipped React's development build, which React documents as larger and
+  slower. The web build never defined `process.env.NODE_ENV`, so React bundled its development
+  variant. Every browser bundle now builds for production, and the build fails if the client still
+  contains React's development build. The client's JavaScript shrinks from 884 KB to 644 KB.
 
 ## [v0.6.3] — 2026-09-27
 
