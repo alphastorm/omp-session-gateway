@@ -311,6 +311,7 @@ eight hours:
 ```sh
 OMP_GATEWAY_SOAK_PUBLIC_ORIGIN=https://gateway.example.ts.net \
 OMP_GATEWAY_SOAK_TAILSCALE_LOGIN=user@example.com \
+OMP_GATEWAY_SOAK_GATEWAY_PID="$(launchctl print "gui/$(id -u)/omp-session-gateway" | awk '$1 == "pid" && $2 == "=" {print $3; exit}')" \
 bun run qualify:relay-soak
 ```
 
@@ -319,11 +320,26 @@ gateway origin, requires `no-store` metadata and launch responses, never prints 
 fails if the collaboration client ends or is not live at completion. Set
 `OMP_GATEWAY_SOAK_INSTANCE_ID` to select one published session. `OMP_GATEWAY_SOAK_SECONDS` may shorten
 a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
-long-lived relay scenario. Record the gateway commit, exact mainline OMP commit, output JSON, final
-gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
-required before claiming bounded memory growth. Eight-hour endurance is **not rerun or claimed** by
-any mainline release. A passed 30-minute candidate check does not establish bounded memory growth;
-no fork-era long-window result transfers to the changed host/query/client baseline.
+long-lived relay scenario.
+
+The harness also measures the gateway process named by `OMP_GATEWAY_SOAK_GATEWAY_PID`: take it from
+the service manager, as above on macOS, or with
+`systemctl --user show --property MainPID --value omp-session-gateway` on Linux. It never infers the
+process from the listening port, because a loopback origin may be a tunnel whose listener is not the
+gateway, such as the stable lane's SSH forward. With a PID, it fails before launching if that process
+cannot be sampled. Inside the window it reads the process's resident memory and CPU time when the
+relay goes live, about every 60 seconds, and at completion, and it fails if the gateway process exits.
+The output JSON adds a `gateway` summary: sample count, start/end/min/max RSS in KiB, the
+least-squares RSS trend in KiB per hour, and CPU seconds inside the window. Without a PID it takes no
+gateway measurement and adds no `gateway` summary. Set `OMP_GATEWAY_SOAK_SAMPLES` to an absolute path,
+which requires a PID, to append every sample to a new CSV (`elapsed_s,rss_kib,cpu_s`) as it is taken;
+the harness refuses an existing file.
+
+Record the gateway commit, exact mainline OMP commit, output JSON, host/browser versions, and date in
+`RELEASE_STATUS.md`. Bounded memory growth may be claimed only from an actual eight-hour run's
+samples, never from a shorter diagnostic. Eight-hour endurance is **not rerun or claimed** by any
+mainline release. A passed 30-minute candidate check does not establish bounded memory growth; no
+fork-era long-window result transfers to the changed host/query/client baseline.
 
 ## Fleet CI runtime
 

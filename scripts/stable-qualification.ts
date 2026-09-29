@@ -1715,6 +1715,10 @@ async function runRelaySmoke(
       OMP_GATEWAY_SOAK_TAILSCALE_LOGIN: options.macLogin,
       OMP_GATEWAY_SOAK_INSTANCE_ID: instanceId,
       OMP_GATEWAY_SOAK_SECONDS: String(options.relaySeconds),
+      // The lane's gateway is remote behind the SSH forward; an operator's ambient sampling
+      // controls must not couple it to a local process or create a samples file.
+      OMP_GATEWAY_SOAK_GATEWAY_PID: undefined,
+      OMP_GATEWAY_SOAK_SAMPLES: undefined,
     },
     timeoutMs: (options.relaySeconds + 60) * 1_000,
     echo: true,
