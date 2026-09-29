@@ -307,7 +307,8 @@ type PreflightFailure = "absent" | "unauthorized" | "ambiguous" | "bun" | "execu
 
 async function preflightFixture(root: string, failure?: PreflightFailure): Promise<StablePreflightRuntime> {
   const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
-  return {
+  const runtime: StablePreflightRuntime = {
+    adb: (serial, args) => runtime.output(["adb", ...(serial === undefined ? [] : ["-s", serial]), ...args]),
     platform: "darwin",
     arch: "arm64",
     bunVersion: failure === "bun" ? "0.0.0" : pins.bunVersion,
@@ -350,6 +351,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
       throw new Error("fixture refuses a non-prerequisite command: " + invocation);
     },
   };
+  return runtime;
 }
 
 describe("stable qualification read-only admission", () => {
@@ -371,16 +373,16 @@ describe("stable qualification read-only admission", () => {
       const runtime: StablePreflightRuntime = {
         ...fixture,
         recoverMac: async options => { providerLookups += 1; return fixture.recoverMac(options); },
-        output: async command => {
-          if (command.slice(-3).join(" ") === "shell dumpsys tethering") {
+        adb: async (serial, args) => {
+          if (args.join(" ") === "shell dumpsys tethering") {
             if (tethering === "probe-failure") throw new Error("synthetic-private-device probe failure");
             return tethering;
           }
-          if (command.slice(-5).join(" ") === "shell settings get global zen_mode") {
+          if (args.join(" ") === "shell settings get global zen_mode") {
             if (zenMode === "probe-failure") throw new Error("synthetic-private-device settings failure");
             return zenMode;
           }
-          return fixture.output(command);
+          return fixture.adb(serial, args);
         },
       };
       const fixtureLanes = admissionLanes();
@@ -840,11 +842,12 @@ test("a Pixel left unrestored refuses every later device lane", async () => {
   const lease = createPixelLease(() => {});
   let later = 0;
   const unrestored = Object.assign(new Error("keyguard restore failed"), { pixelUnrestored: true });
+  const failure = new AggregateError([new Error("phase failed"), new AggregateError([unrestored], "device restoration failed")], "qualification failed");
   const [holder, waiter] = await Promise.allSettled([
-    lease("windows", async () => { throw unrestored; }),
+    lease("windows", async () => { throw failure; }),
     lease("androidPush", async () => { later += 1; }),
   ]);
-  expect(holder).toMatchObject({ status: "rejected", reason: unrestored });
+  expect(holder).toMatchObject({ status: "rejected", reason: failure });
   if (waiter?.status !== "rejected") throw new Error("the waiting lane must be refused");
   expect(String(waiter.reason)).toContain("left unrestored by windows");
   expect(later).toBe(0);

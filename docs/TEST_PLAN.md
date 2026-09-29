@@ -132,6 +132,24 @@ not replay. Provider CLI operations (gh/doctl/scw), remote shell package/bootstr
 guest metadata reads are outside this Response-based helper: their command exit/status and
 existing polling semantics remain unchanged, not covered by the direct-fetch invariant.
 
+The shared adb runner is tested with fake spawners for non-zero exit propagation and redaction of
+device identifiers, stdout/stderr and raw spawn/pipe exceptions. Repository admission forbids adb
+argv/spawn construction outside `scripts/android-device.ts`. Host-side subprocess smokes can exercise
+stdin, output and exit behavior by injecting a Bun-child spawner, without invoking adb. Reachability
+tests run a local shell with synthetic ping exits 1/2: the remote ping status is an unreachable
+observation, while an adb transport exit remains fatal. Unsafe host text is refused before dispatch.
+Best-effort CDP-forward cleanup remains explicit; device mutations must fail the lane, and
+the shared restoration owner attempts every step without replacing the original phase error. Tests
+cover its success/failure combinations, primary-error identity and ordering, continued restoration
+after a failed step, and nested unrestored-Pixel errors retaining both development and campaign
+leases. Acceptance regressions combine phase and restoration failures, round-trip Wi-Fi-on/data-off
+baselines, and reject a mismatching radio read-back. The Push and acceptance paths share radio
+capture/restoration, including validated Wi-Fi before enabling mobile data; a multi-SIM fake whose
+global `mobile_data` key is stale proves the baseline reads the default data subscription's key
+(a Pixel 10 Pro read `mobile_data=1` with data off). Repository admission
+rejects lexical throw/return statements inside finally blocks in production scripts and app source;
+scanner tests distinguish comments, strings and template text from executable nested blocks.
+
 The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
 still clean recorded pending Mac effects and must not reopen already completed cleanup.

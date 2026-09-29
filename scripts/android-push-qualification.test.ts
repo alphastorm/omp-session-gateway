@@ -7,11 +7,12 @@ import { runAndroidPush, cleanupAndroidPush, parseAndroidPushProgress, androidPu
   type AndroidPushIdentity, type AndroidPushRuntime, type PushDeviceBaseline, type PushBrowserBaseline, type PushCleanupStep } from "./android-push-qualification.ts";
 import type { SessionMetadata } from "../packages/protocol/src/types.ts";
 import { observeNotificationDump, parseAndroidUi, NotificationOverlapError, findAndroidNotification, tapAndroidNotification, notificationTopicDigest, notificationMatchesDigest, trackUnchangedNotificationPost } from "./android-notification.ts";
-import { webApkTasks, closeWebApk, setupAndroidWebApk } from "./android-webapk.ts";
+import { webApkTasks, closeWebApk, setupAndroidWebApk, withWebApkSetupRestoration } from "./android-webapk.ts";
 import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
 import { runFixtureOperation, type FixtureExecutor } from "./push-qualification-fixture.ts";
 import { authenticateAndroidNotification, isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
+import { pixelUnrestored } from "./restoration.ts";
 
 const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { tag: "v0.6.0-prealpha.1", sourceCommit: "a".repeat(40), archiveSha256: "b".repeat(64), archivePath: "synthetic.tar" },
   omp: { version: "18.3.0", bunVersion: "1.4.0", sourceCommit: "c".repeat(40), sourceTree: "d".repeat(40), nativeTarballSha256: "e".repeat(64), nativeBinarySha256: "f".repeat(64) }, origin: "https://gateway.example.test" };
@@ -208,13 +209,16 @@ test("orphan-forward cleanup admits only the reserved ports on the exact device 
   expect(() => ownedPushForwards("synthetic-device tcp:9238 localabstract:foreign_browser", "synthetic-device", socket)).toThrow("another connection");
 });
 
-test("a lost denial connection fails the observation but still releases its resources", async () => {
+test("a lost denial connection remains the primary error when releasing its resources also fails", async () => {
   let closed = false;
+  const primary = new Error("synthetic disconnected browser");
+  const cleanup = new Error("synthetic forward cleanup failure");
   const release = await holdAndroidNotificationDenial("https://gateway.example.test", async run => {
-    try { await run({ browserSend: async method => { if (method === "Browser.getVersion") throw new Error("synthetic disconnected browser"); return {}; } }); }
-    finally { closed = true; }
+    try { await run({ browserSend: async method => { if (method === "Browser.getVersion") throw primary; return {}; } }); }
+    finally { closed = true; throw cleanup; }
   });
-  await expect(release()).rejects.toThrow("synthetic disconnected browser"); expect(closed).toBe(true);
+  await expect(release()).rejects.toMatchObject({ errors: [primary, cleanup] });
+  expect(closed).toBe(true);
 });
 
 test("non-granted origin permission fails admission without starting a fixture or changing the preference", async () => {
@@ -710,7 +714,8 @@ for (const choiceSheet of [false, true]) test(`one-time WebAPK setup installs th
 
 for (const closes of [true, false]) test(`failed WebAPK setup ${closes ? "closes its menu" : "poisons an unrestored native surface"}`, async () => {
   let menuOpen = false;
-  const runtime = { navigate: async () => {}, pause: async () => {}, command: async (...args: string[]) => {
+  const primary = new Error("setup UI unavailable");
+  const runtime = { navigate: async () => {}, pause: async () => { throw primary; }, command: async (...args: string[]) => {
     if (args.includes("list")) return "";
     if (args.includes("uiautomator")) return `<hierarchy><node text="" resource-id="com.android.chrome:id/${menuOpen ? "app_menu_list" : "menu_button"}" bounds="[0,0][40,40]"/></hierarchy>`;
     if (args.includes("tap")) menuOpen = true;
@@ -721,7 +726,58 @@ for (const closes of [true, false]) test(`failed WebAPK setup ${closes ? "closes
   try { await setupAndroidWebApk(identity.origin, runtime); } catch (error) { failure = error; }
   expect(failure).toBeInstanceOf(Error);
   expect(menuOpen).toBe(!closes);
-  expect((failure as { pixelUnrestored?: boolean }).pixelUnrestored === true).toBe(!closes);
+  expect(pixelUnrestored(failure)).toBe(!closes);
+  if (closes) expect(failure).toBe(primary);
+  else {
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0]).toBe(primary);
+  }
+});
+
+test("a nested unrestored native UI error retains the development Pixel lease even when keyguard and power match", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-webapk-lease-"));
+  const lock = join(directory, "pixel");
+  const failure = new AggregateError([new Error("install failed"), Object.assign(new Error("native UI remained open"), { pixelUnrestored: true })]);
+  let restored = false;
+  const keys: string[] = [];
+  const runtime = { pause: async () => {}, command: async (...args: string[]) => {
+    if (args.includes("window")) return "isKeyguardShowing=false";
+    if (args.includes("power")) return "mWakefulness=Awake";
+    if (args.includes("keyevent")) keys.push(args.at(-1)!);
+    return "";
+  } };
+  try {
+    let surfaced: unknown;
+    try {
+      await withDevelopmentPixelLease("WebAPK setup test", () => withWebApkSetupRestoration(identity.origin, runtime,
+        async () => { throw failure; }, () => { restored = true; }), () => restored, lock);
+    } catch (error) { surfaced = error; }
+    expect(surfaced).toBeInstanceOf(AggregateError);
+    expect((surfaced as AggregateError).errors[0]).toBe(failure);
+    expect(pixelUnrestored(surfaced)).toBe(true);
+    expect(restored).toBe(false);
+    expect(keys).toEqual(["224"]);
+    expect(JSON.parse(await readFile(join(lock, "owner"), "utf8")).owner).toBe("WebAPK setup test");
+  } finally { await rm(directory, { recursive: true }); }
+});
+
+test("a changed Pixel owner refuses release without hiding the action failure", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "omp-pixel-release-"));
+  const lock = join(directory, "pixel");
+  const primary = new Error("qualification failed");
+  try {
+    let failure: unknown;
+    try {
+      await withDevelopmentPixelLease("Pixel release test", async () => {
+        await writeFile(join(lock, "owner"), "another owner");
+        throw primary;
+      }, () => true, lock);
+    } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0]).toBe(primary);
+    expect((failure as AggregateError).errors[1].message).toContain("refusing release");
+    expect(await readFile(join(lock, "owner"), "utf8")).toBe("another owner");
+  } finally { await rm(directory, { recursive: true }); }
 });
 
 test("fixture commands are owned, bounded, and monotonically sequenced", () => {

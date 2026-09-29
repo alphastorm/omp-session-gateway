@@ -12,6 +12,7 @@ import { NotificationOverlapError, notificationTopicDigest, type NotificationObs
 import { createAndroidPushRuntime } from "./android-push-runtime.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
 import { executeFixture } from "./push-qualification-fixture.ts";
+import { everyError, pixelUnrestored } from "./restoration.ts";
 
 export interface AndroidPushIdentity {
   readonly tag: string;
@@ -249,7 +250,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         await runtime.beginNotificationPhase(progress.epoch);
         try { await action(); return; }
         catch (error) {
-          if (!(error instanceof NotificationOverlapError)) throw new Error(`Android Push ${phase}: ${error instanceof Error ? error.message : "phase failed"}`, { cause: error });
+          if (!everyError(error, nested => nested instanceof NotificationOverlapError)) throw new Error(`Android Push ${phase}: ${error instanceof Error ? error.message : "phase failed"}`, { cause: error });
           if (index !== 0) throw error;
           progress.results[phase] = { rearmCount: 1, rearmReason: "unowned_notification_overlap" };
           await save();
@@ -424,7 +425,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
     try { cleanup = await restore(input, runtime, progress); }
     catch (error) {
       const failure = new AggregateError(primary === undefined ? [error] : [primary, error], "Android Push run/cleanup failed");
-      if (error instanceof Error && "pixelUnrestored" in error && error.pixelUnrestored === true) Object.assign(failure, { pixelUnrestored: true });
+      if (pixelUnrestored(error)) Object.assign(failure, { pixelUnrestored: true });
       throw failure;
     }
     if (primary !== undefined) throw primary;

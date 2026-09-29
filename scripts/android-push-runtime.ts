@@ -4,14 +4,15 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseSessionListResponse } from "../packages/protocol/src/validation.ts";
 import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/types.ts";
-import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, requireAndroidDevicePreconditions, parseKeyguardShowing, parseValidatedWifi, readAndroidQualificationPin, resolveAndroidBrowserTarget,
-  wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
+import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, requireAndroidDevicePreconditions, parseKeyguardShowing, readAndroidRadioBaseline, restoreAndroidRadios, readAndroidQualificationPin, resolveAndroidBrowserTarget,
+  runAdb, wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
 import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type AndroidUiNode, type NotificationExpectation } from "./android-notification.ts";
 import { commandPushFixture, executeFixture, type FixtureExecutor, type PushFixtureLocation } from "./push-qualification-fixture.ts";
 import { PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE } from "./fixtures/push-qualification-extension.ts";
 import { PAGE_PRELUDE } from "./android-leak-probe.ts";
 import type { AndroidPushIdentity, AndroidPushRuntime, PushBrowserBaseline, PushDeviceBaseline, PushTapObservation } from "./android-push-qualification.ts";
+import { everyError, runWithRestoration } from "./restoration.ts";
 
 export interface AndroidPushRuntimeOptions {
   readonly fixtureBase?: string;
@@ -64,10 +65,9 @@ export async function holdAndroidNotificationDenial(origin: string, connect: Per
   const session = connect(async driver => {
     await driver.browserSend("Browser.setPermission", { permission: { name: "notifications" }, setting: "denied", origin });
     let closing: Promise<void> | undefined;
-    ready.resolve(() => closing ??= (async () => {
-      try { await driver.browserSend("Browser.getVersion"); }
-      finally { release.resolve(); await session; }
-    })());
+    ready.resolve(() => closing ??= runWithRestoration("Android notification permission", async () => {
+      await driver.browserSend("Browser.getVersion");
+    }, [async () => { release.resolve(); await session; }]));
     await release.promise;
   });
   void session.catch(error => ready.reject(error));
@@ -131,10 +131,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     scripts: options.fixtureScripts ?? resolve(import.meta.dir) });
   const command: AndroidAdbCommand = async (...args) => {
     serial ??= await requireSingleDevice();
-    const child = Bun.spawn(["adb", "-s", serial, ...args], { stdout: "pipe", stderr: "ignore" });
-    const output = await new Response(child.stdout).text();
-    if (await child.exited !== 0) throw new Error("Android Push device command failed");
-    return output;
+    return runAdb(serial, args);
   };
   const mutate: AndroidAdbCommand = async (...args) => { await runtime.beforeEffect(); return command(...args); };
   const wake = async () => {
@@ -197,20 +194,6 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     if (matches.length > 1) throw new Error("multiple owned fixture publications");
     return matches[0];
   };
-  const restoreRadios = async (state: Pick<PushDeviceBaseline, "airplane" | "wifi" | "mobile">) => {
-    await mutate("shell", "cmd", "connectivity", "airplane-mode", state.airplane ? "enable" : "disable");
-    await mutate("shell", "svc", "wifi", state.wifi ? "enable" : "disable");
-    // Leaving Airplane mode with both radios on, mobile data validates before Wi-Fi rejoins. Play
-    // Services opens its push socket there, and once Wi-Fi becomes the default network that socket
-    // delivers nothing until its next heartbeat (18.6 min on 2026-09-29), holding every push. Mobile
-    // data therefore returns only after Wi-Fi validates; a Wi-Fi that never validates is left to the
-    // caller's own reachability check.
-    if (state.wifi && state.mobile) {
-      const deadline = Date.now() + 45_000;
-      while (Date.now() < deadline && !parseValidatedWifi(await command("shell", "dumpsys", "connectivity"))) await Bun.sleep(500);
-    }
-    await mutate("shell", "svc", "data", state.mobile ? "enable" : "disable");
-  };
   const phaseRecords = async () => {
     if (!observationArmed) throw new Error("Push notification phase has no record baseline");
     packageName ??= await requireWebApk(command, identity.origin);
@@ -244,11 +227,10 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     dndOff: async () => (await command("shell", "settings", "get", "global", "zen_mode")).trim() === "0",
     async device() {
       packageName ??= await requireWebApk(command, identity.origin);
-      const setting = async (name: string) => (await command("shell", "settings", "get", "global", name)).trim() === "1";
       const idle = await command("shell", "dumpsys", "deviceidle");
       const battery = await command("shell", "dumpsys", "battery");
       const window = await command("shell", "dumpsys", "window");
-      return { wifi: await setting("wifi_on"), mobile: await setting("mobile_data"), airplane: await setting("airplane_mode_on"),
+      return { ...await readAndroidRadioBaseline(command),
         forcedDoze: /mForceIdle=true/u.test(idle), batteryOverride: /UPDATES STOPPED/u.test(battery),
         awake: /mWakefulness=Awake/u.test(await command("shell", "dumpsys", "power")), locked: parseKeyguardShowing(window),
         webApkTask: webApkTasks(await command("shell", "dumpsys", "activity", "activities"), packageName).length > 0,
@@ -503,7 +485,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
           return { launches, successful, currentGeneration, currentRequest, scrubbedBeforeNetwork: routeObserved && routeScrubbed && apiScrubbed && metadataObserved && surface.scrubbed,
             writable: surface.writable, readOnly: surface.readOnly, expired: surface.expired };
         } catch (error) {
-          if (error instanceof NotificationOverlapError) throw error;
+          if (everyError(error, nested => nested instanceof NotificationOverlapError)) throw error;
           // Already-observed closed values only: secondary device reads must not mask the cause.
           const diagnostics = { observerFailure, tabsSeen, pagesSeen, pausedTabs, pausedPages, launches, successful,
             currentGeneration, currentRequest, modeMatches, routeObserved, routeScrubbed, metadataObserved };
@@ -568,7 +550,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       if (/mForceIdle=true/u.test(idle) !== enabled || (enabled && !/mState=IDLE\b/u.test(idle))) throw new Error("forced Doze state mismatch");
     },
     async network(value) {
-      await restoreRadios({ airplane: value === "airplane", wifi: value === "wifi", mobile: value !== "airplane" });
+      await restoreAndroidRadios({ airplane: value === "airplane", wifi: value === "wifi", mobile: value !== "airplane" }, command, mutate);
       await Bun.sleep(5_000);
       if (value === "airplane") return (await runtime.device()).airplane;
       if (value === "cellular") {
@@ -649,8 +631,8 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
           if (progress.notificationTopicDigest !== null) await wait(async () => (await readAndroidNotificationRecords(command, packageName!)).every(record => !notificationMatchesDigest(record.tag, progress.notificationTopicDigest!)), "owned notification cleanup");
           break;
         case "browser":
-          try {
-            if (progress.browser === null) break;
+          await runWithRestoration("Android Push browser", async () => {
+            if (progress.browser === null) return;
             // Non-granted admission is rejected before permission/subscription mutations.
             if (progress.browser.permission === "granted") await runtime.permission("granted");
             if (progress.browser.permission === "granted" && progress.browser.subscribed) await runtime.detail(progress.browser.detail);
@@ -664,18 +646,17 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
               if (state.subscribed !== progress.browser!.subscribed || state.permission !== progress.browser!.permission ||
                 (state.subscribed && state.detail !== progress.browser!.detail)) throw new Error("browser baseline was not restored");
             }, true);
-          } finally {
+          }, [async () => {
             // A killed driver loses the permission override but may leave its adb listener.
             // Fresh-process cleanup removes only this lane's exact device/socket forwards.
             serial ??= await requireSingleDevice();
-            for (const port of ownedPushForwards(await command("forward", "--list"), serial, resolveAndroidBrowserTarget().devtoolsSocket)) {
-              await mutate("forward", "--remove", port);
-            }
-          }
+            const ports = ownedPushForwards(await command("forward", "--list"), serial, resolveAndroidBrowserTarget().devtoolsSocket);
+            await runWithRestoration("Android Push debug forwards", () => undefined, ports.map(port => () => mutate("forward", "--remove", port)));
+          }]);
           break;
         case "doze": await runtime.doze(false); break;
         case "network": {
-          await restoreRadios(progress.device);
+          await restoreAndroidRadios(progress.device, command, mutate);
           const after = await runtime.device();
           if (after.wifi !== progress.device.wifi || after.mobile !== progress.device.mobile || after.airplane !== progress.device.airplane) throw new Error("radio baseline was not restored");
           break;

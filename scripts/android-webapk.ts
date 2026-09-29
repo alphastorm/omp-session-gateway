@@ -1,7 +1,8 @@
 import { findWebApkForHost } from "./post-release-smoke.ts";
 import { readAndroidUi, type AndroidUiNode } from "./android-notification.ts";
-import { withAndroidChrome, requireSingleDevice, parseKeyguardShowing, type AndroidAdbCommand } from "./android-device.ts";
+import { runAdb, withAndroidChrome, requireSingleDevice, parseKeyguardShowing, type AndroidAdbCommand } from "./android-device.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
+import { everyError, pixelUnrestored, runWithRestoration } from "./restoration.ts";
 
 export function webApkTasks(activities: string, packageName: string): number[] {
   const ids = new Set<number>();
@@ -56,7 +57,7 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
     await requireWebApk(runtime.command, origin);
     return { alreadyInstalled: true, installed: true };
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.startsWith("WebAPK missing")) throw error;
+    if (!everyError(error, nested => nested instanceof Error && nested.message.startsWith("WebAPK missing"))) throw error;
   }
   await runtime.navigate(origin);
   let ownsNativeUi = false;
@@ -75,7 +76,7 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
     }
     throw new Error(`WebAPK setup ${name} unavailable`);
   };
-  try {
+  return runWithRestoration("WebAPK setup", async () => {
     await click("menu", ["menu_button"]);
     await click("install-entry", ["universal_install"]);
     const install = await click("install", ["option_text_install", "positive_button"]);
@@ -85,12 +86,12 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
         await requireWebApk(runtime.command, origin);
         return { alreadyInstalled: false, installed: true };
       } catch (error) {
-        if (!(error instanceof Error) || !error.message.startsWith("WebAPK missing")) throw error;
+        if (!everyError(error, nested => nested instanceof Error && nested.message.startsWith("WebAPK missing"))) throw error;
       }
       await runtime.pause(1_000);
     }
     throw new Error("WebAPK install did not complete in 60 observations");
-  } finally {
+  }, [async () => {
     if (ownsNativeUi) {
       const setupSurface = (node: AndroidUiNode) => node.resource.endsWith(":id/app_menu_list") ||
         node.resource.endsWith(":id/option_text_install") || (node.resource.endsWith(":id/positive_button") && node.text === "Install");
@@ -103,49 +104,64 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
         throw Object.assign(new Error("WebAPK setup native UI was not restored"), { pixelUnrestored: true });
       }
     }
-  }
+  }]);
+}
+
+/** Restore the task/keyguard baseline before allowing the development Pixel lease to release. */
+export async function withWebApkSetupRestoration<T>(
+  origin: string,
+  runtime: Pick<WebApkSetupRuntime, "command" | "pause">,
+  setup: () => Promise<T>,
+  restored: () => void,
+): Promise<T> {
+  const { command, pause } = runtime;
+  const locked = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
+  const awake = /mWakefulness=Awake/u.test(await command("shell", "dumpsys", "power"));
+  let nativeUiRestored = true;
+  return runWithRestoration("WebAPK setup", async () => {
+    try { return await setup(); }
+    catch (error) {
+      if (pixelUnrestored(error)) nativeUiRestored = false;
+      throw error;
+    }
+  }, [async () => {
+    await runWithRestoration("WebAPK setup baseline", async () => {
+      try { await closeWebApk(command, await requireWebApk(command, origin), pause); }
+      catch (error) {
+        if (!everyError(error, nested => nested instanceof Error && nested.message.startsWith("WebAPK missing"))) throw error;
+      }
+    }, [
+      async () => { if (locked || !awake) await command("shell", "input", "keyevent", "223"); },
+      async () => { if (awake) await command("shell", "input", "keyevent", "224"); },
+      async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          if (nativeUiRestored && parseKeyguardShowing(await command("shell", "dumpsys", "window")) === locked &&
+            /mWakefulness=Awake/u.test(await command("shell", "dumpsys", "power")) === awake) return;
+          await pause(250);
+        }
+        throw new Error("WebAPK setup baseline was not restored; Pixel lock retained");
+      },
+    ]);
+    restored();
+  }]);
 }
 
 if (import.meta.main) {
   const [action, origin] = process.argv.slice(2);
   if (action !== "setup" || origin === undefined) throw new Error("usage: android-webapk.ts setup <origin>");
   const serial = await requireSingleDevice();
-  const command: AndroidAdbCommand = async (...args) => {
-    const child = Bun.spawn(["adb", "-s", serial, ...args], { stdout: "pipe", stderr: "ignore" });
-    const output = await new Response(child.stdout).text();
-    if (await child.exited !== 0) throw new Error("WebAPK setup device command failed");
-    return output;
-  };
+  const command: AndroidAdbCommand = (...args) => runAdb(serial, args);
   let alreadyInstalled = false;
   try { await requireWebApk(command, origin); alreadyInstalled = true; }
-  catch (error) { if (!(error instanceof Error) || !error.message.startsWith("WebAPK missing")) throw error; }
+  catch (error) { if (!everyError(error, nested => nested instanceof Error && nested.message.startsWith("WebAPK missing"))) throw error; }
   if (alreadyInstalled) console.log(JSON.stringify({ alreadyInstalled: true, installed: true }));
   else {
     let restored = false;
-    await withDevelopmentPixelLease("PushLane WebAPK-setup", async () => {
-      const locked = parseKeyguardShowing(await command("shell", "dumpsys", "window"));
-      const awake = /mWakefulness=Awake/u.test(await command("shell", "dumpsys", "power"));
-      let nativeUiRestored = true;
-      try {
+    await withDevelopmentPixelLease("PushLane WebAPK-setup", () => withWebApkSetupRestoration(origin,
+      { command, pause: milliseconds => Bun.sleep(milliseconds) }, async () => {
         const result = await withAndroidChrome(driver => setupAndroidWebApk(origin, { command,
           navigate: async url => { await driver.openTab(); await driver.navigate(url); }, pause: milliseconds => Bun.sleep(milliseconds) }));
         console.log(JSON.stringify(result));
-      } catch (error) {
-        if (error !== null && typeof error === "object" && "pixelUnrestored" in error && error.pixelUnrestored === true) nativeUiRestored = false;
-        throw error;
-      } finally {
-        try { await closeWebApk(command, await requireWebApk(command, origin)); }
-        catch (error) { if (!(error instanceof Error) || !error.message.startsWith("WebAPK missing")) throw error; }
-        if (locked || !awake) await command("shell", "input", "keyevent", "223");
-        if (awake) await command("shell", "input", "keyevent", "224");
-        for (let attempt = 0; attempt < 40; attempt += 1) {
-          restored = nativeUiRestored && parseKeyguardShowing(await command("shell", "dumpsys", "window")) === locked &&
-            /mWakefulness=Awake/u.test(await command("shell", "dumpsys", "power")) === awake;
-          if (restored) break;
-          await Bun.sleep(250);
-        }
-        if (!restored) throw new Error("WebAPK setup baseline was not restored; Pixel lock retained");
-      }
-    }, () => restored);
+      }, () => { restored = true; }), () => restored);
   }
 }

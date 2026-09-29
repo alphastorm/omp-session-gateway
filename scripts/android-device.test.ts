@@ -1,7 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   ANDROID_DIRECTORY_SURFACE_EXPRESSION,
   ANDROID_QUALIFICATION_PIN_KEYCHAIN_SERVICE,
+  AndroidAdbError,
+  androidDeviceReachesHost,
+  runAdb,
+  type AndroidAdbSpawner,
+  type AndroidRadioBaseline,
   assertDevtoolsEndpointMatchesPackage,
   assertBrowserVersionMatchesPackage,
   parseAndroidPackageVersion,
@@ -9,14 +14,131 @@ import {
   parseKeyguardShowing,
   parseValidatedWifi,
   readAndroidQualificationPin,
+  readAndroidRadioBaseline,
   requireSingleDevice,
   requireAndroidDevicePreconditions,
   unlockAndroidKeyguard,
   wakeAndroidDisplay,
   resolveAndroidBrowserTarget,
+  restoreAndroidRadios,
   wakeAndroidChrome,
   waitForDevtoolsEndpoint,
 } from "./android-device.ts";
+describe("Android network reachability", () => {
+  test("unsafe host text is rejected before it reaches the device shell", async () => {
+    let commands = 0;
+    await expect(androidDeviceReachesHost("synthetic.invalid'; echo injected", async () => {
+      commands += 1;
+      return "1 received";
+    })).rejects.toBeInstanceOf(Error);
+    expect(commands).toBe(0);
+  });
+
+  test.skipIf(process.platform === "win32")("remote ping loss and DNS errors are unreachable observations, not adb failures", async () => {
+    for (const pingExit of [1, 2]) {
+      const reached = await androidDeviceReachesHost("synthetic-ping.invalid", async (...args) => {
+        // Model adb's remote-shell boundary with a real shell, never adb or a real ping.
+        if (args[0] !== "shell") throw new Error("unexpected device invocation");
+        const child = Bun.spawn(["/bin/sh", "-c", "ping() { printf 'synthetic no-route or DNS failure\\n' >&2; return " + pingExit + "; }; " + args.slice(1).join(" ")], {
+          stdin: "ignore", stdout: "pipe", stderr: "pipe",
+        });
+        const [code, output] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+        if (code !== 0) throw new AndroidAdbError(code);
+        return output;
+      });
+      expect(reached).toBe(false);
+    }
+  });
+
+  test("an adb transport failure remains fatal even when its exit code resembles ping loss", async () => {
+    const error = new AndroidAdbError(1);
+    await expect(androidDeviceReachesHost("synthetic-ping.invalid", async () => { throw error; })).rejects.toBe(error);
+  });
+});
+
+describe("Android radio restoration", () => {
+  /** `dataSubscription` models a multi-SIM device whose global `mobile_data` key is stale at 1. */
+  function radioDevice(initial: AndroidRadioBaseline, connectivity?: () => string, dataSubscription?: number) {
+    const state = { ...initial };
+    const settings: Record<string, keyof AndroidRadioBaseline> = {
+      airplane_mode_on: "airplane", wifi_on: "wifi",
+      ...(dataSubscription === undefined ? { mobile_data: "mobile" } : { [`mobile_data${dataSubscription}`]: "mobile" }),
+    };
+    const spawn: AndroidAdbSpawner = argv => {
+      const args = argv.slice(3);
+      let stdout = "";
+      const key = args[4] ?? "";
+      const setting = settings[key];
+      if (args.slice(0, 4).join(" ") === "shell settings get global" && setting !== undefined) {
+        stdout = state[setting] ? "1\n" : "0\n";
+      } else if (args.slice(0, 4).join(" ") === "shell settings get global" && key === "multi_sim_data_call") {
+        stdout = `${dataSubscription ?? "null"}\n`;
+      } else if (args.slice(0, 4).join(" ") === "shell settings get global" && key === "mobile_data") {
+        stdout = "1\n";
+      } else if (args.slice(0, 4).join(" ") === "shell cmd connectivity airplane-mode") {
+        state.airplane = args[4] === "enable";
+      } else if (args.slice(0, 3).join(" ") === "shell svc wifi") {
+        state.wifi = args[3] === "enable";
+      } else if (args.slice(0, 3).join(" ") === "shell svc data") {
+        state.mobile = args[3] === "enable";
+      } else if (args.join(" ") === "shell dumpsys connectivity" && connectivity !== undefined) {
+        stdout = connectivity();
+      } else {
+        throw new Error("unexpected synthetic radio command");
+      }
+      return { stdout: new Response(stdout).body!, stderr: new Response("").body!, exited: Promise.resolve(0), kill: () => {} };
+    };
+    return { state, command: (...args: string[]) => runAdb("synthetic-radio-device", args, { spawn }) };
+  }
+
+  test("Wi-Fi on with mobile data off survives an airplane and cellular round trip", async () => {
+    const device = radioDevice({ airplane: false, wifi: true, mobile: false });
+    const baseline = await readAndroidRadioBaseline(device.command);
+    expect(baseline).toEqual({ airplane: false, wifi: true, mobile: false });
+    await restoreAndroidRadios({ airplane: true, wifi: false, mobile: false }, device.command);
+    expect(device.state).toEqual({ airplane: true, wifi: false, mobile: false });
+    await restoreAndroidRadios({ airplane: false, wifi: false, mobile: true }, device.command);
+    expect(device.state).toEqual({ airplane: false, wifi: false, mobile: true });
+    await restoreAndroidRadios(baseline, device.command);
+    expect(device.state).toEqual({ airplane: false, wifi: true, mobile: false });
+    expect(await readAndroidRadioBaseline(device.command)).toEqual(baseline);
+  });
+
+  test("a multi-SIM baseline reads the default data subscription, not the stale global key", async () => {
+    const device = radioDevice({ airplane: false, wifi: true, mobile: false }, undefined, 3);
+    const baseline = await readAndroidRadioBaseline(device.command);
+    expect(baseline).toEqual({ airplane: false, wifi: true, mobile: false });
+    await restoreAndroidRadios({ airplane: false, wifi: false, mobile: true }, device.command);
+    expect(device.state).toEqual({ airplane: false, wifi: false, mobile: true });
+    await restoreAndroidRadios(baseline, device.command);
+    expect(device.state).toEqual({ airplane: false, wifi: true, mobile: false });
+    expect(await readAndroidRadioBaseline(device.command)).toEqual(baseline);
+  });
+
+  test("mobile data stays off until the restored Wi-Fi is connected and validated", async () => {
+    const waitingStates: AndroidRadioBaseline[] = [];
+    let validated = false;
+    const device = radioDevice({ airplane: true, wifi: false, mobile: false }, () => {
+      waitingStates.push({ ...device.state });
+      validated = waitingStates.length === 2;
+      return "Current Networks:\n" +
+        "  NetworkAgentInfo{network{436} ni{WIFI CONNECTED extra: } " + (validated ? "lastValidated" : "") + "}\n" +
+        "Network Requests:\n  NetworkAgentInfo{network{431} ni{WIFI CONNECTED extra: } lastValidated}\n";
+    });
+    let mobileRestoredAfterValidation = false;
+    await restoreAndroidRadios({ airplane: false, wifi: true, mobile: true }, device.command, async (...args) => {
+      if (args.join(" ") === "shell svc data enable") mobileRestoredAfterValidation = validated;
+      return device.command(...args);
+    });
+    expect(waitingStates).toEqual([
+      { airplane: false, wifi: true, mobile: false },
+      { airplane: false, wifi: true, mobile: false },
+    ]);
+    expect(mobileRestoredAfterValidation).toBe(true);
+    expect(device.state).toEqual({ airplane: false, wifi: true, mobile: true });
+  });
+});
+
 describe("authorized Android selection", () => {
   test("untethered admission allows independent networking and redacts an unavailable probe", async () => {
     await requireAndroidDevicePreconditions(async () => "    Upstream wanted: false\n", { switchesRadios: true, needsNotifications: false });
@@ -27,6 +149,45 @@ describe("authorized Android selection", () => {
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).not.toContain("synthetic-private-device");
     expect((failure as Error).cause).toBeUndefined();
+  });
+  test("failed adb device discovery withholds identifiers and subprocess output", async () => {
+    const spawn = spyOn(Bun, "spawn").mockImplementation((() => ({
+      stdout: new Response("List of devices attached\nSYNTHETIC-ADB-DEVICE device\n").body!,
+      stderr: new Response("error: SYNTHETIC-ADB-DEVICE disconnected").body!,
+      exited: Promise.resolve(1),
+    })) as unknown as typeof Bun.spawn);
+    let failure: unknown;
+    try { await requireSingleDevice(); }
+    catch (error) { failure = error; }
+    finally { spawn.mockRestore(); }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).not.toContain("SYNTHETIC-ADB-DEVICE");
+    expect((failure as Error).message).not.toContain("disconnected");
+    expect((failure as Error).cause).toBeUndefined();
+    expect(failure).toBeInstanceOf(AndroidAdbError);
+    expect((failure as AndroidAdbError).exitCode).toBe(1);
+  });
+  test("spawn and pipe failures cannot expose raw adb exceptions", async () => {
+    const privateError = new Error("SYNTHETIC-ADB-DEVICE private subprocess failure");
+    const spawners: AndroidAdbSpawner[] = [
+      () => { throw privateError; },
+      () => ({
+        stdout: new ReadableStream({ start(controller) { controller.error(privateError); } }),
+        stderr: new Response("SYNTHETIC-ADB-DEVICE stderr").body!,
+        exited: Promise.resolve(0),
+        kill: () => {},
+      }),
+    ];
+    for (const spawn of spawners) {
+      let failure: unknown;
+      try { await runAdb("SYNTHETIC-ADB-DEVICE", ["shell", "getprop"], { spawn }); }
+      catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(AndroidAdbError);
+      expect((failure as AndroidAdbError).exitCode).toBeUndefined();
+      expect((failure as Error).message).not.toContain("SYNTHETIC-ADB-DEVICE");
+      expect((failure as Error).message).not.toContain("private subprocess failure");
+      expect((failure as Error).cause).toBeUndefined();
+    }
   });
   test("selects the sole authorized device without accepting offline or unauthorized devices", async () => {
     const listed = "List of devices attached\noffline-private offline\nselected-device device\nunauthorized-private unauthorized\n";

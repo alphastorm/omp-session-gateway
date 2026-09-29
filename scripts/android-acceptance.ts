@@ -11,8 +11,9 @@
  * requests previously changed the browser connection workload and could consume the first restored
  * request while the PWA remained stale. Device-shell reachability remains an independent signal.
  *
- * Radio state is restored in a finally block. Callers should still restore afterwards: a killed
- * process runs no finally.
+ * The radio baseline captured after admission is restored and verified after every phase outcome.
+ * Restoration failures are reported with, never instead of, the phase failure. A killed process
+ * cannot restore anything; callers must still verify the device afterwards.
  *
  * Usage: `bun scripts/android-acceptance.ts <origin> <session-cwd-label>`
  */
@@ -20,24 +21,27 @@ import {
   ANDROID_DIRECTORY_SURFACE_EXPRESSION,
   requireAndroidDevicePreconditions,
   requireSingleDevice,
+  androidDeviceReachesHost,
+  runAdb,
+  readAndroidRadioBaseline,
+  restoreAndroidRadios,
   unlockAndroidKeyguard,
   wakeAndroidDisplay,
   withAndroidChrome,
   type AndroidChromeDriver,
+  type AndroidAdbCommand,
 } from "./android-device.ts";
 import { isProtectedLabel, targetEligibility } from "./acceptance-target.ts";
 import { ANDROID_ACCEPTANCE_STAGES, announceAndroidStage } from "./android-stages.ts";
 import { measureAndroidRecovery } from "./android-recovery.ts";
+import { runWithRestoration } from "./restoration.ts";
 
 const POWER = "26";
 
 let serial = "";
 
 async function adb(...args: readonly string[]): Promise<string> {
-  const subprocess = Bun.spawn(["adb", "-s", serial, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const stdout = await new Response(subprocess.stdout).text();
-  await subprocess.exited;
-  return stdout.trim();
+  return (await runAdb(serial, args)).trim();
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -131,12 +135,6 @@ function isSamePage(
   return same;
 }
 
-/** True when the phone itself can reach the host, independent of anything Chrome is doing. */
-async function deviceReachesHost(host: string): Promise<boolean> {
-  const output = await adb("shell", "ping", "-c", "1", "-W", "2", host);
-  return output.includes("1 received");
-}
-
 /**
  * Polls until the directory is reachable, returning milliseconds since the disruption ended.
  *
@@ -158,7 +156,7 @@ async function awaitRecovery(
     // measures nothing. Record the presentation state alongside the result so an unmeasurable run is
     // visibly unmeasurable rather than looking like an application stall.
     const presentation = await ensureVisible(driver);
-    const deviceReachable = await deviceReachesHost(host);
+    const deviceReachable = await androidDeviceReachesHost(host, adb);
     const probe = await attempt(driver, `${label}-${index}`);
     const samePage = isSamePage(probe, expectedTimeOrigin, continuity);
     const sinceMs = Math.round(performance.now() - since);
@@ -178,7 +176,7 @@ async function awaitOutage(
   for (let index = 1; index <= 12; index++) {
     await sleep(5_000);
     const presentation = await ensureVisible(driver);
-    const deviceReachable = await deviceReachesHost(host);
+    const deviceReachable = await androidDeviceReachesHost(host, adb);
     const probe = await attempt(driver, `airplane-outage-${index}`);
     const samePage = isSamePage(probe, expectedTimeOrigin, continuity);
     record({ ...probe, samePage, presentation, deviceReachable, sinceMs: Math.round(performance.now() - since) });
@@ -224,80 +222,96 @@ async function authorizationMatrix(driver: AndroidChromeDriver, label: string): 
   return value;
 }
 
-const args = process.argv.slice(2);
-const acknowledgedDisposable = args.includes("--disposable-target");
-const [origin, label] = args.filter(value => !value.startsWith("--"));
-if (!origin || !label) {
-  console.error("usage: bun scripts/android-acceptance.ts <origin> <session-cwd-label> [--disposable-target]");
-  process.exit(2);
+/** Captures admission's radio baseline before the first mutation and verifies its restoration. */
+export async function withAndroidAcceptanceRestoration<T>(command: AndroidAdbCommand, body: () => Promise<T>): Promise<T> {
+  const baseline = await readAndroidRadioBaseline(command);
+  return runWithRestoration("Android acceptance", body, [
+    () => restoreAndroidRadios(baseline, command),
+    async () => {
+      const after = await readAndroidRadioBaseline(command);
+      if (after.airplane !== baseline.airplane || after.wifi !== baseline.wifi || after.mobile !== baseline.mobile) {
+        throw new Error("radio baseline was not restored");
+      }
+    },
+    () => command("shell", "dumpsys", "deviceidle", "unforce"),
+    () => command("shell", "dumpsys", "battery", "reset"),
+  ]);
 }
 
-// Refused before any network call, so the refusal cannot depend on whether the protected session
-// happens to be published at this instant.
-if (isProtectedLabel(label)) {
-  console.error(`REFUSED: "${label}" matches a protected pattern and can never be a target.`);
-  console.error("this harness fires real view, control, and stale-generation launches at the target.");
-  console.error("create a disposable session instead; a relay soak host lost 7h40m to exactly this.");
-  process.exit(2);
-}
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  const acknowledgedDisposable = args.includes("--disposable-target");
+  const [origin, label] = args.filter(value => !value.startsWith("--"));
+  if (!origin || !label) {
+    console.error("usage: bun scripts/android-acceptance.ts <origin> <session-cwd-label> [--disposable-target]");
+    process.exit(2);
+  }
 
-const host = new URL(origin).hostname;
+  // Refused before any network call, so the refusal cannot depend on whether the protected session
+  // happens to be published at this instant.
+  if (isProtectedLabel(label)) {
+    console.error(`REFUSED: "${label}" matches a protected pattern and can never be a target.`);
+    console.error("this harness fires real view, control, and stale-generation launches at the target.");
+    console.error("create a disposable session instead; a relay soak host lost 7h40m to exactly this.");
+    process.exit(2);
+  }
 
-// Refuse an ineligible target before touching the device or the session. This runs against the
-// gateway rather than the phone precisely so an ineligible target costs nothing and cannot be
-// discovered halfway through a run that has already fired launches at it.
-announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "target preflight");
-const listResponse = await fetch(new URL("/api/v1/sessions", origin), { headers: { accept: "application/json" } });
-if (!listResponse.ok) {
-  console.error(`could not read the session list to validate the target: HTTP ${listResponse.status}`);
-  process.exit(2);
-}
-const listed: unknown = await listResponse.json();
-const sessions =
-  listed && typeof listed === "object" && "sessions" in listed && Array.isArray(listed.sessions) ? listed.sessions : [];
-const match = sessions.find(
-  (session): session is { cwdLabel: string; startedAt?: string } =>
-    session !== null && typeof session === "object" && "cwdLabel" in session && session.cwdLabel === label,
-);
-if (!match) {
-  console.error(`target "${label}" is not published; nothing was touched`);
-  process.exit(2);
-}
-const eligibility = targetEligibility(label, match.startedAt, Date.now(), acknowledgedDisposable);
-if (!eligibility.eligible) {
-  console.error(`REFUSED: ${eligibility.reason}`);
-  console.error("this harness fires real view, control, and stale-generation launches at the target.");
-  process.exit(2);
-}
+  const host = new URL(origin).hostname;
 
-announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "Android Chrome");
-serial = await requireSingleDevice();
-await requireAndroidDevicePreconditions(adb, { switchesRadios: true, needsNotifications: false });
-const summary = await withAndroidChrome(async driver => {
-  serial = driver.serial;
-  const browserVersion = await driver.version();
-  await wake();
-  await driver.openTab();
-  await driver.navigate(`${origin}/`);
-  await sleep(8000);
+  // Refuse an ineligible target before touching the device or the session. This runs against the
+  // gateway rather than the phone precisely so an ineligible target costs nothing and cannot be
+  // discovered halfway through a run that has already fired launches at it.
+  announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "target preflight");
+  const listResponse = await fetch(new URL("/api/v1/sessions", origin), { headers: { accept: "application/json" } });
+  if (!listResponse.ok) {
+    console.error(`could not read the session list to validate the target: HTTP ${listResponse.status}`);
+    process.exit(2);
+  }
+  const listed: unknown = await listResponse.json();
+  const sessions =
+    listed && typeof listed === "object" && "sessions" in listed && Array.isArray(listed.sessions) ? listed.sessions : [];
+  const match = sessions.find(
+    (session): session is { cwdLabel: string; startedAt?: string } =>
+      session !== null && typeof session === "object" && "cwdLabel" in session && session.cwdLabel === label,
+  );
+  if (!match) {
+    console.error(`target "${label}" is not published; nothing was touched`);
+    process.exit(2);
+  }
+  const eligibility = targetEligibility(label, match.startedAt, Date.now(), acknowledgedDisposable);
+  if (!eligibility.eligible) {
+    console.error(`REFUSED: ${eligibility.reason}`);
+    console.error("this harness fires real view, control, and stale-generation launches at the target.");
+    process.exit(2);
+  }
 
-  announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "authorization matrix");
-  const authorization = await authorizationMatrix(driver, label);
-  console.error(`  authorization: ${JSON.stringify(authorization)}`);
-  const baseline = await attempt(driver, "baseline");
-  record(baseline);
-  const baselineTimeOrigin =
-    typeof baseline.pageTimeOrigin === "number" && Number.isFinite(baseline.pageTimeOrigin)
-      ? baseline.pageTimeOrigin
-      : Number.NaN;
-  const continuity: PageContinuity = { reloaded: false };
+  announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "Android Chrome");
+  serial = await requireSingleDevice();
+  await requireAndroidDevicePreconditions(adb, { switchesRadios: true, needsNotifications: false });
+  const summary = await withAndroidAcceptanceRestoration(adb, () => withAndroidChrome(async driver => {
+    serial = driver.serial;
+    const browserVersion = await driver.version();
+    await wake();
+    await driver.openTab();
+    await driver.navigate(`${origin}/`);
+    await sleep(8000);
 
-  let unlockMs: number | null = null;
-  let airplane: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
-  let doze: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
-  let outageBanner = false;
+    announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "authorization matrix");
+    const authorization = await authorizationMatrix(driver, label);
+    console.error(`  authorization: ${JSON.stringify(authorization)}`);
+    const baseline = await attempt(driver, "baseline");
+    record(baseline);
+    const baselineTimeOrigin =
+      typeof baseline.pageTimeOrigin === "number" && Number.isFinite(baseline.pageTimeOrigin)
+        ? baseline.pageTimeOrigin
+        : Number.NaN;
+    const continuity: PageContinuity = { reloaded: false };
 
-  try {
+    let unlockMs: number | null = null;
+    let airplane: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
+    let doze: { recoveredMs: number | null; deviceReachableFirstMs: number | null } = { recoveredMs: null, deviceReachableFirstMs: null };
+    let outageBanner = false;
+
     // Lock and resume. Poll the PWA's rendered state instead of failing at one arbitrary instant.
     announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "lock resume");
     await adb("shell", "input", "keyevent", POWER);
@@ -332,66 +346,60 @@ const summary = await withAndroidChrome(async driver => {
     await adb("shell", "dumpsys", "deviceidle", "unforce");
     await adb("shell", "dumpsys", "battery", "reset");
     doze = await awaitRecovery(driver, "doze-recovery", performance.now(), 48_000, host, baselineTimeOrigin, continuity);
-  } finally {
-    await adb("shell", "cmd", "connectivity", "airplane-mode", "disable");
-    await adb("shell", "svc", "wifi", "enable");
-    await adb("shell", "svc", "data", "enable");
-    await adb("shell", "dumpsys", "deviceidle", "unforce");
-    await adb("shell", "dumpsys", "battery", "reset");
-  }
 
-  return {
-    serial: driver.serial,
-    packageName: driver.packageName,
-    androidPackageVersion: driver.androidPackageVersion,
-    browserVersion,
-    devtoolsSocket: driver.devtoolsSocket,
-    browserActivity: driver.browserActivity,
-    authorization,
-    baselineReady: baseline.directoryReady === true && Number.isFinite(baselineTimeOrigin),
-    appAsset: typeof baseline.appAsset === "string" ? baseline.appAsset : null,
-    samePage: Number.isFinite(baselineTimeOrigin) && !continuity.reloaded,
-    unlockMs,
-    outageBanner,
-    airplaneRecoveredMs: airplane.recoveredMs,
-    airplaneDeviceReachableMs: airplane.deviceReachableFirstMs,
-    dozeRecoveredMs: doze.recoveredMs,
+    return {
+      serial: driver.serial,
+      packageName: driver.packageName,
+      androidPackageVersion: driver.androidPackageVersion,
+      browserVersion,
+      devtoolsSocket: driver.devtoolsSocket,
+      browserActivity: driver.browserActivity,
+      authorization,
+      baselineReady: baseline.directoryReady === true && Number.isFinite(baselineTimeOrigin),
+      appAsset: typeof baseline.appAsset === "string" ? baseline.appAsset : null,
+      samePage: Number.isFinite(baselineTimeOrigin) && !continuity.reloaded,
+      unlockMs,
+      outageBanner,
+      airplaneRecoveredMs: airplane.recoveredMs,
+      airplaneDeviceReachableMs: airplane.deviceReachableFirstMs,
+      dozeRecoveredMs: doze.recoveredMs,
+    };
+  }));
+
+  console.log(JSON.stringify(summary, null, 1));
+
+  announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "verdict");
+  const authorization = summary.authorization;
+  const failures: string[] = [];
+  const expect = (name: string, actual: unknown, wanted: unknown): void => {
+    if (actual !== wanted) failures.push(`${name}: expected ${String(wanted)}, got ${String(actual)}`);
   };
-});
+  const status = (key: string): unknown => {
+    const entry = authorization[key];
+    return entry && typeof entry === "object" && "status" in entry ? entry.status : undefined;
+  };
+  expect("view launch", status("view"), 200);
+  expect("control launch", status("control"), 200);
+  expect("stale view rejected", status("staleView"), 409);
+  expect("stale control rejected", status("staleControl"), 409);
+  expect("unknown session rejected", status("unknownSession"), 404);
+  if (!summary.baselineReady) failures.push("baseline directory was not rendered ready");
+  if (!summary.samePage) failures.push("PWA reloaded during recovery");
+  if (summary.unlockMs === null) failures.push("lock/resume did not recover");
+  // A tailnet that is still down is not an application failure, so attribute before failing.
+  if (summary.airplaneRecoveredMs === null) {
+    failures.push(
+      summary.airplaneDeviceReachableMs === null
+        ? "airplane mode: the device never regained tailnet reachability within the window, so the app was never given a chance to recover"
+        : `airplane mode: the device was reachable at ${String(summary.airplaneDeviceReachableMs)}ms but the app never recovered`,
+    );
+  }
+  if (summary.dozeRecoveredMs === null) failures.push("Doze did not recover within the polling window");
+  if (summary.outageBanner !== true) failures.push("no recovery status during the outage");
 
-console.log(JSON.stringify(summary, null, 1));
-
-announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "verdict");
-const authorization = summary.authorization;
-const failures: string[] = [];
-const expect = (name: string, actual: unknown, wanted: unknown): void => {
-  if (actual !== wanted) failures.push(`${name}: expected ${String(wanted)}, got ${String(actual)}`);
-};
-const status = (key: string): unknown => {
-  const entry = authorization[key];
-  return entry && typeof entry === "object" && "status" in entry ? entry.status : undefined;
-};
-expect("view launch", status("view"), 200);
-expect("control launch", status("control"), 200);
-expect("stale view rejected", status("staleView"), 409);
-expect("stale control rejected", status("staleControl"), 409);
-expect("unknown session rejected", status("unknownSession"), 404);
-if (!summary.baselineReady) failures.push("baseline directory was not rendered ready");
-if (!summary.samePage) failures.push("PWA reloaded during recovery");
-if (summary.unlockMs === null) failures.push("lock/resume did not recover");
-// A tailnet that is still down is not an application failure, so attribute before failing.
-if (summary.airplaneRecoveredMs === null) {
-  failures.push(
-    summary.airplaneDeviceReachableMs === null
-      ? "airplane mode: the device never regained tailnet reachability within the window, so the app was never given a chance to recover"
-      : `airplane mode: the device was reachable at ${String(summary.airplaneDeviceReachableMs)}ms but the app never recovered`,
-  );
+  if (failures.length > 0) {
+    console.error(`FAILED:\n  ${failures.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.error("all device acceptance checks passed");
 }
-if (summary.dozeRecoveredMs === null) failures.push("Doze did not recover within the polling window");
-if (summary.outageBanner !== true) failures.push("no recovery status during the outage");
-
-if (failures.length > 0) {
-  console.error(`FAILED:\n  ${failures.join("\n  ")}`);
-  process.exit(1);
-}
-console.error("all device acceptance checks passed");
