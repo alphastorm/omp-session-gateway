@@ -314,9 +314,10 @@ metadata, the exact request or generation, then the ordinary generation-bound no
 for the collaboration already open, at the authority the tap grants, keeps it, so an activity stop
 never downgrades Control and an attention tap relaunches only to gain Control. A stale tap during a
 collaboration keeps it open and shows a notice only when no triage prompt is showing. Focus comes
-first because Chrome stopped answering a WebAPK page hidden for 45 seconds and bringing it forward
-resumes it. With no open window, or none that accepts within three seconds, the worker opens the
-route exactly as before.
+first because Chrome freezes a page about a minute after it is hidden: a hidden WebAPK page answered
+at 2 and 17 seconds but not at 62, a Chrome tab received `freeze` 60 seconds after it was hidden, and
+bringing the page forward resumes it. With no open window, or none that accepts within three
+seconds, the worker opens the route exactly as before.
 
 Residual, accepted: a page loaded before this change never accepts, so its tap waits three seconds
 and then opens the route; in the WebAPK that route may still replace the open document. Pages

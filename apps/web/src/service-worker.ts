@@ -179,8 +179,8 @@ worker.addEventListener("notificationclick", event => {
         candidate => new URL(candidate.url).origin === worker.location.origin,
       );
       if (client !== undefined) {
-        // Focus before asking: Chrome on Android stopped answering in a WebAPK page left in the
-        // background for 45 seconds, and bringing it forward resumes it.
+        // Focus before asking: Chrome on Android freezes a page about a minute after it is hidden
+        // (a WebAPK page answered at 17 seconds, not at 62), and bringing it forward resumes it.
         const focused = await client.focus().then(
           () => true,
           () => false,
