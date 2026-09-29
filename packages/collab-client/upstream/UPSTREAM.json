@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/can1357/oh-my-pi",
-  "commit": "62bc57be1b03ef0802a33cf7f5f530e534527531",
-  "tag": "v18.3.0",
+  "commit": "4620bb8338e0ecace7ea237da9d5088d16068617",
+  "tag": "v18.4.2",
   "package": "@oh-my-pi/collab-web",
   "packageVersion": "16.3.6",
   "sourcePath": "packages/collab-web",
@@ -12,7 +12,7 @@
       "sourcePath": "packages/utils/src/math-delimiters.ts"
     }
   ],
-  "observedAt": "2026-09-24",
+  "observedAt": "2026-09-29",
   "bunVersion": "1.4.0",
   "localPatches": [
     "Validate Markdown link schemes through the browser URL parser, including control-character normalization",
@@ -26,7 +26,7 @@
     "Preserve strict exact-optional typing for view links without a write token",
     "Redact invalid capability input from collaboration-link errors",
     "Correlate active Ask requests with explicit tool-call recommendation metadata",
-    "Embed under gateway chrome without a competing client header, rail, or lifecycle overlay",
+    "Embed under gateway chrome without a competing client header, rail, or lifecycle overlay, retaining the gateway primary-action palette",
     "Present an embedded active Ask in the client's sole composer without a duplicate transcript card",
     "Capture, metadata-strip, bound, preview, and send phone photos through the existing encrypted image-prompt frame",
     "Offer separate rear-camera capture and existing-photo inputs behind one accessible Photo source panel",
@@ -39,8 +39,7 @@
     "Render upstream LaTeX delimiters through CSP-safe native MathML without KaTeX stylesheet or font assets",
     "Preserve upstream rejected-currency and half-streamed delimiter semantics across the retained npm marked parser",
     "Force the transcript to its tail when an initial or recovered connection becomes live without discarding transcript windowing",
-    "Window a long transcript to its tail behind a Show earlier control that reveals older entries without moving the reader",
-    "Defer the first transcript render until the guest snapshot completes and keep it mounted across reconnects (Session exported for coverage)",
-    "Size text fields at 16px on any coarse pointer rather than only below 640px, so iOS Safari does not zoom into them on focus on an iPad or a landscape phone (upstream collab-web #13371, first shipped in OMP v18.4.1)"
+    "Retain explicit Show earlier expansion, oldest-entry ID anchoring, and full-history tool-result pairing because gateway tests encode phone reading behavior across live appends and reconnects; combine upstream row-based prepend anchoring",
+    "Exclude OMP's pi artwork: omit OmpMark.tsx and its HeaderBar/ConnectScreen imports and rendering"
   ]
 }

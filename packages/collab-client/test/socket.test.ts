@@ -1,4 +1,4 @@
-import type { HostFrame, SessionHeader, SessionState } from "@oh-my-pi/pi-wire";
+import type { AssistantMessage, HostFrame, SessionEntry, SessionHeader, SessionState } from "@oh-my-pi/pi-wire";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GuestClient } from "../upstream/src/lib/client.ts";
 import { CollabSocket } from "../upstream/src/lib/socket.ts";
@@ -153,6 +153,72 @@ const TEST_WELCOME: HostFrame = {
   entryCount: 0,
 };
 describe("CollabSocket browser lifecycle recovery", () => {
+  test("discards a partial snapshot and its buffered live entries when reconnect replaces transport", () => {
+    const client = new GuestClient(TEST_LINK, "test guest");
+    const entry = (id: string): SessionEntry => ({
+      id, parentId: null, timestamp: TEST_HEADER.timestamp, type: "message",
+      message: { role: "user", content: id, timestamp: 0 },
+    });
+    try {
+      client.connect();
+      FakeWebSocket.instances[0]?.open();
+      client.applyFrameForTest(TEST_WELCOME);
+      client.applyFrameForTest({ t: "entry", entry: entry("published") });
+      const published = client.getSnapshot().entries;
+      client.applyFrameForTest({ ...TEST_WELCOME, entryCount: 2 });
+      client.applyFrameForTest({ t: "snapshot-chunk", entries: [entry("partial")], final: false });
+      client.applyFrameForTest({ t: "entry", entry: entry("buffered-live") });
+      client.refreshConnection();
+      expect(client.getSnapshot().phase).toBe("reconnecting");
+      expect(client.getSnapshot().loading).toBeNull();
+      expect(client.getSnapshot().entries).toBe(published);
+      client.applyFrameForTest({ t: "snapshot-chunk", entries: [entry("abandoned-final")], final: true });
+      expect(client.getSnapshot().entries).toBe(published);
+      FakeWebSocket.instances[1]?.open();
+      client.applyFrameForTest({ ...TEST_WELCOME, entryCount: 1 });
+      client.applyFrameForTest({ t: "snapshot-chunk", entries: [entry("replacement")], final: true });
+      expect(client.getSnapshot().entries.map(row => row.id)).toEqual(["replacement"]);
+      expect(client.getSnapshot().phase).toBe("live");
+    } finally {
+      client.close();
+    }
+  });
+  test("publishes a complete snapshot once, retaining old rows and clearing a buffered finished ghost", () => {
+    const client = new GuestClient(TEST_LINK, "test guest");
+    const entry = (id: string): SessionEntry => ({
+      id, parentId: null, timestamp: TEST_HEADER.timestamp, type: "message",
+      message: { role: "user", content: id, timestamp: 0 },
+    });
+    const message: AssistantMessage = {
+      role: "assistant", content: [{ type: "text", text: "finished answer" }], model: "test/model",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } },
+      stopReason: "stop", timestamp: 0,
+    };
+    try {
+      client.applyFrameForTest(TEST_WELCOME);
+      client.applyFrameForTest({ t: "entry", entry: entry("old") });
+      const published = client.getSnapshot().entries;
+      client.applyFrameForTest({ ...TEST_WELCOME, entryCount: 2 });
+      client.applyFrameForTest({ t: "snapshot-chunk", entries: [entry("first")], final: false });
+      expect(client.getSnapshot().entries).toBe(published);
+      expect(client.getSnapshot().loading).toEqual({ received: 1, total: 2 });
+      client.applyFrameForTest({ t: "event", event: { type: "message_end", message } });
+      expect(client.getSnapshot().stream).toEqual(message);
+      expect(client.getSnapshot().streamDone).toBeTrue();
+      const finished: SessionEntry = { ...entry("answer"), type: "message", message };
+      client.applyFrameForTest({ t: "entry", entry: finished });
+      expect(client.getSnapshot().stream).toBeNull();
+      expect(client.getSnapshot().streamDone).toBeFalse();
+      expect(client.getSnapshot().entries).toBe(published);
+      client.applyFrameForTest({ t: "snapshot-chunk", entries: [entry("second")], final: false });
+      expect(client.getSnapshot().entries.map(row => row.id)).toEqual(["first", "second", "answer"]);
+      expect(published.map(row => row.id)).toEqual(["old"]);
+      expect(client.getSnapshot().loading).toBeNull();
+      expect(client.getSnapshot().phase).toBe("live");
+    } finally {
+      client.close();
+    }
+  });
   test("replaces a stale transport without ending the logical connection", () => {
     const socket = new CollabSocket({
       wsUrl: "wss://relay.example/r/synthetic-room",
@@ -471,7 +537,7 @@ describe("CollabSocket browser lifecycle recovery", () => {
     client.close();
   });
 
-  test("keeps a UI response pending until host acknowledgement and resends it after reconnect", async () => {
+  test.each(["empty welcome", "final chunk", "entry count"] as const)("resends a pending UI response after reconnect completes via %s", async completion => {
     const key = await importRoomKey(new Uint8Array(32));
     const client = new GuestClient(TEST_CONTROL_LINK, "test guest");
     client.connect();
@@ -511,7 +577,17 @@ describe("CollabSocket browser lifecycle recovery", () => {
     expect(client.getSnapshot().readOnly).toBeTrue();
     expect(client.getSnapshot().uiResponsePending).toBeTrue();
 
-    client.applyFrameForTest(TEST_WELCOME);
+    if (completion === "empty welcome") {
+      client.applyFrameForTest(TEST_WELCOME);
+    } else {
+      client.applyFrameForTest({ ...TEST_WELCOME, entryCount: completion === "final chunk" ? 2 : 1 });
+      expect(client.getSnapshot().uiResponsePending).toBeTrue();
+      client.applyFrameForTest({
+        t: "snapshot-chunk",
+        entries: [{ id: "restored", parentId: null, timestamp: TEST_HEADER.timestamp, type: "message", message: { role: "user", content: "restored", timestamp: 0 } }],
+        final: completion === "final chunk",
+      });
+    }
     await replacement.waitForSent(2);
     expect((await decodeFrames(replacement, key)).map(frame => frame.t)).toEqual(["hello", "ui-response"]);
     expect(client.getSnapshot().uiResponsePending).toBeTrue();

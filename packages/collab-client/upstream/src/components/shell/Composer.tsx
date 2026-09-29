@@ -627,7 +627,7 @@ export function Composer({ client, snapshot, embedded = false }: ComposerProps):
 					onCompositionEnd={onCompositionEnd}
 					placeholder={
 						readOnly
-							? "read-only session — watching only"
+							? "Read-only session — watching only"
 							: live
 								? photos.length > 0
 									? "add a note (optional)…"

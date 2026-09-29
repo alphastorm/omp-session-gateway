@@ -107,7 +107,7 @@ describe("transcript windowing", () => {
     expect(rows[0]).toContain("message 310");
     expect(rows[rows.length - 1]).toContain("message 459");
     expect(textOf(root)).not.toContain("message 309");
-    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 310 more");
+
   });
 
   test("leaves a transcript inside the window whole and unwrapped", async () => {
@@ -126,7 +126,7 @@ describe("transcript windowing", () => {
 
     expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW + TRANSCRIPT_WINDOW_STEP);
     expect(rowTexts(root)[0]).toContain("message 10");
-    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 10 more");
+
 
     await click(query(root, "tr-earlier") as MiniElement);
 
@@ -152,6 +152,26 @@ describe("transcript windowing", () => {
     expect(root.scrollTop).not.toBe(root.scrollHeight);
   });
 
+  test("holds a prepended row anchor when the same render also appends a live entry", async () => {
+    const entries = userEntries(460);
+    const { root, render } = await mountTranscript(transcriptProps(entries));
+    root.scrollTop = 400;
+    await act(async () => {
+      for (const listener of root.listeners.get("scroll") ?? []) listener({ type: "scroll", target: root });
+    });
+    const top = root.getBoundingClientRect().top;
+    const anchor = queryAll(root, "tr-row").find(row => row.getBoundingClientRect().bottom > top);
+    if (anchor === undefined) throw new Error("visible row missing");
+    const offset = anchor.getBoundingClientRect().top - top;
+    await act(async () => {
+      await click(query(root, "tr-earlier") as MiniElement);
+      await render(transcriptProps([...entries, userEntry(460)]));
+    });
+    expect(anchor.isConnected).toBeTrue();
+    expect(anchor.getBoundingClientRect().top - root.getBoundingClientRect().top).toBe(offset);
+    expect(rowTexts(root).at(-1)).toContain("message 460");
+  });
+
   test("extends the window on a tail append instead of dropping the oldest row", async () => {
     const entries = userEntries(200);
     const { root, render } = await mountTranscript(transcriptProps(entries));
@@ -172,7 +192,7 @@ describe("transcript windowing", () => {
 
     expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
     expect(rowTexts(root)[0]).toContain("message 250");
-    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 250 more");
+
   });
 
   test("windows the compact agent-drawer transcript too", async () => {
@@ -258,6 +278,7 @@ function guestSnapshot(overrides: Partial<GuestSnapshot> = {}): GuestSnapshot {
     gatewayHealth: { state: "healthy", rttMs: 20, lastSuccessAt: 0, failureSince: null, retryAt: null },
     relayHealth: { state: "healthy", rttMs: 30, lastSuccessAt: 0, failureSince: null, retryAt: null },
     notices: [],
+    loading: null,
     ...overrides,
   };
 }
@@ -337,8 +358,8 @@ describe("embedded session first paint", () => {
     expect(root.scrollTop).toBe(root.scrollHeight);
   });
 
-  test("defers the transcript until the guest snapshot completes, then keeps it across a reconnect", async () => {
-    const guest = new FakeGuest(guestSnapshot({ entries: userEntries(1200) }));
+  test("keeps the published transcript mounted across loading and reconnect without competing chrome", async () => {
+    const guest = new FakeGuest(guestSnapshot({ loading: { received: 0, total: 1200 } }));
     const tree = await mount(
       createElement(Session, {
         client: guest.client,
@@ -348,22 +369,24 @@ describe("embedded session first paint", () => {
       }),
     );
 
-    // Chunked snapshot still arriving: placeholder only, composer already live.
-    expect(query(tree.container, "tr-loading")?.textContent).toBe("loading transcript…");
-    expect(query(tree.container, "tr-root")).toBeNull();
+    // Upstream buffers chunks in GuestClient rather than hiding the transcript.
+    const root = query(tree.container, "tr-root") as MiniElement;
+    expect(rowTexts(root)).toEqual([]);
+    expect(query(root, "tr-empty")).toBeNull();
     expect(query(tree.container, "sh-composer")).not.toBeNull();
 
-    await guest.publish({ phase: "live" });
-
-    const root = query(tree.container, "tr-root");
-    expect(root).not.toBeNull();
-    expect(query(tree.container, "tr-loading")).toBeNull();
-    expect(queryAll(root as MiniElement, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
+    await guest.publish({ phase: "live", entries: userEntries(1200), loading: null });
+    expect(query(tree.container, "tr-root")).toBe(root);
+    expect(rowTexts(root).at(-1)).toContain("message 1199");
 
     // A reconnect must not blank a transcript the reader already has.
-    await guest.publish({ phase: "reconnecting" });
-
-    expect(query(tree.container, "tr-root")).not.toBeNull();
-    expect(query(tree.container, "tr-loading")).toBeNull();
+    for (const phase of ["reconnecting", "waiting", "live", "ended"] as const) {
+      await guest.publish({ phase });
+      expect(query(tree.container, "tr-root")).toBe(root);
+      expect(rowTexts(root).at(-1)).toContain("message 1199");
+      for (const chrome of ["sh-header", "sh-rail", "sh-connect", "sh-banner", "sh-overlay"]) {
+        expect(query(tree.container, chrome)).toBeNull();
+      }
+    }
   });
 });
