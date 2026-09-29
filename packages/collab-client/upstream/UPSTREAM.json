@@ -40,6 +40,7 @@
     "Preserve upstream rejected-currency and half-streamed delimiter semantics across the retained npm marked parser",
     "Force the transcript to its tail when an initial or recovered connection becomes live without discarding transcript windowing",
     "Window a long transcript to its tail behind a Show earlier control that reveals older entries without moving the reader",
-    "Defer the first transcript render until the guest snapshot completes and keep it mounted across reconnects (Session exported for coverage)"
+    "Defer the first transcript render until the guest snapshot completes and keep it mounted across reconnects (Session exported for coverage)",
+    "Size text fields at 16px on any coarse pointer rather than only below 640px, so iOS Safari does not zoom into them on focus on an iPad or a landscape phone (upstream collab-web #13371, first shipped in OMP v18.4.1)"
   ]
 }

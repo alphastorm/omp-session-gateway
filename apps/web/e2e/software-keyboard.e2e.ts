@@ -103,3 +103,29 @@ test("an open software keyboard cannot cover the composer", { tag: "@core" }, as
     await fixture.stop();
   }
 });
+
+// iOS Safari zooms into a text field smaller than 16px when it takes focus, and stays zoomed. Every
+// touch screen needs that size, not just a portrait phone: an iPad or a phone turned to landscape
+// is wider than the client's phone breakpoint.
+test("the composer is large enough to focus without zooming in either orientation", async ({ page }) => {
+  const fixture = await startDashboardFixture([session()]);
+
+  try {
+    await installSilentWebSocket(page);
+    await page.goto(fixture.origin);
+
+    await page.getByRole("button", { name: "Open request" }).click();
+    await expect(page).toHaveURL(`${fixture.origin}/client/`);
+    const composer = page.locator(".sh-composer-input");
+    await expect(composer).toBeVisible();
+
+    const portrait = page.viewportSize();
+    if (portrait === null) throw new Error("the project sets no viewport");
+    for (const viewport of [portrait, { width: portrait.height, height: portrait.width }]) {
+      await page.setViewportSize(viewport);
+      await expect(composer, `${viewport.width}px wide`).toHaveCSS("font-size", "16px");
+    }
+  } finally {
+    await fixture.stop();
+  }
+});

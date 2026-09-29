@@ -44,6 +44,11 @@ placeholder until the guest snapshot completes, then mounts only its newest 150 
 `Show earlier` control reveals 300 more per tap and holds the reader's scroll anchor while those
 older rows mount.
 
+Text fields keep a 16px font on every touch screen, not only below the 640px phone breakpoint, so
+iOS Safari does not zoom into the composer when it takes focus on an iPad or a phone in landscape.
+This adopts upstream collab-web #13371, first shipped in OMP `v18.4.1`, ahead of the next client
+refresh.
+
 Control sessions expose the existing OMP v3 `prompt.images` path as a phone-first photo action.
 The Photo action opens an explicit two-choice panel: **Take photo** invokes a rear-camera capture
 input, while **Choose existing** opens the ordinary photo library/file picker. The browser rejects
