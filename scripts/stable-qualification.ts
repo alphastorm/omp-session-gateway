@@ -705,6 +705,19 @@ async function runCommand(command: readonly string[], options: CommandOptions = 
   return { exitCode, stdout, stderr };
 }
 
+/**
+ * Runs a child that mutates the Pixel and restores it itself. From outside, a failed or timed-out
+ * child cannot prove its restoration ran (a killed process restores nothing, and a restoration
+ * failure arrives only as text), so its failure leaves the Pixel lease refusing later device lanes.
+ */
+export async function runPixelRestoringChild(command: readonly string[], options: CommandOptions): Promise<CommandResult> {
+  try {
+    return await runCommand(command, options);
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error("Pixel child failed"), { pixelUnrestored: true });
+  }
+}
+
 async function commandOutput(command: readonly string[], options: CommandOptions = {}): Promise<string> {
   return (await runCommand(command, options)).stdout.trim();
 }
@@ -1599,7 +1612,7 @@ async function runAndroidAcceptance(
     OMP_ANDROID_BROWSER_ACTIVITY: browser.activity,
     OMP_ANDROID_DEVTOOLS_SOCKET: browser.devtoolsSocket,
   };
-  const acceptance = await runCommand(
+  const acceptance = await runPixelRestoringChild(
     [process.execPath, "scripts/android-acceptance.ts", context.publicOrigin, options.sessionLabel],
     { env: androidEnvironment, timeoutMs: 15 * 60 * 1_000, echo: true },
   );

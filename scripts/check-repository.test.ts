@@ -137,6 +137,20 @@ test("regex braces and keyword text do not close finally or create violations", 
   ]);
 });
 
+test("a regex after else, do or an operand keyword cannot end finally early", () => {
+  const source = [
+    "function f(v) { try {} finally {",
+    "  if (v) work(); else /[}]/.test(v);",
+    "  do /[}]/.test(v); while (false);",
+    "  const typed = v instanceof /[}]/.constructor;",
+    "  return;",
+    "} }",
+  ].join("\n");
+  expect(checkUnsafeFinally("scripts/cleanup.ts", source)).toEqual([
+    "scripts/cleanup.ts:5: unsafe return in finally block",
+  ]);
+});
+
 test("reports one-based lines across CRLF, CR and Unicode line separators", () => {
   const source = "try {} finally {\r\n/* comment\rcontinued */\u2028return;\u2029throw error;\n}";
   expect(checkUnsafeFinally("scripts/cleanup.ts", source)).toEqual([

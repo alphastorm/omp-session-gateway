@@ -56,8 +56,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   never instead of, the phase failure. Acceptance restores and verifies the airplane, Wi-Fi and
   mobile-data baseline it found, leaving data off when it started off. On a multi-SIM phone, mobile
   data is read from the default data subscription, as the Push lane now does too, because the global
-  setting can stay stale. Nested restoration errors retain the unrestored-Pixel flag, and repository
-  checks reject unsafe throws/returns in finally.
+  setting can stay stale. Nested restoration errors retain the unrestored-Pixel flag, and a failed or
+  timed-out acceptance child, whose restoration cannot be verified from outside, leaves the campaign
+  refusing later Pixel lanes. Repository checks reject unsafe throws/returns in finally.
   Reachability observations consume ping failures inside the device shell, including Toybox's
   unknown-host exit during Airplane mode, while adb transport failures still fail the lane.
 - Stable qualification refuses to start while the Pixel under test shares its connection through

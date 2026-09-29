@@ -21,6 +21,7 @@ import {
   parseStableQualificationArgs,
   qualifyDebian,
   runExternalLane,
+  runPixelRestoringChild,
   runStableQualification,
   receiptNeedsMacCleanup,
   validateStableQualificationReceipt,
@@ -851,6 +852,23 @@ test("a Pixel left unrestored refuses every later device lane", async () => {
   if (waiter?.status !== "rejected") throw new Error("the waiting lane must be refused");
   expect(String(waiter.reason)).toContain("left unrestored by windows");
   expect(later).toBe(0);
+});
+
+test("a failed or timed-out Pixel-restoring child refuses every later device lane", async () => {
+  // Real children: the timeout case needs runCommand's actual SIGTERM of a live process, which fake
+  // timers cannot drive. A slow start that trips the 300 ms timeout is flagged the same way.
+  for (const child of [["-e", "process.exit(3)"], ["-e", "await Bun.sleep(10_000)"]]) {
+    const lease = createPixelLease(() => {});
+    let later = 0;
+    const [holder, waiter] = await Promise.allSettled([
+      lease("android", () => runPixelRestoringChild([process.execPath, ...child], { timeoutMs: 300 })),
+      lease("androidPush", async () => { later += 1; }),
+    ]);
+    expect(holder.status).toBe("rejected");
+    if (waiter?.status !== "rejected") throw new Error("the waiting lane must be refused");
+    expect(String(waiter.reason)).toContain("left unrestored by android");
+    expect(later).toBe(0);
+  }
 });
 
 describe("resource-owning lanes", () => {

@@ -148,7 +148,9 @@ capture/restoration, including validated Wi-Fi before enabling mobile data; a mu
 global `mobile_data` key is stale proves the baseline reads the default data subscription's key
 (a Pixel 10 Pro read `mobile_data=1` with data off). Repository admission
 rejects lexical throw/return statements inside finally blocks in production scripts and app source;
-scanner tests distinguish comments, strings and template text from executable nested blocks.
+scanner tests distinguish comments, strings, template text and regex literals (including after
+`else`, `do` and operand keywords) from executable nested blocks. Real child processes prove a
+failed or timed-out acceptance child poisons the campaign Pixel lease.
 
 The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must

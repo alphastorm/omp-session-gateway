@@ -181,7 +181,7 @@ function* sourceTokens(source: string): Generator<SourceToken> {
       if (value === "(") controlParens.push(/^(?:if|while|for|with|switch|catch)$/u.test(previous));
       regexAllowed = value === ")"
         ? controlParens.pop() === true
-        : /^(?:[({[,:;=!?&|+*%~^<>-]|=>|&&|\|\||\?\?|return|throw|case|delete|void|typeof|yield|await|in|of)$/u.test(value);
+        : /^(?:[({[,:;=!?&|+*%~^<>-]|=>|&&|\|\||\?\?|return|throw|case|delete|void|typeof|yield|await|in|of|else|do|instanceof|new)$/u.test(value);
       previous = value;
     }
   }
