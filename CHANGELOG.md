@@ -29,6 +29,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   tap relaunched a Control session as View. The worker now hands the tap to the open page, which
   revalidates it against current metadata and switches in place; a tap for the session already open
   keeps it. With no open page, the tap opens its route as before.
+- A directory left in the background no longer keeps its live-update stream open. Chrome freezes a
+  hidden page about a minute after it is hidden, but kept the connection, and the phone kept waking
+  for its five-second keepalives: a backgrounded Pixel received them for all of a twelve-minute
+  measurement. The page now closes the stream when it is frozen and rebuilds it from a fresh
+  snapshot when it is shown again; a briefly hidden page keeps its stream.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
   a hotspot, USB or Bluetooth tethering. This is checked at orchestrator admission, before provider
   lookup or any lane, and independently by Android acceptance, post-release smoke and the background

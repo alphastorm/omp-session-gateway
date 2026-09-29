@@ -2264,6 +2264,25 @@ window.addEventListener("offline", () => {
 });
 
 /**
+ * A frozen page cannot read the directory stream, but Chrome keeps the connection open and the
+ * phone keeps waking for its five-second keepalives. On a Pixel 10 Pro (Android 17, Chrome 154) a
+ * backgrounded directory received them for all of a twelve-minute measurement; the same Chrome
+ * delivered `freeze` 60 seconds after the page was hidden. Release the stream then, without a
+ * failure or a retry: nothing failed, and becoming visible rebuilds it from a fresh snapshot.
+ */
+document.addEventListener("freeze", () => {
+  directoryEpoch += 1;
+  directoryRevision = -1;
+  snapshotController?.abort();
+  snapshotController = undefined;
+  events?.close();
+  events = undefined;
+  clearEventLiveness();
+  clearReconnectTimeout();
+  eventStreamStale = false;
+});
+
+/**
  * Resume is a recovery signal Android actually delivers, so treat it as one.
  *
  * A page frozen across a network change has no way to notice the change: its timers did not run and

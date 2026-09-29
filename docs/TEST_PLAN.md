@@ -294,6 +294,7 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 1. Open a live session.
 2. Lock phone briefly, unlock, and resume.
 3. Client reconnects automatically without leaving or reopening the session.
+   Leave the directory in the background for over a minute: once Chrome freezes the page, the gateway sees its event stream close; returning opens a fresh stream from a new snapshot.
 4. Switch Wi-Fi/mobile network while Tailscale remains connected. If the browser process remains responsive, the dashboard and active Control/View recover without Refresh or another user action.
    - If Android has a healthy route but Chrome simultaneously fails the gateway, an unrelated origin, and browser-control probes, record the run as a browser-environment failure rather than a PWA pass. The visible directory must keep retrying, name the unreachable path, and open help already carried by the loaded shell only after 45–60 uninterrupted visible failure seconds; offline or hidden time does not count, and no page-level workaround may be claimed to repair the browser process.
 5. Android back returns safely without a reusable secret-bearing history entry.
