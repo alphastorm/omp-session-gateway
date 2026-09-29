@@ -184,12 +184,13 @@ async function webDriverCommand(
   body: unknown,
   timeoutMs = COMMAND_TIMEOUT_MS,
 ): Promise<unknown> {
-  const response = await fetch(`${HUB}${path}`, {
+  const send = () => fetch(`${HUB}${path}`, {
     method,
     headers: { "content-type": "application/json", authorization },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(timeoutMs),
   });
+  const response = method === "GET" ? await readProvider(send) : await send();
   const payload: unknown = await response.json().catch(() => undefined);
   const value = isRecord(payload) ? payload.value : undefined;
   if (!response.ok) {
@@ -329,7 +330,7 @@ async function fileSha256(path: string): Promise<string | undefined> {
 export async function ensureTunnelJar(directory = join(homedir(), ".cache", "omp-session-gateway", "testingbot")): Promise<string> {
   const path = join(directory, `TestingBotTunnel-${TESTINGBOT_TUNNEL.version}.jar`);
   if (await fileSha256(path) === TESTINGBOT_TUNNEL.sha256) return path;
-  const response = await fetch(TESTINGBOT_TUNNEL.url, { signal: AbortSignal.timeout(120_000) });
+  const response = await readProvider(() => fetch(TESTINGBOT_TUNNEL.url, { signal: AbortSignal.timeout(120_000) }));
   if (!response.ok) throw new Error(`the TestingBot tunnel download failed with HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength !== TESTINGBOT_TUNNEL.bytes || createHash("sha256").update(bytes).digest("hex") !== TESTINGBOT_TUNNEL.sha256) {

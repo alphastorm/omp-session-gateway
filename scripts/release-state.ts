@@ -1,4 +1,5 @@
 import { releaseVersion } from "./release-policy.ts";
+import { readProvider } from "./provider-read.ts";
 
 function expectedAssets(tag: string): readonly string[] {
   const version = releaseVersion(tag);
@@ -79,13 +80,14 @@ export function assertReleaseState(
 }
 
 async function githubJson(url: string, token: string, allowNotFound = false): Promise<unknown | null> {
-  const response = await fetch(url, {
+  const response = await readProvider(() => fetch(url, {
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: "Bearer " + token,
       "X-GitHub-Api-Version": "2022-11-28",
     },
-  });
+    signal: AbortSignal.timeout(30_000),
+  }));
   if (allowNotFound && response.status === 404) return null;
   if (!response.ok) throw new Error("GitHub release lookup failed with status " + response.status);
   return response.json();

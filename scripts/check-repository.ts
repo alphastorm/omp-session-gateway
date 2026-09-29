@@ -55,6 +55,39 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
+// Direct fetches in harness code are provider reads unless this exact target was reviewed.
+// Gateway/browser probes deliberately observe first-failure behavior; capability POSTs must not retry.
+const nonProviderFetches: Readonly<Record<string, readonly string[]>> = {
+  "android-acceptance.ts": ['"/api/v1/sessions/" + id + "/launch"', '"/api/v1/sessions"', 'new URL("/api/v1/sessions"'],
+  "android-collab-smoke.ts": ['`${options.origin}/api/v1/sessions`'],
+  "android-leak-sweep.ts": ['origin + "/api/v1/sessions"'],
+  "android-push-runtime.ts": ['`${identity.origin}/api/v1/sessions`', "'/api/v1/sessions'", "'/api/v1/sessions/'+${JSON.stringify(fixture.instanceId)}+'/launch'"],
+  "browser-journey.ts": ['"/api/v1/sessions"', '"/api/v1/sessions/" + target.instanceId + "/launch"'],
+  "device-cloud-runtime.ts": ['`${origin}/`', '`${origin}/api/v1/sessions`', '`${origin}/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`'],
+  "post-release-smoke.ts": ['`${config.http.publicOrigin}/api/v1/sessions`', '`http://127.0.0.1:${port}/json/list`'],
+  "relay-soak.ts": ['`${config.gatewayOrigin}/api/v1/sessions`', '`${config.gatewayOrigin}/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`'],
+  "stable-qualification.ts": ['`${origin}/api/v1/sessions`', '`${origin}/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`', '`http://127.0.0.1:${port}/api/v1/health`'],
+};
+
+function checkProviderReads(rel: string, text: string): string[] {
+  if (!/^scripts\/.+\.ts$/u.test(rel) || rel.endsWith(".test.ts")) return [];
+  const failures: string[] = [];
+  for (const match of text.matchAll(/\b(?:globalThis\.)?fetch\s*\(\s*([^,\n]+)/gu)) {
+    const target = match[1]?.trim().replace(/\);$/u, "");
+    const before = text.slice(0, match.index);
+    if (/readProvider\(\s*\(\)\s*=>\s*$/u.test(before)) continue;
+    if (target !== undefined && nonProviderFetches[rel.slice("scripts/".length)]?.includes(target)) continue;
+    // These two dispatchers share a closure but replay it ONLY for GET. Match the gate as well
+    // as the target, so removing the read retry or retrying writes fails repository admission.
+    if (((rel === "scripts/windows-qualification-runtime.ts" && target === "url") ||
+      (rel === "scripts/testingbot.ts" && target === '`${HUB}${path}`')) &&
+      /const send = \(\) => $/u.test(before) &&
+      text.includes('const response = method === "GET" ? await readProvider(send) : await send();')) continue;
+    failures.push(rel + ":" + (before.split("\n").length) + ": unreviewed direct fetch; use readProvider for idempotent provider reads or document the exact non-provider target");
+  }
+  return failures;
+}
+
 const errors: string[] = [];
 for (const rel of required) {
   try {
@@ -72,6 +105,7 @@ for (const file of await walk(rootPath)) {
     continue;
   }
   const text = await readFile(file, "utf8");
+  errors.push(...checkProviderReads(rel, text));
   for (const old of forbiddenLegacy) {
     if (text.includes(old)) errors.push(`${rel}: contains legacy identifier ${JSON.stringify(old)}`);
   }

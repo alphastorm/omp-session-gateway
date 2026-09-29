@@ -333,7 +333,7 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     async admit(input: WindowsPreflightInput): Promise<WindowsAdmission> {
       if (process.platform !== "darwin" || Bun.version !== pins.bunVersion) throw new Error("Windows controller requires macOS and pinned Bun");
       activeTag = input.identity?.tag ?? "preflight";
-      const external = await fetch("https://api.ipify.org", { signal: AbortSignal.timeout(15_000) });
+      const external = await readProvider(() => fetch("https://api.ipify.org", { signal: AbortSignal.timeout(15_000) }));
       egress = (await external.text()).trim();
       if (!/^(?:\d{1,3}\.){3}\d{1,3}$/u.test(egress) || egress.split(".").some(part => Number(part) > 255)) throw new Error("operator IPv4 egress unavailable");
       if (environment.OMP_STABLE_WINDOWS_OPERATOR_CIDR && environment.OMP_STABLE_WINDOWS_OPERATOR_CIDR !== `${egress}/32`) throw new Error("operator egress no longer matches admitted /32");
