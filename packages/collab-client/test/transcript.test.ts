@@ -107,7 +107,7 @@ describe("transcript windowing", () => {
     expect(rows[0]).toContain("message 310");
     expect(rows[rows.length - 1]).toContain("message 459");
     expect(textOf(root)).not.toContain("message 309");
-
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 310 more");
   });
 
   test("leaves a transcript inside the window whole and unwrapped", async () => {
@@ -126,7 +126,7 @@ describe("transcript windowing", () => {
 
     expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW + TRANSCRIPT_WINDOW_STEP);
     expect(rowTexts(root)[0]).toContain("message 10");
-
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 10 more");
 
     await click(query(root, "tr-earlier") as MiniElement);
 
@@ -192,7 +192,7 @@ describe("transcript windowing", () => {
 
     expect(queryAll(root, "tr-row").length).toBe(TRANSCRIPT_WINDOW);
     expect(rowTexts(root)[0]).toContain("message 250");
-
+    expect(query(root, "tr-earlier")?.textContent).toBe("Show earlier · 250 more");
   });
 
   test("windows the compact agent-drawer transcript too", async () => {
