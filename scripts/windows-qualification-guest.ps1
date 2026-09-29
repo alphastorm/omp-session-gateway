@@ -19,13 +19,16 @@ function PrivateDirectory($path) {
   Set-Acl -LiteralPath $path -AclObject $acl
 }
 # `$step` names a native call the adapter reports on failure: a campaign's `bun.exe exit 1` could not
-# say whether install or build failed, and the guest never forwards raw output.
-function Run($exe, $arguments, $step = [IO.Path]::GetFileName($exe)) {
+# say whether install or build failed, and the guest never forwards raw output. `$log`, given only for
+# OMP's install and build, keeps that output on the guest, so a retained development VM shows why a
+# build failed; it is tooling output from before any host, session or capability exists.
+function Run($exe, $arguments, $step = [IO.Path]::GetFileName($exe), $log = $null) {
   # Windows PowerShell 5 treats native stderr as ErrorRecord, even for exit 0.
   # Judge the native exit code, not its choice of output stream.
   $previousPreference = $ErrorActionPreference
   try { $ErrorActionPreference = 'Continue'; $global:LASTEXITCODE = $null; $output = & $exe @arguments 2>&1 }
   finally { $ErrorActionPreference = $previousPreference }
+  if ($log) { $output | ForEach-Object { "$_" } | Set-Content -LiteralPath $log -Encoding UTF8 }
   if ($global:LASTEXITCODE -ne 0) { throw ('native command failed: ' + $step + ' exit ' + $global:LASTEXITCODE) }
   $output
 }
@@ -241,10 +244,10 @@ switch ($p.action) {
   'build' {
     Push-Location "$root\source"
     try {
-      Run $bun @('install', '--frozen-lockfile') 'bun-install' | Out-Null
+      Run $bun @('install', '--frozen-lockfile') 'bun-install' "$root\bun-install.log" | Out-Null
       Copy-Item "$root\native\package\$($p.pins.omp.nativeFile)" "$root\source\packages\natives\native\$($p.pins.omp.nativeFile)"
       if ((Digest "$root\source\packages\natives\native\$($p.pins.omp.nativeFile)") -ne $p.pins.omp.nativeBinarySha256) { throw 'staged native mismatch' }
-      Run $bun @('--cwd=packages/coding-agent', 'run', 'build') 'omp-build' | Out-Null
+      Run $bun @('--cwd=packages/coding-agent', 'run', 'build') 'omp-build' "$root\omp-build.log" | Out-Null
     } finally { Pop-Location }
     $omp = "$root\source\packages\coding-agent\dist\omp.exe"
     if (-not (Test-Path $omp)) { $omp = "$root\source\packages\coding-agent\dist\omp" }
