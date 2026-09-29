@@ -1,3 +1,5 @@
+import { readProvider } from "./provider-read.ts";
+
 interface GitReference {
   readonly ref: unknown;
   readonly object: unknown;
@@ -52,13 +54,14 @@ export function assertReleaseTagReferenceStable(firstValue: GitReference, second
 }
 
 async function githubJson(url: string, token: string): Promise<unknown> {
-  const response = await fetch(url, {
+  const response = await readProvider(() => fetch(url, {
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: "Bearer " + token,
       "X-GitHub-Api-Version": "2022-11-28",
     },
-  });
+    signal: AbortSignal.timeout(30_000),
+  }));
   if (!response.ok) throw new Error("GitHub tag lookup failed with status " + response.status);
   return response.json();
 }

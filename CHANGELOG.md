@@ -11,6 +11,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - SSE streams that stop reading now release their subscription and keepalive timer when the queue
   fills, even while the session directory is quiet. Completed subscription admission also drops
   buffered events instead of retaining their metadata for the lifetime of the stream.
+- Provider/control-plane reads retry transient connection, DNS and deadline failures within the
+  same five-attempt budget as HTTP 5xx. GitHub state checks, Windows egress discovery and TestingBot
+  reads/downloads share the helper; mutations and programming errors are never replayed. Repository
+  admission rejects new direct harness fetches without a reviewed non-provider exemption.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
   a hotspot, USB or Bluetooth tethering. The background Push lane switches the Pixel's radios, so a
   controller on its hotspot lost WinRM, SSH and the gateway origin mid-campaign; this failed two

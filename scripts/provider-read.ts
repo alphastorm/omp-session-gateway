@@ -1,14 +1,33 @@
 const PROVIDER_READ_ATTEMPTS = 5;
 
+const NETWORK_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "EPIPE", "ETIMEDOUT", "EAI_AGAIN", "ENOTFOUND",
+  "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "ConnectionRefused",
+]);
+
+function transientNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "TimeoutError") return true;
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code !== undefined && NETWORK_CODES.has(code)) return true;
+  // Fetch uses TypeError for transport failures AND invalid input. Do not replay arbitrary
+  // TypeErrors (or caller AbortErrors); recognize only the transport messages/cause codes.
+  return error instanceof TypeError && (
+    /^(?:fetch failed|Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.?)$/u.test(error.message) ||
+    (error.cause instanceof Error && NETWORK_CODES.has((error.cause as NodeJS.ErrnoException).code ?? ""))
+  );
+}
+
 /**
  * Qualification drives third-party control planes (Vultr, Tailscale, Scaleway) whose APIs answer an
- * occasional transient 5xx. Vultr returned HTTP 502 twice in one day: once at Windows admission, and
+ * occasional transient 5xx or transport failure. Vultr returned HTTP 502 twice in one day: once at Windows admission, and
  * once on the instance lookup after the lane's reboot, which failed the attempt with its VM running.
  * On 2026-09-29 it returned 502 to three reads spanning six seconds while the lane staged its guest,
  * so reads now back off 2, 4, 8 and 16 seconds, about half a minute in all.
  * A read is idempotent, so it gets a bounded retry. A create, change, or delete never comes through
- * here, because a write that reached the provider must not run twice. The last response is returned,
- * so each caller keeps its own status handling.
+ * here, because a write that reached the provider must not run twice. HTTP and thrown network
+ * failures share five attempts; the last response is returned or the last error is thrown.
+ * Programming errors and caller cancellation are final. Each caller keeps its own status handling.
  */
 export async function readProvider(
   read: () => Promise<Response>,
@@ -16,9 +35,16 @@ export async function readProvider(
 ): Promise<Response> {
   const sleep = options.sleep ?? (async (milliseconds: number) => void (await Bun.sleep(milliseconds)));
   for (let attempt = 1; ; attempt += 1) {
-    const response = await read();
-    if (response.status < 500 || attempt >= PROVIDER_READ_ATTEMPTS) return response;
-    await response.body?.cancel();
+    let response: Response | undefined;
+    try {
+      response = await read();
+    } catch (error) {
+      if (attempt >= PROVIDER_READ_ATTEMPTS || !transientNetworkError(error)) throw error;
+    }
+    if (response !== undefined) {
+      if (response.status < 500 || attempt >= PROVIDER_READ_ATTEMPTS) return response;
+      await response.body?.cancel();
+    }
     await sleep(2_000 * 2 ** (attempt - 1));
   }
 }

@@ -123,6 +123,15 @@ completion nor relay endurance; it uses OMP’s public relay.
 
 ### Qualification tooling
 
+Provider-read fault injection covers network recovery, mixed network/HTTP failures, bounded
+exhaustion with the last error, and immediate programming-error/cancellation propagation.
+Repository admission requires direct TypeScript harness fetches to use the read helper or an
+exact reviewed target exemption. Gateway/session, browser and loopback probes remain single-shot
+observations (or keep their own observation deadline); capability POSTs and provider writes must
+not replay. Provider CLI operations (gh/doctl/scw), remote shell package/bootstrap downloads and
+guest metadata reads are outside this Response-based helper: their command exit/status and
+existing polling semantics remain unchanged, not covered by the direct-fetch invariant.
+
 The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
 still clean recorded pending Mac effects and must not reopen already completed cleanup.
