@@ -14,6 +14,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   running, and `stop`, readiness-token rotation and `install --no-start` could treat it as stopped.
   They now fail with the error, `status` reports it, and `doctor` fails its two service checks while
   keeping the rest of its report.
+- On an iPad or a phone in landscape, iOS Safari no longer zooms into the collaboration composer
+  when it takes focus. The client kept its text fields at 16px, the size below which iOS zooms on
+  focus, only for screens narrower than 640px; it now does so for any touch screen. This adopts
+  upstream collab-web [#13371](https://github.com/can1357/oh-my-pi/pull/13371), first shipped in
+  OMP v18.4.1, ahead of the next client refresh.
 
 ## [v0.6.3] — 2026-09-27
 
