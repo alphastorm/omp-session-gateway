@@ -35,7 +35,7 @@ try {
   }
 } catch {
   $diagnostic = 'guest execution failed at line ' + $_.InvocationInfo.ScriptLineNumber + ': ' + $_.Exception.GetType().Name
-  if ($_.Exception.Message -match '^native command failed: [A-Za-z0-9_.-]+ exit -?[0-9]+$') { $diagnostic += '; ' + $_.Exception.Message }
+  if ($_.Exception.Message -match '^(native command failed: [A-Za-z0-9_.-]+ exit -?[0-9]+|status mismatch: [A-Za-z]+(,[A-Za-z]+)*)$') { $diagnostic += '; ' + $_.Exception.Message }
   [Console]::Error.WriteLine($diagnostic)
   exit 1
 }
@@ -91,7 +91,7 @@ def main():
         if len(stdout) > 1024 * 1024 or len(stderr) > 65536:
             raise ValueError('response exceeds bound')
         # No raw stderr: an external program can include its argv or other private data.
-        diagnostic = re.search(rb'guest execution failed at line [0-9]+: [A-Za-z0-9]+(?:; native command failed: [A-Za-z0-9_.-]+ exit -?[0-9]+)?', stderr)
+        diagnostic = re.search(rb'guest execution failed at line [0-9]+: [A-Za-z0-9]+(?:; (?:native command failed: [A-Za-z0-9_.-]+ exit -?[0-9]+|status mismatch: [A-Za-z]+(?:,[A-Za-z]+)*))?', stderr)
         result = {'exitCode': code, 'stdout': stdout.decode('utf-8-sig') if code == 0 else '',
                   'diagnostic': diagnostic.group().decode('ascii') if diagnostic else ''}
     finally:

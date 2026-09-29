@@ -77,12 +77,37 @@ function Preserved {
   @{ configPreserved = (Digest "$base\config.json") -eq $p.configDigest;
     readinessPreserved = (Digest "$base\readiness-token") -eq $p.credentialDigest }
 }
+# `install`, `rollback` and `rotate-readiness-token` return once the gateway proves readiness, and on
+# a loaded two-vCPU guest `status` has still trailed that proof: one immediate read failed after the
+# 2026-09-24 predecessor install and after the 2026-09-29 candidate upgrade, and the next reads passed
+# with nothing reinstalled. A read-only status therefore gets a bounded window to settle; the mutation
+# before it is never repeated, and a status that never settles fails naming the fields that did not.
+$statusSettleSeconds = 60
+function Settled([scriptblock]$mismatch) {
+  $deadline = [DateTime]::UtcNow.AddSeconds($statusSettleSeconds); $reads = 0
+  while ($true) {
+    $s = Status; $reads += 1; $failed = & $mismatch $s
+    if (-not $failed -or [DateTime]::UtcNow -ge $deadline) { return @{ status = $s; reads = $reads; mismatch = $failed } }
+    Start-Sleep -Seconds 2
+  }
+}
+function InstalledMismatch($s, $version) {
+  $failed = @()
+  if (-not $s.ready) { $failed += 'ready' }
+  if (-not $s.installed) { $failed += 'installed' }
+  if (-not $s.active) { $failed += 'active' }
+  if ($s.diverged) { $failed += 'diverged' }
+  if ($s.authMode -ne 'tailscale-serve') { $failed += 'authMode' }
+  if ($s.activeVersion -ne $s.serviceVersion) { $failed += 'serviceVersion' }
+  if (-not ([string]$s.activeVersion).StartsWith($version + '-')) { $failed += 'activeVersion' }
+  $failed -join ','
+}
 function Installed($version) {
-  $s = Status
-  if (-not $s.ready -or -not $s.installed -or -not $s.active -or $s.diverged -or $s.authMode -ne 'tailscale-serve' -or $s.activeVersion -ne $s.serviceVersion -or -not $s.activeVersion.StartsWith($version + '-')) { throw 'installed identity/readiness mismatch' }
+  $settled = Settled { param($s) InstalledMismatch $s $version }
+  if ($settled.mismatch) { throw ('status mismatch: ' + $settled.mismatch) }
   $config = Get-Content -Raw "$base\config.json" | ConvertFrom-Json
   if ($config.auth.mode -ne 'tailscale-serve' -or @($config.auth.allowedLogins).Count -ne 1 -or $config.auth.allowedLogins[0] -ne $p.login) { throw 'gateway exact-login allowlist mismatch' }
-  $r = Preserved; $r.ready = $true
+  $r = Preserved; $r.ready = $true; $r.statusReads = $settled.reads
   # WMI refuses a standard account's network logon, so the Administrator observes its listener.
   if ($p.principal -ne 'standard') {
     if (-not (State).loopbackOnly) { throw 'gateway listener is not loopback-only' }
@@ -233,14 +258,14 @@ switch ($p.action) {
   }
   'installPredecessor' {
     Run $bun @("$root\predecessor\apps\gateway\src\cli.js", 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
-    $s = Status
-    @{ ready = $s.ready -and $s.activeVersion.StartsWith($p.previousVersion + '-'); configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
+    $settled = Settled { param($s) if (-not ($s.ready -and ([string]$s.activeVersion).StartsWith($p.previousVersion + '-'))) { 'ready' } }
+    @{ ready = -not $settled.mismatch; statusReads = $settled.reads; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
   }
   'inspectPredecessor' { Installed $p.previousVersion | ConvertTo-Json -Compress }
   'installFresh' {
     Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
     $r = Installed $p.candidateVersion
-    @{ ready = $r.ready; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
+    @{ ready = $r.ready; statusReads = $r.statusReads; configDigest = Digest "$base\config.json"; credentialDigest = Digest "$base\readiness-token" } | ConvertTo-Json -Compress
   }
   { $_ -in 'upgrade', 'restore' } {
     Run $bun @($cli, 'install', '--origin', $p.origin, '--allow', $p.login) | Out-Null
@@ -352,7 +377,8 @@ switch ($p.action) {
   }
   'rotate' {
     Run $bun @($cli, 'rotate-readiness-token') | Out-Null
-    $r = Preserved; $r.readinessChanged = -not $r.readinessPreserved; $r.credentialDigest = Digest "$base\readiness-token"; $r.ready = (Status).ready; $r | ConvertTo-Json -Compress
+    $settled = Settled { param($s) if (-not $s.ready) { 'ready' } }
+    $r = Preserved; $r.readinessChanged = -not $r.readinessPreserved; $r.credentialDigest = Digest "$base\readiness-token"; $r.ready = -not $settled.mismatch; $r.statusReads = $settled.reads; $r | ConvertTo-Json -Compress
   }
   'rollback' {
     $history = Get-Content -Raw "$base\state\installation\history.json" | ConvertFrom-Json
