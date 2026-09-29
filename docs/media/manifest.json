@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sourceRevision": "3e7c79f82b82bb58c8fe3cc2f3fd1b9251a78470",
+  "sourceRevision": "b1f45aafe7a579b2e5fa55d824fc64bb79557342",
   "upstreamClient": {
     "tag": "v18.4.2",
     "commit": "4620bb8338e0ecace7ea237da9d5088d16068617",
@@ -164,8 +164,8 @@
       "provenance": "built-pwa-runtime-with-pinned-collab-client"
     },
     "04-notification-settings.png": {
-      "bytes": 152702,
-      "sha256": "cb3fa5e438335516ba7e8b133cf458e218f390435f3411a1fc17ea38fd26cc8f",
+      "bytes": 152668,
+      "sha256": "c4e600886bdef40d4416cb66b6ddcb0969a32bd15da856424082641121313035",
       "width": 780,
       "height": 1688,
       "provenance": "built-pwa-runtime"
