@@ -2,7 +2,7 @@
 #
 # This is the one qualification lane in this repository that needs nothing but a runner. The
 # procedure is entirely self-contained: an isolated config/state/runtime root under `RUNNER_TEMP`, a
-# port that is not the founder's 4317, inline synthetic discovery hosts rather than real
+# port that is not the founder's 4317, reusable synthetic discovery hosts rather than real
 # OMP processes, no Tailscale, no device, no cloud resource, and no repository secret. There is
 # nothing to schedule around and nothing to pay for, which makes `Fifty-publisher capacity` the
 # cheapest row in `docs/RELEASE_STATUS.md` to keep permanently current. It had been going stale for
@@ -151,7 +151,7 @@ jobs:
           } >>"$GITHUB_ENV"
 
           # Both knobs are validated here, where the message can name the bound, rather than being
-          # left to fail somewhere less obvious. 1..50 is not arbitrary: the inline discovery fixture
+          # left to fail somewhere less obvious. 1..50 is not arbitrary: the synthetic-hosts CLI
           # itself refuses a count outside that range, so a larger request would die after the
           # daemon was already up. The 900s ceiling is the other half of `timeout-minutes` above.
           case "$CAPACITY_PUBLISHERS" in
@@ -159,7 +159,7 @@ jobs:
           esac
           if [ "$CAPACITY_PUBLISHERS" -lt 1 ] || [ "$CAPACITY_PUBLISHERS" -gt 50 ]; then
             fail "hosts is out of range" \
-              "Got '$CAPACITY_PUBLISHERS'. the inline discovery fixture accepts 1 to 50, so nothing outside that range can be measured."
+              "Got '$CAPACITY_PUBLISHERS'. The synthetic-hosts CLI accepts 1 to 50, so nothing outside that range can be measured."
           fi
           case "$CAPACITY_WINDOW_SECONDS" in
             '' | *[!0-9]*) fail "window_seconds is not a number" "Got '$CAPACITY_WINDOW_SECONDS'. Dispatch with a whole number of seconds from 30 to 900." ;;
@@ -324,65 +324,7 @@ jobs:
           daemon_pid="$(cat "$CAPACITY_EVIDENCE/daemon.pid")"
 
           # Discovery and socket credentials stay in the private runtime root, never evidence.
-          cat >"$CAPACITY_ROOT/synthetic-hosts.ts" <<'TYPESCRIPT'
-          import { randomBytes } from "node:crypto";
-          import { createServer } from "node:net";
-          import { chmod, unlink, writeFile } from "node:fs/promises";
-          import { join } from "node:path";
-          
-          const directory = process.argv[2];
-          const count = Number(process.argv[3]);
-          if (!directory || !Number.isInteger(count) || count < 1 || count > 50) process.exit(64);
-          const hosts = [];
-          for (let index = 0; index < count; index++) {
-            const instanceId = randomBytes(12).toString("hex");
-            const token = randomBytes(32).toString("hex");
-            const endpoint = join(directory, instanceId + ".sock");
-            const discovery = join(directory, instanceId + ".json");
-            const createdAt = Date.now();
-            const snapshot = {
-              instanceId, generation: 1, pid: process.pid, sessionId: instanceId,
-              sessionName: "Synthetic discovery host " + index, cwd: "capacity-qualification",
-              startedAt: createdAt, participants: 0, relayConnected: true, inputRequired: false, access: "control",
-            };
-            const server = createServer(socket => {
-              let frame = "";
-              socket.on("error", () => socket.destroy());
-              socket.on("data", chunk => {
-                frame += chunk.toString("utf8");
-                if (frame.length > 16384) { socket.destroy(); return; }
-                if (!frame.includes("\n")) return;
-                socket.removeAllListeners("data");
-                let reply = { ok: false, v: 1, error: "malformed_request" };
-                try {
-                  const request = JSON.parse(frame.slice(0, frame.indexOf("\n")));
-                  if (request.v !== 1) reply.error = "unsupported_protocol";
-                  else if (request.token !== token) reply.error = "authentication_failed";
-                  else if (request.op === "snapshot") reply = { ok: true, v: 1, snapshot };
-                  else reply.error = request.op === "link" ? "access_unavailable" : "invalid_operation";
-                } catch {}
-                socket.end(JSON.stringify(reply) + "\n");
-              });
-            });
-            await new Promise((resolve, reject) => { server.once("error", reject); server.listen(endpoint, resolve); });
-            await chmod(endpoint, 0o600);
-            await writeFile(discovery, JSON.stringify({ version: 1, instanceId, pid: process.pid, endpoint, createdAt, token }), { mode: 0o600, flag: "wx" });
-            hosts.push({ server, discovery });
-          }
-          let stopping = false;
-          async function stop() {
-            if (stopping) return;
-            stopping = true;
-            await Promise.all(hosts.map(async ({ server, discovery }) => {
-              await unlink(discovery);
-              await new Promise(resolve => server.close(resolve));
-            }));
-          }
-          process.on("SIGTERM", stop);
-          process.on("SIGINT", stop);
-          console.log(JSON.stringify({ hosts: count }));
-          TYPESCRIPT
-          bun "$CAPACITY_ROOT/synthetic-hosts.ts" "$CAPACITY_ROOT/run/collab-hosts" "$CAPACITY_PUBLISHERS" >"$log" 2>&1 </dev/null &
+          bun scripts/synthetic-hosts.ts "$CAPACITY_ROOT/run/collab-hosts" "$CAPACITY_PUBLISHERS" >"$log" 2>&1 </dev/null &
           host_pid=$!
           printf '%s\n' "$host_pid" >"$CAPACITY_EVIDENCE/host.pid"
 
@@ -458,28 +400,11 @@ jobs:
               "http://127.0.0.1:$CAPACITY_PORT/api/v1/sessions")"
             sessions="$(printf '%s' "$body" | jq '.sessions | length')"
 
-            # Check both capability-bearing field names and the real leak patterns. Compare the
-            # live discovery credentials in memory too, so renaming a leaked token field cannot
-            # bypass the gate. Neither response bytes nor credential values are printed.
-            #
-            # `index` rather than jq's `IN`: `IN` lives in jq's jq-coded standard library and is
-            # absent from some jq-compatible binaries, where the whole expression then aborts as an
-            # undefined filter. `index` on an array is core, so this program behaves the same
-            # everywhere and can be re-verified without a specific jq build.
-            leaked_keys="$(printf '%s' "$body" | jq -r '
-              ["viewLink", "controlLink", "capability", "token", "secret"] as $forbidden
-              | [paths | .[] | select(type == "string")]
-              | unique
-              | map(select(. as $key | $forbidden | index($key)))
-              | join(",")
-            ')"
-            if [ -n "$leaked_keys" ]; then
-              fail "Metadata response carries a capability-bearing field" \
-                "GET /api/v1/sessions exposed: $leaked_keys. SessionMetadata is defined to be browser-safe, so this is a contract violation, not a capacity result."
-            fi
-            if ! printf '%s' "$body" | bun -e 'import { readdir } from "node:fs/promises"; import { join } from "node:path"; import { findCapabilityLeaks } from "./scripts/capability-leak-rules.ts"; const body = await Bun.stdin.text(); const directory = process.argv[1]; const entries = await Promise.all((await readdir(directory)).filter(name => name.endsWith(".json")).map(name => Bun.file(join(directory, name)).json())); process.exit(findCapabilityLeaks(body).length > 0 || entries.some(entry => body.includes(entry.token)) ? 1 : 0);' "$CAPACITY_ROOT/run/collab-hosts"; then
-              fail "Metadata response carries a secret value" \
-                "A capability pattern or discovery credential reached metadata. Values are deliberately not printed."
+            # Shared list/SSE guard: raw fields, decoded secret values, and repository leak rules.
+            # Neither response bytes nor discovery credentials are printed.
+            if ! printf '%s' "$body" | bun scripts/metadata-safety.ts "$CAPACITY_ROOT/run/collab-hosts"; then
+              fail "Metadata response carries a secret field or value" \
+                "A capability-bearing field, capability pattern, or discovery credential reached metadata. Values are deliberately not printed."
             fi
 
             sample=$(( sample + 1 ))
