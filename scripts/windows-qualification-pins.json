@@ -1,6 +1,6 @@
 {
   "region": "ewr",
-  "plan": "vhp-4c-8gb-amd",
+  "plan": "vc2-4c-8gb",
   "osId": 2514,
   "osName": "Windows 2025 Standard x64",
   "cpus": 4,
