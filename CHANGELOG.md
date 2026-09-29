@@ -14,6 +14,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
   out of artifacts; the weekly capacity workflow reuses the extracted discovery host fixture.
   Eight-hour targets remain unmeasured and do not become release-qualification claims.
 
+### Changed
+
+- The default-relay soak (`bun run qualify:relay-soak`) also measures the gateway process: it
+  samples resident memory and CPU time when the relay goes live, about every minute, and at
+  completion, fails if the gateway exits, and reports start/end/min/max RSS, the RSS trend per hour,
+  and in-window CPU. `OMP_GATEWAY_SOAK_SAMPLES` appends every sample to a new CSV. The procedure had
+  required start/end memory readings before any bounded-growth claim without taking them.
+
 ### Fixed
 
 - SSE streams that stop reading now release their subscription and keepalive timer when the queue

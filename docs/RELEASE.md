@@ -319,11 +319,22 @@ gateway origin, requires `no-store` metadata and launch responses, never prints 
 fails if the collaboration client ends or is not live at completion. Set
 `OMP_GATEWAY_SOAK_INSTANCE_ID` to select one published session. `OMP_GATEWAY_SOAK_SECONDS` may shorten
 a diagnostic run to at least one second, but only the default 28,800-second duration qualifies the
-long-lived relay scenario. Record the gateway commit, exact mainline OMP commit, output JSON, final
-gateway RSS, host/browser versions, and date in `RELEASE_STATUS.md`; start/end measurements are still
-required before claiming bounded memory growth. Eight-hour endurance is **not rerun or claimed** by
-any mainline release. A passed 30-minute candidate check does not establish bounded memory growth;
-no fork-era long-window result transfers to the changed host/query/client baseline.
+long-lived relay scenario.
+
+The harness also measures the gateway process. Before it launches, it resolves the one process
+listening on the loopback gateway port (`lsof`), or takes `OMP_GATEWAY_SOAK_GATEWAY_PID`, and fails if
+that process cannot be sampled. Inside the window it reads the process's resident memory and CPU time
+when the relay goes live, about every 60 seconds, and at completion, and fails if the gateway process
+exits. The output JSON adds a `gateway` summary: sample count, start/end/min/max RSS in KiB, the
+least-squares RSS trend in KiB per hour, and CPU seconds inside the window. Set
+`OMP_GATEWAY_SOAK_SAMPLES` to an absolute path to append every sample to a new CSV
+(`elapsed_s,rss_kib,cpu_s`) as it is taken; the harness refuses an existing file.
+
+Record the gateway commit, exact mainline OMP commit, output JSON, host/browser versions, and date in
+`RELEASE_STATUS.md`. Bounded memory growth may be claimed only from an actual eight-hour run's
+samples, never from a shorter diagnostic. Eight-hour endurance is **not rerun or claimed** by any
+mainline release. A passed 30-minute candidate check does not establish bounded memory growth; no
+fork-era long-window result transfers to the changed host/query/client baseline.
 
 ## Fleet CI runtime
 

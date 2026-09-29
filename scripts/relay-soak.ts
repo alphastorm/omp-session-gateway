@@ -1,9 +1,12 @@
+import { appendFile, writeFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { parseLaunchResponse, parseSessionListResponse } from "../packages/protocol/src/index.ts";
 
 const DEFAULT_DURATION_SECONDS = 8 * 60 * 60;
 const MAX_DURATION_SECONDS = 24 * 60 * 60;
 const READY_TIMEOUT_MILLISECONDS = 30_000;
 const HEALTH_CHECK_INTERVAL_MILLISECONDS = 10_000;
+const GATEWAY_SAMPLE_INTERVAL_MILLISECONDS = 60_000;
 
 export interface RelaySoakConfig {
   readonly gatewayOrigin: string;
@@ -11,6 +14,29 @@ export interface RelaySoakConfig {
   readonly tailscaleLogin: string;
   readonly durationSeconds: number;
   readonly instanceId?: string;
+  /** The gateway process to sample; resolved from the loopback listener when absent. */
+  readonly gatewayPid?: number;
+  /** Absolute path of a new CSV that receives every gateway sample as it is taken. */
+  readonly samplesPath?: string;
+}
+
+/** One reading of the gateway process, `elapsedSeconds` after the soak window opened. */
+export interface GatewayProcessSample {
+  readonly elapsedSeconds: number;
+  readonly rssKiB: number;
+  readonly cpuSeconds: number;
+}
+
+export interface GatewayProcessSummary {
+  readonly samples: number;
+  readonly startRssKiB: number;
+  readonly endRssKiB: number;
+  readonly minRssKiB: number;
+  readonly maxRssKiB: number;
+  /** Least-squares resident-memory trend across every sample. */
+  readonly rssSlopeKiBPerHour: number;
+  /** CPU time the gateway spent inside the soak window. */
+  readonly cpuSeconds: number;
 }
 
 interface RelaySoakSnapshot {
@@ -79,6 +105,86 @@ function requireDurationSeconds(value: string | undefined): number {
   return seconds;
 }
 
+function requireGatewayPid(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[1-9][0-9]*$/u.test(value)) throw new Error("OMP_GATEWAY_SOAK_GATEWAY_PID must be a positive integer");
+  const pid = Number(value);
+  if (!Number.isSafeInteger(pid) || pid < 2) throw new Error("OMP_GATEWAY_SOAK_GATEWAY_PID must name the gateway process");
+  return pid;
+}
+
+function requireSamplesPath(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!isAbsolute(value)) throw new Error("OMP_GATEWAY_SOAK_SAMPLES must be an absolute path");
+  return value;
+}
+
+/**
+ * Parses one `ps -o rss=,time=` line: resident KiB, then cumulative CPU time as
+ * `[[dd-]hh:]mm:ss[.ff]` (macOS prints `mm:ss` or `m:ss.ff`, procps `[dd-]hh:mm:ss`).
+ */
+export function parseGatewayProcessSample(output: string): { readonly rssKiB: number; readonly cpuSeconds: number } {
+  const match = /^\s*(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)\s*$/u.exec(output);
+  if (match === null) throw new Error("the gateway process sample is unreadable");
+  const [, rss, days = "0", hours = "0", minutes = "0", seconds = "0"] = match;
+  return {
+    rssKiB: Number(rss),
+    cpuSeconds: Number(days) * 86_400 + Number(hours) * 3_600 + Number(minutes) * 60 + Number(seconds),
+  };
+}
+
+export function summarizeGatewaySamples(samples: readonly GatewayProcessSample[]): GatewayProcessSummary {
+  const first = samples[0];
+  const last = samples.at(-1);
+  if (first === undefined || last === undefined) throw new Error("no gateway sample was taken");
+  const meanSeconds = samples.reduce((sum, sample) => sum + sample.elapsedSeconds, 0) / samples.length;
+  const meanRss = samples.reduce((sum, sample) => sum + sample.rssKiB, 0) / samples.length;
+  let covariance = 0;
+  let variance = 0;
+  for (const sample of samples) {
+    covariance += (sample.elapsedSeconds - meanSeconds) * (sample.rssKiB - meanRss);
+    variance += (sample.elapsedSeconds - meanSeconds) ** 2;
+  }
+  const rss = samples.map(sample => sample.rssKiB);
+  return {
+    samples: samples.length,
+    startRssKiB: first.rssKiB,
+    endRssKiB: last.rssKiB,
+    minRssKiB: Math.min(...rss),
+    maxRssKiB: Math.max(...rss),
+    rssSlopeKiBPerHour: variance === 0 ? 0 : Math.round((covariance / variance) * 3_600),
+    cpuSeconds: Math.round((last.cpuSeconds - first.cpuSeconds) * 100) / 100,
+  };
+}
+
+async function readGatewayProcess(pid: number): Promise<{ readonly rssKiB: number; readonly cpuSeconds: number }> {
+  const ps = Bun.spawn(["ps", "-o", "rss=,time=", "-p", String(pid)], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const [output, exitCode] = await Promise.all([new Response(ps.stdout).text(), ps.exited]);
+  if (exitCode !== 0 || output.trim() === "") throw new Error("the gateway process is not running");
+  return parseGatewayProcessSample(output);
+}
+
+/** The one process listening on the loopback gateway port is the gateway being measured. */
+async function resolveGatewayPid(config: RelaySoakConfig): Promise<number> {
+  if (config.gatewayPid !== undefined) return config.gatewayPid;
+  const url = new URL(config.gatewayOrigin);
+  const unresolved = "could not identify the one gateway listener; set OMP_GATEWAY_SOAK_GATEWAY_PID";
+  let output: string;
+  try {
+    const lsof = Bun.spawn(["lsof", "-nP", `-iTCP:${url.port === "" ? "80" : url.port}`, "-sTCP:LISTEN", "-t"], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    [output] = await Promise.all([new Response(lsof.stdout).text(), lsof.exited]);
+  } catch {
+    throw new Error(unresolved);
+  }
+  const pids = [...new Set(output.split(/\s+/u).filter(value => /^[1-9][0-9]*$/u.test(value)))];
+  if (pids.length !== 1) throw new Error(unresolved);
+  return Number(pids[0]);
+}
+
 export function parseRelaySoakConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): RelaySoakConfig {
@@ -86,6 +192,8 @@ export function parseRelaySoakConfig(
   if (instanceId !== undefined && (instanceId.length === 0 || instanceId.length > 128)) {
     throw new Error("OMP_GATEWAY_SOAK_INSTANCE_ID must contain 1 to 128 characters");
   }
+  const gatewayPid = requireGatewayPid(environment.OMP_GATEWAY_SOAK_GATEWAY_PID);
+  const samplesPath = requireSamplesPath(environment.OMP_GATEWAY_SOAK_SAMPLES);
   return {
     gatewayOrigin: requireLoopbackGatewayOrigin(
       environment.OMP_GATEWAY_SOAK_GATEWAY_ORIGIN ?? "http://127.0.0.1:4317",
@@ -94,6 +202,8 @@ export function parseRelaySoakConfig(
     tailscaleLogin: requireTailscaleLogin(environment.OMP_GATEWAY_SOAK_TAILSCALE_LOGIN),
     durationSeconds: requireDurationSeconds(environment.OMP_GATEWAY_SOAK_SECONDS),
     ...(instanceId === undefined ? {} : { instanceId }),
+    ...(gatewayPid === undefined ? {} : { gatewayPid }),
+    ...(samplesPath === undefined ? {} : { samplesPath }),
   };
 }
 
@@ -105,6 +215,13 @@ function assertNoStore(response: Response): void {
 }
 
 export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
+  // Prove the gateway can be sampled, and claim the samples file, before a capability exists.
+  const gatewayPid = await resolveGatewayPid(config);
+  await readGatewayProcess(gatewayPid);
+  if (config.samplesPath !== undefined) {
+    await writeFile(config.samplesPath, "elapsed_s,rss_kib,cpu_s\n", { flag: "wx", mode: 0o600 });
+  }
+
   const listResponse = await fetch(`${config.gatewayOrigin}/api/v1/sessions`, {
     headers: { "Tailscale-User-Login": config.tailscaleLogin },
     cache: "no-store",
@@ -159,11 +276,27 @@ export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
     const startedAt = new Date().toISOString();
     const startedMonotonic = performance.now();
     const durationMilliseconds = config.durationSeconds * 1_000;
+    const samples: GatewayProcessSample[] = [];
+    const recordSample = async (): Promise<void> => {
+      const reading = await readGatewayProcess(gatewayPid);
+      const sample = { elapsedSeconds: Math.round((performance.now() - startedMonotonic) / 1_000), ...reading };
+      samples.push(sample);
+      if (config.samplesPath !== undefined) {
+        await appendFile(config.samplesPath, `${sample.elapsedSeconds},${sample.rssKiB},${sample.cpuSeconds}\n`);
+      }
+    };
+    await recordSample();
+    let nextSampleAt = startedMonotonic + GATEWAY_SAMPLE_INTERVAL_MILLISECONDS;
     while (performance.now() - startedMonotonic < durationMilliseconds) {
       const remaining = durationMilliseconds - (performance.now() - startedMonotonic);
       await Bun.sleep(Math.min(HEALTH_CHECK_INTERVAL_MILLISECONDS, Math.max(1, remaining)));
       if (endedReason !== null) throw new Error(`relay ended during soak: ${endedReason}`);
+      if (performance.now() >= nextSampleAt) {
+        await recordSample();
+        nextSampleAt += GATEWAY_SAMPLE_INTERVAL_MILLISECONDS;
+      }
     }
+    await recordSample();
 
     const finalPhase = client.getSnapshot().phase;
     if (finalPhase !== "live") throw new Error(`relay was not live at completion: ${finalPhase}`);
@@ -174,6 +307,7 @@ export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
         durationSeconds: Math.floor((performance.now() - startedMonotonic) / 1_000),
         transitions,
         finalPhase,
+        gateway: summarizeGatewaySamples(samples),
       }),
     );
   } finally {
