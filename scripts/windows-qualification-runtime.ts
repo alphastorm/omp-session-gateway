@@ -442,6 +442,8 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
         return ps(context, "inspectPredecessor");
       }
       await context.beforeEffect(); const result = await ps(context, action, {}, undefined, principal);
+      // The guest's post-mutation status window is observed, not silent: record every read past the first.
+      if (typeof result.statusReads === "number" && result.statusReads > 1) console.log(`Windows ${action}: status settled after ${result.statusReads} reads`);
       if (principal === "standard" && action === "rotate") await save({ standardCredentialDigest: result.credentialDigest });
       else if (action === "installPredecessor" || action === "rotate") await save({ configDigest: result.configDigest ?? access.configDigest, credentialDigest: result.credentialDigest });
       return result;

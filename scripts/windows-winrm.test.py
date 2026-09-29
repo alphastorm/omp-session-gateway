@@ -125,6 +125,11 @@ class WinrmFramingTests(unittest.TestCase):
         result = self.run_request(script='synthetic')
         self.assertEqual(result, {'exitCode': 1, 'stdout': '', 'diagnostic': 'guest execution failed at line 42: RuntimeException'})
 
+    def test_status_mismatch_forwards_field_names_and_nothing_after_them(self):
+        Transport.response = (b'', b'private guest execution failed at line 82: RuntimeException; status mismatch: ready,active synthetic-private-tail', 1)
+        result = self.run_request(script='synthetic')
+        self.assertEqual(result['diagnostic'], 'guest execution failed at line 82: RuntimeException; status mismatch: ready,active')
+
     def test_teardown_failure_after_a_result_still_answers_exactly_once(self):
         # A guest whose WinRM service is still settling can finish the command and then fail
         # the shell teardown. The finished result used to be followed by a second transport-error
