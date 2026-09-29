@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- SSE streams that stop reading now release their subscription and keepalive timer when the queue
+  fills, even while the session directory is quiet. Completed subscription admission also drops
+  buffered events instead of retaining their metadata for the lifetime of the stream.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
   a hotspot, USB or Bluetooth tethering. The background Push lane switches the Pixel's radios, so a
   controller on its hotspot lost WinRM, SSH and the gateway origin mid-campaign; this failed two

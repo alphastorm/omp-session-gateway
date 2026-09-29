@@ -173,6 +173,7 @@ export class SessionRegistry {
         if (event.revision > snapshotRevision) listener(event);
       }
       live = true;
+      buffered.length = 0;
     } catch (error) {
       // A throwing listener must not leave its admission wrapper registered on the registry.
       unsubscribe();
