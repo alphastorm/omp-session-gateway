@@ -399,14 +399,27 @@ REMOTE
   measure "forged header, real login allowed" "$forged_status"
   [ "$forged_status" = "200" ] || die "Tailscale Serve did not replace the caller-supplied identity header"
 
-  note "The two probes below must be refused. Any HTTP status means the backend is tailnet-reachable,"
-  note "which is #98 and is a release blocker, not a warning."
+  note "The two probes below must get no HTTP answer. Any HTTP status means the backend is reachable"
+  note "from a distinct node, which is #98 and is a release blocker, not a warning."
   local tailnet_probe public_probe
-  tailnet_probe="$(timeout 8 bash -c "cat < /dev/null > /dev/tcp/${host_ip}/${GATEWAY_PORT}" 2>/dev/null && echo "OPEN — EXPOSED" || echo refused)"
-  public_probe="$(timeout 8 bash -c "cat < /dev/null > /dev/tcp/${HOST#*@}/${GATEWAY_PORT}" 2>/dev/null && echo "OPEN — EXPOSED" || echo refused)"
+  tailnet_probe="$(backend_answer "$host_ip")"
+  public_probe="$(backend_answer "${HOST#*@}")"
   measure "backend at tailnet address" "$tailnet_probe"
   measure "backend at ssh address" "$public_probe"
-  case "$tailnet_probe$public_probe" in *OPEN*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
+  case "$tailnet_probe$public_probe" in *EXPOSED*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
+}
+
+# Only an HTTP answer proves a listener. A completed TCP handshake does not: a carrier network's
+# transparent proxy completes it for any address it has not yet tried, and a bare connect test
+# reported the refused port as open through one. Any other curl failure leaves exposure unknown.
+backend_answer() {
+  local code status=0
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "http://$1:${GATEWAY_PORT}/api/v1/sessions" 2>/dev/null)" || status=$?
+  case "$code:$status" in
+    000:7 | 000:28 | 000:52 | 000:55 | 000:56) printf 'no HTTP answer (curl exit %s)\n' "$status" ;;
+    000:*) die "the exposure probe of the gateway port did not complete (curl exit $status), so exposure is unknown" ;;
+    *) printf 'HTTP %s — EXPOSED\n' "$code" ;;
+  esac
 }
 
 issue_reboot() {

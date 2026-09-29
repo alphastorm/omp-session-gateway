@@ -320,3 +320,59 @@ test.skipIf(!POSIX)("Mac artifact verification rejects bytes outside the orchest
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+/** Lane 3 with Serve stubbed as healthy; the backend probes reach real sockets through real curl. */
+async function runExposureProbes(port: number, tailnetAddress: string) {
+  return runHarness(`
+set -euo pipefail
+source "$1"
+remote() { cat >/dev/null; printf '%s\\n' "$TAILNET_ADDRESS"; }
+curl() { case "\${@: -1}" in https://*) printf 200 ;; *) command curl "$@" ;; esac; }
+DNS_NAME=serve.example.invalid
+lane_identity
+printf 'LANE_PASSED\\n'
+`, [], {
+    ...environment("a".repeat(64)),
+    OMP_MAC_HOST: "synthetic@127.0.0.1",
+    OMP_MAC_PORT: String(port),
+    TAILNET_ADDRESS: tailnetAddress,
+  });
+}
+
+test.skipIf(!POSIX)("Mac exposure probe does not mistake a proxy's bare handshake for a listener", async () => {
+  // A carrier's transparent proxy completes the handshake itself, then closes once its upstream refuses.
+  const proxy = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { open: socket => void socket.end(), data() {} } });
+  try {
+    const result = await runExposureProbes(proxy.port, "127.0.0.1");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/backend at ssh address: +no HTTP answer \(curl exit \d+\)/);
+    expect(result.stdout).toContain("LANE_PASSED");
+  } finally {
+    proxy.stop(true);
+  }
+});
+
+test.skipIf(!POSIX)("Mac exposure probe stops the lane when the gateway port answers HTTP", async () => {
+  const exposed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null, { status: 403 }) });
+  try {
+    const result = await runExposureProbes(exposed.port ?? 0, "127.0.0.1");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("HTTP 403 — EXPOSED");
+    expect(result.stderr).toContain("That is #98");
+    expect(result.stdout).not.toContain("LANE_PASSED");
+  } finally {
+    exposed.stop(true);
+  }
+});
+
+test.skipIf(!POSIX)("Mac exposure probe fails closed when it cannot address the host", async () => {
+  // Every address refuses, so only the unknown tailnet address can stop the lane.
+  const vacant = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+  const port = vacant.port;
+  vacant.stop(true);
+  const result = await runExposureProbes(port, "");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("exposure is unknown");
+  expect(result.stdout).not.toContain("LANE_PASSED");
+});
