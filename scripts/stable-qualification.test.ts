@@ -490,7 +490,7 @@ test("Mac evidence follows the exact OMP pin and rejects a stale build", async (
   expect(() => assertMacBuildOutput(output.replace("17/17 true", "16/17 true"), candidate, pins)).toThrow("doctor");
 });
 
-test("Mac lifecycle evidence records measured pass counts and refuses an incomplete rollback", async () => {
+test("Mac lifecycle evidence records measured pass counts and refuses an incomplete rollback or a reachable backend", async () => {
   const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
   const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
   const output = [
@@ -503,14 +503,18 @@ test("Mac lifecycle evidence records measured pass counts and refuses an incompl
     "token bytes in bundle:                 0",
     "login in bundle:                       0",
     "forged header, real login allowed:     200",
-    "backend at tailnet address:            refused",
-    "backend at ssh address:                refused",
+    "   backend at tailnet address:            no HTTP answer (curl exit 7)",
+    "   backend at ssh address:                no HTTP answer (curl exit 56)",
     "gateway returned after: 1 second",
     "23/23 invariants PASS",
     JSON.stringify({ version: pins.version, sourceCommit: pins.sourceCommit, sourceTree: pins.sourceTree, nativeSha256: pins.nativeBinarySha256 }),
   ].join("\n");
   expect(assertMacLifecycleOutput(output, candidate, pins)).toEqual({ doctor: "18/18", rollbackInvariants: "23/23", os: "macOS 26.6.1 arm64" });
   expect(() => assertMacLifecycleOutput(output.replace("23/23", "22/23"), candidate, pins)).toThrow("rollback");
+  const exposed = output.replace("no HTTP answer (curl exit 56)", "HTTP 403 — EXPOSED");
+  expect(() => assertMacLifecycleOutput(exposed, candidate, pins)).toThrow("backend at ssh address");
+  const handshakeOnly = output.replace("no HTTP answer (curl exit 7)", "refused");
+  expect(() => assertMacLifecycleOutput(handshakeOnly, candidate, pins)).toThrow("backend at tailnet address");
 });
 
 describe("resumable receipt lanes", () => {

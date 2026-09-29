@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
+import { assertMacExposureEvidence } from "./stable-qualification.ts";
 
 const POSIX = process.platform !== "win32";
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -346,7 +347,8 @@ test.skipIf(!POSIX)("Mac exposure probe does not mistake a proxy's bare handshak
     const result = await runExposureProbes(proxy.port, "127.0.0.1");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/backend at ssh address: +no HTTP answer \(curl exit \d+\)/);
+    // The orchestrator must accept the evidence this lane actually prints.
+    assertMacExposureEvidence(result.stdout);
     expect(result.stdout).toContain("LANE_PASSED");
   } finally {
     proxy.stop(true);
