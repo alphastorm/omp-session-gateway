@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { cleanupWindows, runWindows, verifyWindowsDoctor, windowsCampaignLabel, windowsNeedsCleanup, assertWindowsPins } from "./windows-stable-qualification.ts";
+import pins from "./windows-qualification-pins.json";
 import type { WindowsContext, WindowsFirewall, WindowsGuestAction, WindowsIdentity, WindowsInstance, WindowsPrincipal, WindowsRuntime } from "./windows-stable-qualification.ts";
 import { verifyWindowsStaleLaunch, windowsPixelForeground, windowsPixelLauncher, waitForStableWindowsTransport } from "./windows-qualification-runtime.ts";
 import { firewallEligibility } from "./vultr-target.ts";
@@ -121,7 +122,7 @@ function fixture(options: { development?: boolean; fail?: WindowsGuestAction; li
       createFirewall: async description => { firewalls = [{ id: "synthetic-firewall", description }]; events.push("firewallCreated"); return firewalls[0]!; },
       configureFirewall: async () => { events.push("firewallConfigured"); },
       createInstance: async requested => {
-        instances = [{ id: "synthetic-owned", label: options.unlabelled ? "unrelated" : requested, os_id: 2514, region: "ewr", plan: "vc2-2c-4gb", main_ip: "192.0.2.1", default_password: "synthetic-never-real" }];
+        instances = [{ id: "synthetic-owned", label: options.unlabelled ? "unrelated" : requested, os_id: 2514, region: "ewr", plan: pins.plan, main_ip: "192.0.2.1", default_password: "synthetic-never-real" }];
         events.push("instanceCreated");
         if (options.lostCreate) throw new Error("response lost after provider creation");
         return instances[0]!;

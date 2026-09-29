@@ -19,13 +19,13 @@ test("a provider read survives a transient 5xx with bounded backoff", async () =
   expect(delays).toEqual([2_000, 4_000]);
 });
 
-test("a persistent 5xx reaches the caller after three reads, without a final sleep", async () => {
-  const provider = replies([502, 502, 502, 200]);
+test("a persistent 5xx reaches the caller after five reads spanning half a minute, without a final sleep", async () => {
+  const provider = replies([502, 502, 502, 502, 502, 200]);
   const delays: number[] = [];
   const response = await readProvider(provider.read, { sleep: async milliseconds => void delays.push(milliseconds) });
   expect(response.status).toBe(502);
-  expect(provider.reads()).toBe(3);
-  expect(delays).toEqual([2_000, 4_000]);
+  expect(provider.reads()).toBe(5);
+  expect(delays).toEqual([2_000, 4_000, 8_000, 16_000]);
 });
 
 test("a client error or a missing object is final at once", async () => {

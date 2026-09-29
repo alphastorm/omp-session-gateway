@@ -48,7 +48,7 @@ candidate and predecessor archive paths, the OMP lock identity, whole-object che
 the exclusive Pixel lease. This module never downloads substitute gateway bytes during a stable
 run and cannot mark a stable receipt passed on its own.
 
-The controller is the operator's Mac with Bun 1.4.0, FreeRDP 3.32.0 (`sdl-freerdp`), and pywinrm
+The controller is the operator's Mac with Bun 1.4.0, FreeRDP 3.32.1 (`sdl-freerdp`), and pywinrm
 0.5.0 in `~/.local/share/omp-session-gateway/qualification/venv`. Keep the Vultr credential in
 the private `~/.vultr-apikey` file and the tagged Tailscale join credential and API
 credential in the existing private qualification files. Preflight checks current egress, provider
@@ -82,7 +82,13 @@ state is private under `~/.local/share/omp-session-gateway/qualification/dev/win
 parent and `0600` files. It is the only persisted location for guest access credentials and
 infrastructure identifiers, and is removed only after instance destruction.
 
-The lane creates one firewall and one Server 2025 Standard VM (`ewr`, `vc2-2c-4gb`). The firewall
+The lane creates one firewall and one Server 2025 Standard VM (`ewr`, `vc2-4c-8gb`: 4 vCPU,
+8 GiB). Through v0.7.0-prealpha.1 it used `vc2-2c-4gb`, where building stock OMP 18.4.2 from
+source peaks near 2.4 GiB of Bun private memory beside Windows itself; that build failed
+(`omp-build exit 1`) in two of the three stable attempts that reached it, as the Debian lane's OMP
+build was once killed on a 4 GiB host before it moved to 8 GiB. Vultr refused this Windows image
+on the High Performance `vhp-4c-8gb-amd` plan (HTTP 400). The VM's size is test-host capacity,
+not part of the qualified Windows claim. The firewall
 admits TCP 3389 and 5985 from the current operator `/32` only. WinRM uses authenticated NTLM with
 message encryption required and rejects `AllowUnencrypted`. Scripts and file payloads travel
 through framed stdin, not remote argv or environment. The active RDP certificate's SHA-256 is

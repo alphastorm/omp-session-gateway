@@ -1,9 +1,11 @@
-const PROVIDER_READ_ATTEMPTS = 3;
+const PROVIDER_READ_ATTEMPTS = 5;
 
 /**
  * Qualification drives third-party control planes (Vultr, Tailscale, Scaleway) whose APIs answer an
  * occasional transient 5xx. Vultr returned HTTP 502 twice in one day: once at Windows admission, and
  * once on the instance lookup after the lane's reboot, which failed the attempt with its VM running.
+ * On 2026-09-29 it returned 502 to three reads spanning six seconds while the lane staged its guest,
+ * so reads now back off 2, 4, 8 and 16 seconds, about half a minute in all.
  * A read is idempotent, so it gets a bounded retry. A create, change, or delete never comes through
  * here, because a write that reached the provider must not run twice. The last response is returned,
  * so each caller keeps its own status handling.
@@ -17,7 +19,7 @@ export async function readProvider(
     const response = await read();
     if (response.status < 500 || attempt >= PROVIDER_READ_ATTEMPTS) return response;
     await response.body?.cancel();
-    await sleep(2_000 * attempt);
+    await sleep(2_000 * 2 ** (attempt - 1));
   }
 }
 
