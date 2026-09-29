@@ -1,10 +1,10 @@
 {
   "region": "ewr",
-  "plan": "vc2-2c-4gb",
+  "plan": "vhp-4c-8gb-amd",
   "osId": 2514,
   "osName": "Windows 2025 Standard x64",
-  "cpus": 2,
-  "memoryMiB": 4096,
+  "cpus": 4,
+  "memoryMiB": 8192,
   "bunVersion": "1.4.0",
   "bunSha256": "e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901",
   "tailscaleVersion": "1.102.4",

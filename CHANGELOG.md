@@ -18,6 +18,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - A Vultr instance or firewall listing that comes back without its array is re-read once after five
   seconds before the Windows lane fails, as a missing lookup already was. One such answer failed a
   v0.7.0-prealpha.1 attempt while its VM was still booting.
+- The Windows qualification VM moves from 2 vCPU and 4 GiB (`vc2-2c-4gb`) to 4 vCPU, 8 GiB and NVMe
+  (`vhp-4c-8gb-amd`). Building stock OMP 18.4.2 on the guest failed in two of the three
+  v0.7.0-prealpha.1 attempts that reached it; the guest now also keeps that install and build
+  output, for inspecting a retained development VM. The controller pin moves to FreeRDP 3.32.1.
 
 ## [v0.7.0] — 2026-09-29
 

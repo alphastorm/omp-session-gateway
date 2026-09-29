@@ -82,7 +82,12 @@ state is private under `~/.local/share/omp-session-gateway/qualification/dev/win
 parent and `0600` files. It is the only persisted location for guest access credentials and
 infrastructure identifiers, and is removed only after instance destruction.
 
-The lane creates one firewall and one Server 2025 Standard VM (`ewr`, `vc2-2c-4gb`). The firewall
+The lane creates one firewall and one Server 2025 Standard VM (`ewr`, `vhp-4c-8gb-amd`: 4 vCPU,
+8 GiB, NVMe). Through v0.7.0-prealpha.1 it used `vc2-2c-4gb`, where building stock OMP 18.4.2 from
+source peaks near 2.4 GiB of Bun private memory beside Windows itself; that build failed
+(`omp-build exit 1`) in two of the three stable attempts that reached it, as the Debian lane's OMP
+build was once killed on a 4 GiB host before it moved to 8 GiB. The VM's size is test-host
+capacity, not part of the qualified Windows claim. The firewall
 admits TCP 3389 and 5985 from the current operator `/32` only. WinRM uses authenticated NTLM with
 message encryption required and rejects `AllowUnencrypted`. Scripts and file payloads travel
 through framed stdin, not remote argv or environment. The active RDP certificate's SHA-256 is
