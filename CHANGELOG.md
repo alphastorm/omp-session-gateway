@@ -6,6 +6,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.7.0] — 2026-09-29
+
+The embedded collaboration client moves to OMP 18.4.2's redesigned web client, and the OMP
+engineering baseline moves to v18.4.2. The client also ships React's production build, and on
+Windows the gateway fails closed when its scheduled task cannot be queried.
+
 ### Changed
 
 - Refresh the embedded collaboration client and OMP engineering baseline to published v18.4.2,
@@ -27,7 +33,7 @@ The format is based on Keep a Changelog and Semantic Versioning.
   when it takes focus. The client kept its text fields at 16px, the size below which iOS zooms on
   focus, only for screens narrower than 640px; it now does so for any touch screen. This adopts
   upstream collab-web [#13371](https://github.com/can1357/oh-my-pi/pull/13371), first shipped in
-  OMP v18.4.1, ahead of the next client refresh.
+  OMP v18.4.1.
 - The collaboration client shipped React's development build, which React documents as larger and
   slower. The web build never defined `process.env.NODE_ENV`, so React bundled its development
   variant. Every browser bundle now builds for production, and the build fails if the client still

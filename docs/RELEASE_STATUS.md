@@ -1,5 +1,18 @@
 # Release status
 
+## v0.7.0 preparation — not yet qualified or published
+
+The candidate refreshes the embedded collaboration client and the OMP engineering baseline to
+published v18.4.2 (#307): upstream's redesigned client surfaces and buffered snapshot publication,
+with the gateway's chrome, in-memory capabilities, photo and Ask composer, bounded recovery, and
+explicit transcript expansion kept, and OMP's artwork excluded. It also ships React's production
+build in the collaboration client (#306; its JavaScript drops from 884 KB to 644 KB), keeps text
+fields at 16px on every touch screen so iOS Safari does not zoom into the composer on an iPad or a
+landscape phone (#305), and fails closed on Windows when the scheduled task cannot be queried
+(#301). The daily upstream canary exercises stock OMP 18.4.2; that is compatibility evidence, not
+qualification. Published v0.6.3 remains the predecessor and current stable; no v0.7.0
+qualification or publication is claimed, and the stable lock remains unchanged until approval.
+
 ## Mainline v0.6.3 — published stable
 
 **Updated:** 2026-09-27. [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3)
