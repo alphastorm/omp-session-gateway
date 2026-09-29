@@ -161,7 +161,8 @@ async function tapNotification(context: BrowserContext, data: unknown): Promise<
   expect(reply).toEqual({ type: "omp-notification-route-accepted", version: 2 });
 }
 
-test("a tapped notification switches a live collaboration in place and never reloads it", { tag: "@core" }, async ({ context, page }) => {
+test("a tapped notification switches a live collaboration in place and never reloads it", { tag: "@core" }, async ({ browserName, context, page }) => {
+  test.skip(browserName !== "chromium", "Playwright exposes service-worker handles only in Chromium");
   await installSilentWebSocket(page);
   const viewing = session("tap-viewing-instance-01");
   const asking = session("tap-asking-instance-001", { inputRequired: true });
