@@ -14,7 +14,7 @@ function digest(content: Uint8Array | string): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 12);
 }
 
-async function buildEntrypoint(entrypoint: string, outdir: string, define?: Record<string, string>): Promise<string[]> {
+async function buildEntrypoint(entrypoint: string, outdir: string, define: Record<string, string> = {}): Promise<string[]> {
   const result = await Bun.build({
     entrypoints: [entrypoint],
     outdir,
@@ -22,7 +22,7 @@ async function buildEntrypoint(entrypoint: string, outdir: string, define?: Reco
     format: "esm",
     minify: true,
     sourcemap: "none",
-    ...(define === undefined ? {} : { define }),
+    define: { "process.env.NODE_ENV": '"production"', ...define },
     naming: "[name].[ext]",
   });
   if (!result.success) {
@@ -55,6 +55,11 @@ for (const output of collabBuild) {
 }
 if (clientModule === undefined || clientStylesheet === undefined) {
   throw new Error("collab client build did not emit JavaScript and CSS");
+}
+// React's development build is larger and markedly slower on a phone, and a bundle gets it
+// whenever `process.env.NODE_ENV` is not defined as production. This warning exists only there.
+if ((await readFile(join(outputRoot, clientModule.slice(1)), "utf8")).includes("Each child in a list should have a unique")) {
+  throw new Error("collab client bundled React's development build");
 }
 
 
