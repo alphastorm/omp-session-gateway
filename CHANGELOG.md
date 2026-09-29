@@ -22,6 +22,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   (`vc2-4c-8gb`). Building stock OMP 18.4.2 on the guest failed in two of the three
   v0.7.0-prealpha.1 attempts that reached it; the guest now also keeps that install and build
   output, for inspecting a retained development VM. The controller pin moves to FreeRDP 3.32.1.
+- Qualification's provider reads retry a 5xx five times over about half a minute instead of three
+  times over six seconds. Vultr answered 502 to all three reads of one staging lookup, which failed
+  a development Windows run with its VM healthy.
 
 ## [v0.7.0] — 2026-09-29
 
