@@ -18,13 +18,15 @@ function PrivateDirectory($path) {
   }
   Set-Acl -LiteralPath $path -AclObject $acl
 }
-function Run($exe, $arguments) {
+# `$step` names a native call the adapter reports on failure: a campaign's `bun.exe exit 1` could not
+# say whether install or build failed, and the guest never forwards raw output.
+function Run($exe, $arguments, $step = [IO.Path]::GetFileName($exe)) {
   # Windows PowerShell 5 treats native stderr as ErrorRecord, even for exit 0.
   # Judge the native exit code, not its choice of output stream.
   $previousPreference = $ErrorActionPreference
   try { $ErrorActionPreference = 'Continue'; $global:LASTEXITCODE = $null; $output = & $exe @arguments 2>&1 }
   finally { $ErrorActionPreference = $previousPreference }
-  if ($global:LASTEXITCODE -ne 0) { throw ('native command failed: ' + [IO.Path]::GetFileName($exe) + ' exit ' + $global:LASTEXITCODE) }
+  if ($global:LASTEXITCODE -ne 0) { throw ('native command failed: ' + $step + ' exit ' + $global:LASTEXITCODE) }
   $output
 }
 function Status {
@@ -239,10 +241,10 @@ switch ($p.action) {
   'build' {
     Push-Location "$root\source"
     try {
-      Run $bun @('install', '--frozen-lockfile') | Out-Null
+      Run $bun @('install', '--frozen-lockfile') 'bun-install' | Out-Null
       Copy-Item "$root\native\package\$($p.pins.omp.nativeFile)" "$root\source\packages\natives\native\$($p.pins.omp.nativeFile)"
       if ((Digest "$root\source\packages\natives\native\$($p.pins.omp.nativeFile)") -ne $p.pins.omp.nativeBinarySha256) { throw 'staged native mismatch' }
-      Run $bun @('--cwd=packages/coding-agent', 'run', 'build') | Out-Null
+      Run $bun @('--cwd=packages/coding-agent', 'run', 'build') 'omp-build' | Out-Null
     } finally { Pop-Location }
     $omp = "$root\source\packages\coding-agent\dist\omp.exe"
     if (-not (Test-Path $omp)) { $omp = "$root\source\packages\coding-agent\dist\omp" }

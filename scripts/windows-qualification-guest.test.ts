@@ -52,3 +52,11 @@ test.skipIf(!WINDOWS)("a status that never settles fails naming every field that
   );
   expect(result.stdout).toBe("status mismatch: ready,installed,active,authMode,activeVersion");
 }, 60_000);
+
+test.skipIf(!WINDOWS)("a failing native call names its step, or its executable when unnamed", async () => {
+  const result = await runGuest(
+    "",
+    "foreach ($call in @({ Run 'cmd.exe' @('/c', 'exit 3') 'bun-install' }, { Run 'cmd.exe' @('/c', 'exit 2') })) { try { & $call | Out-Null; 'passed' } catch { $_.Exception.Message } }",
+  );
+  expect(result.stdout.split(/\r?\n/u)).toEqual(["native command failed: bun-install exit 3", "native command failed: cmd.exe exit 2"]);
+}, 60_000);
