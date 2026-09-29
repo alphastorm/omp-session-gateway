@@ -183,6 +183,48 @@ Development resume is refused after three hours, and every VM must be destroyed 
 hours of creation. The current development campaign permits six total VM creations, one at a
 time. Production failures retain their unconditional cleanup semantics.
 
+### Development evidence — 2026-09-29: v0.7.0-prealpha.1
+
+Tested evidence only; none of it qualifies a release. One VM paired `v0.7.0-prealpha.1` with
+published v0.6.3 and built locked OMP 18.4.2.
+
+The stable campaign had failed this lane in toolchain staging with `native command failed: bun.exe
+exit 1`, which cannot say whether the frozen install or the OMP build failed. Hosted `windows-2025`
+runners with Bun 1.4.0 built the same pinned sources five times (18.3.0 twice, 18.4.2 three
+times), including once in the guest's shape: its `C:\omp-winqual-<uuid>` root and ACL, a stock
+PATH without git, node, python or npm, and `LongPathsEnabled` 0 (the longest installed path was
+232 characters). Peak Bun private memory was 2,432 MiB for 18.3.0 and 2,473 MiB for 18.4.2. The
+development VM then built 18.4.2 in its own staging (1,196,995 ms for the phase). The failure did
+not recur and its cause is not claimed; the two build calls now report as `bun-install` and
+`omp-build`.
+
+Three phase attempts failed, each diagnosed on the retained guest:
+
+- `candidate_upgraded`: the immediate `Installed` status read failed. The same read-only status
+  later reported ready, installed, active and not diverged, with `activeVersion` and
+  `serviceVersion` both `0.7.0-6d2a377aaae5`, and replaying the v0.6.3 → v0.7.0 install
+  (6,782 ms) converged on the first of 15 reads. Post-mutation status now settles within a bound
+  (#312).
+- `pixel_verified`: Chrome, released by Android's cached-apps freezer and resumed in the foreground
+  with the keyguard down, did not answer DevTools during the nine-second wait; three replays of the
+  same helper connected in about three seconds. The wait is now a 30-second deadline that names its
+  last error (#313).
+- `pixel_verified` again: `View did not remain read-only`. The journey compared the pre-18.4.2
+  lowercase placeholder while the composer was disabled; its View assertion is now shared with
+  the browser e2e (#314).
+
+After those repairs the lane passed from `candidate_upgraded` to cleanup. The upgrade took
+40,264 ms with config and readiness preserved. Three pre-login samples spanned 54,086 ms and the
+logon started the gateway in 55,165 ms; doctor passed 15/18 with the tagged-node false set. OMP
+published in 34,907 ms. The Pixel stage took 16,676 ms: identity accepted, View read-only, Control
+writable, prompt accepted, returned to the directory. Revocation, readiness rotation,
+history-selected rollback, restoration and uninstall with state preserved followed. The standard
+account's token held neither Administrators nor `SeSecurityPrivilege`; three pre-login samples
+spanned 54,716 ms, its logon started the gateway in 37,177 ms, its doctor passed 15/18 and its
+uninstall left no task, process or listener. No post-mutation status read needed the settle
+window. Cleanup left zero instances and firewall groups, deleted the tailnet node and removed the
+vault.
+
 ### Development evidence — 2026-09-27: standard-user sub-lane
 
 Tested evidence only; none of it qualifies a release. Both runs paired the candidate with published
