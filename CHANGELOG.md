@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh the embedded collaboration client and OMP engineering baseline to published v18.4.2,
+  with `@oh-my-pi/pi-wire` pinned to 18.4.2. Adopt upstream’s buffered snapshot publication,
+  completion-by-count, finished-stream clearing, redesigned client surfaces, and coarse-pointer
+  text sizing. Keep gateway chrome, in-memory capabilities, photo/Ask controls, bounded recovery,
+  and reader-preserving explicit transcript expansion; exclude OMP artwork. The minimum host
+  stays 18.1.20 and qualified release claims remain unchanged pending a new qualification campaign.
+
 ### Fixed
 
 - Fail closed on Windows when the gateway's scheduled task cannot be queried. Any failure other than

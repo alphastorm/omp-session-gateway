@@ -186,7 +186,15 @@ test("installed-PWA View and Control mount in the current window without losing 
     await expect(page.locator(".conn-chip")).toHaveAttribute("data-state", "reconnecting");
     await expect(page.locator(".triage-bar")).toBeHidden();
     await expect(page.locator("#root > .sh-app")).toHaveCount(1);
-    await expect(page.locator(".co-connect, .sh-banner, .sh-ended")).toHaveCount(0);
+    await expect(page.locator(".co-connect, .sh-connect, .sh-header, .sh-rail, .sh-banner, .sh-ended")).toHaveCount(0);
+    const shippedClient = await page.evaluate(async () => {
+      const asset = performance.getEntriesByType("resource").find(entry =>
+        /\/assets\/collab-client\.[a-f0-9]+\.js$/u.test(entry.name),
+      );
+      if (asset === undefined) throw new Error("collaboration client was not loaded");
+      return (await fetch(asset.name)).text();
+    });
+    expect(shippedClient).not.toContain("M10 14h44v9H43v33h-9V23h-9v22h-9V23H10z");
     expect(await page.locator(".gateway-shell").evaluate(element =>
       [...element.children].map(child => child.id || child.className),
     )).toEqual(["shell-bar", "root", "triage-bar"]);
@@ -1005,6 +1013,8 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
       (globalThis as typeof globalThis & { __disposeStandalone?: () => void }).__disposeStandalone = dispose;
     });
     await expect(page.locator(".sh-ask-option")).toHaveCount(2);
+    // Upstream now docks the composer inside the panel behind the mobile agents rail.
+    await page.getByTitle("hide agents", { exact: true }).click();
     await page.locator(".sh-ask-option").nth(1).click();
     await expect(page.locator(".sh-ask-option").nth(1)).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".sh-ask-option").nth(1)).toBeDisabled();

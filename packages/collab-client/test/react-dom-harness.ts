@@ -129,6 +129,26 @@ export class MiniElement extends MiniNode {
   type = "";
   value = "";
 
+  get children(): MiniElement[] {
+    return this.childNodes.filter((node): node is MiniElement => node instanceof MiniElement);
+  }
+
+  get classList(): { contains(name: string): boolean } {
+    return { contains: name => (this.attributes.class ?? "").split(" ").includes(name) };
+  }
+
+  get isConnected(): boolean {
+    return this.ownerDocument.contains(this);
+  }
+
+  getBoundingClientRect(): { top: number; bottom: number } {
+    const parent = this.parentNode;
+    const top = parent instanceof MiniElement
+      ? parent.getBoundingClientRect().top + parent.childNodes.indexOf(this) * ROW_PX - parent.scrollTop
+      : 0;
+    return { top, bottom: top + ROW_PX };
+  }
+
   constructor(ownerDocument: MiniDocument, tagName: string) {
     super(ownerDocument);
     this.tagName = tagName.toUpperCase();

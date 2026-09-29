@@ -308,6 +308,7 @@ function transcriptWindowStart(
 export function Transcript(props: TranscriptProps): ReactNode {
 	const { entries, stream, streamDone, activeTools, working, compact, host, suppressAskTool, phase } = props;
 
+	// Include results outside the visible window for retained host transcripts.
 	const results = useMemo(() => {
 		const map = new Map<string, ToolResultMessage>();
 		for (const entry of entries) {
@@ -321,7 +322,7 @@ export function Transcript(props: TranscriptProps): ReactNode {
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const lockRef = useRef(true);
 
-	// Windowed tail. `results` above and `renderedToolIds` below still scan every
+	// Windowed tail. `results` above and `committedToolIds` below still scan every
 	// entry, so a windowed assistant row keeps its tool results and the active
 	// tail stays exact.
 	const [extraCount, setExtraCount] = useState(0);
@@ -329,9 +330,8 @@ export function Transcript(props: TranscriptProps): ReactNode {
 	const start = transcriptWindowStart(entries, extraCount, pinnedOldestRef.current);
 	const windowed = useMemo(() => (start === 0 ? entries : entries.slice(start)), [entries, start]);
 
-	// Distance from the viewport top to the content bottom, captured before an
-	// expansion mounts older rows above the reader.
-	const anchorRef = useRef<number | null>(null);
+	// Upstream's row anchor also holds when the same commit appends live entries.
+	const prependRef = useRef<{ anchor: Element; offset: number } | null>(null);
 
 	// Follow the tail while bottom-locked; releasing/re-arming happens in onScroll.
 	useEffect(() => {
@@ -343,56 +343,66 @@ export function Transcript(props: TranscriptProps): ReactNode {
 	// regardless of the prior scroll position. Absent for the agent drawer's compact transcript.
 	useEffect(() => {
 		const el = rootRef.current;
-		if (phase === "live" && el !== null) followTranscriptTail(el, lockRef, true);
+		if (phase !== "live" || el === null) return;
+		followTranscriptTail(el, lockRef, true);
 	}, [phase]);
 
 	useLayoutEffect(() => {
 		pinnedOldestRef.current = windowed.length === 0 ? null : windowed[0].id;
 	}, [windowed]);
 
-	// An expansion is not a tail append: restore the reader's anchor instead of
-	// following the tail. Preserving the distance to the bottom also leaves the
-	// bottom lock exactly as the reader left it.
+	// Keep the reader's content in place when earlier rows mount above it.
 	useLayoutEffect(() => {
 		const el = rootRef.current;
-		const anchor = anchorRef.current;
-		anchorRef.current = null;
-		if (el === null || anchor === null) return;
-		el.scrollTop = el.scrollHeight - anchor;
+		const before = prependRef.current;
+		if (el === null || before === null) return;
+		prependRef.current = null;
+		if (!before.anchor.isConnected) return;
+		el.scrollTop += before.anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - before.offset;
 	}, [extraCount]);
 
 	const revealEarlier = (): void => {
 		const el = rootRef.current;
-		anchorRef.current = el === null ? null : el.scrollHeight - el.scrollTop;
+		if (el === null || start === 0 || prependRef.current !== null) return;
+		const top = el.getBoundingClientRect().top;
+		for (const row of el.children) {
+			if (row.classList.contains("tr-earlier")) continue;
+			const rect = row.getBoundingClientRect();
+			if (rect.bottom <= top) continue;
+			prependRef.current = { anchor: row, offset: rect.top - top };
+			break;
+		}
 		setExtraCount(prev => prev + TRANSCRIPT_WINDOW_STEP);
 	};
 
-	// Active tools not already represented as toolCall blocks in committed rows or the stream ghost.
-	// Memoized on its inputs: the inline scan re-walked every entry and block on every render, which
-	// is every streaming token.
-	const tailTools = useMemo(() => {
-		const renderedToolIds = new Set<string>();
+	// Upstream separates the committed scan from per-token stream updates.
+	const committedToolIds = useMemo(() => {
+		const ids = new Set<string>();
 		for (const entry of entries) {
 			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 			for (const block of entry.message.content) {
-				if (block.type === "toolCall") renderedToolIds.add(block.id);
+				if (block.type === "toolCall") ids.add(block.id);
 			}
 		}
-		if (stream !== null) {
-			for (const block of stream.content) {
-				if (block.type === "toolCall") renderedToolIds.add(block.id);
-			}
-		}
+		return ids;
+	}, [entries]);
+
+	// Active tools not already represented as toolCall blocks in committed rows or the stream ghost.
+	const tailTools = useMemo(() => {
 		const tail: ActiveTool[] = [];
 		for (const tool of activeTools.values()) {
 			if (suppressAskTool === true && tool.toolName === "ask") continue;
-			if (!renderedToolIds.has(tool.toolCallId)) tail.push(tool);
+			if (committedToolIds.has(tool.toolCallId)) continue;
+			if (stream?.content.some(block => block.type === "toolCall" && block.id === tool.toolCallId)) continue;
+			tail.push(tool);
 		}
 		return tail;
-	}, [entries, stream, activeTools, suppressAskTool]);
+	}, [committedToolIds, stream, activeTools, suppressAskTool]);
 	const visibleActiveToolCount = [...activeTools.values()].filter(
 		tool => suppressAskTool !== true || tool.toolName !== "ask",
 	).length;
+
+	const settled = phase === undefined || phase === "live";
 
 	return (
 		<div
@@ -400,10 +410,11 @@ export function Transcript(props: TranscriptProps): ReactNode {
 			className={`tr-root${compact === true ? " tr-root--compact" : ""}`}
 			onScroll={() => {
 				const el = rootRef.current;
-				if (el !== null) updateTranscriptTailLock(el, lockRef);
+				if (el === null) return;
+				updateTranscriptTailLock(el, lockRef);
 			}}
 		>
-			{entries.length === 0 && stream === null && !working && <div className="tr-empty">no activity yet</div>}
+			{settled && entries.length === 0 && stream === null && !working && <div className="tr-empty">no activity yet</div>}
 			{start > 0 && (
 				<button type="button" className="tr-earlier" onClick={revealEarlier}>
 					Show earlier · {start} more

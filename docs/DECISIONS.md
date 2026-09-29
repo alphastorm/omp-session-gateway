@@ -739,6 +739,17 @@ stays `18.1.20`, and the client keeps the hub-family renderers that older suppor
 emit. This supersedes the source baseline only: published v0.5.2 qualification stays bound to
 v18.1.20, and v18.3.0 needs its own exact signed-candidate evidence before a stable claim.
 
+**Engineering baseline update (2026-09-29):** Accept published mainline v18.4.2
+(`4620bb8338e0ecace7ea237da9d5088d16068617`, tree `71855eece785c0655d99d7700b52ef5f77c0e185`) as the
+engineering pin and refresh the embedded client and npm wire pin together. Registry v1 and the
+wire source are unchanged; the minimum host remains `18.1.20`. Adopt upstream's buffered snapshot
+publication, completion-by-count, finished-stream clearing, redesigned client surfaces, and
+coarse-pointer text sizing. Keep gateway embedding, bounded recovery, capability isolation,
+photo/Ask controls, and explicit transcript expansion; exclude OMP artwork. The Darwin arm64 and
+Windows x64 baseline native hashes identify official npm artifacts, not qualification results.
+Published v0.6.3 qualification stays bound to v18.3.0. This source update requires fresh exact
+signed-candidate qualification before any stable claim; unpublished v18.4.3 is not the baseline.
+
 ---
 
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability

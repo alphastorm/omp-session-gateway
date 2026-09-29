@@ -193,13 +193,6 @@ export function App({ capability, onDispose, embedOptions }: AppProps): ReactNod
 	return <Session client={client} onLeave={leave} onRejoin={rejoin} embedOptions={embedOptions} />;
 }
 
-/**
- * First-paint placeholder. A long history arrives as snapshot chunks and
- * rendering each chunk stalls a phone, so the transcript waits for the complete
- * snapshot; the gateway shell shows its own connecting chip meanwhile.
- */
-const TRANSCRIPT_LOADING = <div className="tr-loading">loading transcript…</div>;
-
 interface SessionProps {
 	client: GuestClient;
 	onLeave(): void;
@@ -210,11 +203,6 @@ interface SessionProps {
 export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProps): ReactNode {
 	const snap = useGuestSnapshot(client);
 	const embedded = embedOptions?.shellOwnsLifecycle === true;
-	// Hold the first transcript render until the snapshot completes, then keep it
-	// mounted for the rest of this client: a reconnect must never blank a
-	// transcript the reader already has.
-	const [transcriptReady, setTranscriptReady] = useState(snap.phase === "live");
-	if (!transcriptReady && snap.phase === "live") setTranscriptReady(true);
 	const [railOpen, setRailOpen] = useState(false);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const autoOpenedRef = useRef(false);
@@ -286,6 +274,7 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 
 	return (
 		<div className="sh-app" data-embedded={embedded ? "true" : undefined}>
+			{!embedded && <div className="sh-ambient" />}
 			{!embedded && (
 				<HeaderBar
 					snapshot={snap}
@@ -297,15 +286,14 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 			)}
 			<main className="sh-main">
 				<section
-					className="sh-content"
+					className="sh-panel"
 					data-rail={!embedded && railOpen ? "true" : "false"}
 					data-embedded-ask={embedded && snap.uiRequest !== null ? "true" : "false"}
 				>
 					{embedded && snap.uiRequest !== null ? (
 						<div className="sh-embedded-body">
 							<div className="sh-transcript">
-								{transcriptReady ? (
-									<Transcript
+								<Transcript
 										entries={snap.entries}
 										stream={snap.stream}
 										streamDone={snap.streamDone}
@@ -315,16 +303,12 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 										phase={snap.phase}
 										suppressAskTool
 									/>
-								) : (
-									TRANSCRIPT_LOADING
-								)}
 							</div>
 							<Composer client={client} snapshot={snap} embedded />
 						</div>
 					) : (
 						<div className="sh-transcript">
-							{transcriptReady ? (
-								<Transcript
+							<Transcript
 									entries={snap.entries}
 									stream={snap.stream}
 									streamDone={snap.streamDone}
@@ -333,10 +317,10 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 									host={toolHost}
 									phase={snap.phase}
 								/>
-							) : (
-								TRANSCRIPT_LOADING
-							)}
 						</div>
+					)}
+					{(!embedded || snap.uiRequest === null) && (
+						<Composer client={client} snapshot={snap} embedded={embedded} />
 					)}
 				</section>
 				{!embedded && railOpen && (
@@ -354,9 +338,6 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 					</>
 				)}
 			</main>
-			{(!embedded || snap.uiRequest === null) && (
-				<Composer client={client} snapshot={snap} embedded={embedded} />
-			)}
 			{drawerAgent && (
 				<>
 					<div className="ag-drawer-backdrop" onClick={() => setSelectedId(null)} />
@@ -371,7 +352,7 @@ export function Session({ client, onLeave, onRejoin, embedOptions }: SessionProp
 				</>
 			)}
 			{!embedded && (
-				<Banners phase={snap.phase} endedReason={snap.endedReason} onRejoin={onRejoin} onNewLink={onLeave} />
+				<Banners phase={snap.phase} endedReason={snap.endedReason} loading={snap.loading} onRejoin={onRejoin} onNewLink={onLeave} />
 			)}
 			<Toasts notices={snap.notices} />
 		</div>

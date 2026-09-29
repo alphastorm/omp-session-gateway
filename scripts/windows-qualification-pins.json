@@ -13,11 +13,11 @@
   "pywinrmVersion": "0.5.0",
   "freerdpVersion": "3.31.1",
   "omp": {
-    "version": "18.3.0",
-    "sourceCommit": "62bc57be1b03ef0802a33cf7f5f530e534527531",
-    "sourceTree": "b36226cce6a225a4c0d2c2162da223d61d7123da",
+    "version": "18.4.2",
+    "sourceCommit": "4620bb8338e0ecace7ea237da9d5088d16068617",
+    "sourceTree": "71855eece785c0655d99d7700b52ef5f77c0e185",
     "nativeFile": "pi_natives.win32-x64-baseline.node",
-    "nativeTarballSha256": "1fe98dbcb6712d1a66b1e9f7bb98800377c9c46b477f178030927711e71473dd",
-    "nativeBinarySha256": "d72ee03e6d888756f0c4be858356d696d78a30e536aa7288c16ded95ab653e18"
+    "nativeTarballSha256": "7b82f21a2b8d1b71a0dd30c6291252827a47eaaf67344d650341d6ba9d2472bc",
+    "nativeBinarySha256": "65bc4b723aeabc8958b371d032bb8e31f81f5ffb0e436dc4de6e7c5244844a46"
   }
 }

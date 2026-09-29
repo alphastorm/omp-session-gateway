@@ -58,8 +58,13 @@ if (clientModule === undefined || clientStylesheet === undefined) {
 }
 // React's development build is larger and markedly slower on a phone, and a bundle gets it
 // whenever `process.env.NODE_ENV` is not defined as production. This warning exists only there.
-if ((await readFile(join(outputRoot, clientModule.slice(1)), "utf8")).includes("Each child in a list should have a unique")) {
+const clientJavaScript = await readFile(join(outputRoot, clientModule.slice(1)), "utf8");
+if (clientJavaScript.includes("Each child in a list should have a unique")) {
   throw new Error("collab client bundled React's development build");
+}
+// Repository policy forbids shipping OMP artwork.
+if (clientJavaScript.includes("M10 14h44v9H43v33h-9V23h-9v22h-9V23H10z")) {
+  throw new Error("collab client bundled OMP artwork");
 }
 
 
