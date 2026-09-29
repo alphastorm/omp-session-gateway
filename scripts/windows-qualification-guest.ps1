@@ -124,7 +124,7 @@ switch ($p.action) {
   'transport' {
     $os = Get-CimInstance Win32_OperatingSystem
     $hostInfo = Get-CimInstance Win32_ComputerSystem
-    if ($os.Caption -notmatch 'Windows Server 2025 Standard' -or $hostInfo.NumberOfLogicalProcessors -ne 2) { throw 'provider guest shape mismatch' }
+    if ($os.Caption -notmatch 'Windows Server 2025 Standard' -or $hostInfo.NumberOfLogicalProcessors -ne $p.pins.cpus) { throw 'provider guest shape mismatch' }
     @{ windowsBuild = [int]$os.BuildNumber; cpus = [int]$hostInfo.NumberOfLogicalProcessors; memoryMiB = [int][Math]::Round($hostInfo.TotalPhysicalMemory / 1MB) } | ConvertTo-Json -Compress
   }
   'fingerprint' {
