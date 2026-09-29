@@ -174,6 +174,9 @@ Windows refuses the Administrator's Tailscale CLI while another account holds it
 refetches ownership and applies the positive prefix and protected-resource checks. Lost create
 responses are recoverable by the exact epoch-derived label even without a vault. Cleanup polls
 for deletion and requires zero `omp-winqual-*` instances and firewall groups account-wide.
+Provider reads retry a transient 5xx. A lookup that answers missing, or a Vultr listing without its
+array, is final only when a second read five seconds later agrees: on 2026-09-29 one listing did so
+while the lane polled for allocation, failing an attempt whose VM was still booting.
 A stable interrupted attempt is reconciled, never blindly replayed; start a fresh epoch
 afterwards. For development only, a code failure after guest access retains the VM for immediate
 repair: rerunning `run` resumes that epoch, skips completed phases, and checks staging

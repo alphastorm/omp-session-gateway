@@ -7,6 +7,7 @@ import {
   parseAndroidPackageVersion,
   parseAndroidTethering,
   parseKeyguardShowing,
+  parseValidatedWifi,
   readAndroidQualificationPin,
   requireSingleDevice,
   unlockAndroidKeyguard,
@@ -201,6 +202,19 @@ describe("Android display bootstrap", () => {
     }
     expect(parseAndroidTethering(state("").replace("%s", "true"))).toBe(true);
     expect(() => parseAndroidTethering("Tethering:\n  Configuration:\n")).toThrow("Android tethering state is missing Upstream wanted");
+  });
+
+  test("reads validated Wi-Fi only from the live network list", () => {
+    const network = (id: number, kind: string, state: string, flags: string) =>
+      `  NetworkAgentInfo{network{${id}}  handle{${id}000}  ni{${kind} ${state} extra: } created=2026-09-29T10:17:33.969Z Score(Policies : ) ${flags}\n`;
+    const dump = (current: string, later = "") => `Active default network: 436\n\nCurrent Networks:\n${current}\n${later}Status for known UIDs:\n`;
+    const cellular = network(434, "MOBILE[LTE]", "CONNECTED", "firstValidated lastValidated");
+    expect(parseValidatedWifi(dump(cellular + network(436, "WIFI", "CONNECTED", "firstValidated lastValidated")))).toBe(true);
+    expect(parseValidatedWifi(dump(cellular + network(436, "WIFI", "CONNECTED", "")))).toBe(false);
+    expect(parseValidatedWifi(dump(cellular + network(436, "WIFI", "CONNECTING", "")))).toBe(false);
+    // A Wi-Fi from before Airplane mode survives in later sections, never in the live list.
+    expect(parseValidatedWifi(dump(cellular, `Network Requests:\n${network(431, "WIFI", "CONNECTED", "firstValidated lastValidated")}`))).toBe(false);
+    expect(() => parseValidatedWifi("Active default network: none\n")).toThrow("Android connectivity state is missing Current Networks");
   });
 
   test("waking an unlocked phone preserves the page instead of opening its menu", async () => {

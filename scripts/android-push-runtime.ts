@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseSessionListResponse } from "../packages/protocol/src/validation.ts";
 import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/types.ts";
-import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, parseAndroidTethering, parseKeyguardShowing, readAndroidQualificationPin, resolveAndroidBrowserTarget,
+import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, parseAndroidTethering, parseKeyguardShowing, parseValidatedWifi, readAndroidQualificationPin, resolveAndroidBrowserTarget,
   wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
 import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type AndroidUiNode, type NotificationExpectation } from "./android-notification.ts";
@@ -200,6 +200,15 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
   const restoreRadios = async (state: Pick<PushDeviceBaseline, "airplane" | "wifi" | "mobile">) => {
     await mutate("shell", "cmd", "connectivity", "airplane-mode", state.airplane ? "enable" : "disable");
     await mutate("shell", "svc", "wifi", state.wifi ? "enable" : "disable");
+    // Leaving Airplane mode with both radios on, mobile data validates before Wi-Fi rejoins. Play
+    // Services opens its push socket there, and once Wi-Fi becomes the default network that socket
+    // delivers nothing until its next heartbeat (18.6 min on 2026-09-29), holding every push. Mobile
+    // data therefore returns only after Wi-Fi validates; a Wi-Fi that never validates is left to the
+    // caller's own reachability check.
+    if (state.wifi && state.mobile) {
+      const deadline = Date.now() + 45_000;
+      while (Date.now() < deadline && !parseValidatedWifi(await command("shell", "dumpsys", "connectivity"))) await Bun.sleep(500);
+    }
     await mutate("shell", "svc", "data", state.mobile ? "enable" : "disable");
   };
   const phaseRecords = async () => {
