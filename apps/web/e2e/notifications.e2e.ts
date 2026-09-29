@@ -56,7 +56,7 @@ test("activity-stop routes launch View even with a current ask or without Contro
       await page.goto(fixture.origin + "/collab/stop-route-instance-0001?activity=stopped&generation=4");
       await expect(page.getByRole("application", { name: "OMP collaboration session" })).toBeVisible();
       await expect(page).toHaveURL(fixture.origin + "/client/");
-      await expect(page.getByRole("textbox", { name: "read-only session — watching only" })).toBeDisabled();
+      await expect(page.getByRole("textbox", { name: "Read-only session — watching only", exact: true })).toBeDisabled();
       expect(fixture.launchRequests).toEqual([{ instanceId: current.instanceId, generation: 4, mode: "view" }]);
       const residue = await page.evaluate(async canary => {
         const cacheUrls: string[] = [];
