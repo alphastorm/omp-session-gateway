@@ -178,15 +178,20 @@ opt-in preference, or installed-client qualification changes.
 
 ## Notification tap
 
-For attention, the worker focuses/navigates an existing same-origin directory client or opens:
+The worker never navigates an existing window (ADR-017 amendment, 2026-09-30). It focuses the most
+recently focused same-origin window and posts it the notification data; a page that accepts
+handles the route in place, with the checks below and the ordinary in-place launch. A tap for the
+collaboration already open, at the authority the tap grants, keeps it. With no open window, or none
+that accepts within three seconds, the worker opens:
 
 `/collab/{instanceId}?request={requestId}`
 
 The app synchronously replaces that routing URL with `/`, loads an authenticated snapshot, and
 opens Control only when the same instance still has the exact request ID, `inputRequired: true`,
 and `canControl: true`. Otherwise it keeps the directory visible and reports the request as
-resolved or changed. The later launch POST revalidates generation and returns the collaboration
-capability through the ordinary no-store, in-memory path.
+resolved or changed; during an open collaboration it keeps that collaboration and reports it in the
+triage bar unless a triage prompt is already showing. The later launch POST revalidates generation
+and returns the collaboration capability through the ordinary no-store, in-memory path.
 
 For a stop, the route is `/collab/{instanceId}?activity=stopped&generation={generation}`.
 The app scrubs it before networking, fetches authenticated metadata, and opens **View** only for

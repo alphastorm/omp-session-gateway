@@ -128,30 +128,66 @@ worker.addEventListener("push", event => {
   event.waitUntil(delivery);
 });
 
+/** A page that accepts within this bound handles the tapped route itself. */
+const NOTIFICATION_ROUTE_ACCEPT_MS = 3_000;
+
+function isNotificationRouteAccepted(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 2 &&
+    keys.includes("type") &&
+    keys.includes("version") &&
+    record.type === "omp-notification-route-accepted" &&
+    record.version === PUSH_API_VERSION
+  );
+}
+
+/**
+ * Hands a tapped notification's metadata to an open page, which validates it against fresh
+ * directory metadata exactly as a routed load does and launches in place. A worker never
+ * navigates a window: Chromium reports a window client's creation URL, not the route the page later
+ * reached through the history API (ADR-018 amendment). On a Pixel 10 Pro (Android 17, Chrome 154)
+ * a live `/client/` collaboration in the installed WebAPK reported `/`, and navigating it reloaded
+ * the document, which dropped the live client and any unsent composer text and relaunched View.
+ */
+async function routeInPage(client: WindowClient, data: unknown): Promise<boolean> {
+  const channel = new MessageChannel();
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const timeout = setTimeout(() => resolve(false), NOTIFICATION_ROUTE_ACCEPT_MS);
+  channel.port1.onmessage = event => resolve(isNotificationRouteAccepted(event.data));
+  try {
+    client.postMessage({ type: "omp-notification-route", version: PUSH_API_VERSION, data }, [channel.port2]);
+  } catch {
+    resolve(false);
+  }
+  const accepted = await promise;
+  clearTimeout(timeout);
+  channel.port1.close();
+  return accepted;
+}
+
 worker.addEventListener("notificationclick", event => {
   event.notification.close();
-  const intent = parseNotificationData(event.notification.data);
-  const path = intent === undefined ? "/" : notificationRoutePath(intent);
+  const data: unknown = event.notification.data;
+  const intent = parseNotificationData(data);
   event.waitUntil(
     (async () => {
-      const windows = await worker.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const dashboard = windows.find(client => {
-        const url = new URL(client.url);
-        return (
-          url.origin === worker.location.origin &&
-          (url.pathname === "/" || url.pathname.startsWith("/collab/"))
+      // Most recently focused first.
+      const [client] = (await worker.clients.matchAll({ type: "window", includeUncontrolled: true })).filter(
+        candidate => new URL(candidate.url).origin === worker.location.origin,
+      );
+      if (client !== undefined) {
+        // Focus before asking: Chrome on Android stopped answering in a WebAPK page left in the
+        // background for 45 seconds, and bringing it forward resumes it.
+        const focused = await client.focus().then(
+          () => true,
+          () => false,
         );
-      });
-      if (dashboard !== undefined) {
-        try {
-          const navigated = await dashboard.navigate(path);
-          const focused = await navigated?.focus();
-          if (focused !== null && focused !== undefined) return;
-        } catch {
-          // Fall through to a fresh dashboard window.
-        }
+        if (intent === undefined ? focused : await routeInPage(client, data)) return;
       }
-      await worker.clients.openWindow(path);
+      await worker.clients.openWindow(intent === undefined ? "/" : notificationRoutePath(intent));
     })(),
   );
 });

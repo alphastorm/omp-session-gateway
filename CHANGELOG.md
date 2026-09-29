@@ -23,6 +23,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   same five-attempt budget as HTTP 5xx. GitHub state checks, Windows egress discovery and TestingBot
   reads/downloads share the helper; mutations and programming errors are never replayed. Repository
   admission rejects new direct harness fetches without a reviewed non-provider exemption.
+- Tapping a notification no longer reloads an open collaboration. Chromium reports a window's
+  creation URL, so on the Pixel's WebAPK a live `/client/` page looked like the directory, and the
+  worker navigated it: the live client and any unsent composer text were lost, and an activity-stop
+  tap relaunched a Control session as View. The worker now hands the tap to the open page, which
+  revalidates it against current metadata and switches in place; a tap for the session already open
+  keeps it. With no open page, the tap opens its route as before.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
   a hotspot, USB or Bluetooth tethering. This is checked at orchestrator admission, before provider
   lookup or any lane, and independently by Android acceptance, post-release smoke and the background

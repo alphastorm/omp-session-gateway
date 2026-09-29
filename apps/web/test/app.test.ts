@@ -524,6 +524,7 @@ async function bootApp(options: {
     controller: object | null;
     readonly ready: Promise<typeof registration>;
     register(): Promise<typeof registration>;
+    startMessages(): void;
   };
   serviceWorker.controller = {};
   Object.defineProperties(serviceWorker, {
@@ -533,6 +534,7 @@ async function bootApp(options: {
         return registration;
       },
     },
+    startMessages: { value(): void {} },
   });
   const navigator = { serviceWorker, onLine: true };
   const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
