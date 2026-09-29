@@ -228,10 +228,14 @@ class FakeDocument extends EventTarget {
     return new FakeElement(tagName);
   }
 
-  /** Android freeze/resume delivers exactly this, and nothing else the page can observe. */
+  /** Chrome on Android hides a backgrounded page at once and freezes it about a minute later. */
   setVisibility(state: "visible" | "hidden"): void {
     this.visibilityState = state;
     this.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  freeze(): void {
+    this.dispatchEvent(new Event("freeze"));
   }
 }
 
@@ -295,6 +299,7 @@ interface BrowserHarness {
   runUndoTimer(): void;
   pendingDelays(): number[];
   setVisibility(state: "visible" | "hidden"): void;
+  freeze(): void;
   advanceClock(milliseconds: number): void;
   hangNextListRequest(): void;
   failNextListRequest(): void;
@@ -658,6 +663,9 @@ async function bootApp(options: {
     setVisibility(state): void {
       document.setVisibility(state);
     },
+    freeze(): void {
+      document.freeze();
+    },
     advanceClock(milliseconds): void {
       clockOffset += milliseconds;
     },
@@ -968,6 +976,30 @@ describe("dashboard attention and notifications", () => {
       "Last seen",
     );
     expect(tailnet.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+  });
+
+  test("releases the directory stream when the hidden page freezes and rebuilds it on return", async () => {
+    const base = session("frozen-directory-0001");
+    const harness = await bootApp({ permission: "denied", suffix: "frozen-directory", initialSessions: [base] });
+    const source = FakeEventSource.instances.at(-1);
+    if (source === undefined) throw new Error("missing event source");
+    const listReads = (): number => harness.fetchPaths.filter(path => path === "/api/v1/sessions").length;
+    const readsBeforeFreeze = listReads();
+
+    // A short app switch keeps the stream.
+    harness.setVisibility("hidden");
+    expect(source.closed).toBeFalse();
+
+    harness.freeze();
+    expect(source.closed).toBeTrue();
+    expect(harness.pendingDelays()).toEqual([]);
+    expect(harness.elements.statusBanner.hidden).toBeTrue();
+    expect(harness.elements.sessionList.querySelectorAll(".working-row")).toHaveLength(1);
+
+    harness.setVisibility("visible");
+    await settleUntil(() => FakeEventSource.instances.at(-1) !== source);
+    expect(listReads()).toBe(readsBeforeFreeze + 1);
+    expect(FakeEventSource.instances.at(-1)?.closed).toBeFalse();
   });
 
   test("offers local browser recovery help only after a prolonged visible outage", async () => {
