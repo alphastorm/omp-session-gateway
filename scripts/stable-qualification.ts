@@ -1318,6 +1318,15 @@ export function assertMacBuildOutput(output: string, candidate: CandidateIdentit
   }
 }
 
+/** Lane 3 probes the backend from a distinct node; both addresses must record no HTTP answer (#98). */
+export function assertMacExposureEvidence(output: string): void {
+  for (const address of ["tailnet", "ssh"]) {
+    if (!new RegExp(`^\\s*backend at ${address} address:\\s+no HTTP answer \\(curl exit [0-9]+\\)$`, "mu").test(output)) {
+      throw new Error(`Mac lifecycle output missed required evidence: backend at ${address} address: no HTTP answer`);
+    }
+  }
+}
+
 export function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins) {
   assertMacBuildOutput(output, candidate, pins);
   for (const expected of [
@@ -1326,12 +1335,11 @@ export function assertMacLifecycleOutput(output: string, candidate: CandidateIde
     "token bytes in bundle:                 0",
     "login in bundle:                       0",
     "forged header, real login allowed:     200",
-    "backend at tailnet address:            refused",
-    "backend at ssh address:                refused",
     "gateway returned after:",
   ]) {
     if (!output.includes(expected)) throw new Error(`Mac lifecycle output missed required evidence: ${expected}`);
   }
+  assertMacExposureEvidence(output);
   const doctor = output.match(/doctor\s+(([1-9][0-9]*)\/\2) true/u)?.[1];
   const rollbackInvariants = output.match(/\b(([1-9][0-9]*)\/\2) invariants PASS\b/u)?.[1];
   const os = output.match(/^\s*host:\s+(macOS [0-9.]+ arm64)\s*$/mu)?.[1];
