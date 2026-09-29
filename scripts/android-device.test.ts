@@ -12,6 +12,7 @@ import {
   wakeAndroidDisplay,
   resolveAndroidBrowserTarget,
   wakeAndroidChrome,
+  waitForDevtoolsEndpoint,
 } from "./android-device.ts";
 describe("authorized Android selection", () => {
   test("selects the sole authorized device without accepting offline or unauthorized devices", async () => {
@@ -435,5 +436,35 @@ describe("Android DevTools endpoint ownership", () => {
         9222,
       ),
     ).toThrow("DevTools endpoint WebSocket escaped the local ADB forward");
+  });
+});
+
+describe("Android DevTools endpoint wait", () => {
+  const reset = () => Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+  const virtualClock = () => {
+    const clock = { elapsed: 0, now: () => clock.elapsed, sleep: async (milliseconds: number) => void (clock.elapsed += milliseconds) };
+    return clock;
+  };
+
+  test("waits past nine seconds for a browser the freezer just released", async () => {
+    const clock = virtualClock();
+    const answer = new Response("{}");
+    const response = await waitForDevtoolsEndpoint(
+      "http://127.0.0.1:9222/json/version",
+      async () => {
+        if (clock.elapsed < 20_000) throw reset();
+        return answer;
+      },
+      clock,
+    );
+    expect(response).toBe(answer);
+  });
+
+  test("names the last connection error once the deadline passes", async () => {
+    const clock = virtualClock();
+    const failure = waitForDevtoolsEndpoint("http://127.0.0.1:9222/json/version", async () => { throw reset(); }, clock);
+    await expect(failure).rejects.toThrow("DevTools endpoint never accepted a connection (ECONNRESET)");
+    expect(clock.elapsed).toBeGreaterThanOrEqual(30_000);
+    expect(clock.elapsed).toBeLessThan(32_000);
   });
 });

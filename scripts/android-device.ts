@@ -26,6 +26,7 @@ const CALL_TIMEOUT_MS = 25_000;
 const OPEN_TIMEOUT_MS = 10_000;
 const LOAD_POLL_MS = 500;
 const LOAD_ATTEMPTS = 60;
+const DEVTOOLS_ENDPOINT_WAIT_MS = 30_000;
 
 export interface AndroidBrowserTarget {
   readonly packageName: string;
@@ -474,6 +475,37 @@ export async function wakeAndroidChrome(
 }
 
 /**
+ * Waits for the forwarded DevTools endpoint to answer, not for the browser process to exist.
+ * `adb forward` binds the local port whether or not the device-side socket answers: a cold browser
+ * reset its first requests (2026-09-22), and one the cached-apps freezer had just released stayed
+ * silent for over nine seconds while in the foreground (2026-09-29). The wait is a deadline rather
+ * than an attempt count, and its failure names the last connection error's code.
+ */
+export async function waitForDevtoolsEndpoint(
+  url: string,
+  request: (url: string) => Promise<Response> = fetch,
+  clock: { readonly now: () => number; readonly sleep: (milliseconds: number) => Promise<void> } = {
+    now: Date.now,
+    sleep: Bun.sleep,
+  },
+  waitMs = DEVTOOLS_ENDPOINT_WAIT_MS,
+): Promise<Response> {
+  const deadline = clock.now() + waitMs;
+  let lastError: unknown;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request(url);
+    } catch (error) {
+      lastError = error;
+    }
+    if (clock.now() >= deadline) break;
+    await clock.sleep(Math.min(attempt * 250, 2_000));
+  }
+  const code = lastError instanceof Error && "code" in lastError && typeof lastError.code === "string" ? ` (${lastError.code})` : "";
+  throw new Error(`DevTools endpoint never accepted a connection${code}`, { cause: lastError });
+}
+
+/**
  * Opens a CDP session against Chrome on the device, hands it to `run`, and always tears down the
  * owned tab and the adb forward — including on failure, so a crashed run leaves no device state.
  */
@@ -490,25 +522,7 @@ export async function withAndroidChrome<T>(
 
   let webSocketDebuggerUrl: string;
   try {
-    // `wakeAndroidChrome` waits until the browser process leaves `CACHED_EMPTY`, which proves the
-    // process exists — not that DevTools is accepting. `adb forward` then binds the local port
-    // regardless of whether the device-side socket answers yet, so a cold browser reset the very
-    // first request and failed the lane with ECONNRESET twice. Wait on the endpoint itself, which
-    // is the signal that actually matters.
-    let endpointResponse: Response | undefined;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 8; attempt += 1) {
-      try {
-        endpointResponse = await fetch("http://127.0.0.1:" + port + "/json/version");
-        break;
-      } catch (error) {
-        lastError = error;
-        await Bun.sleep(attempt * 250);
-      }
-    }
-    if (endpointResponse === undefined) {
-      throw new Error("DevTools endpoint never accepted a connection", { cause: lastError });
-    }
+    const endpointResponse = await waitForDevtoolsEndpoint("http://127.0.0.1:" + port + "/json/version");
     if (!endpointResponse.ok) throw new Error("DevTools endpoint metadata request failed");
     // Deliberately outside the retry: a well-formed reply from the wrong browser is a hard failure,
     // never a transient. Desktop Chrome on this workstation answers remote-debugging ports too.
