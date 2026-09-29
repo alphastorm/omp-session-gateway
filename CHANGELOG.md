@@ -12,7 +12,12 @@ The format is based on Keep a Changelog and Semantic Versioning.
   churn, sustained SSE subscribers, View launch and delivery latency distributions, and daemon
   CPU/RSS/descriptor trends. Numeric-only evidence and shared metadata leak checks keep capabilities
   out of artifacts; the weekly capacity workflow reuses the extracted discovery host fixture.
-  Eight-hour targets remain unmeasured and do not become release-qualification claims.
+  Its first eight-hour run is recorded as tested evidence and is not a release-qualification claim.
+- Record the first eight-hour observations of the v0.7.0 runtime in the release ledger and in test
+  plan §6, as tested evidence rather than qualification. One is a default-relay soak of the
+  installed release that includes the gateway's resident-memory series. The other is a 50-host
+  synthetic endurance run of the release source, covering launch and delivery latency, CPU,
+  resident memory and descriptors.
 
 ### Changed
 

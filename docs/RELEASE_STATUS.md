@@ -140,6 +140,60 @@ matrix. It runs on macOS, so it does not exercise Windows; that rests on the Win
 above. iPhone, iPad, and Galaxy browsers rest on the campaign's cloud lane, and background Push on
 its Pixel lane.
 
+### Post-release eight-hour observations — 2026-09-30
+
+These two runs are **tested evidence**, not qualification. No candidate campaign ran, and the v0.7.0
+claims above are unchanged. Both ran on the release workstation (Mac16,5, macOS 27.0 build 26A428,
+arm64).
+
+**Default-relay soak, published runtime.**
+- Setup: the installed `0.7.0-ac32668c3851` runtime (Bun 1.4.0) and a stock OMP 18.4.2 host (native
+  addon `02135de929e1…`, matching `UPSTREAM.lock.json`), started with `collab.autoStart: view` in an
+  isolated agent directory. One View client joined over OMP's default relay and ran for the full
+  28,800-second window, 14:55:28–22:55:28 UTC. The gateway process did not restart.
+- Harness: `scripts/relay-soak.ts` at `bdeca70`, the first revision of #323. It found the gateway
+  process from the listening port; the samples match `ps` for the process launchd reports. The merged
+  harness requires that PID explicitly.
+- Relay: 12 phase transitions (the 150-second diagnostic recorded 2; the harness does not timestamp
+  them), final phase `live`, exit 0.
+- Gateway process, 482 samples at about one a minute:
+  - Resident memory was 40,320 KiB at the start and 51,104 KiB at the end, with a minimum of 35,200
+    and a maximum of 51,312. Hourly means stayed between 44,074 and 49,750 KiB.
+  - The least-squares trend was −630 KiB/h over the window: −321 KiB/h in its first half and
+    −959 KiB/h in its second.
+  - CPU inside the window was 76.63 s, about 0.27% of one core.
+- Concurrent load: the gateway was not isolated. Throughout the window it also served the
+  maintainer's other published sessions and the Pixel's installed app. Six short test runs also used
+  it, ending at 16:05, 16:42, 16:44, 16:45, 17:11 and 17:15 UTC: three physical Android acceptance
+  runs of about two minutes each, and three relay-soak reproductions of 30–45 s.
+
+**Synthetic endurance, v0.7.0 runtime source.**
+- Setup: `bun run qualify:endurance` at `19bbd19`, whose harness is byte-identical to merged #326.
+  It ran the working tree's gateway with Bun 1.4.0, using private roots and loopback port 4319. That
+  tree's `apps/` and `packages/` match tag v0.7.0 exactly.
+- Load: 50 synthetic hosts, 4 SSE subscribers and 28,800 s, with a metadata change every 30 s, a
+  host churn every 120 s, a View launch every 4 s, and discovery every 10 s.
+- Not covered: the relay, the phone and Tailscale are outside this run.
+- Concurrent load: the workstation was not idle. The relay soak above ran throughout. Repeated
+  local test suites and builds ran between roughly 16:00 and 18:40 UTC, and so did the physical
+  Android runs listed above. Two Pixel checks each ran a second loopback gateway: a tap probe with
+  four synthetic hosts from 20:46 to 20:54 UTC, and a notification check with two stock OMP hosts
+  from 21:43 to 21:57 UTC. The latency percentiles may include this contention.
+
+| Measure | Result |
+|---|---|
+| Correctness | Passed (failure code 0) after 28,800 s. All 50 hosts were listed in every one of 1,921 samples. 47,950 metadata changes and 239 host churns reached all 4 subscribers: 191,800 deliveries, 0 pending. The daemon stopped and its private root was removed. |
+| View launch | 7,196 launches, 0 failures: p50 1 ms, p95 2 ms, p99 2 ms, max 32 ms |
+| Metadata change → SSE receipt, including the discovery wait | p50 1,668 ms, p95 2,885 ms, p99 9,979 ms, max 10,008 ms with a 10-second discovery interval |
+| Snapshot reply → SSE receipt | p50 5 ms, p95 8 ms, p99 10 ms, max 15 ms |
+| Daemon CPU | 92.4 s in the window, 0.32% of one core |
+| Daemon resident memory | 56,160 KiB idle, before any host registered. Under load it started at 66,224 KiB and ended at 62,272 KiB, with a minimum of 44,832, a maximum of 83,808 and a mean of 69,127. Hourly means fell from 80,443 KiB in the first hour to 59,908 KiB in the last. The trend was −3,113 KiB/h: −4,440 in the first half and −3,454 in the second. |
+| Open file descriptors | 11 at the start and at the end (maximum 12), with no trend |
+
+These are external growth measurements. The harness does not count internal listeners, events or
+history, so neither run alone establishes bounded growth; [the test plan](TEST_PLAN.md#6-performance-targets)
+compares them with the targets.
+
 ## Mainline v0.6.3 — published stable
 
 **Updated:** 2026-09-27. [v0.6.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.6.3)
