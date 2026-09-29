@@ -18,6 +18,8 @@
  */
 import {
   ANDROID_DIRECTORY_SURFACE_EXPRESSION,
+  requireAndroidUntethered,
+  requireSingleDevice,
   unlockAndroidKeyguard,
   wakeAndroidDisplay,
   withAndroidChrome,
@@ -269,6 +271,8 @@ if (!eligibility.eligible) {
 }
 
 announceAndroidStage(ANDROID_ACCEPTANCE_STAGES, "Android Chrome");
+serial = await requireSingleDevice();
+await requireAndroidUntethered(adb);
 const summary = await withAndroidChrome(async driver => {
   serial = driver.serial;
   const browserVersion = await driver.version();

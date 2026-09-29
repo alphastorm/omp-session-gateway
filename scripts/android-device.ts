@@ -316,6 +316,19 @@ export function parseAndroidTethering(output: string): boolean {
   return wanted === "true" || /^\s*\S+ - TetheredState - lastError = -?\d+\r?$/mu.test(output);
 }
 
+/** Radio-switching entry points must refuse tethering before any lane or external effect starts. */
+export async function requireAndroidUntethered(command: AndroidAdbCommand): Promise<void> {
+  let tethering: boolean;
+  try {
+    tethering = parseAndroidTethering(await command("shell", "dumpsys", "tethering"));
+  } catch {
+    throw new Error("cannot verify Android tethering state; refuse radio-switching qualification");
+  }
+  if (tethering) {
+    throw new Error("turn off hotspot, USB and Bluetooth tethering on the Pixel: qualification switches its radios, which disconnects every tethered client, including this controller");
+  }
+}
+
 /**
  * Whether a live Wi-Fi network is connected and validated, read only from the `Current Networks:`
  * section of `dumpsys connectivity`: requests and histories elsewhere also name Wi-Fi.

@@ -16,7 +16,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   reads/downloads share the helper; mutations and programming errors are never replayed. Repository
   admission rejects new direct harness fetches without a reviewed non-provider exemption.
 - Stable qualification refuses to start while the Pixel under test shares its connection through
-  a hotspot, USB or Bluetooth tethering. The background Push lane switches the Pixel's radios, so a
+  a hotspot, USB or Bluetooth tethering. This is checked at orchestrator admission, before provider
+  lookup or any lane, and independently by Android acceptance and the background Push lane. An
+  unavailable or unrecognized tethering probe refuses admission too. The Push lane switches radios, so a
   controller on its hotspot lost WinRM, SSH and the gateway origin mid-campaign; this failed two
   v0.7.0-prealpha.1 campaign attempts.
 - Background Push qualification enables the Pixel's mobile data only after Wi-Fi validates when it

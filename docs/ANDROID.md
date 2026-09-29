@@ -179,7 +179,10 @@ subtree; text from an unrelated shade row is not attributed to the fixture.
 Turn off the Pixel's hotspot, USB and Bluetooth tethering too, and keep the controller on its own
 network. The lane switches Airplane mode, Wi-Fi and mobile data, which disconnects every tethered
 client; a controller on the Pixel's hotspot loses WinRM, SSH and the gateway origin mid-campaign.
-Preflight reads `dumpsys tethering` and refuses while anything is tethered.
+The stable orchestrator checks `dumpsys tethering` immediately after selecting the device, before
+provider lookup or any lane admission. Android acceptance and the Push lane repeat the shared
+check at their own admission. An unavailable or unrecognized probe refuses safely too.
+This is an admission snapshot: keep tethering off for the entire run.
 
 The origin must already have granted notification permission before the run. The lane never accepts
 a permission prompt as part of admission. For its negative window, it retains a browser-only CDP
