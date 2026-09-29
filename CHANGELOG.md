@@ -21,9 +21,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   about every minute, and at completion, fails if the gateway exits, and reports start/end/min/max
   RSS, the RSS trend per hour, and in-window CPU. `OMP_GATEWAY_SOAK_SAMPLES` appends every sample to
   a new CSV. The process is never inferred from the listening port, which may be a tunnel, as in
-  stable qualification's SSH-forwarded relay lane; without a PID the soak takes no gateway
-  measurement. The procedure had required start/end memory readings before any bounded-growth claim
-  without taking them.
+  stable qualification's SSH-forwarded relay lane, which also clears any inherited PID or samples
+  path. Without a PID the soak takes no gateway measurement. The procedure had required start/end
+  memory readings before any bounded-growth claim without taking them.
 
 ### Fixed
 
