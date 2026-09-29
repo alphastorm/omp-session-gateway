@@ -444,9 +444,32 @@ history counts are not measured, so this tool cannot by itself declare unbounded
 Performance flags never cause a failing exit. The weekly capacity lane remains the shorter,
 static-host, list-only CPU/RSS measurement; it does not become an SSE/launch or endurance claim.
 
-These remain targets, not measurements. For v0.4.0, the founder-approved fresh 1,800-second
-relay gate passed; eight-hour endurance is **not rerun or claimed**, prolonged-operation risk is
-accepted, and bounded memory growth is not established. See the [release ledger](RELEASE_STATUS.md).
+### Measured — 2026-09-30
+
+The first eight-hour measurements come from one Mac16,5 (macOS 27.0, arm64). They are tested
+evidence recorded in the [release ledger](RELEASE_STATUS.md), not qualification. The synthetic
+endurance command above ran the v0.7.0 runtime source with the exact settings shown. A
+default-relay soak ran the installed published runtime, following the
+[release guide's procedure](RELEASE.md#default-relay-soak-qualification):
+
+- **50 hosts:** daemon CPU was 0.32% of one core over the synthetic run, so the provisional <1%
+  comparison passes. Over the soak, the published runtime used 0.27% while serving the soak and the
+  maintainer's own sessions.
+- **Metadata delivery:** snapshot reply → SSE receipt was p95 8 ms (max 15 ms), excluding the
+  discovery wait. Change → receipt, which includes a 10-second discovery interval, was p95 2,885 ms
+  (max 10,008 ms). No numerical budget is set.
+- **Launch API:** p95 was 2 ms (max 32 ms) over 7,196 View launches, below the 250 ms target.
+- **Idle memory:** the daemon used 54.8 MiB before any host registered, below the 100 MiB target.
+  Under the synthetic load it stayed between 43.8 and 81.8 MiB. The published runtime stayed
+  between 34.4 and 50.1 MiB during the soak.
+- **Growth:** over eight hours neither run showed a rising resident-memory trend (−3,113 KiB/h
+  synthetic, −630 KiB/h soak), and descriptors held at 11–12. These are external measurements
+  only.
+
+The targets stand. Mainline releases still do not rerun eight-hour endurance: for v0.4.0 the
+founder-approved fresh 1,800-second relay gate passed, and prolonged-operation risk was accepted.
+Neither the measurements above nor that gate establishes bounded memory growth by itself: internal
+listener, event and history counts are not measured.
 
 ## 7. Release checklist
 
