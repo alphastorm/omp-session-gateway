@@ -114,6 +114,15 @@ ordinary Chrome pages and restores that baseline after a crash. A failed restore
 `pixelUnrestored: true` to fence the production lease. Development retains its exact-epoch lock
 until cleanup proves restoration; another lane's lock is never broken.
 
+**Post-mutation status.** `install`, `rollback` and `rotate-readiness-token` return once the gateway
+proves readiness, but on this two-vCPU guest one immediate `status` read has still failed after them
+and the next read passed with nothing reinstalled (the 2026-09-24 predecessor install, the
+2026-09-29 candidate upgrade). Each read-only status predicate that follows a mutation therefore
+reads for up to 60 seconds, the product's own Windows readiness budget, before failing; the mutation
+is never repeated, and the controller logs every read past the first. A status that never settles
+fails as `status mismatch: <fields>`, naming only the predicate's fields. That and a native command's
+name and exit code are the only guest error text the WinRM adapter forwards.
+
 **Standard-user fresh install.** The same VM then proves the non-elevated path (#293, #294).
 After the Administrator's uninstall the lane creates `ompstd` plus the epoch's first eight hex
 digits: a local account in Remote Desktop Users, never Administrators, whose controller-generated
