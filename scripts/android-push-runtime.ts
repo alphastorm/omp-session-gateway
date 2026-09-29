@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseSessionListResponse } from "../packages/protocol/src/validation.ts";
 import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/types.ts";
-import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, requireAndroidUntethered, parseKeyguardShowing, parseValidatedWifi, readAndroidQualificationPin, resolveAndroidBrowserTarget,
+import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, requireAndroidDevicePreconditions, parseKeyguardShowing, parseValidatedWifi, readAndroidQualificationPin, resolveAndroidBrowserTarget,
   wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
 import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAndroidNotificationRecords, notificationMatchesDigest, trackUnchangedNotificationPost, NotificationOverlapError, type AndroidUiNode, type NotificationExpectation } from "./android-notification.ts";
@@ -228,8 +228,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       if (selected.packageName !== stock.packageName || selected.activity !== stock.activity || selected.devtoolsSocket !== stock.devtoolsSocket) throw new Error("Android Push requires the stock Chrome browser target");
       serial = await requireSingleDevice();
       if (ownedPushForwards(await command("forward", "--list"), serial, selected.devtoolsSocket).length > 0) throw new Error("Android Push debug forward is occupied; clean up its owning attempt first");
-      if (!await runtime.dndOff()) throw new Error("turn Do Not Disturb off on the Pixel for the qualification window");
-      await requireAndroidUntethered(command);
+      await requireAndroidDevicePreconditions(command, { switchesRadios: true, needsNotifications: true });
       packageName = await requireWebApk(command, identity.origin);
       const pin = await readAndroidQualificationPin(serial);
       pin.fill(0);

@@ -164,8 +164,12 @@ extension-source hash remain local to the controller.
 
 ### Device admission and one-time WebAPK setup
 
-Turn Do Not Disturb off manually for the complete qualification window. Preflight reads
-`zen_mode` and each notification phase rechecks it; a schedule reactivating DND fails the phase.
+Turn Do Not Disturb off manually for the complete notification qualification window. Stable
+orchestrator admission reads `zen_mode` immediately after device selection, before provider lookup
+or any lane. The Push lane also checks it at admission and each notification phase rechecks it;
+a Bedtime schedule reactivating DND fails the phase. Missing, invalid or unreadable DND state
+refuses notification qualification. Android acceptance/recovery and post-release smoke do not
+exercise notifications, so their admission deliberately permits DND on.
 The lane never changes DND or its schedules. Real sessions may continue publishing: ownership is
 bound to NotificationManager's package, topic/tag, key, and post/update time, never a count of
 similarly titled lock-screen rows. A new or updated unowned record re-arms the affected phase
@@ -180,8 +184,9 @@ Turn off the Pixel's hotspot, USB and Bluetooth tethering too, and keep the cont
 network. The lane switches Airplane mode, Wi-Fi and mobile data, which disconnects every tethered
 client; a controller on the Pixel's hotspot loses WinRM, SSH and the gateway origin mid-campaign.
 The stable orchestrator checks `dumpsys tethering` immediately after selecting the device, before
-provider lookup or any lane admission. Android acceptance and the Push lane repeat the shared
-check at their own admission. An unavailable or unrecognized probe refuses safely too.
+provider lookup or any lane admission. Android acceptance, post-release smoke and the Push lane
+repeat the shared, lane-selected preconditions at their own admission. Post-release smoke checks
+before release download or host mutation. An unavailable or unrecognized probe refuses safely too.
 This is an admission snapshot: keep tethering off for the entire run.
 
 The origin must already have granted notification permission before the run. The lane never accepts

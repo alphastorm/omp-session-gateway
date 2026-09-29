@@ -148,6 +148,8 @@ test reaches a VM, a phone, or a device cloud:
   the phone unrestored;
 - fake hotspot, USB/Bluetooth tethering, pending-upstream, malformed and failed adb probes refuse
   at orchestrator admission before provider lookup, lane admission or receipt creation;
+- active, invalid or unreadable DND state also refuses before provider/lane admission for stable
+  campaigns; post-release smoke permits `zen_mode=1` but still refuses tethering;
 - from 0.6.0, stable approval requires passed Windows and background Push evidence, and from 0.6.2
   passed real-device cloud evidence; a schema 2 receipt cannot resume;
 - the retained-Mac Push fixture stages exactly its import closure, as shell operands the remote shell

@@ -226,6 +226,10 @@ origin. The Android qualification PIN stays in the documented macOS Keychain ser
 Zero, unauthorized, or ambiguous adb devices are refused before release download, host mutation, or
 fixture creation; set `OMP_ANDROID_SERIAL` when more than one authorized device is attached.
 
+Post-release smoke also refuses active or unobservable tethering before those effects: its Android
+acceptance lane switches the device radios. Do Not Disturb/Bedtime may remain on because these
+smoke lanes do not exercise notifications; the harness never changes DND.
+
 This fork-era example ran from the `v0.2.1` checkout with its own Bun and OMP pins. The later
 fork-era v0.3.0 engineering source used Bun 1.4.0 and OMP v18.1.14; neither set of bytes is the
 current mainline source or a transferable qualification:

@@ -19,6 +19,7 @@ import {
   formatCommandFailure,
   parseJsonRecord,
   parsePostReleaseSmokeArgs,
+  preflightPostReleaseAndroid,
   releaseAssetNames,
   unrelatedServeSnapshot,
   selectAdbDevice,
@@ -350,6 +351,19 @@ describe("physical Android release target", () => {
       selectAdbDevice("List of devices attached\nFIRST\tdevice\nSECOND\tdevice\n"),
     ).toThrow("exactly one attached");
     expect(() => selectAdbDevice(oneDevice, "OTHER_SERIAL")).toThrow("configured Android device");
+  });
+
+  test("Android smoke admission permits Bedtime DND but refuses tethering", async () => {
+    let tethering = false;
+    const command = async (...args: string[]) => {
+      if (args[0] === "devices") return "List of devices attached\nSYNTHETIC-SMOKE-DEVICE device\n";
+      if (args.slice(-3).join(" ") === "shell dumpsys tethering") return "Upstream wanted: " + tethering + "\n";
+      if (args.slice(-5).join(" ") === "shell settings get global zen_mode") return "1\n";
+      throw new Error("unexpected device mutation or probe");
+    };
+    await preflightPostReleaseAndroid(command);
+    tethering = true;
+    await expect(preflightPostReleaseAndroid(command)).rejects.toThrow("turn off hotspot");
   });
 
   test("requires the exact WebAPK to own the focused standalone task", () => {

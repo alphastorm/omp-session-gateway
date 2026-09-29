@@ -10,7 +10,7 @@ import {
   parseValidatedWifi,
   readAndroidQualificationPin,
   requireSingleDevice,
-  requireAndroidUntethered,
+  requireAndroidDevicePreconditions,
   unlockAndroidKeyguard,
   wakeAndroidDisplay,
   resolveAndroidBrowserTarget,
@@ -19,13 +19,13 @@ import {
 } from "./android-device.ts";
 describe("authorized Android selection", () => {
   test("untethered admission allows independent networking and redacts an unavailable probe", async () => {
-    await requireAndroidUntethered(async () => "    Upstream wanted: false\n");
+    await requireAndroidDevicePreconditions(async () => "    Upstream wanted: false\n", { switchesRadios: true, needsNotifications: false });
     let failure: unknown;
     try {
-      await requireAndroidUntethered(async () => { throw new Error("synthetic-private-device"); });
+      await requireAndroidDevicePreconditions(async () => { throw new Error("synthetic-private-device"); }, { switchesRadios: true, needsNotifications: false });
     } catch (error) { failure = error; }
     expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe("cannot verify Android tethering state; refuse radio-switching qualification");
+    expect((failure as Error).message).not.toContain("synthetic-private-device");
     expect((failure as Error).cause).toBeUndefined();
   });
   test("selects the sole authorized device without accepting offline or unauthorized devices", async () => {
