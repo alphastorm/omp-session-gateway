@@ -16,11 +16,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Changed
 
-- The default-relay soak (`bun run qualify:relay-soak`) also measures the gateway process: it
-  samples resident memory and CPU time when the relay goes live, about every minute, and at
-  completion, fails if the gateway exits, and reports start/end/min/max RSS, the RSS trend per hour,
-  and in-window CPU. `OMP_GATEWAY_SOAK_SAMPLES` appends every sample to a new CSV. The procedure had
-  required start/end memory readings before any bounded-growth claim without taking them.
+- The default-relay soak (`bun run qualify:relay-soak`) also measures the gateway process named by
+  `OMP_GATEWAY_SOAK_GATEWAY_PID`: it samples resident memory and CPU time when the relay goes live,
+  about every minute, and at completion, fails if the gateway exits, and reports start/end/min/max
+  RSS, the RSS trend per hour, and in-window CPU. `OMP_GATEWAY_SOAK_SAMPLES` appends every sample to
+  a new CSV. The process is never inferred from the listening port, which may be a tunnel, as in
+  stable qualification's SSH-forwarded relay lane; without a PID the soak takes no gateway
+  measurement. The procedure had required start/end memory readings before any bounded-growth claim
+  without taking them.
 
 ### Fixed
 

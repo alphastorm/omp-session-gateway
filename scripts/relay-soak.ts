@@ -14,7 +14,7 @@ export interface RelaySoakConfig {
   readonly tailscaleLogin: string;
   readonly durationSeconds: number;
   readonly instanceId?: string;
-  /** The gateway process to sample; resolved from the loopback listener when absent. */
+  /** The gateway process to sample; without it the soak takes no gateway measurement. */
   readonly gatewayPid?: number;
   /** Absolute path of a new CSV that receives every gateway sample as it is taken. */
   readonly samplesPath?: string;
@@ -164,27 +164,6 @@ async function readGatewayProcess(pid: number): Promise<{ readonly rssKiB: numbe
   return parseGatewayProcessSample(output);
 }
 
-/** The one process listening on the loopback gateway port is the gateway being measured. */
-async function resolveGatewayPid(config: RelaySoakConfig): Promise<number> {
-  if (config.gatewayPid !== undefined) return config.gatewayPid;
-  const url = new URL(config.gatewayOrigin);
-  const unresolved = "could not identify the one gateway listener; set OMP_GATEWAY_SOAK_GATEWAY_PID";
-  let output: string;
-  try {
-    const lsof = Bun.spawn(["lsof", "-nP", `-iTCP:${url.port === "" ? "80" : url.port}`, "-sTCP:LISTEN", "-t"], {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    [output] = await Promise.all([new Response(lsof.stdout).text(), lsof.exited]);
-  } catch {
-    throw new Error(unresolved);
-  }
-  const pids = [...new Set(output.split(/\s+/u).filter(value => /^[1-9][0-9]*$/u.test(value)))];
-  if (pids.length !== 1) throw new Error(unresolved);
-  return Number(pids[0]);
-}
-
 export function parseRelaySoakConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): RelaySoakConfig {
@@ -194,6 +173,9 @@ export function parseRelaySoakConfig(
   }
   const gatewayPid = requireGatewayPid(environment.OMP_GATEWAY_SOAK_GATEWAY_PID);
   const samplesPath = requireSamplesPath(environment.OMP_GATEWAY_SOAK_SAMPLES);
+  if (samplesPath !== undefined && gatewayPid === undefined) {
+    throw new Error("OMP_GATEWAY_SOAK_SAMPLES requires OMP_GATEWAY_SOAK_GATEWAY_PID");
+  }
   return {
     gatewayOrigin: requireLoopbackGatewayOrigin(
       environment.OMP_GATEWAY_SOAK_GATEWAY_ORIGIN ?? "http://127.0.0.1:4317",
@@ -215,9 +197,11 @@ function assertNoStore(response: Response): void {
 }
 
 export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
-  // Prove the gateway can be sampled, and claim the samples file, before a capability exists.
-  const gatewayPid = await resolveGatewayPid(config);
-  await readGatewayProcess(gatewayPid);
+  // Sample only the process the operator names: a loopback origin may be a tunnel (the stable lane's
+  // SSH forward) whose listener is not the gateway. Prove it can be sampled, and claim the samples
+  // file, before a capability exists.
+  const gatewayPid = config.gatewayPid;
+  if (gatewayPid !== undefined) await readGatewayProcess(gatewayPid);
   if (config.samplesPath !== undefined) {
     await writeFile(config.samplesPath, "elapsed_s,rss_kib,cpu_s\n", { flag: "wx", mode: 0o600 });
   }
@@ -278,6 +262,7 @@ export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
     const durationMilliseconds = config.durationSeconds * 1_000;
     const samples: GatewayProcessSample[] = [];
     const recordSample = async (): Promise<void> => {
+      if (gatewayPid === undefined) return;
       const reading = await readGatewayProcess(gatewayPid);
       const sample = { elapsedSeconds: Math.round((performance.now() - startedMonotonic) / 1_000), ...reading };
       samples.push(sample);
@@ -307,7 +292,7 @@ export async function runRelaySoak(config: RelaySoakConfig): Promise<void> {
         durationSeconds: Math.floor((performance.now() - startedMonotonic) / 1_000),
         transitions,
         finalPhase,
-        gateway: summarizeGatewaySamples(samples),
+        ...(gatewayPid === undefined ? {} : { gateway: summarizeGatewaySamples(samples) }),
       }),
     );
   } finally {

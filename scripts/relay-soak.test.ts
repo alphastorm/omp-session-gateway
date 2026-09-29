@@ -69,8 +69,16 @@ test("relay soak config accepts only a real gateway PID and an absolute samples 
       "OMP_GATEWAY_SOAK_GATEWAY_PID",
     );
   }
-  expect(() => parseRelaySoakConfig({ ...requiredEnvironment, OMP_GATEWAY_SOAK_SAMPLES: "gateway.csv" })).toThrow(
-    "must be an absolute path",
+  expect(() =>
+    parseRelaySoakConfig({
+      ...requiredEnvironment,
+      OMP_GATEWAY_SOAK_GATEWAY_PID: "78559",
+      OMP_GATEWAY_SOAK_SAMPLES: "gateway.csv",
+    }),
+  ).toThrow("must be an absolute path");
+  // Without a named process there is nothing to sample; a samples file would silently stay empty.
+  expect(() => parseRelaySoakConfig({ ...requiredEnvironment, OMP_GATEWAY_SOAK_SAMPLES: "/tmp/soak/gateway.csv" })).toThrow(
+    "OMP_GATEWAY_SOAK_SAMPLES requires OMP_GATEWAY_SOAK_GATEWAY_PID",
   );
 });
 
