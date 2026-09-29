@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import type { SessionMetadata } from "@omp-session-gateway/protocol";
 import { installSilentWebSocket, startDashboardFixture } from "./fixture-server.ts";
 
@@ -130,6 +130,84 @@ test("changed, gone, and unavailable stop routes remain in the directory without
       expect(fixture.requests.some(request => request.includes("/launch"))).toBe(false);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     }
+  } finally {
+    await fixture.stop();
+  }
+});
+
+/**
+ * Delivers a tapped notification to the open page from the worker, with the exact message the
+ * worker's `notificationclick` handler sends. Headless Chromium grants workers no notification
+ * permission, so the tap handler itself is covered by the worker unit tests and the Pixel check.
+ */
+async function tapNotification(context: BrowserContext, data: unknown): Promise<void> {
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+  const reply = await worker.evaluate(async notificationData => {
+    const scope = globalThis as unknown as {
+      readonly clients: {
+        matchAll(options: { type: "window"; includeUncontrolled: boolean }): Promise<
+          { postMessage(message: unknown, transfer: Transferable[]): void }[]
+        >;
+      };
+    };
+    const [client] = await scope.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (client === undefined) throw new Error("no open page to route the tap to");
+    const channel = new MessageChannel();
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    channel.port1.onmessage = event => resolve(event.data);
+    client.postMessage({ type: "omp-notification-route", version: 2, data: notificationData }, [channel.port2]);
+    return promise;
+  }, data);
+  expect(reply).toEqual({ type: "omp-notification-route-accepted", version: 2 });
+}
+
+test("a tapped notification switches a live collaboration in place and never reloads it", { tag: "@core" }, async ({ browserName, context, page }) => {
+  test.skip(browserName !== "chromium", "Playwright exposes service-worker handles only in Chromium");
+  await installSilentWebSocket(page);
+  const viewing = session("tap-viewing-instance-01");
+  const asking = session("tap-asking-instance-001", { inputRequired: true });
+  const requestId = asking.ask!.requestId;
+  const fixture = await startDashboardFixture([viewing, asking]);
+  const sessionListReads = (): number => fixture.requests.filter(request => request === "GET /api/v1/sessions").length;
+  try {
+    await page.goto(fixture.origin);
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.locator('.working-row[data-instance-id="tap-viewing-instance-01"]').click();
+    await expect(page.locator(".shell-title")).toHaveText("tap-viewing-instance-01");
+    // Survives only while this document does; a reload or navigation would drop it.
+    await page.evaluate(() => Object.defineProperty(globalThis, "__ompTappedDocument", { value: true }));
+    const sameDocument = () => page.evaluate(() => "__ompTappedDocument" in globalThis);
+
+    // Another session's ask: Control of that session replaces the live View in this document.
+    await tapNotification(context, { version: 2, type: "attention", instanceId: asking.instanceId, requestId });
+    await expect(page.locator(".shell-title")).toHaveText("tap-asking-instance-001");
+    await expect(page.getByRole("application", { name: "OMP collaboration session" })).toBeVisible();
+    await expect(page).toHaveURL(fixture.origin + "/client/");
+    expect(await sameDocument()).toBe(true);
+    expect(fixture.launchRequests).toEqual([
+      { instanceId: viewing.instanceId, generation: 1, mode: "view" },
+      { instanceId: asking.instanceId, generation: 1, mode: "control", requestId },
+    ]);
+
+    // Taps for the collaboration already open keep it: its own ask, and an activity stop, which
+    // must not downgrade Control to View.
+    for (const data of [
+      { version: 2, type: "attention", instanceId: asking.instanceId, requestId },
+      { version: 2, type: "activity_stop", instanceId: asking.instanceId, generation: 1 },
+    ]) {
+      const reads = sessionListReads();
+      await tapNotification(context, data);
+      await expect.poll(sessionListReads).toBe(reads + 1);
+      await expect(page.locator(".triage-bar")).toBeHidden();
+      expect(fixture.launchRequests).toHaveLength(2);
+    }
+
+    // A stale tap leaves the live collaboration open and says so where the user is looking.
+    await tapNotification(context, { version: 2, type: "attention", instanceId: viewing.instanceId, requestId: "tap-stale-request-000001" });
+    await expect(page.locator(".triage-bar")).toContainText("That alert changed or expired.");
+    await expect(page.locator(".shell-title")).toHaveText("tap-asking-instance-001");
+    expect(fixture.launchRequests).toHaveLength(2);
+    expect(await sameDocument()).toBe(true);
   } finally {
     await fixture.stop();
   }

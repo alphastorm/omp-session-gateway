@@ -254,7 +254,7 @@ transition still require native-device qualification.
 
 ## ADR-017 — Deliver actionable attention through metadata-only Web Push
 
-**Status:** Accepted; amended 2026-09-25 (no coalescing topic)
+**Status:** Accepted; amended 2026-09-25 (no coalescing topic) and 2026-09-30 (taps routed into an open page)
 
 **Context:** Foreground SSE notifications cannot reach an installed PWA after its page closes. The
 phone user needs an actionable alert that reaches the exact live session with one tap, without
@@ -298,6 +298,31 @@ Residual, accepted: a device that was offline receives every unexpired message o
 only the newest, so an ask resolved meanwhile can alert briefly before its clear closes it. Push
 services do not guarantee order either way, and the request-specific clear still cannot close a
 newer ask. Activity-stop messages follow the same rule.
+
+**Amendment — 2026-09-30:** A tap is routed into an open page; the worker never navigates one.
+Chromium reports a window client's creation URL, not the route the page later reached through the
+history API (ADR-018 amendment), so the worker cannot tell an idle directory from a live `/client/`
+collaboration. On a Pixel 10 Pro (Android 17, Chrome 154.0.8037.57) the installed WebAPK reported
+`/` while live at `/client/`, and a tap's `navigate()` reloaded that document in the foreground and
+in the background: the live client, its in-memory capability, and any unsent composer text were
+lost, and an activity-stop tap relaunched a Control session as View.
+
+The worker now focuses the most recently focused same-origin window and posts it the notification's
+metadata-only data (version, type, instance ID, and request ID or generation) over a
+`MessageChannel`. A page that accepts it takes the routed-load path in place: fresh authenticated
+metadata, the exact request or generation, then the ordinary generation-bound no-store launch. A tap
+for the collaboration already open, at the authority the tap grants, keeps it, so an activity stop
+never downgrades Control and an attention tap relaunches only to gain Control. A stale tap during a
+collaboration keeps it open and shows a notice only when no triage prompt is showing. Focus comes
+first because Chrome freezes a page about a minute after it is hidden: a hidden WebAPK page answered
+at 2 and 17 seconds but not at 62, a Chrome tab received `freeze` 60 seconds after it was hidden, and
+bringing the page forward resumes it. With no open window, or none that accepts within three
+seconds, the worker opens the route exactly as before.
+
+Residual, accepted: a page loaded before this change never accepts, so its tap waits three seconds
+and then opens the route; in the WebAPK that route may still replace the open document. Pages
+reload into current code when idle (ADR-018), so this lasts only while an older collaboration stays
+open.
 
 ---
 

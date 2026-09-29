@@ -3,6 +3,7 @@ import {
   MAX_SESSIONS,
   PUSH_API_VERSION,
   parseLaunchResponse,
+  parseNotificationData,
   parseNotificationRoute,
   parsePushConfigResponse,
   parsePushSubscriptionRequest,
@@ -150,6 +151,7 @@ interface ActiveCollabShell {
   readonly instanceId: string;
   readonly generation: number;
   readonly openedRequestId?: string;
+  readonly mode: LaunchMode;
   readonly connectionChip: HTMLElement;
   readonly triageBar: HTMLElement;
   readonly shell: HTMLElement;
@@ -317,9 +319,41 @@ function applyActivatedWorkerUpdate(): void {
   location.reload();
 }
 
+function isNotificationRouteRequest(value: unknown): value is { readonly data: unknown } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 3 &&
+    keys.includes("type") &&
+    keys.includes("version") &&
+    keys.includes("data") &&
+    record.type === "omp-notification-route" &&
+    record.version === PUSH_API_VERSION
+  );
+}
+
+/**
+ * The worker hands a tapped notification to this page instead of navigating it, so a live
+ * collaboration is never reloaded. The intent takes the same path as a routed load: fresh directory
+ * metadata, exact generation or request, then an in-place launch.
+ */
+function acceptNotificationRoute(event: MessageEvent): void {
+  if (!isNotificationRouteRequest(event.data)) return;
+  const intent = parseNotificationData(event.data.data);
+  if (intent === undefined) return;
+  event.ports[0]?.postMessage({ type: "omp-notification-route-accepted", version: PUSH_API_VERSION });
+  pendingNotificationLaunch = intent;
+  pendingNotificationRoute = true;
+  notificationRouteStatusLocked = true;
+  void refreshAndConnect();
+}
+
 async function initializeApplicationWorker(): Promise<ServiceWorkerRegistration | undefined> {
   if (!isSecureContext || !("serviceWorker" in navigator)) return undefined;
   const serviceWorker = navigator.serviceWorker;
+  serviceWorker.addEventListener("message", acceptNotificationRoute);
+  serviceWorker.startMessages();
   let currentController = serviceWorker.controller;
   serviceWorker.addEventListener("controllerchange", () => {
     const nextController = serviceWorker.controller;
@@ -1806,6 +1840,7 @@ function enterCollabClient(
     instanceId: session.instanceId,
     generation: session.generation,
     ...(requestId === undefined ? {} : { openedRequestId: requestId }),
+    mode,
     connectionChip: connection,
     triageBar,
     shell,
@@ -2126,7 +2161,17 @@ async function resolvePendingNotificationRoute(): Promise<void> {
   const pending = pendingNotificationLaunch;
   pendingNotificationLaunch = undefined;
   const session = pending === undefined ? undefined : sessions.get(pending.instanceId);
+  // A tap for the collaboration this page already shows keeps it: an activity stop never
+  // downgrades Control to View, and an attention tap relaunches only to gain Control.
+  const shell = activeCollabShell;
+  const shown =
+    shell !== undefined &&
+    session !== undefined &&
+    shell.instanceId === session.instanceId &&
+    shell.generation === session.generation;
   if (pending?.kind === "activity_stop" && session?.generation === pending.generation && session.canView) {
+    if (shown) return;
+    if (shell !== undefined) showTriageBar(shell, "sending", "Opening view…");
     await launch(session, "view");
   } else if (
     pending?.kind === "attention" &&
@@ -2134,7 +2179,13 @@ async function resolvePendingNotificationRoute(): Promise<void> {
     session.inputRequired &&
     session.canControl
   ) {
+    if (shown && shell.mode === "control") return;
+    if (shell !== undefined) showTriageBar(shell, "sending", "Opening control…");
     await launch(session, "control", undefined, pending.requestId);
+  } else if (shell !== undefined) {
+    // The collaboration stays open. The directory banner is hidden behind it, so say so in the
+    // triage bar, unless that bar already holds a live prompt such as Hold for the open ask.
+    if (shell.triageBar.hidden) showTriageBar(shell, "clear", "That alert changed or expired.", "Sessions", returnToDirectory);
   } else {
     setStatus("expired", "That notification changed or expired. Choose a current session.");
     applyActivatedWorkerUpdate();

@@ -66,12 +66,15 @@ Android/background-Push qualification.
 
 Permission is requested only from the explicit Settings action. The worker replaces one
 notification per instance, closes only the matching request on clear, and updates the app badge.
-A tap opens `/collab/:instanceId?request=:requestId`, scrubs the route, and launches Control only
-after current authenticated metadata confirms that exact ask; the launch POST also revalidates
-generation. Physical background qualification must cover a closed PWA, lock-screen detail,
-tap-to-Control, stale/cleared notifications, force-stop, permission revocation, lock/resume,
-battery policy, and Wi-Fi/cellular transitions. Passed core Android smoke does not qualify this
-background-alert matrix.
+A tap never navigates an open window: in the WebAPK a live `/client/` page reports `/`, and a
+navigation reloaded it. The worker focuses the open page and hands it the notification data, and the
+page launches Control in place only after current authenticated metadata confirms that exact ask; a
+tap for the collaboration already open keeps it. With no open page, the tap opens
+`/collab/:instanceId?request=:requestId` and the app scrubs the route first. The launch POST also
+revalidates generation. Physical background qualification must cover a closed PWA, lock-screen
+detail, tap-to-Control, a tap during an open collaboration, stale/cleared notifications,
+force-stop, permission revocation, lock/resume, battery policy, and Wi-Fi/cellular transitions.
+Passed core Android smoke does not qualify this background-alert matrix.
 
 ## Browser-process recovery and physical qualification
 

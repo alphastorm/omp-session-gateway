@@ -246,9 +246,11 @@ pair, bounded browser subscription set, authenticated identity, and per-device `
 uses the fixed title and no body; `session` may add bounded session/project labels; `preview` may
 also add a bounded preview but falls back to `session` until such data is available. The UI must
 warn that visible notification text can persist in notification history, screenshots, and
-wearables. A tap routes through `/collab/:instanceId?request=:requestId`, fetches a current
-authenticated snapshot, requires the exact current attention identity and Control availability,
-and then uses the existing generation-bound no-store launch POST. Activity-stop notification data
+wearables. A tap hands the notification's metadata-only data to an open same-origin page over a
+worker `MessageChannel`, or opens `/collab/:instanceId?request=:requestId` when no page accepts.
+Either way the page fetches a current authenticated snapshot, requires the exact current attention
+identity and Control availability, and then uses the existing generation-bound no-store launch
+POST; the worker never navigates an open page. Activity-stop notification data
 contains only version, type, instance ID, and generation. Its strict route is scrubbed before
 networking and resolves only to View for that same generation after authentication; it carries no
 request ID and cannot be used as an ask/Control intent. Stop detail obeys the same server-side

@@ -48,6 +48,7 @@ interface FakeWindowClient {
   readonly url: string;
   focus(): Promise<unknown>;
   navigate?(path: string): Promise<FakeWindowClient | null>;
+  postMessage?(message: unknown, transfer: readonly MessagePort[]): void;
 }
 
 const clientState = {
@@ -451,63 +452,102 @@ describe("notification service worker", () => {
     await clearing;
   });
 
-  test("routes a valid alert to same-origin Control bootstrap and never focuses a client page", async () => {
-    let dashboardFocuses = 0;
-    let clientFocuses = 0;
+  function tap(data?: unknown): Promise<void> {
+    let completion: Promise<void> | undefined;
+    let closed = 0;
+    listener("notificationclick")({
+      notification: { close(): void { closed += 1; }, ...(data === undefined ? {} : { data }) },
+      waitUntil(promise: Promise<void>): void { completion = promise; },
+    });
+    expect(closed).toBe(1);
+    return completion ?? Promise.reject(new Error("notificationclick did not extend its lifetime"));
+  }
+
+  async function flushMicrotasks(): Promise<void> {
+    for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+  }
+
+  const attentionData = {
+    version: 2,
+    type: "attention",
+    instanceId: "push-instance-000001",
+    requestId: "push-request-identity-0001",
+  };
+  const attentionRoute = "/collab/push-instance-000001?request=push-request-identity-0001";
+
+  test("hands a tap to the open page, which Chromium reports by creation URL, and never navigates it", async () => {
+    // A live `/client/` collaboration still reports the `/` it was created at (Chrome 154 WebAPK),
+    // so the worker cannot tell it from an idle directory and must never navigate either.
+    const posted: unknown[] = [];
+    let focuses = 0;
     clientState.windows = [
       {
-        url: "https://sessions.example/client/",
-        async focus(): Promise<unknown> {
-          clientFocuses += 1;
-          return this;
-        },
+        url: "https://other.example/",
+        async focus(): Promise<unknown> { throw new Error("cross-origin client must not be focused"); },
+        postMessage(): void { throw new Error("cross-origin client must not be messaged"); },
       },
       {
-        url: "https://other.example/",
-        async focus(): Promise<unknown> {
-          throw new Error("cross-origin client must not be focused");
+        url: "https://sessions.example/",
+        async focus(): Promise<unknown> { focuses += 1; return this; },
+        async navigate(path: string): Promise<FakeWindowClient> { clientState.navigated.push(path); return this; },
+        postMessage(message: unknown, transfer: readonly MessagePort[]): void {
+          posted.push(message);
+          transfer[0]?.postMessage({ type: "omp-notification-route-accepted", version: 2 });
         },
       },
       {
         url: "https://sessions.example/",
-        async focus(): Promise<unknown> {
-          dashboardFocuses += 1;
-          return this;
-        },
-        async navigate(path: string): Promise<FakeWindowClient> {
-          clientState.navigated.push(path);
-          return this;
-        },
+        async focus(): Promise<unknown> { throw new Error("only the most recently focused page is asked"); },
       },
     ];
     clientState.matchOptions.length = 0;
     clientState.opened.length = 0;
     clientState.navigated.length = 0;
-    let closed = 0;
-    let completion: Promise<void> | undefined;
-    listener("notificationclick")({
-      notification: {
-        close(): void { closed += 1; },
-        data: {
-          version: 2,
-          type: "attention",
-          instanceId: "push-instance-000001",
-          requestId: "push-request-identity-0001",
-        },
-      },
-      waitUntil(promise: Promise<void>): void { completion = promise; },
-    });
-    await completion;
 
-    expect(closed).toBe(1);
+    await tap(attentionData);
+
     expect(clientState.matchOptions).toEqual([{ type: "window", includeUncontrolled: true }]);
-    expect(dashboardFocuses).toBe(1);
-    expect(clientFocuses).toBe(0);
+    expect(focuses).toBe(1);
+    expect(posted).toEqual([{ type: "omp-notification-route", version: 2, data: attentionData }]);
+    expect(clientState.navigated).toEqual([]);
     expect(clientState.opened).toEqual([]);
-    expect(clientState.navigated).toEqual([
-      "/collab/push-instance-000001?request=push-request-identity-0001",
-    ]);
     expect(fetched).toEqual([]);
+  });
+
+  test("opens the route when the open page does not accept it, and still never navigates", async () => {
+    // A page still running a release without in-place routing never answers.
+    for (const reply of [undefined, { type: "omp-notification-route-accepted", version: 1 }]) {
+      clientState.windows = [{
+        url: "https://sessions.example/",
+        async focus(): Promise<unknown> { return this; },
+        async navigate(path: string): Promise<FakeWindowClient> { clientState.navigated.push(path); return this; },
+        postMessage(_message: unknown, transfer: readonly MessagePort[]): void {
+          if (reply !== undefined) transfer[0]?.postMessage(reply);
+        },
+      }];
+      clientState.opened.length = 0;
+      clientState.navigated.length = 0;
+
+      const completion = tap(attentionData);
+      await flushMicrotasks();
+      if (reply === undefined) {
+        jest.advanceTimersByTime(2_999);
+        await flushMicrotasks();
+        expect(clientState.opened).toEqual([]);
+        jest.advanceTimersByTime(1);
+      }
+      await completion;
+
+      expect(clientState.opened).toEqual([attentionRoute]);
+      expect(clientState.navigated).toEqual([]);
+    }
+  });
+
+  test("opens the route when no page is open", async () => {
+    clientState.windows = [];
+    clientState.opened.length = 0;
+    await tap(attentionData);
+    expect(clientState.opened).toEqual([attentionRoute]);
   });
 
   test("a notification API failure does not block later push delivery", async () => {
@@ -593,21 +633,12 @@ describe("notification service worker", () => {
     expect(cachePuts).toEqual([]);
   });
 
-  test("stop clicks open a generation-bound route without disturbing active collaboration", async () => {
-    clientState.windows = [{
-      url: "https://sessions.example/client/",
-      async focus(): Promise<unknown> { throw new Error("active client must not be focused"); },
-      async navigate(): Promise<null> { throw new Error("active client must not navigate"); },
-    }];
+  test("stop taps open only an exact generation-bound route, and malformed data opens the directory", async () => {
+    clientState.windows = [];
     clientState.opened.length = 0;
     const valid = { version: 2, type: "activity_stop", instanceId: "push-activity-000001", generation: 3 };
     for (const data of [valid, { ...valid, requestId: "extra-request-00001" }, { ...valid, generation: 0 }]) {
-      let completion: Promise<unknown> | undefined;
-      listener("notificationclick")({
-        notification: { data, close(): void {} },
-        waitUntil(promise: Promise<unknown>): void { completion = promise; },
-      });
-      await completion;
+      await tap(data);
     }
     expect(clientState.opened).toEqual([
       "/collab/push-activity-000001?activity=stopped&generation=3", "/", "/",
@@ -615,28 +646,23 @@ describe("notification service worker", () => {
     expect(fetched).toEqual([]);
   });
 
-  test("opens only the root dashboard when focus fails", async () => {
-    clientState.windows = [
-      {
-        url: "https://sessions.example/",
-        async focus(): Promise<unknown> {
-          throw new Error("focus rejected");
-        },
-      },
-      {
-        url: "https://sessions.example/client/",
-        async focus(): Promise<unknown> {
-          throw new Error("client must not be focused");
-        },
-      },
-    ];
+  test("a tap without valid data only brings the open page forward, or opens the directory", async () => {
+    let focuses = 0;
+    clientState.windows = [{
+      url: "https://sessions.example/",
+      async focus(): Promise<unknown> { focuses += 1; return this; },
+      postMessage(): void { throw new Error("malformed data must not reach a page"); },
+    }];
     clientState.opened.length = 0;
-    let completion: Promise<void> | undefined;
-    listener("notificationclick")({
-      notification: { close(): void {} },
-      waitUntil(promise: Promise<void>): void { completion = promise; },
-    });
-    await completion;
+    await tap();
+    expect(focuses).toBe(1);
+    expect(clientState.opened).toEqual([]);
+
+    clientState.windows = [{
+      url: "https://sessions.example/",
+      async focus(): Promise<unknown> { throw new Error("focus rejected"); },
+    }];
+    await tap({ version: 2, type: "attention", instanceId: "push-instance-000001" });
     expect(clientState.opened).toEqual(["/"]);
     expect(fetched).toEqual([]);
   });

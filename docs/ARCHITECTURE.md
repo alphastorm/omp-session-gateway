@@ -104,11 +104,14 @@ An explicit Settings-sheet action enables background Web Push. Permission is nev
 The gateway sends strict Push v2 attention/clear and activity-stop envelopes with bounded identity and a
 bounded pending count. Private detail uses a fixed title with no body; Session (the default) adds
 bounded session/project labels. Preview falls back to Session because stock OMP supplies no ask
-preview. Visible text may persist in notification history, screenshots, or wearables. A tap opens
-`/collab/:instanceId?request=:requestId`, synchronously scrubs the route, and revalidates the exact
-current ask and Control availability. Valid taps use the ordinary generation-bound, no-store,
-in-memory launch flow; stale taps remain on the directory. Background delivery remains best effort
-and outside the v0.4.0 qualified core matrix.
+preview. Visible text may persist in notification history, screenshots, or wearables. A tap never
+navigates an open window: the worker focuses the most recently focused one and posts it the
+notification's metadata-only data, and the page revalidates the exact current ask or generation
+in place, keeping a collaboration already open at the tapped authority. With no open window, or
+none that accepts within three seconds, it opens `/collab/:instanceId?request=:requestId`, which
+the app synchronously scrubs before the same revalidation (ADR-017 amendment). Valid taps use the
+ordinary generation-bound, no-store, in-memory launch flow; stale taps never launch. Background
+delivery remains best effort and outside the v0.4.0 qualified core matrix.
 
 The registry alone detects known busy-to-idle edges on a continuing identity/generation. Retained
 polls remove only activity knowledge without extending TTL. Its private stop event shares the

@@ -8,9 +8,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Decide notification-click window reuse: the worker picks a "dashboard" window by `client.url`,
-  which Chromium reports as the creation URL, so a live `/client/` page can be navigated to the
-  notification route. Settle the Android WebAPK single-window behavior before changing it.
 - Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
