@@ -109,6 +109,14 @@ async function loadAccess(epoch: string): Promise<Access> {
   try { return JSON.parse(text) as Access; }
   catch { throw new Error("qualification vault is malformed"); }
 }
+/**
+ * The epoch's vault, or undefined once cleanup has removed it. Cleanup removes the vault only after the
+ * Pixel is restored and the VM is gone, so a repeated cleanup finds nothing left to restore.
+ */
+async function existingAccess(epoch: string): Promise<Access | undefined> {
+  try { return await loadAccess(epoch); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}
 
 /** Failure text is independent of HTTP bodies, which can contain credentials and identifiers. */
 async function request<T>(url: string, headers: Record<string, string>, method = "GET", body?: unknown): Promise<T | undefined> {
@@ -287,9 +295,9 @@ export async function createWindowsRuntime(options: { development?: boolean } = 
     throw new Error(`${name} timed out`);
   };
   const restorePixel = async (context: WindowsContext) => {
-    const access = await loadAccess(context.epoch);
-    const baseline = access.pixelState;
-    if (!baseline) return;
+    const access = await existingAccess(context.epoch);
+    const baseline = access?.pixelState;
+    if (!access || !baseline) return;
     try {
     const serial = await requireSingleDevice();
     if (serial !== baseline.serial) throw new Error("Pixel changed during Windows attempt");
@@ -574,12 +582,12 @@ export async function windowsDevelopmentCli(args: readonly string[]): Promise<vo
     try {
       await writeFile(join(lock, "owner"), `WindowsLane ${new Date().toISOString()} ${epoch} ${process.pid}\n`, { mode: 0o600 });
       const result = await action();
-      if ((await loadAccess(epoch)).pixelState) throw new Error("Pixel restoration incomplete; owned lease retained for cleanup");
+      if ((await existingAccess(epoch))?.pixelState) throw new Error("Pixel restoration incomplete; owned lease retained for cleanup");
       return result;
     } finally {
       // Never hand an unrestored phone to the other lane. Only cleanup may recover
       // this exact epoch's lease after the owning controller process has exited.
-      if (!(await loadAccess(epoch)).pixelState) await rm(lock, { recursive: true });
+      if (!(await existingAccess(epoch))?.pixelState) await rm(lock, { recursive: true });
     }
   };
   if (mode === "cleanup") { console.log(JSON.stringify(await cleanupWindows({ identity, progress, checkpoint, pixel, runtime }))); return; }

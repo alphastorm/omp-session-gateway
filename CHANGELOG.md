@@ -25,6 +25,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - Qualification's provider reads retry a 5xx five times over about half a minute instead of three
   times over six seconds. Vultr answered 502 to all three reads of one staging lookup, which failed
   a development Windows run with its VM healthy.
+- Windows qualification cleanup no longer fails after the lane's reboots when Windows has reused
+  the stored OMP process ID: an ID that names another executable means OMP already exited, and that
+  process is left alone. Cleanup can also be repeated after a completed teardown, where it failed
+  restoring the Pixel from the removed vault and left the shared Pixel lock behind.
 
 ## [v0.7.0] — 2026-09-29
 

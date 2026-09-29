@@ -60,3 +60,16 @@ test.skipIf(!WINDOWS)("a failing native call names its step, or its executable w
   );
   expect(result.stdout.split(/\r?\n/u)).toEqual(["native command failed: bun-install exit 3", "native command failed: cmd.exe exit 2"]);
 }, 60_000);
+
+test.skipIf(!WINDOWS)("stopping OMP leaves a process that reused its stored ID and reports it stopped", async () => {
+  const result = await runGuest(
+    "",
+    `$other = Start-Process -FilePath ping.exe -ArgumentList @('-n', '60', '127.0.0.1') -PassThru -WindowStyle Hidden
+try {
+  $stopped = . '${guestScript}' @{ action = 'stopOmp'; epoch = '00000000-0000-0000-0000-000000000000'; login = 'owner@example.invalid'; ompPid = $other.Id; ompPath = 'C:\\omp-winqual-absent\\omp.exe' }
+  $stopped + ' alive=' + (-not $other.HasExited)
+} finally { Stop-Process -Id $other.Id -Force -ErrorAction SilentlyContinue }`,
+  );
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toBe('{"stopped":true} alive=True');
+}, 60_000);
