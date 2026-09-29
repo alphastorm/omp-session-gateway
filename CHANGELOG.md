@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.7.1] — 2026-09-30
+
+Tapping a notification no longer reloads an open collaboration or reopens it as View, a session
+list left in the background no longer keeps the phone waking for live-update keepalives, and the
+gateway releases event streams that stop reading. The other changes are qualification tooling and
+evidence; the OMP engineering baseline stays v18.4.2.
+
 ### Added
 
 - Add an isolated, bounded synthetic endurance command with scheduled metadata changes and host
