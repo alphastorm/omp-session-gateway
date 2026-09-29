@@ -356,6 +356,73 @@ Initial targets, to revise with measurements:
 - daemon idle memory < 100 MiB including embedded static assets;
 - no unbounded event/listener/history growth during 8-hour soak.
 
+### Isolated synthetic endurance measurement
+
+`bun run qualify:endurance` starts the working-tree daemon with private, temporary config/state/
+runtime and discovery directories, development loopback identity, and a non-4317 port. It never
+installs a service, reads the real OMP discovery directory, contacts a relay, or uses a device.
+Build the static assets first; use a **new** output directory and summary filename for each run:
+
+```sh
+bun run build
+bun run qualify:endurance --hosts 50 --subscribers 4 --duration-seconds 28800 \
+  --sample-seconds 15 --poll-seconds 10 --metadata-seconds 30 --churn-seconds 120 \
+  --launch-seconds 4 --port 4319 --output /tmp/omp-gateway-endurance-8h \
+  > /tmp/omp-gateway-endurance-8h-summary.json
+```
+
+The reusable `scripts/synthetic-hosts.ts` also supplies the weekly capacity workflow. Its CLI
+retains the original 1–50 host bound, private discovery files/sockets, authenticated snapshots,
+and unavailable links. The endurance runner uses its opt-in, distinctively synthetic View links.
+Title/activity revisions retain their generation and session identity. Churn revokes and withdraws
+one host before publishing a new instance at generation 1; this is not a same-instance generation
+reset. No capabilities or raw HTTP/SSE bodies are retained in evidence.
+
+The endurance run holds all SSE subscribers open and exercises these independent measurements:
+
+- View launch p50/p95/p99/max/count/failures, distributed across the run and hosts. Launches are at
+  least four seconds apart to stay below the real per-identity 20/minute rate limit, without retries.
+- Metadata-change-to-SSE-receipt latency **including discovery wait**, and
+  `snapshotReplyToReceipt` latency separately. The latter starts immediately before the host writes
+  the first matching successful snapshot reply; the matching event proves it was consumed. It
+  includes IPC, poll-round reconciliation and loopback delivery, **not** the discovery timer wait.
+  This is a host-reply proxy, not instrumentation of the daemon's exact poll-completion instant and
+  not phone/browser/Tailscale latency. The configured poll interval is reported independently.
+- Daemon RSS (KiB), cumulative CPU seconds and open numeric file descriptors (Linux `/proc`, macOS
+  `ps` plus `lsof` when available): start/end/min/max/mean and least-squares slope per elapsed second.
+  A separate idle sample precedes host registration. The CSV records actual sample times on a fixed
+  cadence, plus an end sample; missed ticks are not fabricated. FD availability is explicit.
+- Session membership, every raw list/SSE JSON body's forbidden fields, repository capability leak
+  patterns, decoded known secret values, and the synthetic capability canary. Every scheduled
+  metadata revision must reach every subscriber. A churn window allows only one missing host and
+  must converge on all subscribers within twice the poll interval plus five seconds.
+
+The JSON summary on stdout has numeric leaves only. `samples.csv` is the only file written to
+the evidence directory; daemon logs, replies, socket credentials and private state are not copied.
+At the above cadence an eight-hour run normally has 1,921 CSV rows: expect roughly 0.2 MiB of CSV
+and a few KiB of JSON; reserve 1 MiB for evidence, plus a few MiB of transient private state
+(excluding the existing build/dependencies). SIGINT/SIGTERM and correctness failures close the
+streams, stop the daemon/hosts and remove the private root while preserving numeric samples.
+
+Bounds: hosts 1–100, subscribers 1–32, duration 30–86,400 seconds, samples 1–300 seconds, polls
+2–60 seconds, metadata 6–3,600 seconds, churn 0 (disabled) or 6×poll–3,600 seconds, launches
+4–300 seconds, port 1,024–65,535 except 4317. Metadata and duration must span at least three polls;
+sample/launch intervals cannot exceed duration. Other defaults are the command above, except a
+300-second duration and a newly named output directory.
+
+Correctness failures exit nonzero, independently of performance targets. `correctness.failureCode`
+is 0 on success; 1 arguments, 2 platform/build prerequisite, 3 output/root/port setup, 4 daemon
+death/readiness, 5 host/list membership, 6 SSE protocol/leak/disconnect, 7 delivery/churn deadline,
+8 launch, 9 resource sampling, 10 signal, or 11 teardown. No caught error or response is echoed.
+Percentiles are nearest-rank millisecond upper bounds; maxima retain the measured precision.
+Target flags use 1/0 for pass/fail, and -1 for unmeasured or no numerical verdict. Launch p95 and
+idle memory use the targets above; CPU uses an explicit provisional <1% of one core comparison
+to make “material” inspectable, not a release gate. No numerical metadata budget is invented.
+An eight-hour window and RSS/FD slopes are external growth evidence only: internal listener/event/
+history counts are not measured, so this tool cannot by itself declare unbounded growth absent.
+Performance flags never cause a failing exit. The weekly capacity lane remains the shorter,
+static-host, list-only CPU/RSS measurement; it does not become an SSE/launch or endurance claim.
+
 These remain targets, not measurements. For v0.4.0, the founder-approved fresh 1,800-second
 relay gate passed; eight-hour endurance is **not rerun or claimed**, prolonged-operation risk is
 accepted, and bounded memory growth is not established. See the [release ledger](RELEASE_STATUS.md).

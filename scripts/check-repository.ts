@@ -64,6 +64,8 @@ const nonProviderFetches: Readonly<Record<string, readonly string[]>> = {
   "android-push-runtime.ts": ['`${identity.origin}/api/v1/sessions`', "'/api/v1/sessions'", "'/api/v1/sessions/'+${JSON.stringify(fixture.instanceId)}+'/launch'"],
   "browser-journey.ts": ['"/api/v1/sessions"', '"/api/v1/sessions/" + target.instanceId + "/launch"'],
   "device-cloud-runtime.ts": ['`${origin}/`', '`${origin}/api/v1/sessions`', '`${origin}/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`'],
+  // Single-shot latency and stream measurements of the isolated loopback gateway; a retry would skew them.
+  "gateway-endurance.ts": ['`${base}${path}`', '`${base}/api/v1/events`'],
   "post-release-smoke.ts": ['`${config.http.publicOrigin}/api/v1/sessions`', '`http://127.0.0.1:${port}/json/list`'],
   "relay-soak.ts": ['`${config.gatewayOrigin}/api/v1/sessions`', '`${config.gatewayOrigin}/api/v1/sessions/${encodeURIComponent(session.instanceId)}/launch`'],
   "stable-qualification.ts": ['`${origin}/api/v1/sessions`', '`${origin}/api/v1/sessions/${encodeURIComponent(instanceId)}/launch`', '`http://127.0.0.1:${port}/api/v1/health`'],

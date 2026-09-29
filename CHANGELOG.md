@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add an isolated, bounded synthetic endurance command with scheduled metadata changes and host
+  churn, sustained SSE subscribers, View launch and delivery latency distributions, and daemon
+  CPU/RSS/descriptor trends. Numeric-only evidence and shared metadata leak checks keep capabilities
+  out of artifacts; the weekly capacity workflow reuses the extracted discovery host fixture.
+  Eight-hour targets remain unmeasured and do not become release-qualification claims.
+
 ### Fixed
 
 - SSE streams that stop reading now release their subscription and keepalive timer when the queue
