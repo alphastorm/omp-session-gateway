@@ -1,17 +1,18 @@
 # Upgrade and rollback lane
 
-## v0.7.0 predecessor compatibility
+## v0.7.1 predecessor compatibility
 
-The selected predecessor is published v0.6.3. Gateway rollback does not change the separately
-running OMP process. Rolling back restores v0.6.3's embedded collaboration client, built from OMP
-18.3.0's `collab-web` with React's development build, and its zoom into the composer when iOS
-Safari focuses it on an iPad or a landscape phone (#305). On Windows, v0.6.3 reads any
-scheduled-task query failure other than a missing task as a stopped gateway, so its `status`,
-`stop`, readiness-token rotation, `install --no-start`, and `uninstall` can act on a running
-gateway as if it had stopped (#301). Both versions install and run from a standard (non-elevated)
-Windows account. After a v0.7.0 install, `rollback --to` can select only the runtimes pruning
-retained. v0.6.2, further back, cannot be installed or run from a standard Windows account (#293,
-#294), and v0.6.0 cannot enable background alerts on iPhone or iPad (#274).
+The selected predecessor is published v0.7.0. Gateway rollback does not change the separately
+running OMP process. Both versions embed the same OMP 18.4.2 collaboration client. Rolling back
+restores v0.7.0's notification taps, which navigate an open page to the tapped route: in the
+installed Android app that reloads a live collaboration, drops its unsent composer text, and lets
+an activity-stop tap reopen a Control session as View (#327). It also restores a session list that
+keeps its live-update stream open while frozen in the background (#328), and a gateway that can
+hold an event stream whose client stopped reading (#321). After a v0.7.1 install, `rollback --to`
+can select only the runtimes pruning retained. v0.6.3, further back, embeds OMP 18.3.0's
+collaboration client and on Windows reads a failed scheduled-task query as a stopped gateway
+(#301); v0.6.2 cannot be installed or run from a standard Windows account (#293, #294), and v0.6.0
+cannot enable background alerts on iPhone or iPad (#274).
 
 ## Staged-runtime retention from v0.5.2
 
