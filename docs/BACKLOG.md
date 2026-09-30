@@ -8,8 +8,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify and publish v0.7.1, which routes notification taps into the open page and releases
-  frozen and stalled live-update streams.
 - Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
