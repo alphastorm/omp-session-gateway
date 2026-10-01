@@ -9,6 +9,7 @@ import { runAdb, parseAndroidPackageVersion, readAndroidQualificationPin, requir
 import { downloadReleaseAssets } from "./release-download.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
+import { isSupportedOmpVersion, parseOmpVersion } from "./upstream-canary.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
 import { pixelUnrestored } from "./restoration.ts";
 import { createOmpStdinDriver, OmpLifecycleFailure, runOmpLifecycle, type OmpLifecycleEvidence, type OmpLifecycleHost, type OmpSessionWait } from "./omp-lifecycle-qualification.ts";
@@ -1105,12 +1106,12 @@ export async function qualifyDebian(
 
 export function parseQualificationPins(text: string): OmpPins {
   const value: unknown = JSON.parse(text);
-  if (!isRecord(value) || !isRecord(value.darwinArm64Native)) throw new Error("OMP qualification pin is invalid");
+  if (!isRecord(value) || !isRecord(value.darwinArm64Native) || !isRecord(value.packageVersions)) throw new Error("OMP qualification pin is invalid");
   const pins = {
     bunVersion: value.bunVersion,
     sourceCommit: value.commit,
     sourceTree: value.tree,
-    version: value.packageVersion,
+    version: value.packageVersions["@oh-my-pi/pi-coding-agent"],
     nativeTarballSha256: value.darwinArm64Native.tarballSha256,
     nativeBinarySha256: value.darwinArm64Native.binarySha256,
   };
@@ -1119,7 +1120,7 @@ export function parseQualificationPins(text: string): OmpPins {
     typeof pins.sourceCommit !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) ||
     typeof pins.sourceTree !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceTree) ||
     typeof pins.version !== "string" || !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.version) ||
-    !Bun.semver.satisfies(pins.version, ">=18.1.20") ||
+    pins.version !== value.packageVersion || !isSupportedOmpVersion(pins.version) ||
     typeof pins.nativeTarballSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeTarballSha256) ||
     typeof pins.nativeBinarySha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeBinarySha256)
   ) {
@@ -1254,19 +1255,25 @@ export async function preflightStableQualification(
       'ifconfig | python3 -c ' + shellQuote('import sys; assert "inet6 fd7a:115c:a1e0:" in sys.stdin.read()'),
       '/usr/sbin/sysctl -n hw.model',
       'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip("."); print(s["DNSName"].rstrip("."))'),
+      'omp_version="$(omp --version </dev/null 2>/dev/null)" || omp_version=MISSING',
+      'printf "%s\\n" "${omp_version:-MISSING}"',
     ].join("; ");
     const result = (await runtime.output([
       "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
       "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
       "-o", "BatchMode=yes", "-q", target.sshDestination, "/bin/bash -c " + shellQuote(probe),
     ])).trim();
-    const [hardware, dnsName, extra] = result.split(/\r?\n/u);
-    if (extra !== undefined || dnsName === undefined || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
-      throw new Error("retained Mac probe did not return its model and tailnet DNS name");
+    const [hardware, dnsName, ompBanner, extra] = result.split(/\r?\n/u);
+    if (extra !== undefined || dnsName === undefined || ompBanner === undefined || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
+      throw new Error("retained Mac probe did not return exactly its model, tailnet DNS name and OMP version banner");
     }
-    return { hardware, dnsName };
+    return { hardware, dnsName, ompBanner };
   });
   assertMacHardware(macProbe.hardware, options.macModel);
+  const installedOmpVersion = parseOmpVersion(macProbe.ompBanner);
+  if (installedOmpVersion === undefined || !isSupportedOmpVersion(installedOmpVersion)) {
+    throw new Error(`Stable preflight: Mac requires stock OMP >=18.1.20 on PATH for doctor compatibility; install it with: bun add --global --exact @oh-my-pi/pi-coding-agent@${ompPins.version}`);
+  }
   const macOrigin = `https://${macProbe.dnsName}`;
   const laneContext: ExternalLanePreflightContext = { environment: runtime.environment, serial, omp: ompPins, macOrigin };
   for (const [name, lane] of [

@@ -24,6 +24,9 @@
 #   - The pinned Bun in ~/.bun/bin and the lane's tools on PATH for that user.
 #     Remote blocks use a fixed system/admin-first PATH, including /opt/homebrew/bin, before
 #     the account's Bun and Go tools; hardware is measured with /usr/sbin/sysctl.
+#   - Stock OMP >=18.1.20 on that PATH, required by doctor's compatibility check before omp-build.
+#     Install the coding-agent package version pinned in UPSTREAM.lock.json with
+#     bun add --global --exact @oh-my-pi/pi-coding-agent@<pin> as the qualification account.
 #   - Tailscale running its **TUN-mode** client, joined as a **user-owned** node.
 #
 # That last requirement is the whole reason the earlier attempt failed, and the correction is worth
@@ -87,7 +90,9 @@ import sys
 with open(sys.argv[1]) as source:
     lock = json.load(source)
 native = lock["darwinArm64Native"]
-values = [lock["commit"], lock["tree"], lock["packageVersion"], lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
+omp_version = lock["packageVersions"]["@oh-my-pi/pi-coding-agent"]
+assert omp_version == lock["packageVersion"], "inconsistent OMP package pin"
+values = [lock["commit"], lock["tree"], omp_version, lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
 patterns = [r"[0-9a-f]{40}", r"[0-9a-f]{40}", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9a-f]{64}", r"[0-9a-f]{64}"]
 assert all(isinstance(value, str) and re.fullmatch(pattern, value) for value, pattern in zip(values, patterns)), "invalid OMP upstream lock"
 print(*values)
@@ -214,7 +219,7 @@ preflight() {
   need_command shasum
   need_command scp
 
-  remote <<'REMOTE' || die "cannot reach the host over SSH, or its shell rejected the probe."
+  remote <<'REMOTE' || die "Mac host prerequisite probe failed; no lane was run."
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 show "host" "$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
@@ -228,6 +233,15 @@ if [ "$actual_bun" != "$BUN_VERSION" ]; then
   printf 'Mac qualification requires Bun %s; found %s. Update the retained host before running lanes.\n' "$BUN_VERSION" "$actual_bun" >&2
   exit 1
 fi
+actual_omp="$(omp --version </dev/null 2>/dev/null)" || actual_omp=""
+if ! printf '%s' "$actual_omp" | bun -e '
+  const version = /^(?:omp[ /])?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u.exec((await Bun.stdin.text()).trim())?.[1];
+  process.exit(version !== undefined && Bun.semver.satisfies(version, ">=18.1.20") ? 0 : 1);
+'; then
+  printf 'Mac qualification requires stock OMP >=18.1.20 on PATH for doctor compatibility; install it with: bun add --global --exact @oh-my-pi/pi-coding-agent@%s\n' "$OMP_VERSION" >&2
+  exit 1
+fi
+show "omp" "$actual_omp"
 show "sudo" "$(S true >/dev/null 2>&1 && echo available || echo UNAVAILABLE)"
 REMOTE
 

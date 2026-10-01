@@ -135,6 +135,40 @@ printf 'LANE_REACHED\\n'
   expect(result.stdout).not.toContain("LANE_REACHED");
 });
 
+test.skipIf(!POSIX).each([
+  ["missing", "MISSING"],
+  ["too old", "omp/18.1.19"],
+  ["prerelease", "omp/18.4.8-rc.1"],
+  ["malformed", "omp/18.4.8\nprivate-diagnostic"],
+] as const)("Mac preflight rejects %s stock OMP before sudo or any lane", async (_reason, banner) => {
+  const root = await mkdtemp(join(tmpdir(), "omp-mac-preflight-omp-"));
+  const effect = join(root, "unexpected-effect");
+  try {
+    const result = await runHarness(`
+set -euo pipefail
+source "$1"
+need_command() { :; }
+remote() { eval "$(cat)"; }
+bun() { if [ "$1" = --version ]; then printf '%s\n' "$BUN_VERSION"; else "$REAL_BUN" "$@"; fi; }
+omp() { [ "$OMP_BANNER" != MISSING ] || return 127; printf '%s\n' "$OMP_BANNER"; }
+sudo() { : >"$EFFECT_MARKER"; return 1; }
+tailscale() { return 1; }
+ifconfig() { return 1; }
+lane_install() { : >"$EFFECT_MARKER"; }
+PW=""
+main install
+`, [], { ...environment("a".repeat(64)), REAL_BUN: process.execPath, OMP_BANNER: banner, EFFECT_MARKER: effect });
+    const pins = JSON.parse(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("stock OMP >=18.1.20");
+    expect(result.stderr).toContain("bun add --global --exact @oh-my-pi/pi-coding-agent@" + pins.packageVersions["@oh-my-pi/pi-coding-agent"]);
+    expect(result.stdout + result.stderr).not.toContain("private-diagnostic");
+    expect(await Bun.file(effect).exists()).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(process.platform !== "darwin")("Mac host evidence ignores a sysctl planted in the account's Bun directory", async () => {
   const root = await mkdtemp(join(tmpdir(), "omp-mac-hardware-path-"));
   const home = join(root, "home");
@@ -149,9 +183,9 @@ test.skipIf(process.platform !== "darwin")("Mac host evidence ignores a sysctl p
       await writeFile(join(bin, command), "#!/bin/sh\nprintf '%s\\n' Mac99999,1\n: >\"$PLANTED_CALLED\"\n", { mode: 0o700 });
     }
     const pins = JSON.parse(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
-    const result = await runHarness("set -euo pipefail\nsource \"$1\"\nneed_command() { :; }\nbun() { printf '%s\\n' \"$EXPECTED_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nsudo() { return 0; }\nexport -f bun tailscale ifconfig sudo\nssh() { /bin/bash -c \"${!#}\"; }\npreflight", [], {
+    const result = await runHarness("set -euo pipefail\nsource \"$1\"\nneed_command() { :; }\nbun() { if [ \"$1\" = --version ]; then printf '%s\\n' \"$EXPECTED_BUN\"; else \"$REAL_BUN\" \"$@\"; fi; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nsudo() { return 0; }\nomp() { printf 'omp/18.1.20\\n'; }\nexport -f bun tailscale ifconfig sudo omp\nssh() { /bin/bash -c \"${!#}\"; }\npreflight", [], {
       ...environment("a".repeat(64)), HOME: home, PATH: bin + ":" + process.env.PATH,
-      EXPECTED_BUN: pins.bunVersion, PLANTED_CALLED: planted, OMP_MAC_SUDO_PW: "",
+      EXPECTED_BUN: pins.bunVersion, REAL_BUN: process.execPath, PLANTED_CALLED: planted, OMP_MAC_SUDO_PW: "",
     });
     expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" });
     expect(result.stdout.match(/^\s*hardware:\s+(\S+)/mu)?.[1]).toBe(model);

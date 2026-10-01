@@ -232,8 +232,14 @@ This target configuration is not qualification evidence for Mac17,14 or macOS 27
 The SSH account may be standard or administrator and must log in automatically after a reboot:
 the persistence lane measures its per-user LaunchAgent returning at **console login**, not boot
 without a login. On a bare-metal automatic-login host, FileVault must be off. The account needs
-Bun 1.4.0 in `~/.bun/bin`, the lane's command-line tools, and a user-owned TUN-mode Tailscale
-node. Remote commands use the fixed PATH
+Bun 1.4.0 in `~/.bun/bin`, **stock OMP >=18.1.20 on PATH**, the lane's command-line tools, and a
+user-owned TUN-mode Tailscale node. Doctor checks OMP compatibility during install, before the
+`omp-build` lane creates its separate pinned fixture. Install the stock coding-agent package as
+the qualification account, using `packageVersions["@oh-my-pi/pi-coding-agent"]` from
+`UPSTREAM.lock.json`; both preflights print the exact `bun add --global --exact` command when
+OMP is missing or unsupported, and refuse before staging or running any lane.
+
+Remote commands use the fixed PATH
 `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin`: system and
 admin-owned tools precede account-writable directories, and hardware probes call
 `/usr/sbin/sysctl` directly. Qualification does not provision these prerequisites or make the

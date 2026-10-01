@@ -386,7 +386,7 @@ describe("Mac receipt host ownership", () => {
         output: async command => {
           if (command[0] !== "ssh") return fixture.output(command);
           sshProbes += 1;
-          return "Mac14,3\nqualification-mac.example.ts.net";
+          return "Mac14,3\nqualification-mac.example.ts.net\nomp/18.1.20";
         },
       };
       const lane: ExternalLaneModule = {
@@ -530,7 +530,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
       if (invocation === "git ls-remote --exit-code origin refs/heads/fixture") return COMMIT + "\trefs/heads/fixture";
       if (command[0] === "ssh") {
         if (failure === "ssh") throw new Error("private-host private-credential");
-        return MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net";
+        return MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/" + pins.version;
       }
       throw new Error("fixture refuses a non-prerequisite command: " + invocation);
     },
@@ -608,6 +608,71 @@ describe("stable qualification read-only admission", () => {
     }
   });
 
+  test.each([
+    ["missing", "MISSING"],
+    ["too old", "omp/18.1.19"],
+    ["prerelease", "omp/18.4.8-rc.1"],
+    ["malformed", "omp/18.4.8 private-diagnostic"],
+  ] as const)("%s stock OMP refuses before lane admission, cleanup or receipts", async (_reason, banner) => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-omp-"));
+    try {
+      const fixture = await preflightFixture(root);
+      const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
+      let laneCalls = 0;
+      const refusal = async (): Promise<never> => { laneCalls += 1; throw new Error("unexpected lane effect"); };
+      const lane: ExternalLaneModule = { preflight: refusal, run: refusal, cleanup: refusal, needsCleanup: () => { laneCalls += 1; return true; } };
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        output: command => command[0] === "ssh"
+          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\n" + banner)
+          : fixture.output(command),
+      };
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, {
+        windows: lane, androidPush: lane, deviceCloud: lane, createPixelLease: () => createPixelLease(() => {}),
+      }));
+      expect(error).toContain("stock OMP >=18.1.20");
+      expect(error).toContain("bun add --global --exact @oh-my-pi/pi-coding-agent@" + pins.version);
+      expect(laneCalls).toBe(0);
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("stock OMP probe rejects additional output without leaking it or creating receipts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-omp-output-"));
+    try {
+      const fixture = await preflightFixture(root);
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        output: async command => (await fixture.output(command)) + (command[0] === "ssh" ? "\nprivate-diagnostic" : ""),
+      };
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, admissionLanes()));
+      expect(error).toContain("retained Mac SSH");
+      expect(error).not.toContain("private-diagnostic");
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("stock OMP at the compatibility minimum passes read-only admission", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-omp-minimum-"));
+    try {
+      const fixture = await preflightFixture(root);
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        output: command => command[0] === "ssh"
+          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/18.1.20")
+          : fixture.output(command),
+      };
+      expect((await runStableQualification(["--preflight", "--tag", TAG], runtime, admissionLanes())).status).toBe("preflight-passed");
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test.each(["windows", "androidPush", "deviceCloud"] as const)("%s lane admission failure stops normal qualification before receipts", async lane => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-lane-"));
     try {
@@ -654,7 +719,7 @@ describe("stable qualification read-only admission", () => {
       const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
       let probeBun = pins.bunVersion;
       // Test-only shell functions provide the unavailable tailnet and pinned Bun. Hardware is real.
-      const fixtures = "bun() { printf '%s\\n' \"$PROBE_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nexport -f bun tailscale ifconfig\neval \"$1\"";
+      const fixtures = "bun() { printf '%s\\n' \"$PROBE_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nomp() { printf 'omp/18.1.20\\n'; }\nexport -f bun tailscale ifconfig omp\neval \"$1\"";
       const hostRuntime: StablePreflightRuntime = {
         ...runtime,
         environment: { ...runtime.environment, OMP_STABLE_MAC_MODEL: model },

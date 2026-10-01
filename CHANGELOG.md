@@ -37,6 +37,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Require stock OMP >=18.1.20 on the Mac lane PATH during both preflights, before doctor can
+  fail its compatibility check on a fresh account. Missing or unsupported OMP now refuses before
+  any lane and reports the exact coding-agent install command from the upstream package pin.
 - Bind Mac qualification effects to their configured SSH host in schema-3 receipts; refuse
   retargeted resume and unbound legacy cleanup before any remote call, and never clean an unowned
   host after admission refusal. Resolve remote measurement tools from a fixed system-first PATH

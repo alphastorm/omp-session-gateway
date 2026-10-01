@@ -207,6 +207,12 @@ evidence. Darwin shell proofs plant `sysctl`, `uname`, and `sw_vers` in the acco
 and require the actual system hardware measurement through both admission and host evidence.
 Rollback verification also exercises its explicit staged Cosign outside PATH.
 
+Both Mac preflights reject absent stock OMP, releases below 18.1.20, prereleases, and malformed
+version banners before lane effects. Refusals identify the coding-agent install command from
+`UPSTREAM.lock.json`; admission creates no receipt and invokes no lane or cleanup, and shell
+preflight never reaches sudo. The exact compatibility minimum passes. Additional probe output
+is rejected without exposing its raw diagnostic.
+
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
 
