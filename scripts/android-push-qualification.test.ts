@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAndroidPush, cleanupAndroidPush, parseAndroidPushProgress, androidPushNeedsCleanup,
-  type AndroidPushIdentity, type AndroidPushRuntime, type PushDeviceBaseline, type PushBrowserBaseline, type PushCleanupStep } from "./android-push-qualification.ts";
+  type AndroidPushIdentity, type AndroidPushRuntime, type PushDeviceBaseline, type PushBrowserBaseline, type PushCleanupStep, type TriageAction, type TriageObservation } from "./android-push-qualification.ts";
 import type { SessionMetadata } from "../packages/protocol/src/types.ts";
 import { observeNotificationDump, parseAndroidUi, NotificationOverlapError, findAndroidNotification, tapAndroidNotification, notificationTopicDigest, notificationMatchesDigest, trackUnchangedNotificationPost } from "./android-notification.ts";
 import { webApkTasks, closeWebApk, setupAndroidWebApk, withWebApkSetupRestoration } from "./android-webapk.ts";
@@ -19,16 +19,48 @@ const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { t
 const baseline: PushDeviceBaseline = { wifi: true, mobile: true, airplane: false, forcedDoze: false, batteryOverride: false, awake: true, locked: false, webApkTask: false, chromeNotificationsAllowed: true, webApkNotificationsAllowed: true };
 const browserBaseline: PushBrowserBaseline = { subscribed: true, permission: "granted", detail: "session" };
 /** `staleSocket`: after a radio change brings the phone online (`after: "airplane"`, only the return from Airplane mode), Play Services' fresh push socket delivers what it held, then dies silently; pushes sent within `ms` of the change wait until it reconnects. */
-interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; deferredAfterDoze?: boolean; staleSocket?: { ms: number; after: "airplane" | "any" }; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean }
+interface FakeOptions { failAfter?: number; forceDelivery?: boolean; dozeDelivery?: boolean; dozeHeld?: boolean; deferredAfterDoze?: boolean; staleSocket?: { ms: number; after: "airplane" | "any" }; cellular?: boolean; duplicate?: boolean; wrongTap?: boolean; cleanupFail?: PushCleanupStep; dndFlipAfter?: number; overlaps?: number; frozenHeartbeat?: boolean; browserPermission?: PushBrowserBaseline["permission"]; shutdownNotification?: boolean;
+  /** The directory shows the waiting asks newest first. */ wrongOrder?: boolean; /** That triage control reaches the gateway. */ triageMutation?: TriageAction["kind"]; /** A delayed stale tap still launches. */ staleLaunch?: boolean;
+  /** A foreign post arrives while an owned activity-stop notice is showing. */ foreignDuringStop?: boolean }
+const SECONDARY = "synthetic-secondary";
 function fake(options: FakeOptions = {}) {
-  let overlaps = options.overlaps ?? 0;
-  let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0;
+  let overlaps = options.overlaps ?? 0; let foreignDuringStop = options.foreignDuringStop === true;
+  let time = 0; let effects = 0; let started = false; let generation = 1; let request = 0; let askedAt = 0;
   let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false; let dozed = false; let deferredClear = false;
   let socketStaleUntil = -Infinity; let heldAsk = false; let heldClear = false;
   let shown: "attention" | "activity_stop" | undefined;
+  const second = { started: false, asking: false, request: 0, askedAt: 0, shown: false };
+  // The installed app's device-local Hold and Hide records, keyed as the app keys them.
+  const held = new Set<string>(); const hidden: string[] = []; let toastUntil = -Infinity;
   const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
   let browser = { ...initialBrowser }; let device = { ...baseline }; let pending = false;
   const cleanup: PushCleanupStep[] = []; const checkpoints: Record<string, unknown>[] = [];
+  const since = (at: number) => new Date(Date.UTC(2026, 0, 1) + at).toISOString();
+  const primarySnapshot = (): SessionMetadata | undefined => started ? { instanceId: "synthetic-instance", generation, title: "Synthetic fixture", cwdLabel: "synthetic-project", canView: true, canControl: true,
+    inputRequired: asking, busy, startedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: since(options.frozenHeartbeat ? 0 : Math.floor(time / 10_000) * 10_000),
+    ...(asking ? { ask: { requestId: `synthetic-request-${request}`, since: since(askedAt) } } : {}) } : undefined;
+  const secondarySnapshot = (): SessionMetadata | undefined => second.started ? { instanceId: SECONDARY, generation: 1, title: "Synthetic fixture", cwdLabel: "synthetic-secondary-project", canView: true, canControl: true,
+    inputRequired: second.asking, busy: false, startedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: since(Math.floor(time / 10_000) * 10_000),
+    ...(second.asking ? { ask: { requestId: `synthetic-secondary-request-${second.request}`, since: since(second.askedAt) } } : {}) } : undefined;
+  const sessions = () => [primarySnapshot(), secondarySnapshot()].filter((session): session is SessionMetadata => session !== undefined);
+  const heldKey = (session: SessionMetadata) => `${session.instanceId}:${session.ask?.requestId}`;
+  const hiddenKey = (session: SessionMetadata) => `${session.instanceId}:${session.generation}`;
+  // As the app does on every snapshot: a record outlives neither its request nor its generation.
+  const reconcile = () => {
+    for (const key of held) if (!sessions().some(session => session.inputRequired && heldKey(session) === key)) held.delete(key);
+    for (const key of [...hidden]) if (!sessions().some(session => !session.inputRequired && hiddenKey(session) === key)) hidden.splice(hidden.indexOf(key), 1);
+  };
+  const directory = (mutations: number): TriageObservation => {
+    reconcile();
+    const bySince = (left: SessionMetadata, right: SessionMetadata) => (left.ask?.since ?? "").localeCompare(right.ask?.since ?? "");
+    const isHeld = (session: SessionMetadata) => session.inputRequired && held.has(heldKey(session));
+    const waiting = sessions().filter(session => session.inputRequired && !isHeld(session)).sort(bySince).map(session => session.instanceId);
+    const heldIds = sessions().filter(isHeld).sort(bySince).map(session => session.instanceId);
+    const working = sessions().filter(session => !session.inputRequired && !hidden.includes(hiddenKey(session))).map(session => session.instanceId);
+    const attention = waiting.length + heldIds.length;
+    return { waiting: options.wrongOrder ? [...waiting].reverse() : waiting, held: heldIds, working, hidden: hidden.length, allHeld: waiting.length === 0 && heldIds.length > 0,
+      pending: attention, heldCount: heldIds.length, live: attention > 0 ? 0 : working.length + hidden.length, toast: time < toastUntil, mutations };
+  };
   const show = () => {
     if (!asking || browser.permission !== "granted" || offline || (forced && !options.forceDelivery) || (asleep && !options.dozeDelivery)) return;
     if (time < socketStaleUntil) heldAsk = true; else shown = "attention";
@@ -47,29 +79,65 @@ function fake(options: FakeOptions = {}) {
     dndOff: async () => options.dndFlipAfter === undefined || effects < options.dndFlipAfter,
     beginNotificationPhase: async () => {}, assertNotificationOwnership: async () => { if (overlaps > 0) { overlaps--; throw new NotificationOverlapError(); } },
     device: async () => ({ ...device }), browser: async () => ({ ...browser }),
-    async fixture(operation) { await effect(() => {
+    async fixture(operation, _epoch, role = "primary") { await effect(() => {
+      if (role === "secondary") {
+        if (operation === "start") second.started = true;
+        else if (operation === "ask") { second.asking = true; second.request++; second.askedAt = time; second.shown = browser.permission === "granted"; }
+        else if (operation === "answer") { second.asking = false; second.shown = false; }
+        else if (operation === "stop") { second.started = false; second.asking = false; second.shown = false; }
+        else throw new Error("synthetic secondary operation unsupported");
+        return;
+      }
       if (operation === "start") started = true;
-      if (operation === "ask") { asking = true; request++; pending = true; show(); }
+      if (operation === "ask") { asking = true; request++; askedAt = time; pending = true; show(); }
       if (operation === "answer") { asking = false; pending = false; if (shown === "attention") { if (options.deferredAfterDoze && dozed) deferredClear = true; else if (time < socketStaleUntil) heldClear = true; else shown = undefined; } }
       if (operation === "busy") { busy = true; stopped = false; }
       if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; }
       if (operation === "replace") generation++;
       if (operation === "stop") started = false;
     }); },
-    snapshot: async () => started ? { instanceId: "synthetic-instance", generation, title: "Synthetic fixture", cwdLabel: "synthetic-project", canView: true, canControl: true,
-      inputRequired: asking, busy, startedAt: "2026-01-01T00:00:00.000Z", lastSeenAt: new Date(Date.UTC(2026, 0, 1) + (options.frozenHeartbeat ? 0 : Math.floor(time / 10_000) * 10_000)).toISOString(),
-      ...(asking ? { ask: { requestId: `synthetic-request-${request}`, since: "2026-01-01T00:00:00.000Z" } } : {}) } : undefined,
+    snapshot: async (_epoch, role = "primary") => role === "secondary" ? secondarySnapshot() : primarySnapshot(),
     detail: async level => { await effect(() => { browser.detail = level; browser.subscribed = true; }); },
     closePwa: async () => { await effect(() => { device.webApkTask = false; }); },
     openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; if (deferredClear) { shown = undefined; deferredClear = false; } show(); }); },
     lock: async () => { await effect(() => { device.locked = true; device.awake = false; }); },
-    observe: async (_session, kind) => ({ count: shown === kind ? options.duplicate ? 2 : 1 : 0, titleMatches: shown === kind, bodyMatches: shown === kind, forbiddenFound: false }),
+    observe: async (session, kind) => {
+      // As on the device, a host has one owned tag, whichever kind of notice it shows.
+      const notice = session.instanceId === SECONDARY ? second.shown ? "attention" : undefined : shown;
+      if (notice === "activity_stop" && foreignDuringStop) { foreignDuringStop = false; throw new NotificationOverlapError(); }
+      return { count: notice === undefined ? 0 : options.duplicate ? 2 : 1, titleMatches: notice === kind, bodyMatches: notice === kind, forbiddenFound: false };
+    },
+    dismissOwned: async () => { await effect(() => { shown = undefined; second.shown = false; }); },
     presentation: async () => device.locked && shown === "attention",
-    async tap(session, kind, stale) { await effect(() => { shown = undefined; device.webApkTask = true; });
-      const current = generation === session.generation;
-      return { launches: current ? 1 : 0, successful: current ? 1 : 0, currentGeneration: current, currentRequest: current,
+    async tap(session, kind, stale) { await effect(() => { if (session.instanceId === SECONDARY) second.shown = false; else shown = undefined; device.webApkTask = true; });
+      const live = sessions().find(item => item.instanceId === session.instanceId);
+      const current = live !== undefined && live.generation === session.generation && (kind === "activity_stop" || live.ask?.requestId === session.ask?.requestId);
+      const launches = current || (stale && kind === "attention" && options.staleLaunch === true) ? 1 : 0;
+      return { launches, successful: launches, currentGeneration: current, currentRequest: current,
         scrubbedBeforeNetwork: true, writable: current && (kind === "attention" || options.wrongTap === true), readOnly: current && kind === "activity_stop", expired: stale && !current };
     },
+    async triage(action) {
+      let mutations = 0;
+      if (action !== undefined) await effect(() => {
+        const session = sessions().find(item => "instanceId" in action && item.instanceId === action.instanceId);
+        if (action.kind === "hold") {
+          if (session === undefined || directory(0).waiting[0] !== session.instanceId) throw new Error("synthetic Hold is offered only for the next ask");
+          held.add(heldKey(session));
+          if (session.instanceId === SECONDARY) second.shown = false; else if (shown === "attention") shown = undefined;
+        }
+        if (action.kind === "requeue" && (session === undefined || !held.delete(heldKey(session)))) throw new Error("synthetic requeue unavailable");
+        if (action.kind === "hide") {
+          if (session === undefined || session.inputRequired) throw new Error("synthetic Hide unavailable");
+          hidden.push(hiddenKey(session)); toastUntil = time + 5_000;
+        }
+        if (action.kind === "undo") { if (time >= toastUntil) throw new Error("synthetic Undo expired"); hidden.pop(); toastUntil = -Infinity; }
+        if (action.kind === "showAll") { hidden.length = 0; toastUntil = -Infinity; }
+        if (options.triageMutation === action.kind) mutations++;
+      });
+      time += action?.settleMs ?? 1_500;
+      return directory(mutations);
+    },
+    replay: async session => { await effect(() => { if (session.instanceId === SECONDARY) second.shown = true; else shown = "attention"; device.webApkTask = false; }); },
     answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
     permission: async value => { await effect(() => { browser.permission = value; }); },
@@ -86,16 +154,16 @@ function fake(options: FakeOptions = {}) {
     sinks: async () => ({ clean: true, detectable: true, gatewayLogsDiscarded: true }),
     async cleanup(step) { cleanup.push(step);
       if (step === options.cleanupFail) throw new Error("synthetic cleanup failure");
-      if (step === "fixtureAsk") asking = false;
-      if (step === "notifications") shown = undefined;
+      if (step === "fixtureAsk") { asking = false; second.asking = false; }
+      if (step === "notifications") { shown = undefined; second.shown = false; reconcile(); }
       if (step === "browser") browser = { ...initialBrowser };
       if (step === "doze") { device.forcedDoze = false; device.batteryOverride = false; }
       if (step === "network") { device.wifi = baseline.wifi; device.mobile = baseline.mobile; device.airplane = baseline.airplane; }
       if (step === "task") { device.webApkTask = baseline.webApkTask; device.locked = baseline.locked; device.awake = baseline.awake; }
-      if (step === "fixture") { started = false; if (options.shutdownNotification) shown = "activity_stop"; }
+      if (step === "fixture") { started = false; second.started = false; if (options.shutdownNotification) shown = "activity_stop"; }
     },
   };
-  return { runtime, cleanup, checkpoints, state: () => ({ started, asking, browser, device, shown, effects, stopped }),
+  return { runtime, cleanup, checkpoints, state: () => ({ started, asking, browser, device, shown, effects, stopped, secondaryStarted: second.started, localRecords: held.size + hidden.length }),
     input: { identity, progress: undefined, runtime, checkpoint: async (p: Record<string, unknown>) => { checkpoints.push(structuredClone(p)); }, pixel: async <T>(_owner: string, action: () => Promise<T>) => action() } };
 }
 
@@ -317,14 +385,43 @@ test.each(["airplane", "any"] as const)("a push held while Play Services reconne
   expect(held.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
 });
 
-test("every non-idempotent interruption restores every baseline and stops the owned fixture", async () => {
+test("every non-idempotent interruption restores every baseline and stops both owned fixtures", async () => {
   const successful = fake(); await runAndroidPush(successful.input);
   for (let failAfter = 1; failAfter <= successful.state().effects; failAfter++) {
     const f = fake({ failAfter });
     await expect(runAndroidPush(f.input)).rejects.toThrow("synthetic interruption");
-    expect(f.state()).toMatchObject({ started: false, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
+    expect(f.state()).toMatchObject({ started: false, secondaryStarted: false, localRecords: 0, asking: false, device: baseline, browser: browserBaseline, shown: undefined });
     expect(androidPushNeedsCleanup(f.checkpoints.at(-1))).toBe(false);
   }
+});
+
+test("queue order, Hold, Hide and delayed taps pass on the device and leave no local records or second host", async () => {
+  const f = fake();
+  expect((await runAndroidPush(f.input)).passed).toBe(true);
+  const final = parseAndroidPushProgress(f.checkpoints.at(-1));
+  expect(final.results.triage_verified).toMatchObject({ fifo: true, holdAdvanced: true, allHeld: true, staleHoldReleased: true, undoExpired: true, attentionRestored: true, mutations: 0 });
+  expect(final.results.stale_taps_verified).toMatchObject({ resolved: true, rearmed: true, replaced: true, expired: true, launches: 0, replayed: true });
+  expect(final.secondaryNotificationTopicDigest).toBe(notificationTopicDigest(`omp-attention-${SECONDARY}`));
+  expect(f.state()).toMatchObject({ started: false, secondaryStarted: false, localRecords: 0, shown: undefined, device: baseline, browser: browserBaseline });
+});
+
+test.each([
+  ["a directory that does not queue asks in arrival order", { wrongOrder: true }, "arrival order"],
+  ["a Hold that reaches the gateway", { triageMutation: "hold" }, "on this device alone"],
+  ["an Undo that reaches the gateway", { triageMutation: "undo" }, "did not restore the hidden row"],
+  ["a delayed tap on a resolved request that still launches", { staleLaunch: true }, "resolved request tap did not fail closed"],
+] as const)("%s fails closed and restores both hosts and the device", async (_case, options, message) => {
+  const f = fake(options);
+  await expect(runAndroidPush(f.input)).rejects.toThrow(message);
+  expect(f.state()).toMatchObject({ started: false, secondaryStarted: false, localRecords: 0, device: baseline, browser: browserBaseline });
+  expect(androidPushNeedsCleanup(f.checkpoints.at(-1))).toBe(false);
+});
+
+test("progress written before the second host parses without its topic; a malformed one does not", async () => {
+  const f = fake(); await runAndroidPush(f.input);
+  const { secondaryNotificationTopicDigest: _secondary, ...earlier } = f.checkpoints.at(-1)!;
+  expect(parseAndroidPushProgress(earlier).secondaryNotificationTopicDigest).toBeNull();
+  expect(() => parseAndroidPushProgress({ ...earlier, secondaryNotificationTopicDigest: "not-a-digest" })).toThrow("notification ownership");
 });
 
 test("failed cleanup remains resumable and later cleanup attempts every step", async () => {
@@ -452,6 +549,16 @@ test("multiple notifications and a stop tap that escalates to Control fail close
   }
 });
 
+// A development run on the operator's gateway re-armed stale_generation_verified for a foreign post
+// while its own activity-stop notice showed. That notice has no clear, so the re-arm waited 160 s for
+// the owned tag to empty and failed the lane.
+test("a foreign post while an owned activity-stop notice shows re-arms without waiting for a clear that never comes", async () => {
+  const f = fake({ foreignDuringStop: true });
+  expect((await runAndroidPush(f.input)).passed).toBe(true);
+  expect(parseAndroidPushProgress(f.checkpoints.at(-1)).results.activity_stop_verified).toMatchObject({ rearmCount: 1, viewOnly: true });
+  expect(f.state()).toMatchObject({ started: false, secondaryStarted: false, shown: undefined, device: baseline });
+});
+
 test("one foreign post re-arms its phase visibly; a second overlap fails rather than hiding it", async () => {
   const once = fake({ overlaps: 1 });
   expect((await runAndroidPush(once.input)).passed).toBe(true);
@@ -483,6 +590,7 @@ test("foreign, malformed, and secret-bearing checkpoints cannot drive cleanup", 
   await expect(cleanupAndroidPush({ ...f.input, progress: valid, identity: { ...identity, origin: "https://other.example.test" } })).rejects.toThrow("different candidate or origin");
   expect(JSON.stringify(valid)).not.toContain("gateway.example.test");
   expect(JSON.stringify(valid)).not.toContain("synthetic-instance");
+  expect(JSON.stringify(valid)).not.toContain(SECONDARY);
 });
 
 test("notification observation checks exact Private, Session and Preview-fallback presentation without returning content", () => {

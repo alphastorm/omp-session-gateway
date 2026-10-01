@@ -1,16 +1,90 @@
 # Branch and saved-session resume lane
 
-## Mainline branch/resume qualification — pending
+## Mainline lifecycle coverage — tested, qualification pending
 
-The current gateway consumes stock OMP `>= 18.1.20` ([PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in [OMP v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20)) with
-`collab.autoStart` alone. It observes snapshots through OMP-owned discovery and resolves an exact
-generation/role only at launch, without storing capabilities or writing discovery files. A new
-branch/resume lane must exercise that query path and stale-generation refusal on real mainline
-OMP. This specialized branch/resume qualification remains **pending**. Passed mainline core
-publication/revocation and stale-generation checks in the [release ledger](RELEASE_STATUS.md)
-do not qualify these branch/saved-session resume transitions.
+The gateway consumes stock OMP `>= 18.1.20` with `collab.autoStart` alone. It reads OMP-owned
+discovery, polls metadata, and resolves an exact generation/role only at launch, without storing
+capabilities or writing discovery files. The executable lanes below cover lifecycle transitions;
+they do not expand the qualified matrix until the next stable campaign passes on an exact signed
+candidate. See the [status vocabulary](COMPATIBILITY.md#status-vocabulary) and
+[release ledger](RELEASE_STATUS.md).
 
-## Fork-era measurement archive
+### Stock OMP semantics
+
+Upstream source and real stock 18.4.8 runs establish these distinctions. A guest snapshot replicates
+every session entry, including sibling branches, so transcript content cannot prove a rewind.
+
+| Command | Session effect | Gateway-visible change | Where tested |
+|---|---|---|---|
+| `/new` | Switches to a new session | Same instance, generation + 1 | POSIX canary; Mac lifecycle development runner |
+| `/fork` | Immediately copies the current session to a new file with the same entries; no selector, despite the command description | Same instance, generation + 1 | POSIX canary; Mac lifecycle development runner |
+| `/branch` (alias `/rewind`) | Opens `Rewind · pick the point to continue from` and rewinds inside the same session file | Same instance and generation; no gateway-visible change | POSIX canary |
+| `/tree` | Navigates branches within the session | No new session or generation implied by branch navigation | Upstream source semantics; not a separate stage in these lanes |
+| Stop, then relaunch with `--continue` in the same working directory | Resumes the saved session in a new process | Old instance gone; new instance at generation 1 | POSIX canary; Mac lifecycle development runner; Windows canary pending CI |
+
+### Daily upstream canary
+
+[`scripts/upstream-canary.ts`](../scripts/upstream-canary.ts) runs from the
+[canary workflow](../.github/workflows/upstream-canary.yml) on its daily schedule, by
+`workflow_dispatch`, and on pull requests touching the canary. Its ordered stages are `publish`,
+`snapshot`, `stale-generation`, `view`, `control`, `new-generation`, `fork`, `branch-rewind`,
+`continue`, and `unregister`.
+
+On POSIX the tmux host accepts the real slash commands. `new-generation` and `fork` each require
+the same instance and generation + 1; once that generation is visible, old-generation View and
+Control queries must be refused and fresh links must work. The fork View transcript must retain
+both earlier synthetic prompts. `branch-rewind` requires an anchored
+in-memory terminal status, `Rewound to selected point`, plus unchanged instance/generation and
+working links. The terminal status is never printed. `continue` requires the old instance gone,
+a new instance at generation 1, old links refused or gone, and a fresh View transcript containing
+a prompt sent before the stop. `unregister` checks host exit and revocation.
+
+Windows uses a hidden console without keystroke transport. It runs `continue` but marks exactly
+`new-generation`, `fork`, and `branch-rewind` as `skipped`. The strict platform projection rejects
+any other successful skip pattern; summary JSON includes `platform`. These skips are not passed
+transitions.
+
+```sh
+bun scripts/upstream-canary.ts --omp <binary>
+```
+
+### Retained-Mac stable lane
+
+After every lane using the campaign live session has settled successfully and the relay tunnel
+has stopped, `ompPublication` in [`stable-qualification.ts`](../scripts/stable-qualification.ts)
+runs the shared [`omp-lifecycle-qualification.ts`](../scripts/omp-lifecycle-qualification.ts)
+step: `/new`, two synthetic messages, `/fork`, stop and revocation, `--continue` relaunch, then
+stop and revocation again. Keystrokes go to the existing `ssh -tt` stdin, not a production
+gateway input path. Each rotation requires the same instance and generation + 1, stale launch
+POSTs returning `409 generation_mismatch` without a capability, and current View/Control launches
+returning `200 no-store`. Resume requires a new instance at generation 1, the same label, and
+live launches returning `200`. Rewind is excluded because it is not gateway-visible.
+
+Evidence is additive at `ompPublication.evidence.lifecycle`, with `newGeneration`, `fork`, and
+`resumed` records containing booleans/counts only. The receipt schema stays 3. An interrupted step
+leaves the lane non-passed, and the whole lifecycle reruns on resume. Prove the step before a
+campaign with the development entry point:
+
+```sh
+bun scripts/omp-lifecycle-development.ts --omp <absolute path to stock OMP dist/cli.js>
+```
+
+The development runner uses an isolated loopback gateway in `dev-localhost` mode, private discovery
+and OMP HOME directories, and a Python `pty.fork` host with PTY stdin and stdout/stderr discarded
+to `/dev/null`, matching the campaign `ssh -tt` wrapper. It prints only evidence JSON and removes
+everything it started. It does not qualify the retained Mac or a signed candidate.
+
+### Tested evidence — 2026-10-01
+
+- On macOS with Bun 1.4.2, the canary passed three consecutive runs on stock OMP 18.4.8 and one
+  on stock 18.1.20. Windows execution remains pending CI.
+- The Mac lifecycle development runner passed three consecutive runs on stock 18.4.8. A
+  deliberately rejected wrong-version run also left nothing behind after cleanup.
+- These are **tested evidence** only. Specialized lifecycle qualification remains pending the
+  next passed stable campaign on the exact signed candidate; existing core publication and
+  stale-generation qualification does not qualify these transitions.
+
+## Fork-era measurement archive — historical, superseded for mainline
 
 **Every command, setting, path, measured transition, and conclusion below is fork-era evidence**
 from the named 2026-08-20 runtime. It retains its original dates, digests, limitations, and

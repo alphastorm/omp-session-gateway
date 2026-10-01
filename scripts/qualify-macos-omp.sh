@@ -116,12 +116,12 @@ PY
     exit "$check_exit"
   fi
   (cd "$omp_root" && "$bun_executable" --cwd=packages/coding-agent run build) >>"$build_log" 2>&1
-  [ "$("$omp_root/packages/coding-agent/dist/omp" --version)" = "omp/$omp_version" ] || fail "built OMP version is wrong"
+  [ "$("$omp_root/packages/coding-agent/dist/omp" --version </dev/null)" = "omp/$omp_version" ] || fail "built OMP version is wrong"
 
   mkdir -p "$version_dir"
   install -m 0755 "$omp_root/packages/coding-agent/dist/omp" "$binary"
-  "$binary" config set collab.autoStart control >/dev/null
-  [ "$("$binary" config get collab.autoStart --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')" = control ] || fail "collab.autoStart is wrong"
+  "$binary" config set collab.autoStart control </dev/null >/dev/null
+  [ "$("$binary" config get collab.autoStart --json </dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')" = control ] || fail "collab.autoStart is wrong"
   source_is_prepared || fail "mainline OMP working tree changed during the build"
   printf '{"version":"%s","sourceCommit":"%s","sourceTree":"%s","nativeSha256":"%s","binarySha256":"%s"}\n' \
     "$omp_version" "$source_commit" "$source_tree" "$native_binary_sha256" \
@@ -129,17 +129,25 @@ PY
 }
 
 run_session() {
+  local mode="$1"
+  set --
+  case "$mode" in
+    run) ;;
+    continue) set -- --continue ;;
+    *) fail "invalid OMP session mode" ;;
+  esac
   local fixture_model="${OMP_FIXTURE_MODEL:-}"
   require_value OMP_FIXTURE_MODEL "$fixture_model"
   validate_host
   [ -x "$binary" ] || fail "mainline OMP binary is missing; run build first"
   source_is_prepared || fail "mainline OMP source or native addon is missing, changed, or unpinned"
-  [ "$("$binary" --version)" = "omp/$omp_version" ] || fail "mainline OMP version changed"
+  [ "$("$binary" --version </dev/null)" = "omp/$omp_version" ] || fail "mainline OMP version changed"
   mkdir -p "$qualification_cwd"
   cd "$qualification_cwd"
   # The orchestrator supplies the model from scripts/omp-fixture.json. OMP_SKIP_SETUP keeps an
   # onboarding wizard from silently dropping the Control prompt.
   OMP_SKIP_SETUP=1 exec "$binary" \
+    "$@" \
     --model "$fixture_model" \
     --api-key qualification-synthetic-never-sent \
     --no-extensions --no-skills --thinking low >/dev/null 2>&1
@@ -212,7 +220,7 @@ clean() {
 
 case "$command_name" in
   build) build ;;
-  run) run_session ;;
+  run|continue) run_session "$command_name" ;;
   clean) clean ;;
-  *) printf 'usage: %s build|run|clean\n' "$0" >&2; exit 64 ;;
+  *) printf 'usage: %s build|run|continue|clean\n' "$0" >&2; exit 64 ;;
 esac

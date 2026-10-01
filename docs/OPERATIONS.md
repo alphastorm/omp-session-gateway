@@ -220,14 +220,152 @@ workstation with no mutually untrusted local accounts.
 
 ## 6. Tailnet access policy
 
-Use a dedicated destination tag for the desktop gateway where appropriate and an exact user/group source. See `examples/tailscale-policy.hujson`.
+### Access policy and identities
 
-The template is not universally drop-in. The administrator must merge it into existing policy, confirm the tag owner, and test both:
+Use [Tailscale Serve](https://tailscale.com/kb/1312/serve) over tailnet HTTPS as the only remote
+path; never enable Funnel. Keep the TUN-mode gateway backend on loopback behind Serve. Serve
+removes caller-supplied identity headers and supplies `Tailscale-User-Login` for user-owned source
+devices. The gateway compares that login with its exact application allowlist; network access
+alone is not authorization. A tagged **destination** gateway is appropriate, but keep the phone
+**user-owned**: tagged sources have no user identity header and are denied, even if their network
+grant permits HTTPS. See the [deployment matrix](COMPATIBILITY.md#deployment-dependency-matrix).
 
-- successful access from the intended Android identity;
-- denial from an unauthorized identity or device posture.
+Merge [the example policy](../examples/tailscale-policy.hujson), not a replacement tailnet policy.
+Replace its placeholder login in both `tagOwners` and `src`; separately configure the same intended
+login in the gateway allowlist. [Tags](https://tailscale.com/kb/1068/tags) identify service devices,
+and `tagOwners` controls who may assign them, not who may connect. Applying a tag replaces a
+device’s user identity. Restrict ownership of `tag:omp-session-gateway` and assign that tag only to
+the intended gateway node; audit any additional tags, whose permissions also apply.
 
-Application allowlisting remains required even when grants are narrow. Device sharing can introduce external identities; they are denied unless explicitly allowed.
+Prefer [grants over legacy ACLs](https://tailscale.com/docs/reference/grants-vs-acls) for new rules.
+Both can coexist; migrating unrelated rules is not required. The example uses the documented
+[grant syntax](https://tailscale.com/docs/reference/syntax/grants): an exact user in `src`,
+`tag:omp-session-gateway` in `dst`, and `tcp:443` in `ip`. If the configured Serve HTTPS port is
+8443, use `tcp:8443` instead; never grant remote access to backend port 4317. An existing legacy
+ACL expresses the same path with `action: "accept"`, that user in `src`, `proto: "tcp"`, and
+`"tag:omp-session-gateway:443"` in `dst`
+([policy syntax](https://tailscale.com/docs/reference/syntax/policy-file)).
+
+Grants are additive, not ordered deny rules: a narrower rule does not override a broader grant.
+Review **all** grants and legacy ACLs for overlapping access, including the initial
+[allow-all policy](https://tailscale.com/kb/1018/acls). Remove or narrow such access as appropriate
+before relying on the example. An exact user source permits that user’s matching devices, not
+just one phone; the optional posture below narrows a class of devices, not a unique handset.
+Keep the gateway’s own source permissions minimal: do not grant it broad access to other tailnet
+nodes merely because it serves the phone. Inventory any separately needed administration paths;
+the HTTPS grant is not a reason to add SSH, subnet routing, or exit-node privileges. This is a
+tailnet access policy, not a substitute for host hardening or a general Internet egress firewall.
+
+### Device admission: approval or Tailnet Lock
+
+Choose deliberately between the following admission controls. **Current Tailscale documentation
+says device approval and Tailnet Lock are mutually exclusive**
+([Tailnet Lock limitations](https://tailscale.com/kb/1226/tailnet-lock#limitations)). Neither
+replaces network policy, ongoing device maintenance, or the gateway application allowlist.
+
+- **[Device approval](https://tailscale.com/kb/1099/device-approval):** enable it in the admin
+  console’s Device management settings; review the new gateway and phone in Machines before
+  approving them. A device marked **Needs approval** cannot send or receive tailnet traffic.
+  Pre-approved auth keys bypass this manual review, so treat their issuance as an admission
+  decision. Approval is for the device, not each subsequent user/node on shared hardware, and is
+  not proof of current patch level or protection from a compromised already-approved phone.
+- **[Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock):** trusted signing nodes sign node
+  keys; peers verify signatures rather than trusting the coordination server alone to introduce
+  new nodes. Plan at least two separately protected signing nodes, as the documented setup
+  requires, and securely retain the initialization-time disablement secrets outside those nodes.
+  Lock keys remain on their devices, so compromising a signer can compromise that authority.
+  Do not make the gateway the only recovery dependency.
+
+  For a new user-owned Android phone, sign in normally, locate its **Locked out** entry in
+  Machines, verify the device, select the signing dialog’s CLI tab, and run its generated
+  `tailscale lock sign` command on a trusted Linux, macOS, or Windows signing node. Android
+  currently cannot act as a signer; the phone can still be a signed member. Sign a new gateway
+  node using the same reviewed workflow. An unsigned node remains locked out even if its user
+  and network rule would otherwise allow access. Normal reauthentication after a signed node
+  key expires rotates its signature automatically; it does not require manual re-signing.
+
+  Document custody and recovery before enabling Lock: retain access to another trusted signer;
+  use the documented compromised-key revocation workflow if a signer is compromised (nodes
+  signed by a revoked key need fresh signatures). Disabling Lock requires a disablement secret.
+  Providing one to Tailscale support at initialization is optional and delegates that recovery
+  authority; if you lose the secrets and did not provide one to support, the documentation warns
+  the tailnet cannot be recovered. Lock is not a health check, per-request user verification, or
+  a cure for an already compromised signed phone.
+
+### Node key expiry and renewal
+
+[Key expiry](https://tailscale.com/kb/1028/key-expiry) limits how long a device can remain
+authenticated without reauthentication. When its key expires, connections to/from that endpoint
+stop working. A long-running gateway daemon can remain locally healthy while its Serve path is
+unreachable; an expired phone loses tailnet access even though its installed PWA still exists.
+Do not treat either failure as a reason to enable Funnel or relax the allowlist.
+
+Check the actual expiry setting for **both** devices in Machines. First-time tagged-device
+authentication disables key expiry by default; do not assume the gateway renews periodically.
+For an unattended gateway, explicitly choose between disabled expiry with a revocation plan and
+enabled expiry with scheduled reauthentication and alternate local access. Prefer retaining
+expiry on the user-owned phone and reauthenticate in its Tailscale client when required.
+Disabling expiry improves availability but removes that periodic authentication boundary; expiry
+is not immediate lost-device revocation and does not replace the application allowlist.
+
+For CLI-equipped hosts, the documented renewal command is `tailscale up --force-reauth` (with
+privilege elevation if required). It can disconnect the host: do not run it over the only SSH/RDP
+path without alternate access. For an already-expired node, an administrator can use **Temporarily
+extend key** in Machines to obtain a 30-minute recovery window, then complete reauthentication.
+Verify the Serve mapping and allowed-phone access afterwards.
+
+### Optional source-device posture
+
+[Device posture](https://tailscale.com/kb/1288/device-posture) adds source conditions to a
+network rule. Define named `posture:` entries in the top-level `postures` object and reference
+them with the grant’s `srcPosture` array. Every condition within one posture must match; any one
+of multiple named postures in `srcPosture` can match. A required unset attribute does not match.
+An explicit `srcPosture` replaces, rather than adds to, `defaultSrcPosture`, so preserve any
+existing baseline requirements when adapting the example.
+
+The example’s commented alternative restricts the same user-to-gateway HTTPS grant to Android
+sources on the stable Tailscale release track. **Replace** the original grant; adding the
+restricted grant alongside the unrestricted one leaves the original access intact. The variant
+is an illustration, not a claim that Android plus stable means patched, managed, or uncompromised.
+
+Available default attributes are `node:os`, `node:osVersion`, `node:tsVersion`,
+`node:tsReleaseTrack`, `node:tsAutoUpdate`, and `node:tsStateEncrypted`
+([attribute reference](https://tailscale.com/kb/1288/device-posture#default-attributes)). Choose
+OS/client version floors from your maintenance policy and check actual values in each machine’s
+**Device Postures** section before enforcing them. `node:tsAutoUpdate` refers only to Tailscale’s
+built-in updater: App Store/Google Play updates report false, so requiring true would exclude
+those clients. `node:tsStateEncrypted` concerns Tailscale client state, not whole-device disk
+encryption. Third-party MDM/EDR, custom, and geolocation attributes have separate integration and
+plan requirements; do not assume they exist on a personal phone.
+
+Posture checks apply to the **source**, not the destination: the phone grant does not attest the
+gateway host’s security. Maintain that host independently. Tailscale documents that source
+posture restrictions do not apply to shared/external devices or devices behind subnet routers
+in the same way as direct nodes within the tailnet; those paths can still be admitted by
+matching network rules. Do not share this gateway externally or introduce such paths as a
+posture workaround. Device sharing can also supply external user identity headers
+([Serve identity](https://tailscale.com/kb/1312/serve#identity-headers)); the exact application
+allowlist remains mandatory. The gateway neither reads nor enforces posture: Tailscale does.
+
+### Validate the combined controls
+
+Validate the merged example and any posture variant in the admin console’s policy preview
+([Access controls → Preview rules](https://tailscale.com/docs/features/tailnet-policy-file/manage-tailnet-policies#preview-changes));
+inspect effective permissions and add policy tests for intended allowed/denied paths. Syntax
+acceptance or preview is not an end-to-end proof of device posture or gateway authorization.
+From separate devices, verify both:
+
+- successful HTTPS directory access from the intended user-owned phone after admission,
+  renewal, and any required posture checks;
+- denial for unauthorized sources and, when posture is enabled, a nonmatching source, with no
+  overlapping unrestricted rule. A tagged source allowed through the network must still fail
+  gateway authorization; an unlisted user must also fail the application allowlist.
+
+For failures, inspect admission/signature state, key expiry, effective network rules and reported
+source posture before changing application authorization. Run `doctor` after restoring the
+supported Serve path; it does not audit these tailnet controls. Keep lost-phone response in
+[section 10](#10-lost-phone-and-revocation): these controls do not retract a capability already
+issued or disconnect an established OMP relay session.
 
 ## 7. OMP configuration
 

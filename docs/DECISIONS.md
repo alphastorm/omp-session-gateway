@@ -924,6 +924,29 @@ tagged node. Upgrade, rollback, OMP, and the Pixel stay on the Administrator pat
 predecessor cannot install without elevation. The receipt schema is unchanged; the new observations
 carry a `standard` prefix.
 
+**Amendment — 2026-10-01:** `androidPush` adds `triage_verified` and `stale_taps_verified` after
+authoritative clear and before force-stop. A second owned fixture supplies ordered asks for
+device-local Hold/requeue and Hide/Undo/Show all; the directory must have no unrelated waiting or
+hidden sessions. Delayed taps cover resolved, re-armed, replacement-generation, and gone-host
+requests. Because authoritative clear removes the original notification, the lane re-presents its
+original metadata-only data through the installed app's service-worker registration and taps it
+on the physical Pixel. `replayed: true` records this limit: it proves scrub/revalidation and zero
+launches for delayed taps, not Web Push delivery ordering or delay. Cleanup owns both fixtures,
+their notifications, and removal of their device-local triage records.
+
+The retained-Mac `ompPublication` lane adds `/new`, `/fork` after two synthetic messages, stop
+and revocation, `--continue` relaunch, then stop and revocation, after all live-session consumers
+settle successfully and the relay tunnel stops. Rotations require same-instance generation + 1,
+stale launch rejection without a capability, and working current View/Control launches; resume
+requires a new instance at generation 1 with the same label. Evidence is additive under
+`ompPublication.evidence.lifecycle` (`newGeneration`, `fork`, `resumed`; booleans/counts only),
+and the current receipt schema stays 3. An interrupted step remains non-passed and reruns in full
+on resume. Mainline `/branch` rewinds within the same session file without changing instance or
+generation, so rewind is excluded from the Mac lane as not gateway-visible; the POSIX canary
+checks its in-memory terminal status instead. Specialized attention and lifecycle enter the
+qualified matrix only from a passed campaign on an exact signed candidate. Development proofs
+are required before the campaign and remain tested evidence.
+
 ## ADR-032 — Qualify iPhone, iPad, and Android browsers on real cloud devices in every stable campaign
 
 **Status:** Accepted

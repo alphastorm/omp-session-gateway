@@ -247,6 +247,22 @@ destination page. A missing or ambiguous credential surface still fails while th
 - Current attention tap revalidates the request and generation before Control; stop tap opens View
   only; same-instance stale-generation tap scrubs to `/` without a launch request.
 - Authoritative clear, followed by a fresh request retained across repeated current samples.
+- After `clear_verified` and before `force_stop_verified`, `triage_verified` starts a second
+  owned fixture host and exercises FIFO, Hold for desk, requeue, held-queue presentation, stale
+  hold release, Hide/Undo within five seconds, Undo expiry, attention restoration, and Show all.
+  Held asks stay in `N waiting · M held` and in the gateway's authoritative count; only the held
+  ask's notification closes. Holding both shows `Queue clear · N on hold`, not all-clear. Hidden
+  rows stay in `Live · N`. All triage actions must send zero non-GET requests to the gateway.
+  No other session may be waiting for input or hidden in this device-local directory: ordering,
+  Hold, and Show all act on the whole directory. The phase fails closed with that precondition
+  message rather than changing unrelated sessions.
+- `stale_taps_verified` then covers an ask resolved on the desktop, a newer ask re-armed on the
+  same generation, a replacement generation with its own ask, and a host that is gone. Every tap
+  must scrub its route before any API request, fetch metadata, make zero launch requests, and
+  show the expired/changed notice. Authoritative clear already removes the original notification,
+  so the lane re-presents its original metadata-only data through the app's service-worker
+  registration and taps it from the lock screen. The result records `replayed: true`: this proves
+  delayed-tap handling on the physical Pixel, not Web Push delivery ordering or delay.
 - Browser force-stop records delivery while stopped or suppression until relaunch; both variants
   still require a fresh post-relaunch delivery.
 - Origin-permission denial suppresses notifications; restoring permission must permit a fresh
@@ -270,14 +286,25 @@ destination page. A missing or ambiguous credential surface still fails while th
   and resource timings are included. On macOS, `plutil` must confirm both LaunchAgent streams are
   `/dev/null`; evidence records `gatewayLogsDiscarded: true`, not a fictional clean empty log scan.
 
+One foreign-notification overlap permits one recorded phase re-arm; repeated interference or
+ambiguous ownership fails closed. Re-arm settles owned asks and waits only for pending attention
+clears, then dismisses remaining owned notices. An activity-stop notice has no authoritative clear,
+so waiting for its tag to empty would time out instead of re-arming.
+
+The new phases are implemented coverage, not qualification until the next stable campaign passes
+on an exact signed candidate. Their unchecked acceptance is in
+[ATTENTION_SPEC.md](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending).
+
 The complete checkpoint precedes effects and contains only an attempt UUID, identity binding hash,
 closed phase, baseline booleans/preferences, an opaque SHA-256 notification-topic binding, and bounded
 observations. The binding permits cleanup even after the fixture publication disappears; no raw topic
-or instance identifier is checkpointed. `phaseElapsedMs` records
+or instance identifier is checkpointed. `secondaryNotificationTopicDigest` binds the second host's
+notifications; older progress parses with it absent. `phaseElapsedMs` records
 checkpoint-to-checkpoint time, including any explicitly recorded re-arm.
 Raw OS notification keys, tags, and content remain transient. Cleanup attempts every step
 even after failure: settle the owned ask, exit forced Doze/reset battery emulation, restore radios,
-stop only the owned fixture, remove owned notifications, restore subscription/detail/origin
+stop both owned fixture hosts, remove both topics' notifications, wait until the app has dropped
+their device-local Hold/Hide records, restore subscription/detail/origin
 permission, and restore WebAPK task and display/keyguard state. Stopping the producer before
 notification and subscription cleanup ensures that cleanup also follows fixture shutdown.
 A failed cleanup remains cleanup-required;
@@ -289,7 +316,8 @@ notification-permission booleans are observed before and after, but never change
 
 For a development run against an already installed gateway, provide the matching published archive
 and exact pinned OMP executable. The command does not install, restart, reconfigure, or rotate the
-gateway:
+gateway. Run with the pinned Bun. Restored development progress bound to another candidate,
+origin, or OMP pin is archived automatically; unfinished cleanup must still be recovered:
 
 ```sh
 OMP_PUSH_FIXTURE_BINARY="$PINNED_OMP" bun scripts/android-push-qualification.ts development "$PUBLISHED_ARCHIVE"

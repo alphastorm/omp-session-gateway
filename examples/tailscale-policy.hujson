@@ -1,5 +1,10 @@
 // Template only. Merge carefully into the existing tailnet policy.
 // Replace the login and ensure the desktop gateway node owns tag:omp-session-gateway.
+// Keep the phone user-owned, not tagged; retain the gateway exact-login allowlist.
+// Match tcp:443 to the configured Serve HTTPS port, never the loopback backend port.
+// Review overlapping grants AND legacy ACLs; a narrower grant does not override them.
+// Grants syntax: https://tailscale.com/docs/reference/syntax/grants
+// Tag ownership: https://tailscale.com/kb/1068/tags
 {
   "tagOwners": {
     "tag:omp-session-gateway": ["replace-with-your-tailnet-login@example.com"]
@@ -13,3 +18,29 @@
     }
   ]
 }
+
+// OPTIONAL ALTERNATIVE: merge this postures entry into the top-level postures object
+// and REPLACE the original grant with the one below; do not keep both grants.
+// This selects Android + stable Tailscale, not a unique phone or a compliance guarantee.
+// Preserve any existing defaultSrcPosture requirements: explicit srcPosture replaces them.
+// Check reported phone attributes and validate the merged policy in the admin console
+// policy preview, then test allowed and denied devices (see docs/OPERATIONS.md section 6).
+// Posture syntax and limits: https://tailscale.com/kb/1288/device-posture
+/*
+{
+  "postures": {
+    "posture:omp-phone": [
+      "node:os == 'android'",
+      "node:tsReleaseTrack == 'stable'",
+    ],
+  },
+  "grants": [
+    {
+      "src": ["replace-with-your-tailnet-login@example.com"],
+      "dst": ["tag:omp-session-gateway"],
+      "ip": ["tcp:443"],
+      "srcPosture": ["posture:omp-phone"],
+    },
+  ],
+}
+*/

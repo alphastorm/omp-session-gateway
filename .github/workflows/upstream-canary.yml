@@ -68,7 +68,7 @@ jobs:
           mkdir -m 700 "$OMP_PACKAGE"
           cd "$OMP_PACKAGE"
           printf '{"private":true}\n' >package.json
-          if ! bun add --exact "@oh-my-pi/pi-coding-agent@$OMP_VERSION" >/dev/null 2>&1; then
+          if ! bun add --exact "@oh-my-pi/pi-coding-agent@$OMP_VERSION" </dev/null >/dev/null 2>&1; then
             printf 'publish: OMP installation failed\n' >&2
             exit 1
           fi
@@ -78,7 +78,7 @@ jobs:
           CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
         run: |
           set -euo pipefail
-          bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" >"$CANARY_REPORT"
+          bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" </dev/null >"$CANARY_REPORT"
       - name: Publish bounded summary
         id: summary
         if: always()
@@ -91,14 +91,15 @@ jobs:
             import { CANARY_STAGES, canarySummary, parseCanarySummary } from "./scripts/upstream-canary.ts";
             let summary;
             try {
-              summary = parseCanarySummary(await Bun.file(process.env.CANARY_REPORT).text());
+              summary = parseCanarySummary(await Bun.file(process.env.CANARY_REPORT).text(), "posix");
             } catch {
-              summary = canarySummary("", 0, "publish");
+              summary = canarySummary("", 0, "publish", false, "posix");
               process.exitCode = 1;
             }
             const passed = summary.failedStage === undefined;
             const lines = [
               `ompVersion: ${summary.ompVersion}`,
+              `platform: ${summary.platform}`,
               `passed: ${passed}`,
               `discoveryFileRemoved: ${summary.discoveryFileRemoved}`,
               `durationMs: ${summary.durationMs}`,
@@ -109,8 +110,8 @@ jobs:
             process.stdout.write(`${JSON.stringify(summary)}\n`);
           '
 
-  # The same stages against a Windows host: OMP publishes a named pipe instead of a Unix socket,
-  # and the canary starts it in its own hidden console instead of a tmux session.
+  # Windows uses its own hidden console and named pipe. It proves saved-session continuation;
+  # the three tmux-driven transitions are explicitly skipped in its strict platform projection.
   canary-windows:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -146,7 +147,7 @@ jobs:
           mkdir "$OMP_PACKAGE"
           cd "$OMP_PACKAGE"
           printf '{"private":true}\n' >package.json
-          if ! bun add --exact "@oh-my-pi/pi-coding-agent@$OMP_VERSION" >/dev/null 2>&1; then
+          if ! bun add --exact "@oh-my-pi/pi-coding-agent@$OMP_VERSION" </dev/null >/dev/null 2>&1; then
             printf 'publish: OMP installation failed\n' >&2
             exit 1
           fi
@@ -156,7 +157,7 @@ jobs:
           CANARY_REPORT: ${{ runner.temp }}/upstream-canary.json
         run: |
           set -euo pipefail
-          bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" >"$CANARY_REPORT"
+          bun scripts/upstream-canary.ts --omp "$OMP_PACKAGE/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js" </dev/null >"$CANARY_REPORT"
       - name: Publish bounded summary
         id: summary
         if: always()
@@ -169,14 +170,15 @@ jobs:
             import { CANARY_STAGES, canarySummary, parseCanarySummary } from "./scripts/upstream-canary.ts";
             let summary;
             try {
-              summary = parseCanarySummary(await Bun.file(process.env.CANARY_REPORT).text());
+              summary = parseCanarySummary(await Bun.file(process.env.CANARY_REPORT).text(), "windows");
             } catch {
-              summary = canarySummary("", 0, "publish");
+              summary = canarySummary("", 0, "publish", false, "windows");
               process.exitCode = 1;
             }
             const passed = summary.failedStage === undefined;
             const lines = [
               `ompVersion: ${summary.ompVersion}`,
+              `platform: ${summary.platform}`,
               `passed: ${passed}`,
               `discoveryFileRemoved: ${summary.discoveryFileRemoved}`,
               `durationMs: ${summary.durationMs}`,
@@ -209,7 +211,7 @@ jobs:
           set -euo pipefail
           # Validate again across the job/permission boundary. Never copy raw reports into an issue.
           version() { if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then printf '%s' "$1"; else printf unknown; fi; }
-          stage() { case "$1" in publish|snapshot|stale-generation|view|control|unregister) printf '%s' "$1" ;; *) printf publish ;; esac; }
+          stage() { case "$1" in publish|snapshot|stale-generation|view|control|new-generation|fork|branch-rewind|continue|unregister) printf '%s' "$1" ;; *) printf publish ;; esac; }
           failures=()
           if [[ "$LINUX_RESULT" == failure ]]; then
             failures+=("$(version "$LINUX_VERSION") failed at $(stage "$LINUX_STAGE") on Linux")

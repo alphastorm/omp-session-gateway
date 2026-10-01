@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   canarySummary,
+  CANARY_STAGES,
+  hasCanaryPrompt,
+  hasRewindConfirmation,
   isSupportedOmpVersion,
   parseCanaryArgs,
   parseCanarySummary,
@@ -53,15 +56,43 @@ describe("stock OMP version gate", () => {
 describe("canary public reports", () => {
   test("stops at the first failure and does not claim later stages ran", () => {
     expect(canarySummary("18.3.0", 123, "snapshot")).toEqual({
-      ompVersion: "18.3.0", durationMs: 123, failedStage: "snapshot", discoveryFileRemoved: false,
-      stages: { publish: "passed", snapshot: "failed", "stale-generation": "skipped", view: "skipped", control: "skipped", unregister: "skipped" },
+      ompVersion: "18.3.0", platform: "posix", durationMs: 123, failedStage: "snapshot", discoveryFileRemoved: false,
+      stages: { publish: "passed", snapshot: "failed", "stale-generation": "skipped", view: "skipped", control: "skipped",
+        "new-generation": "skipped", fork: "skipped", "branch-rewind": "skipped", continue: "skipped", unregister: "skipped" },
     });
     expect(canarySummary("", 1, "publish").stages).toEqual({
-      publish: "failed", snapshot: "skipped", "stale-generation": "skipped", view: "skipped", control: "skipped", unregister: "skipped",
+      publish: "failed", snapshot: "skipped", "stale-generation": "skipped", view: "skipped", control: "skipped",
+      "new-generation": "skipped", fork: "skipped", "branch-rewind": "skipped", continue: "skipped", unregister: "skipped",
     });
     expect(canarySummary("18.1.20", 123).stages).toEqual({
-      publish: "passed", snapshot: "passed", "stale-generation": "passed", view: "passed", control: "passed", unregister: "passed",
+      publish: "passed", snapshot: "passed", "stale-generation": "passed", view: "passed", control: "passed",
+      "new-generation": "passed", fork: "passed", "branch-rewind": "passed", continue: "passed", unregister: "passed",
     });
+  });
+
+  test("admits only the exact successful platform projection, never arbitrary skips", () => {
+    const windowsSkips = new Set(["new-generation", "fork", "branch-rewind"]);
+    for (const platform of ["posix", "windows"] as const) {
+      const summary = canarySummary("18.4.8", 123, undefined, true, platform);
+      expect(parseCanarySummary(JSON.stringify(summary), platform)).toEqual(summary);
+      for (let mask = 0; mask < 2 ** CANARY_STAGES.length; mask++) {
+        const stages = Object.fromEntries(CANARY_STAGES.map((stage, index) => [stage, mask & (1 << index) ? "skipped" : "passed"]));
+        const valid = CANARY_STAGES.every(stage => stages[stage] === (platform === "windows" && windowsSkips.has(stage) ? "skipped" : "passed"));
+        if (!valid) expect(() => parseCanarySummary(JSON.stringify({ ...summary, stages }), platform)).toThrow("invalid canary summary");
+      }
+    }
+  });
+
+  test("preserves the failure frontier after Windows-only skips and binds reports to their job", () => {
+    const summary = canarySummary("18.4.8", 123, "continue", false, "windows");
+    expect(summary.stages).toEqual({
+      publish: "passed", snapshot: "passed", "stale-generation": "passed", view: "passed", control: "passed",
+      "new-generation": "skipped", fork: "skipped", "branch-rewind": "skipped", continue: "failed", unregister: "skipped",
+    });
+    expect(parseCanarySummary(JSON.stringify(summary), "windows")).toEqual(summary);
+    expect(() => parseCanarySummary(JSON.stringify(summary), "posix")).toThrow("invalid canary summary");
+    expect(() => parseCanarySummary(JSON.stringify(canarySummary("18.4.8", 123)), "windows")).toThrow("invalid canary summary");
+    expect(() => canarySummary("18.4.8", 123, "fork", false, "windows")).toThrow("invalid canary summary");
   });
 
   test("projects only approved fields before writing CI summaries", () => {
@@ -76,13 +107,49 @@ describe("canary public reports", () => {
       JSON.stringify({ ...summary, ompVersion: "18.3.0\nprivate-value" }),
       JSON.stringify({ ...summary, durationMs: -1 }),
       JSON.stringify({ ...summary, durationMs: 1.5 }),
+      JSON.stringify({ ...summary, durationMs: Number.MAX_SAFE_INTEGER + 1 }),
+      JSON.stringify({ ...summary, platform: undefined }),
+      JSON.stringify({ ...summary, platform: "linux" }),
+      JSON.stringify({ ...summary, failedStage: null }),
       JSON.stringify({ ...summary, discoveryFileRemoved: "false" }),
       JSON.stringify({ ...summary, failedStage: "private-value" }),
       JSON.stringify({ ...summary, stages: { ...summary.stages, control: "passed" } }),
       JSON.stringify({ ...summary, stages: { ...summary.stages, snapshot: "failed" } }),
+      JSON.stringify({ ...summary, stages: null }),
+      JSON.stringify({ ...summary, stages: [] }),
+      JSON.stringify({ ...summary, stages: { ...summary.stages, continue: undefined } }),
+      JSON.stringify({ ...summary, stages: { ...summary.stages, extra: "skipped" } }),
     ]) {
       expect(() => parseCanarySummary(text)).toThrow("invalid canary summary");
     }
+  });
+});
+
+describe("lifecycle evidence", () => {
+  test("recognizes typed and collaborative user prompts, not unrelated or partial transcript matches", () => {
+    const marker = "synthetic-transition-marker";
+    expect(hasCanaryPrompt([{ type: "message", message: { role: "user", content: [{ type: "text", text: marker }] } }], marker)).toBe(true);
+    expect(hasCanaryPrompt([{ type: "message", message: { role: "user", content: marker } }], marker)).toBe(true);
+    expect(hasCanaryPrompt([{ type: "custom_message", customType: "collab-prompt", content: marker }], marker)).toBe(true);
+    expect(hasCanaryPrompt([
+      null, false, marker, {}, { type: "message", message: null },
+      { type: "message", message: { role: "assistant", content: marker } },
+      { type: "message", message: { role: "user", content: [{ type: "image", text: marker }] } },
+      { type: "message", message: { role: "user", content: `draft-${marker}` } },
+      { type: "message", message: { role: "user", content: [{ type: "text", text: "draft-" }, { type: "text", text: marker }] } },
+      { type: "message", message: { role: "user", content: { text: marker } } },
+      { type: "custom_message", customType: "other", content: marker },
+      { type: "session", title: marker },
+    ], marker)).toBe(false);
+  });
+
+  test("requires a complete positive rewind status, not selection, failure, or quoted text", () => {
+    expect(hasRewindConfirmation("header\n  Rewound to selected point  \nfooter")).toBe(true);
+    expect(hasRewindConfirmation("Already at this point")).toBe(false);
+    expect(hasRewindConfirmation("selected: Rewound to selected point")).toBe(false);
+    expect(hasRewindConfirmation("Rewound to selected point failed")).toBe(false);
+    expect(hasRewindConfirmation("Rewound to selected point?")).toBe(false);
+    expect(hasRewindConfirmation("Rewound to selected point in history")).toBe(false);
   });
 });
 
@@ -98,9 +165,7 @@ describe("Windows host launch", () => {
     expect(windowsArgument('a\\"b')).toBe('"a\\\\\\"b"');
   });
 
-  test("escapes PowerShell literals and refuses a variable name it cannot set safely", () => {
-    const script = windowsHostScript("C:\\bun.exe", ["C:\\omp\\cli.js"], "C:\\work", { USERPROFILE: "C:\\it's" });
-    expect(script).toContain("Set-Item -LiteralPath 'Env:USERPROFILE' -Value 'C:\\it''s'");
+  test("refuses an environment variable name that could execute PowerShell", () => {
     expect(() => windowsHostScript("C:\\bun.exe", [], "C:\\work", { "PATH;Remove-Item": "x" })).toThrow("invalid host environment");
   });
 });

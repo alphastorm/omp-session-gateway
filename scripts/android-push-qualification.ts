@@ -38,6 +38,20 @@ export interface PushTapObservation {
 }
 export type PushNetwork = "wifi" | "cellular" | "airplane";
 export type PushCleanupStep = "fixtureAsk" | "notifications" | "browser" | "doze" | "network" | "task" | "fixture";
+/** The lane owns two disposable hosts; the secondary exists only for the queue-order and expiry checks. */
+export type PushFixtureRole = "primary" | "secondary";
+/** One device-local triage control in the installed app. `settleMs` keeps observing before the read. */
+export type TriageAction =
+  | { readonly kind: "hold" | "requeue" | "hide"; readonly instanceId: string; readonly settleMs?: number }
+  | { readonly kind: "undo" | "showAll"; readonly settleMs?: number };
+/** The rendered directory, by instance ID in display order. Volatile: never persisted or reported. */
+export interface TriageObservation {
+  readonly waiting: readonly string[]; readonly held: readonly string[]; readonly working: readonly string[];
+  readonly hidden: number; readonly allHeld: boolean; readonly pending: number; readonly heldCount: number; readonly live: number;
+  readonly toast: boolean;
+  /** Non-GET requests the page sent to the gateway while the action ran and settled. */
+  readonly mutations: number;
+}
 export interface AndroidPushRuntime {
   now(): number;
   pause(milliseconds: number): Promise<void>;
@@ -46,8 +60,8 @@ export interface AndroidPushRuntime {
   dndOff(): Promise<boolean>;
   device(): Promise<PushDeviceBaseline>;
   browser(): Promise<PushBrowserBaseline>;
-  fixture(operation: "start" | PushFixtureCommand, epoch: string): Promise<void>;
-  snapshot(epoch: string): Promise<SessionMetadata | undefined>;
+  fixture(operation: "start" | PushFixtureCommand, epoch: string, role?: PushFixtureRole): Promise<void>;
+  snapshot(epoch: string, role?: PushFixtureRole): Promise<SessionMetadata | undefined>;
   beginNotificationPhase(epoch: string): Promise<void>;
   assertNotificationOwnership(): Promise<void>;
   detail(level: PushDetailLevel): Promise<void>;
@@ -57,6 +71,15 @@ export interface AndroidPushRuntime {
   observe(session: SessionMetadata, kind: "attention" | "activity_stop", detail: PushDetailLevel): Promise<NotificationObservation>;
   presentation(session: SessionMetadata, detail: PushDetailLevel): Promise<boolean>;
   tap(session: SessionMetadata, kind: "attention" | "activity_stop", stale: boolean): Promise<PushTapObservation>;
+  /** Reads the installed app's directory, after performing `action` when one is given. */
+  triage(action?: TriageAction): Promise<TriageObservation>;
+  /**
+   * Re-presents the attention notification `session` would have shown, with its metadata-only data,
+   * so a later tap exercises the delayed-tap path after its clear already ran. Closes the app after.
+   */
+  replay(session: SessionMetadata): Promise<void>;
+  /** Closes every notification for the hosts this phase owns, then waits until the OS shows none. */
+  dismissOwned(): Promise<void>;
   answer(): Promise<void>;
   forceStop(): Promise<void>;
   permission(value: "granted" | "denied" | "default"): Promise<void>;
@@ -75,13 +98,16 @@ export interface AndroidPushRuntime {
 const PUSH_RECOVERY_MS = 160_000;
 
 export const ANDROID_PUSH_PHASES = ["baseline_captured", "subscription_ready", "private_verified", "session_verified", "preview_verified",
-  "attention_tap_verified", "activity_stop_verified", "stale_generation_verified", "clear_verified", "force_stop_verified",
-  "permission_verified", "lock_resume_verified", "network_verified", "doze_verified", "forbidden_sinks_verified", "evidence_complete", "restored"] as const;
+  "attention_tap_verified", "activity_stop_verified", "stale_generation_verified", "clear_verified", "triage_verified", "stale_taps_verified",
+  "force_stop_verified", "permission_verified", "lock_resume_verified", "network_verified", "doze_verified", "forbidden_sinks_verified",
+  "evidence_complete", "restored"] as const;
 export type AndroidPushPhase = (typeof ANDROID_PUSH_PHASES)[number];
 export interface AndroidPushProgress extends Record<string, unknown> {
   lane: "androidPush"; epoch: string; binding: string; phase: AndroidPushPhase; cleanupRequired: boolean;
   device: PushDeviceBaseline; browser: PushBrowserBaseline | null;
   notificationTopicDigest: string | null;
+  /** The secondary host's topic, for cleanup of an interrupted triage or expiry check. */
+  secondaryNotificationTopicDigest: string | null;
   results: Record<string, Record<string, boolean | number | string>>;
 }
 interface LaneInput {
@@ -90,6 +116,7 @@ interface LaneInput {
   readonly pixel: <T>(owner: string, action: () => Promise<T>) => Promise<T>;
   readonly runtime?: AndroidPushRuntime;
 }
+const PROGRESS_KEYS = "binding,browser,cleanupRequired,device,epoch,lane,notificationTopicDigest,phase,results,secondaryNotificationTopicDigest";
 const CLEANUP_STEPS: readonly PushCleanupStep[] = ["fixtureAsk", "doze", "network", "fixture", "notifications", "browser", "task"];
 const RESULT_FIELDS: Partial<Record<AndroidPushPhase, readonly string[]>> = {
   subscription_ready: ["enabled"],
@@ -98,7 +125,11 @@ const RESULT_FIELDS: Partial<Record<AndroidPushPhase, readonly string[]>> = {
   preview_verified: ["delivered", "locked", "singleNotification", "detailMatched", "elapsedMs"],
   attention_tap_verified: ["control", "revalidated", "scrubbed"], activity_stop_verified: ["knownBusyPolls", "viewOnly"],
   stale_generation_verified: ["sameInstance", "generationIncrement", "launches", "scrubbed"],
-  clear_verified: ["authoritativeClear", "freshRequestRetained"], force_stop_verified: ["variant", "freshDelivery"],
+  clear_verified: ["authoritativeClear", "freshRequestRetained"],
+  triage_verified: ["fifo", "holdAdvanced", "heldNotificationClosed", "pendingRetained", "requeued", "allHeld", "staleHoldReleased",
+    "undoRestored", "undoExpired", "attentionRestored", "shownAll", "mutations"],
+  stale_taps_verified: ["resolved", "rearmed", "replaced", "expired", "launches", "scrubbed", "replayed"],
+  force_stop_verified: ["variant", "freshDelivery"],
   permission_verified: ["suppressed", "freshDelivery"], lock_resume_verified: ["lockedDelivery", "resumed"],
   doze_verified: ["variant"], network_verified: ["blocked", "wifiDelivery", "cellularDelivery", "airplaneSuppressed", "recovered"],
   forbidden_sinks_verified: ["clean", "detectable", "sinks", "findings", "gatewayLogsDiscarded"], evidence_complete: ["passed"],
@@ -121,11 +152,15 @@ function binding(identity: AndroidPushIdentity): string {
 export function parseAndroidPushProgress(value: unknown): AndroidPushProgress {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("invalid Android Push progress");
   const p = value as Record<string, unknown>;
-  if (Object.keys(p).sort().join(",") !== "binding,browser,cleanupRequired,device,epoch,lane,notificationTopicDigest,phase,results" || p.lane !== "androidPush" ||
+  const keys = Object.keys(p).sort().join(",");
+  // Progress written before the secondary host existed has no secondary topic, and cleans up the same way.
+  if (![PROGRESS_KEYS, PROGRESS_KEYS.replace(",secondaryNotificationTopicDigest", "")].includes(keys) || p.lane !== "androidPush" ||
     typeof p.epoch !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(p.epoch) ||
     typeof p.binding !== "string" || !/^[a-f0-9]{64}$/u.test(p.binding) || typeof p.cleanupRequired !== "boolean" ||
     !ANDROID_PUSH_PHASES.includes(p.phase as AndroidPushPhase)) throw new Error("invalid Android Push progress");
-  if (p.notificationTopicDigest !== null && (typeof p.notificationTopicDigest !== "string" || !/^[a-f0-9]{64}$/u.test(p.notificationTopicDigest))) throw new Error("invalid Android Push notification ownership");
+  for (const digest of [p.notificationTopicDigest, p.secondaryNotificationTopicDigest ?? null]) {
+    if (digest !== null && (typeof digest !== "string" || !/^[a-f0-9]{64}$/u.test(digest))) throw new Error("invalid Android Push notification ownership");
+  }
   const device = p.device;
   if (typeof device !== "object" || device === null || Array.isArray(device) ||
     Object.keys(device).sort().join(",") !== "airplane,awake,batteryOverride,chromeNotificationsAllowed,forcedDoze,locked,mobile,webApkNotificationsAllowed,webApkTask,wifi" ||
@@ -150,7 +185,7 @@ export function parseAndroidPushProgress(value: unknown): AndroidPushProgress {
     if ((recorded.rearmCount === undefined) !== (recorded.rearmReason === undefined)) throw new Error("incomplete Android Push re-arm observation");
   }
   if ((p.phase === "restored") === p.cleanupRequired) throw new Error("inconsistent Android Push cleanup state");
-  return p as AndroidPushProgress;
+  return { ...p, secondaryNotificationTopicDigest: p.secondaryNotificationTopicDigest ?? null } as AndroidPushProgress;
 }
 
 export function androidPushNeedsCleanup(progress: unknown): boolean {
@@ -196,7 +231,7 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
   const admission = await preflightAndroidPush({ origin: input.identity.origin }, runtime);
   return input.pixel("androidPush", async () => {
     const progress: AndroidPushProgress = { lane: "androidPush", epoch: randomUUID(), binding: bind, phase: "baseline_captured", cleanupRequired: true,
-      device: await runtime.device(), browser: null, notificationTopicDigest: null, results: {} };
+      device: await runtime.device(), browser: null, notificationTopicDigest: null, secondaryNotificationTopicDigest: null, results: {} };
     const save = async () => { await input.checkpoint(structuredClone(progress)); };
     runtime.beforeEffect = save;
     await save();
@@ -211,14 +246,14 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
       }
       throw new Error(`Android Push ${name} timed out`);
     };
-    const snapshot = async (predicate: (s: SessionMetadata) => boolean) => wait("metadata", async () => {
-      const session = await runtime.snapshot(progress.epoch);
+    const snapshot = async (predicate: (s: SessionMetadata) => boolean, role: PushFixtureRole = "primary") => wait("metadata", async () => {
+      const session = await runtime.snapshot(progress.epoch, role);
       return session !== undefined && predicate(session) ? session : undefined;
     }, 90_000);
     const assertDndOff = async () => { if (!await runtime.dndOff()) throw new Error("turn Do Not Disturb off on the Pixel for the qualification window"); };
-    const fixture = async (operation: "start" | PushFixtureCommand) => {
+    const fixture = async (operation: "start" | PushFixtureCommand, role: PushFixtureRole = "primary") => {
       if (!["answer", "stop"].includes(operation)) await assertDndOff();
-      await save(); await runtime.fixture(operation, progress.epoch);
+      await save(); await runtime.fixture(operation, progress.epoch, role);
     };
     const finish = async (phase: AndroidPushPhase, result: Record<string, boolean | number | string>) => {
       await assertDndOff();
@@ -227,22 +262,25 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
       progress.phase = phase; progress.results[phase] = { ...progress.results[phase], ...result, dndOff: true, phaseElapsedMs: now - phaseStarted };
       phaseStarted = now; await save();
     };
-    const clear = async (timeout = 60_000) => {
-      await fixture("answer");
-      const current = await snapshot(s => !s.inputRequired);
+    const clear = async (timeout = 60_000, role: PushFixtureRole = "primary") => {
+      await fixture("answer", role);
+      const current = await snapshot(s => !s.inputRequired, role);
       await wait("authoritative clear", async () => (await runtime.observe(current, "attention", "private")).count === 0 ? true : undefined, timeout);
     };
-    const delivery = async (detail: PushDetailLevel, kind: "attention" | "activity_stop" = "attention", arm = true, timeout = 60_000) => {
-      if (arm) { await runtime.detail(detail); await runtime.closePwa(); await runtime.lock(); }
-      if (arm) await fixture("ask");
-      const session = await snapshot(s => kind === "attention" ? s.inputRequired : s.busy === false);
-      const start = runtime.now();
+    const delivered = async (session: SessionMetadata, kind: "attention" | "activity_stop" = "attention", detail: PushDetailLevel = "session", timeout = 60_000) => {
       const seen = await wait("notification delivery", async () => {
         const observation = await runtime.observe(session, kind, detail);
         if (observation.count > 1 || observation.forbiddenFound) throw new Error("Android Push duplicate or forbidden notification");
         return observation.count === 1 ? observation : undefined;
       }, timeout);
       if (!seen.titleMatches || !seen.bodyMatches) throw new Error("Android Push notification detail mismatch");
+    };
+    const delivery = async (detail: PushDetailLevel, kind: "attention" | "activity_stop" = "attention", arm = true, timeout = 60_000) => {
+      if (arm) { await runtime.detail(detail); await runtime.closePwa(); await runtime.lock(); }
+      if (arm) await fixture("ask");
+      const session = await snapshot(s => kind === "attention" ? s.inputRequired : s.busy === false);
+      const start = runtime.now();
+      await delivered(session, kind, detail, timeout);
       return { session, milliseconds: runtime.now() - start };
     };
     const attempt = async (phase: AndroidPushPhase, action: () => Promise<void>): Promise<void> => {
@@ -259,7 +297,20 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
           await runtime.doze(false);
           if (!await runtime.network("wifi")) throw new Error("Android Push overlap recovery needs the Wi-Fi tailnet path");
           await runtime.permission("granted");
-          await fixture("release"); await clear(PUSH_RECOVERY_MS); await snapshot(s => s.busy === false);
+          await fixture("release");
+          // Settle every owned ask and let its authoritative clear land, then dismiss what remains: an
+          // activity-stop notice has no clear, so waiting for its tag to empty never ends.
+          for (const role of ["primary", "secondary"] as const) {
+            const host = await runtime.snapshot(progress.epoch, role);
+            if (host === undefined) continue;
+            if (host.inputRequired) await fixture("answer", role);
+            const settled = await snapshot(s => !s.inputRequired && s.busy === false, role);
+            await wait("authoritative clear", async () => {
+              const observation = await runtime.observe(settled, "attention", "private");
+              return observation.count === 0 || !observation.titleMatches ? true : undefined;
+            }, PUSH_RECOVERY_MS);
+          }
+          await runtime.dismissOwned();
           await runtime.closePwa();
         }
       }
@@ -329,6 +380,115 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         if ((await runtime.observe(rearmed.session, "attention", "private")).count !== 1) throw new Error("Android Push fresh request did not remain visible");
         await clear();
         await finish("clear_verified", { authoritativeClear: true, freshRequestRetained: true });
+      });
+      // Both checks below need the second owned host, and a re-armed attempt starts from settled asks.
+      const prepareSecondary = async () => {
+        if (await runtime.snapshot(progress.epoch, "secondary") === undefined) await fixture("start", "secondary");
+        const host = await snapshot(s => s.canView && s.canControl && s.busy === false, "secondary");
+        progress.secondaryNotificationTopicDigest = notificationTopicDigest(`omp-attention-${host.instanceId}`);
+        await save();
+        for (const role of ["primary", "secondary"] as const) {
+          if ((await runtime.snapshot(progress.epoch, role))?.inputRequired === true) await clear(60_000, role);
+        }
+        await runtime.detail("session");
+        // The secondary's posts are owned from here on.
+        await runtime.beginNotificationPhase(progress.epoch);
+        return host;
+      };
+      const same = (actual: readonly string[], expected: readonly string[]) => actual.length === expected.length && actual.every((id, index) => id === expected[index]);
+      await attempt("triage_verified", async () => {
+        const secondary = await prepareSecondary();
+        const primary = await snapshot(s => !s.inputRequired);
+        const owned = [primary.instanceId, secondary.instanceId];
+        let view = await runtime.triage();
+        for (const id of view.held.filter(held => owned.includes(held))) view = await runtime.triage({ kind: "requeue", instanceId: id });
+        if (owned.some(id => !view.working.includes(id))) view = await runtime.triage({ kind: "showAll" });
+        // Order, Hold and Show all act on the whole device-local directory, so nothing else may wait or be hidden.
+        if (view.waiting.length > 0 || view.held.length > 0 || view.hidden > 0) throw new Error("Android Push triage needs a directory where no other session waits for input or is hidden");
+        await runtime.closePwa();
+        await fixture("ask");
+        const first = await snapshot(s => s.inputRequired);
+        // A distinct ask time makes the queue order observable rather than an instance-ID tie-break.
+        await runtime.pause(1_500);
+        await fixture("ask", "secondary");
+        const second = await snapshot(s => s.inputRequired, "secondary");
+        if (first.ask === undefined || second.ask === undefined || first.ask.since >= second.ask.since) throw new Error("Android Push fixture asks are not ordered in time");
+        await delivered(first); await delivered(second);
+        const pending = async () => {
+          const [left, right] = [await runtime.snapshot(progress.epoch), await runtime.snapshot(progress.epoch, "secondary")];
+          return left?.ask?.requestId === first.ask?.requestId && right?.ask?.requestId === second.ask?.requestId;
+        };
+        view = await runtime.triage();
+        if (!same(view.waiting, [first.instanceId, second.instanceId]) || view.pending !== 2 || view.heldCount !== 0) throw new Error("Android Push directory did not queue asks in arrival order");
+        view = await runtime.triage({ kind: "hold", instanceId: first.instanceId });
+        if (!same(view.waiting, [second.instanceId]) || !same(view.held, [first.instanceId]) || view.pending !== 2 || view.heldCount !== 1 || view.mutations !== 0) throw new Error("Android Push Hold did not advance the queue on this device alone");
+        if (!await pending()) throw new Error("Android Push Hold changed the authoritative asks");
+        await wait("held notification close", async () => (await runtime.observe(first, "attention", "session")).count === 0 ? true : undefined, 15_000);
+        if ((await runtime.observe(second, "attention", "session")).count !== 1) throw new Error("Android Push Hold closed another ask's notification");
+        view = await runtime.triage({ kind: "requeue", instanceId: first.instanceId });
+        if (!same(view.waiting, [first.instanceId, second.instanceId]) || view.held.length !== 0 || view.mutations !== 0) throw new Error("Android Push requeue did not restore arrival order");
+        view = await runtime.triage({ kind: "hold", instanceId: first.instanceId });
+        view = await runtime.triage({ kind: "hold", instanceId: second.instanceId });
+        if (!view.allHeld || view.waiting.length !== 0 || !same(view.held, [first.instanceId, second.instanceId]) || view.pending !== 2 || view.heldCount !== 2 || view.mutations !== 0) throw new Error("Android Push Hold-all did not report a held queue");
+        if (!await pending()) throw new Error("Android Push Hold-all changed the authoritative asks");
+        // A replaced request is a new ask: only its stale hold goes.
+        await clear(60_000, "secondary");
+        await fixture("ask", "secondary");
+        const renewed = await snapshot(s => s.inputRequired && s.ask !== undefined && s.ask.requestId !== second.ask?.requestId, "secondary");
+        await delivered(renewed);
+        view = await runtime.triage();
+        if (!same(view.waiting, [renewed.instanceId]) || !same(view.held, [first.instanceId]) || view.pending !== 2 || view.heldCount !== 1) throw new Error("Android Push replaced request kept its stale hold");
+        await runtime.triage({ kind: "requeue", instanceId: first.instanceId });
+        await clear(); await clear(60_000, "secondary");
+        // Hide is device-local: Undo inside its window, then no mutation when the window expires.
+        view = await runtime.triage({ kind: "hide", instanceId: first.instanceId });
+        // The live total still counts the hidden row: the OMP process keeps running.
+        if (view.working.includes(first.instanceId) || view.hidden !== 1 || !view.toast || view.live !== view.working.length + 1 || view.mutations !== 0) throw new Error("Android Push Hide did not hide the row on this device alone");
+        view = await runtime.triage({ kind: "undo" });
+        if (!view.working.includes(first.instanceId) || view.hidden !== 0 || view.toast || view.mutations !== 0) throw new Error("Android Push Undo did not restore the hidden row");
+        view = await runtime.triage({ kind: "hide", instanceId: first.instanceId, settleMs: 6_500 });
+        if (view.working.includes(first.instanceId) || view.hidden !== 1 || view.toast || view.live !== view.working.length + 1 || view.mutations !== 0) throw new Error("Android Push expired Undo window changed state");
+        await fixture("ask");
+        const returned = await snapshot(s => s.inputRequired);
+        view = await runtime.triage();
+        if (!same(view.waiting, [returned.instanceId]) || view.hidden !== 0) throw new Error("Android Push attention did not restore the hidden row");
+        await clear();
+        await runtime.triage({ kind: "hide", instanceId: secondary.instanceId });
+        view = await runtime.triage({ kind: "showAll" });
+        if (owned.some(id => !view.working.includes(id)) || view.hidden !== 0 || view.mutations !== 0) throw new Error("Android Push Show all did not restore hidden rows");
+        await runtime.closePwa();
+        await finish("triage_verified", { fifo: true, holdAdvanced: true, heldNotificationClosed: true, pendingRetained: true, requeued: true, allHeld: true,
+          staleHoldReleased: true, undoRestored: true, undoExpired: true, attentionRestored: true, shownAll: true, mutations: 0 });
+      });
+      await attempt("stale_taps_verified", async () => {
+        await prepareSecondary();
+        // Each delayed tap re-presents a notification whose clear already ran, then taps it on the lock screen.
+        const staleTap = async (stale: SessionMetadata, cause: string) => {
+          await runtime.replay(stale);
+          const tapped = await runtime.tap(stale, "attention", true);
+          if (tapped.launches !== 0 || !tapped.scrubbedBeforeNetwork || !tapped.expired || tapped.writable || tapped.readOnly) throw new Error(`Android Push ${cause} request tap did not fail closed`);
+        };
+        const resolved = await delivery("session"); await clear();
+        await staleTap(resolved.session, "resolved");
+        const earlier = await delivery("session"); await clear();
+        await delivery("session");
+        await staleTap(earlier.session, "re-armed");
+        await clear();
+        const replaced = await delivery("session"); await clear();
+        await fixture("replace");
+        const replacement = await snapshot(s => s.generation === replaced.session.generation + 1);
+        if (replacement.instanceId !== replaced.session.instanceId) throw new Error("Android Push replacement changed instance");
+        await delivery("session");
+        await staleTap(replaced.session, "replaced-generation");
+        await clear();
+        await runtime.closePwa(); await runtime.lock();
+        await fixture("ask", "secondary");
+        const expiring = await snapshot(s => s.inputRequired, "secondary");
+        await delivered(expiring);
+        await fixture("stop", "secondary");
+        await wait("secondary unpublication", async () => await runtime.snapshot(progress.epoch, "secondary") === undefined ? true : undefined, 45_000);
+        await staleTap(expiring, "expired-host");
+        await finish("stale_taps_verified", { resolved: true, rearmed: true, replaced: true, expired: true, launches: 0, scrubbed: true, replayed: true });
       });
       await attempt("force_stop_verified", async () => {
         await runtime.forceStop(); await fixture("ask");
@@ -456,6 +616,14 @@ if (import.meta.main) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, "progress.json");
   let progress: unknown = await readFile(path, "utf8").then(text => JSON.parse(text)).catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
+  // A restored attempt for another candidate, origin or OMP pin needs no cleanup: keep it beside the new one.
+  if (mode === "development" && progress !== undefined) {
+    const previous = parseAndroidPushProgress(progress);
+    if (!previous.cleanupRequired && previous.binding !== binding(identity)) {
+      await rename(path, join(directory, `progress-${previous.epoch}-restored.json`));
+      progress = undefined;
+    }
+  }
   const checkpoint = async (next: Record<string, unknown>) => {
     await writeFile(`${path}.tmp`, JSON.stringify(next), { mode: 0o600 });
     await rename(`${path}.tmp`, path);
