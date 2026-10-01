@@ -110,10 +110,17 @@ not qualify an actual OMP binary, native host, relay, or physical client.
   `canary-windows` lane below, which is tested evidence, not qualification.
 
 The daily [upstream OMP canary](../.github/workflows/upstream-canary.yml) installs latest stock OMP
-into an isolated directory on Linux and, in `canary-windows`, on Windows. On each host it exercises
-discovery, snapshot/model validation, stale-generation refusal, and the embedded client’s
-View/Control joins and prompt echo against one disposable host. On Windows the host runs in its own
-hidden console and is ended by process-tree termination, since a console takes no signal.
+into an isolated directory on Linux and, in `canary-windows`, on Windows. Its ordered stages are
+`publish`, `snapshot`, `stale-generation`, `view`, `control`, `new-generation`, `fork`,
+`branch-rewind`, `continue`, and `unregister`. On POSIX it drives a tmux host: `/new` and `/fork`
+must keep the instance and increment generation, refuse stale View/Control queries once the new
+generation is visible, and permit fresh links. Fork retains both synthetic prompts in a fresh
+View transcript. Rewind must show the anchored in-memory terminal status (never printed), keep
+instance/generation, and leave links working; replicated sibling entries cannot prove rewind.
+Continue must retire the old instance/links and publish a new instance at generation 1 whose
+View transcript retains a pre-stop prompt. Windows runs `continue` in a hidden console, ended by
+process-tree termination, without keystroke transport. It skips exactly `new-generation`, `fork`,
+and `branch-rewind`; summary JSON includes `platform` and rejects other successful skip patterns.
 Run locally with `bun scripts/upstream-canary.ts --omp <binary>`; `--model <provider/id>` overrides
 the shared fixture model for diagnosis. After SIGTERM (or, on Windows, termination), it requires PID exit plus an absent entry
 or a gateway `gone` reply, never `unavailable`. Stock 18.1.20 and 18.3.0 leave their publication on
@@ -155,6 +162,33 @@ failed or timed-out acceptance child poisons the campaign Pixel lease.
 The stable-qualification suite also covers the 1,800-second relay floor, malformed or inadequate
 passed evidence, and resume rejection without new admission or dispatch. A rejected proof must
 still clean recorded pending Mac effects and must not reopen already completed cleanup.
+
+The retained-Mac `ompPublication` lane adds the shared
+[lifecycle runner](../scripts/omp-lifecycle-qualification.ts) after every live-session consumer
+settles successfully and the relay tunnel stops. It writes `/new` and `/fork` (after two
+synthetic messages) to the existing `ssh -tt` stdin, then stops/revokes, relaunches with
+`--continue`, and stops/revokes again. Each rotation keeps the instance, increments generation by
+one, requires stale launch POST `409 generation_mismatch` without a capability, and requires
+current View/Control `200 no-store`. Resume requires a new instance at generation 1 with the same
+label and working launches. Rewind is not gateway-visible and is covered only by the canary.
+Additive `ompPublication.evidence.lifecycle` holds `newGeneration`, `fork`, and `resumed`
+boolean/count records; schema 3 is unchanged. An interrupted step cannot pass and reruns in full.
+Prove this path before a campaign with
+`bun scripts/omp-lifecycle-development.ts --omp <absolute path to stock OMP dist/cli.js>`.
+The isolated loopback/PTY runner and dated tested evidence are documented in
+[LIFECYCLE_BRANCH_RESUME.md](LIFECYCLE_BRANCH_RESUME.md); local passes do not qualify a candidate.
+
+The Pixel Push lane adds `triage_verified` and `stale_taps_verified` between `clear_verified`
+and `force_stop_verified`. It owns a second fixture host for queue order and gone-host taps,
+requires no unrelated waiting or hidden directory rows, and cleans both hosts' notifications and
+device-local Hold/Hide records. Delayed taps re-present the original metadata-only notification
+after clear; `replayed: true` proves handling, not push delivery ordering or delay. Items D.9–15
+below distinguish the new physical checks from broader acceptance. Develop with the pinned Bun:
+`OMP_PUSH_FIXTURE_BINARY="$PINNED_OMP" bun scripts/android-push-qualification.ts development "$PUBLISHED_ARCHIVE"`.
+Restored development progress from another candidate/origin/pin is archived automatically.
+Follow [ANDROID.md](ANDROID.md#physical-background-push-lane) before running a stable campaign;
+the [specialized checklist](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending)
+remains unchecked until that exact signed candidate passes.
 
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
@@ -309,6 +343,10 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 3. Exit process B normally; card disappears promptly.
 4. Kill process C; card disappears no later than TTL.
 
+The mainline canary and retained-Mac lifecycle step above provide executable transition coverage.
+Their measured assertions do not prove an unobserved interval between samples; use
+[LIFECYCLE_BRANCH_RESUME.md](LIFECYCLE_BRANCH_RESUME.md) for exact invariants and evidence limits.
+
 ### D. Phone/background behavior
 
 1. Open a live session.
@@ -322,18 +360,37 @@ Bounded title/project canaries are allowed in encrypted push and visible notific
 7. Tap the notification; `/collab/:instanceId?request=:requestId` contains routing metadata only, exact current attention is revalidated, and one tap opens Control only for that request. Tap again with a collaboration open: the page switches in place without a reload or navigation, a tap for the open session keeps it (an activity stop never downgrades Control), and a stale tap leaves it open.
 8. Exercise offline, tailnet-unreachable, desktop-unreachable, gateway-unavailable, and relay-unavailable states. Verify brief loss uses only `Reconnecting…`, a three-second loss names the path and next retry, recovery briefly confirms `Connected`, and the last authenticated list remains visibly timestamped and reconciles automatically without Refresh.
 9. Resolve, replace, expire, and false-to-true re-arm before tapping delayed notifications; each stale request stays on the directory without a capability request for a newer attention.
+   `stale_taps_verified` covers desktop resolution, a newer request on the same generation, a new
+   generation with its own request, and a gone host. It re-presents the original notification's
+   metadata-only data through the worker registration, then taps on the lock screen: scrub before
+   any API request, metadata fetch, zero launches, expired/changed notice. This is physical tap
+   handling evidence, not evidence of Web Push delay or ordering.
 10. Verify one notification per instance, silent duplicate updates, authoritative clear, and `setAppBadge`/`clearAppBadge` pending counts.
+    The detail and `clear_verified` phases prove delivery/clear; `triage_verified` also requires
+    held asks to remain in the authoritative pending count. Badge counts are not observed on the
+    Pixel. On 2026-10-01, the installed WebAPK there (Chrome 154) exposed `setAppBadge` and
+    `clearAppBadge`, but the count is shown by the launcher, which the lane does not read. Badge
+    calls stay covered by the service-worker unit tests.
 11. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
+    `force_stop_verified`, `permission_verified`, and `doze_verified` keep their existing physical
+    observations after the two new phases; lock/resume and network phases remain required.
 12. Install a changed shell while the directory is idle; the new worker activates and loads it without Refresh. Repeat during pending/active collaboration; the capability-bearing client remains mounted until ordinary Back/Leave, then the updated directory loads automatically.
+    This worker-update scenario is not covered by the new triage/delayed-tap phases.
 13. Hold the oldest request from the dashboard and from an active collaboration shell. Verify the
     next unheld ask opens in FIFO order, the held ask remains in the authoritative pending/badge
     total, only its matching notification closes, and explicit requeue restores it.
+    `triage_verified` exercises the installed directory with two fixture asks, zero non-GET gateway
+    requests, and `N waiting · M held`. The active-shell scenario remains separate acceptance.
 14. Hold every waiting request. Verify the device reports a clear couch queue without claiming the
     gateway is all clear, then replace one exact request and verify only that stale hold disappears.
+    `triage_verified` requires `Queue clear · N on hold` and preserves the other exact hold.
 15. Hide a non-attention row, exercise Undo, let a second dismissal expire, and use Show all.
     Verify no network mutation occurs; a new generation or later attention restores visibility
     immediately; live/working totals still include the hidden row; and the UI says OMP keeps
     running rather than claiming Close, Exit, or completion.
+    `triage_verified` checks Undo within five seconds, expiry after a second Hide, `Live · N`
+    retention, later attention restoration, and Show all. New-generation restoration remains a
+    separate acceptance scenario, not a result of this physical phase.
 
 ### E. Authorization
 
@@ -488,7 +545,9 @@ listener, event and history counts are not measured.
 - documentation tells users how to revoke a lost phone and rotate the gateway-only readiness token;
 - record the exact signed-candidate matrix and limitations in the [release ledger](RELEASE_STATUS.md).
   From 0.6.0 the matrix includes the Windows host and background Web Push lanes. Specialized
-  attention and branch/resume remain unqualified. No fork-era qualification result transfers.
+  attention and lifecycle (branch/resume) now have executable lane coverage; development passes are
+  tested evidence, and qualification requires the next passed campaign on the exact signed
+  candidate. No fork-era qualification result transfers.
 
 Android recovery milliseconds measure elapsed time from the disruption ending to the first
 completed same-page, ready-directory probe, probing immediately and then waiting 250 ms between
@@ -517,6 +576,12 @@ blocking a merge.
 
 `coverage` is advisory by design: its upload sets `fail_ci_if_error: false`, so a merge never
 depends on a third-party service being reachable.
+
+Separately, `upstream-canary.yml` runs `canary` and `canary-windows` daily, by dispatch, and on
+pull requests touching its workflow, scripts, fixture, or registry reader. It runs the ten stages
+listed under Mainline OMP with the strict Windows projection; it is not an every-PR gate and never
+substitutes for signed-candidate qualification. The expanded Windows lifecycle path still awaits
+CI proof; local macOS evidence is recorded in [LIFECYCLE_BRANCH_RESUME.md](LIFECYCLE_BRANCH_RESUME.md).
 
 The browser lane gates because it holds the only executable proof of contracts that span the
 gateway/vendored-client boundary. `apps/web/e2e/software-keyboard.e2e.ts` is the worked example:

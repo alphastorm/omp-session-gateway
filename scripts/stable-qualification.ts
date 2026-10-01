@@ -12,6 +12,7 @@ import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
 import { pixelUnrestored } from "./restoration.ts";
+import { createOmpStdinDriver, OmpLifecycleFailure, runOmpLifecycle, type OmpLifecycleEvidence, type OmpLifecycleHost, type OmpSessionWait } from "./omp-lifecycle-qualification.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
@@ -1459,15 +1460,15 @@ async function prepareMacFixture(
   return run.context;
 }
 
-function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins): string {
+function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins, mode: "run" | "continue"): string {
   return [
     'export PATH="$HOME/.bun/bin:$PATH"',
     'root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"',
-    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} OMP_FIXTURE_MODEL=${shellQuote(OMP_FIXTURE_MODEL)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" run`,
+    `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} OMP_FIXTURE_MODEL=${shellQuote(OMP_FIXTURE_MODEL)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" ${mode}`,
   ].join("; ");
 }
 
-function startOmpSession(options: StableQualificationOptions, target: MacTarget, pins: OmpPins): ManagedProcess {
+function startOmpSession(options: StableQualificationOptions, target: MacTarget, pins: OmpPins, mode: "run" | "continue" = "run") {
   return Bun.spawn(
     [
       "ssh",
@@ -1480,7 +1481,7 @@ function startOmpSession(options: StableQualificationOptions, target: MacTarget,
       "BatchMode=yes",
       "-q",
       target.sshDestination,
-      ompRemoteCommand(options, pins),
+      ompRemoteCommand(options, pins, mode),
     ],
     { cwd: repositoryRoot, stdin: "pipe", stdout: "ignore", stderr: "ignore" },
   );
@@ -1496,30 +1497,34 @@ async function stopSubprocess(process: ManagedProcess | undefined): Promise<void
   }
 }
 
-export async function waitForPublishedSession(origin: string, label: string): Promise<Record<string, unknown>> {
-  for (let attempt = 1; attempt <= 90; attempt += 1) {
-    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store" });
+export async function waitForPublishedSession(origin: string, label: string, options: OmpSessionWait = {}): Promise<Record<string, unknown>> {
+  const deadline = performance.now() + (options.timeoutMs ?? 90_000);
+  while (performance.now() < deadline) {
+    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, Math.ceil(deadline - performance.now())))) });
     if (response.ok) {
-      const payload = (await response.json()) as { sessions?: unknown[] };
-      const session = (payload.sessions ?? []).find(
-        (entry): entry is Record<string, unknown> => isRecord(entry) && entry.cwdLabel === label,
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || !Array.isArray(payload.sessions)) throw new Error("session list is invalid");
+      const session = payload.sessions.find(
+        (entry): entry is Record<string, unknown> => isRecord(entry) && entry.cwdLabel === label && (options.matches?.(entry) ?? true),
       );
       if (session) {
         if (!response.headers.get("cache-control")?.includes("no-store")) throw new Error("session list was cacheable");
-        if (session.canView !== true || session.canControl !== true || session.generation !== 1) {
-          throw new Error("mainline OMP metadata did not publish View and Control at generation 1");
+        if (session.canView !== true || session.canControl !== true || typeof session.instanceId !== "string" ||
+          !Number.isSafeInteger(session.generation) || (typeof session.generation !== "number" || session.generation < 1) ||
+          (options.matches === undefined && session.generation !== 1)) {
+          throw new Error("mainline OMP metadata did not publish the required View and Control generation");
         }
         const modelError = fixtureModelError(session);
         if (modelError !== undefined) throw new Error(modelError);
         return session;
       }
     }
-    await Bun.sleep(1_000);
+    await Bun.sleep(Math.min(1_000, Math.max(0, deadline - performance.now())));
   }
-  throw new Error("mainline OMP session did not publish within 90 seconds");
+  throw new Error("mainline OMP session did not publish before the deadline");
 }
 
-export async function verifyLaunchContracts(origin: string, session: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function verifyLaunchContracts(origin: string, session: Record<string, unknown>, expected: "live" | "stale" = "live"): Promise<Record<string, unknown>> {
   const instanceId = session.instanceId;
   const generation = session.generation;
   if (typeof instanceId !== "string" || typeof generation !== "number") throw new Error("published session identity is invalid");
@@ -1530,27 +1535,42 @@ export async function verifyLaunchContracts(origin: string, session: Record<stri
       headers: { "content-type": "application/json", origin, "sec-fetch-site": "same-origin" },
       body: JSON.stringify({ generation, mode }),
       cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     });
-    const payload = (await response.json()) as Record<string, unknown>;
-    const valuePresent = typeof payload.capability === "string" && payload.capability.length > 0;
+    const payload: unknown = await response.json();
+    if (!isRecord(payload)) throw new Error("launch response is invalid");
+    const capabilityField = "capability" in payload;
+    const valuePresent = typeof payload.capability === "string" && payload.capability !== "";
+    delete payload.capability;
     const keys = Object.keys(payload).sort();
-    payload.capability = "";
-    if (response.status !== 200 || !response.headers.get("cache-control")?.includes("no-store") || !valuePresent) {
-      throw new Error(`${mode} launch contract failed`);
+    const valid = expected === "live"
+      ? response.status === 200 && valuePresent && payload.generation === generation && payload.mode === mode
+      : response.status === 409 && payload.code === "generation_mismatch" && !capabilityField;
+    if (!valid || !response.headers.get("cache-control")?.includes("no-store")) {
+      throw new Error("OMP launch contract failed");
     }
+    if (capabilityField) keys.push("capability");
+    keys.sort();
     modes.push({ mode, status: response.status, keys, valuePresent, noStore: true });
   }
   return { instanceId, generation, modes };
 }
 
-export async function waitForRevocation(origin: string, label: string): Promise<void> {
-  for (let attempt = 1; attempt <= 45; attempt += 1) {
-    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store" });
-    const payload = (await response.json()) as { sessions?: Array<{ cwdLabel?: string }> };
-    if (!(payload.sessions ?? []).some(session => session.cwdLabel === label)) return;
-    await Bun.sleep(1_000);
+export async function waitForRevocation(origin: string, label: string, timeoutMs = 45_000): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, Math.ceil(deadline - performance.now())))) });
+    // A refused read is retried like publication; only a valid no-store list can prove revocation.
+    if (response.ok) {
+      const payload: unknown = await response.json();
+      if (!response.headers.get("cache-control")?.includes("no-store") || !isRecord(payload) || !Array.isArray(payload.sessions)) {
+        throw new Error("revocation session list is invalid");
+      }
+      if (!payload.sessions.some(session => isRecord(session) && session.cwdLabel === label)) return;
+    }
+    await Bun.sleep(Math.min(1_000, Math.max(0, deadline - performance.now())));
   }
-  throw new Error("mainline OMP session did not revoke within 45 seconds");
+  throw new Error("mainline OMP session did not revoke before the deadline");
 }
 
 function chooseTunnelPort(): number {
@@ -1827,6 +1847,37 @@ export function markMacCleanupRequired(receipt: StableQualificationReceipt): boo
   return true;
 }
 
+/** Commit the publication verdict only after the complete, repeatable lifecycle has finished. */
+export async function completeOmpPublicationLifecycle(
+  lane: LaneReceipt,
+  persist: () => Promise<void>,
+  run: () => Promise<OmpLifecycleEvidence>,
+): Promise<void> {
+  lane.status = "running";
+  delete lane.completedAt;
+  delete lane.error;
+  if (lane.evidence !== undefined) {
+    delete lane.evidence.lifecycle;
+    delete lane.evidence.revoked;
+  }
+  await persist();
+  try {
+    const lifecycle = await run();
+    lane.evidence = { ...lane.evidence, lifecycle, revoked: true };
+    lane.status = "passed";
+    lane.completedAt = now();
+    await persist();
+  } catch (error) {
+    // Fixed step names only: the runner never carries host, link or terminal text.
+    const reason = error instanceof OmpLifecycleFailure ? error.message : "OMP publication lifecycle failed";
+    lane.status = "failed";
+    lane.error = reason;
+    delete lane.completedAt;
+    await persist();
+    throw new Error(reason);
+  }
+}
+
 export async function runStableQualification(
   argv: readonly string[],
   runtime: StablePreflightRuntime = defaultPreflightRuntime,
@@ -1874,7 +1925,7 @@ export async function runStableQualification(
   let target: MacTarget | undefined;
   let macCleanupContext: Pick<MacContext, "target" | "environment"> | undefined;
   let macContext: MacContext | undefined;
-  let ompProcess: ManagedProcess | undefined;
+  let ompHost: OmpLifecycleHost | undefined;
   let tunnelProcess: ManagedProcess | undefined;
   let primaryError: unknown;
   let cleanupRequired = receiptNeedsMacCleanup(receipt);
@@ -1990,9 +2041,19 @@ export async function runStableQualification(
       publicationLane.attempts += 1;
       publicationLane.startedAt = now();
       delete publicationLane.error;
+      delete publicationLane.completedAt;
+      delete publicationLane.evidence;
       await persist();
 
-      ompProcess = startOmpSession(options, target, ompPins);
+      // Only this driver writes the SSH stdin pipe; it stays open until its owned host stops.
+      ompHost = createOmpStdinDriver(
+        startOmpSession(options, target, ompPins),
+        () => startOmpSession(options, target!, ompPins, "continue"),
+        async child => {
+          if (child.exitCode !== null) return;
+          try { child.stdin.end(); } finally { await stopSubprocess(child); }
+        },
+      );
       const session = await waitForPublishedSession(macContext.publicOrigin, options.sessionLabel);
       const launchEvidence = await verifyLaunchContracts(macContext.publicOrigin, session);
       publicationLane.evidence = { ...launchEvidence, published: true };
@@ -2051,20 +2112,18 @@ export async function runStableQualification(
       }
       await stopSubprocess(tunnelProcess);
       tunnelProcess = undefined;
-      await stopSubprocess(ompProcess);
-      ompProcess = undefined;
-      await waitForRevocation(macContext.publicOrigin, options.sessionLabel);
-      publicationLane.status = "passed";
-      publicationLane.completedAt = now();
-      publicationLane.evidence = { ...(publicationLane.evidence ?? {}), revoked: true };
-      await persist();
+      await completeOmpPublicationLifecycle(publicationLane, persist, () => runOmpLifecycle({
+        host: ompHost!,
+        observer: { origin: macContext!.publicOrigin, waitForPublishedSession, verifyLaunchContracts, waitForRevocation },
+        label: options.sessionLabel,
+      }));
     }
     await assertProtectedFilesUnchanged(protectedFiles);
   } catch (error) {
     primaryError = error;
   } finally {
     await stopSubprocess(tunnelProcess).catch(() => {});
-    await stopSubprocess(ompProcess).catch(() => {});
+    await ompHost?.stopAll().catch(() => {});
     for (const [name, description] of [["androidPush", "background Push"], ["deviceCloud", "device-cloud"]] as const) {
       if (driven[name] || !recordedEffects(lanes[name], receipt.lanes[name])) continue;
       // A resumed campaign stopped before this lane could release what it recorded. Both lanes

@@ -208,11 +208,11 @@ worker messages, browser storage, caches, logs, and diagnostics.
 
 ## Acceptance checklist
 
-The checked items below record pre-cutover implementation acceptance, including **fork-era**
-layout and leak-suite evidence. They do not qualify this specialized attention/notification
-matrix on mainline OMP; its exact host, physical-client, and background-Push qualification
-remains pending. The [release ledger](RELEASE_STATUS.md) records passed mainline core checks,
-not qualification of these specialized scenarios.
+The first checklist records pre-cutover implementation acceptance, including **fork-era** layout
+and leak-suite evidence, not transferred mainline qualification. The physical background-Push
+checklist below records signed-candidate evidence separately. Specialized triage and delayed-tap
+qualification remains pending the next stable campaign; implementation and development runs alone
+do not qualify it. The [release ledger](RELEASE_STATUS.md) is authoritative.
 
 - [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
 - [x] Seven exact notification states; permission only after explicit enable.
@@ -236,21 +236,73 @@ Permission must be granted before admission. The negative phase holds its origin
 connection open without a page, because disconnecting it removes Chrome's override. The driver
 rewarms Chrome before releasing that connection, then verifies the restored preference and fresh delivery.
 
-- [ ] Closed WebAPK task: Private, Session, and Preview delivery with exactly one owned notification.
-- [ ] Lock-screen UI matches the selected detail and does not contain ask/prompt/answer canaries.
-- [ ] Attention tap: scrubbed route, current request/generation validation, writable Control.
-- [ ] Known busy across two polls → idle: stop notification tap is read-only View.
-- [ ] Same instance N → N+1: old stop tap is scrubbed/expired with zero launch requests.
-- [ ] Authoritative clear removes the exact ask; a fresh request remains visible across repeated current samples.
-- [ ] Force-stop observed variant plus a fresh post-relaunch delivery.
-- [ ] Permission-denied suppression and a fresh delivery after restoration.
-- [ ] Lock/resume and forced-Doze observed variant, without asserting guaranteed delivery.
-- [ ] Actual Wi-Fi → cellular → Airplane → restored-tailnet behavior.
-- [ ] Seven browser sinks plus notification title/body/data, URL/history, DOM, and resource timings
+- [x] Closed WebAPK task: Private, Session, and Preview delivery with exactly one owned notification.
+- [x] Lock-screen UI matches the selected detail and does not contain ask/prompt/answer canaries.
+- [x] Attention tap: scrubbed route, current request/generation validation, writable Control.
+- [x] Known busy across two polls → idle: stop notification tap is read-only View.
+- [x] Same instance N → N+1: old stop tap is scrubbed/expired with zero launch requests.
+- [x] Authoritative clear removes the exact ask; a fresh request remains visible across repeated current samples.
+- [x] Force-stop observed variant plus a fresh post-relaunch delivery.
+- [x] Permission-denied suppression and a fresh delivery after restoration.
+- [x] Lock/resume and forced-Doze observed variant, without asserting guaranteed delivery.
+- [x] Actual Wi-Fi → cellular → Airplane → restored-tailnet behavior.
+- [x] Seven browser sinks plus notification title/body/data, URL/history, DOM, and resource timings
   are proven detectable and clean; macOS service streams are observed discarded.
-- [ ] Original subscription/detail/permission, radios, battery/Doze, task, and display/keyguard
+- [x] Original subscription/detail/permission, radios, battery/Doze, task, and display/keyguard
   state restored; owned fixture stopped. No screenshots, notification content, or XML persisted.
 
+The qualifying campaign of every stable release since v0.6.0 passed the twelve checks above
+through its `androidPush` lane. Failed earlier attempts are recorded in the ledger. The latest is
+[v0.7.1](RELEASE_STATUS.md#mainline-v071--published-stable), on the Pixel 10 Pro,
+Android 17 build `CP3A.260905.009`, Chrome `154.0.8037.57`. The lane's detail, attention-tap,
+activity-stop, stale-generation, clear, force-stop, permission, lock/resume, network, Doze,
+forbidden-sink, and restoration phases map to these checks. The campaign rows record delivery,
+tap/clear behavior, observed force-stop/Doze variants, ten detectable clean sinks, and restored
+device/browser/fixture state. This evidence does not qualify the new specialized checks below or
+guarantee background delivery.
+
+### Specialized triage and delayed-tap acceptance — qualification pending
+
+The implemented `triage_verified` and `stale_taps_verified` phases run after `clear_verified`
+and before `force_stop_verified`. They qualify only when the next stable campaign passes on its
+exact signed candidate. On 2026-10-01, a development run of the whole lane passed every phase,
+these two included, with no re-arm, and restored the phone. It ran against the installed v0.7.1
+gateway with stock OMP 18.4.8 fixtures on the Pixel 10 Pro, Android 17, Chrome `154.0.8037.57`.
+That is tested evidence ([ANDROID.md](ANDROID.md#physical-background-push-lane)), so the boxes
+below stay unchecked.
+The lane owns a second fixture host. Before triage, no other session in the installed app's
+directory may be waiting for input or hidden: order, Hold, and Show all act on the whole
+device-local directory. The phase fails closed when this precondition is not met.
+
+- [ ] Two fixture asks appear in arrival order (FIFO).
+- [ ] Hold for desk on the oldest advances only this device's queue.
+- [ ] Only the held ask's notification closes; the other ask's notification remains.
+- [ ] Held asks remain in `N waiting · M held`; the gateway still reports both asks.
+- [ ] Requeue restores arrival order.
+- [ ] Holding both shows `Queue clear · N on hold`, not all-clear.
+- [ ] Replacing one exact request releases only its stale hold.
+- [ ] Hide an idle row, then Undo within five seconds restores it.
+- [ ] Hide again and let Undo expire; the row stays hidden and `Live · N` still counts it.
+- [ ] Later attention immediately restores the hidden row.
+- [ ] Show all restores hidden rows.
+- [ ] Triage actions, including Undo expiry, send no non-GET request to the gateway.
+- [ ] A delayed tap after desktop resolution is rejected.
+- [ ] A delayed tap after re-arming with a newer request on the same generation is rejected.
+- [ ] A delayed tap after replacement by a new generation with its own request is rejected.
+- [ ] A delayed tap after the host is gone is rejected.
+- [ ] Each delayed tap scrubs its route before any API request, fetches metadata, makes zero
+  launch requests, and shows the expired/changed notice.
+- [ ] Cleanup stops both hosts, closes both topics' notifications, and waits for the app to drop
+  both hosts' device-local Hold/Hide records.
+
+Authoritative clear removes the original attention notification. The delayed-tap phase therefore
+**re-presents the original notification's own metadata-only data** through the app's service-worker
+registration, then taps it from the physical Pixel's lock screen. Evidence records `replayed: true`.
+This proves delayed-tap handling on that device, not Web Push delivery ordering or delivery delay.
+
+### Historical development observations — 2026-09-25
+
+These observations predate the passed stable campaigns above and retain their original limits.
 The 2026-09-25 development probes against v0.5.3 prove the stock-18.3.0 fixture transitions,
 closed-task delivery and lock-screen detail at all three levels, full-sequence attention Control,
 known-busy-to-idle View, same-instance stale rejection, clear/fresh retention, force-stop observed
@@ -278,8 +330,8 @@ for at least 13.726 s after completion; fixture, transient UI, and device baseli
 That controlled result does not substitute for the full Web Push checklist above.
 Producer-first cleanup is enforced, but native-only orphan restoration was a separate explicit
 experiment and is not credited as an authoritative-clear pass. Doze, the complete real network
-matrix, and the final real sink sweep remain unproved end to end. These are **tested evidence**,
-not completion of this checklist and not qualification. See ANDROID.md for timings, restored
+matrix, and the final real sink sweep were then unproved end to end. These are **tested evidence**,
+not qualification. See ANDROID.md for timings, restored
 baselines, and the exact observed platform combination.
 
 A later single uninterrupted run through the production adapter/runner against the retained Mac
@@ -302,7 +354,8 @@ immediately afterwards, 28 of 28 arrived within 3.1 s. #255 sends pushes without
 fixed in the lane's notification-tap helper.
 
 With the no-Topic gateway, one uninterrupted development run on 2026-09-25 then completed every
-phase above, including lock/resume, Doze, the Wi-Fi/cellular/Airplane matrix, and the ten-sink
+original background-Push phase, including lock/resume, Doze, the Wi-Fi/cellular/Airplane matrix,
+and the ten-sink
 sweep, and its cleanup restored the phone. It first needed a lane fix for the Pixel's September
 keyguard; [ANDROID.md](ANDROID.md) records both attempts. That run is tested evidence; the boxes
-above stay for the stable campaign's qualification.
+were subsequently checked by the stable campaigns, not by that development run.

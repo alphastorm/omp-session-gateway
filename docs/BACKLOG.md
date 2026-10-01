@@ -8,7 +8,9 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify the specialized attention and branch/resume scenarios separately from the core matrix.
+- Qualify the specialized attention and lifecycle (branch/resume) scenarios in the next stable
+  campaign. The lanes are implemented and tested; development evidence does not qualify a release.
+  See [attention acceptance](ATTENTION_SPEC.md) and [lifecycle coverage](LIFECYCLE_BRANCH_RESUME.md).
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
   The gateway ignores fields OMP adds under registry v1 (ADR-028); a version bump or a
@@ -18,7 +20,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 - WebAuthn/passkey verification before Control launch.
 - Session aliases, favorites, and per-session control policy.
-- More granular tailnet/device posture guidance.
 - A separately threat-modeled signed update mechanism.
 
 ## Later or optional

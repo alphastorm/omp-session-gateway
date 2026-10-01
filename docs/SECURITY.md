@@ -172,7 +172,39 @@ A second tailnet node remains the only *end-to-end* proof, because the refusal a
 inference about the topology rather than an observation of what a remote peer can reach; the
 qualification lanes probe the gateway port from a distinct node for that reason.
 
-Tailscale Serve user identity headers are populated for user-owned source devices, not tagged source devices. V1 therefore supports a user-authenticated Android phone for header-based identity. A tagged phone requires a separately designed app-capabilities or equivalent authentication mode; do not silently weaken authentication.
+According to [Tailscale Serve’s identity contract](https://tailscale.com/kb/1312/serve#identity-headers),
+user identity headers are populated for user-owned source devices, not tagged source devices.
+The gateway trusts `Tailscale-User-Login` only on its loopback backend behind Serve and compares
+the normalized login against an exact application allowlist. Keep the Android phone user-owned;
+a tagged destination gateway is distinct from a tagged source phone. The latter is denied even
+when network policy permits its connection. Do not weaken authentication or treat Tailscale app
+capabilities as an implemented alternative. See the
+[deployment dependency matrix](COMPATIBILITY.md#deployment-dependency-matrix).
+
+### Tailnet controls are separate from application authorization
+
+The [operator procedure](OPERATIONS.md#6-tailnet-access-policy) covers the gateway node and phone
+separately. All controls below retain the exact login allowlist, loopback/TUN-mode boundary, and
+Serve-only tailnet HTTPS path; none permits Funnel or another forwarder. In particular, the
+gateway does **not** read or enforce device posture.
+
+| Control | Protection and failure mode | What it does not replace |
+|---|---|---|
+| [Grants / legacy ACLs](https://tailscale.com/docs/reference/grants-vs-acls) | Scope the phone’s user to the gateway tag and HTTPS port; restrict gateway-originated access separately. [Grants are additive](https://tailscale.com/docs/reference/syntax/grants), so broader overlapping access defeats a narrow rule. | Network permission is not gateway authorization. A user selector is not a unique-phone selector, and a tag owner is not automatically an authorized application user. |
+| [Device approval](https://tailscale.com/kb/1099/device-approval) | Review device admission; pending devices cannot send or receive tailnet traffic. Pre-approved keys can skip manual review, and approval applies to the device rather than each user/node on shared hardware. | Not ongoing compliance, current user verification, or the application allowlist. |
+| [Node key expiry](https://tailscale.com/kb/1028/key-expiry) | Forces periodic reauthentication when enabled; expiration breaks endpoint connectivity, even if the gateway daemon remains healthy. Tagged devices start with expiry disabled on first tagged authentication; operators must check the actual setting. | Not immediate lost-phone revocation or the application allowlist. Disabling expiry trades away that periodic boundary for availability. |
+| [Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock) | Peers require trusted signatures on node keys; an unsigned phone/gateway stays locked out. Compromised signers and lost recovery secrets are separate custody risks. | Not device health, the application allowlist, or protection from a compromised signed phone. **Device approval and Tailnet Lock are currently mutually exclusive**, not cumulative controls. |
+| [Device posture](https://tailscale.com/kb/1288/device-posture) | `postures` plus a grant’s `srcPosture` constrain source devices using reported attributes. Nonmatching or required-but-unset attributes prevent that posture matching; another unrestricted rule can still allow access. | Not destination/gateway attestation, hardware identity, whole-device security, or the application allowlist. Tailscale’s documented shared-node/subnet-source exceptions mean posture must not be assumed across those paths. |
+
+Keep signing authority and disablement secrets under separate, documented custody; an Android
+phone can be signed by a trusted desktop but cannot itself serve as a signing node under the
+current [Tailnet Lock limitations](https://tailscale.com/kb/1226/tailnet-lock#limitations). Validate
+merged policy in the admin console’s
+[policy preview](https://tailscale.com/docs/features/tailnet-policy-file/manage-tailnet-policies#preview-changes),
+then exercise allowed and denied devices. Preview and `doctor` are not independent proof of every
+tailnet control. Revoking tailnet access does not retract an already-issued bearer capability or
+terminate an established OMP relay session; follow the
+[lost-phone procedure](OPERATIONS.md#10-lost-phone-and-revocation) to rotate host capabilities.
 
 Background notifications add outbound HTTPS from the gateway to browser-provided push endpoints.
 No inbound public gateway route is required. Web Push encrypts the payload for the browser

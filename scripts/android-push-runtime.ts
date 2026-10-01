@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseSessionListResponse } from "../packages/protocol/src/validation.ts";
-import type { PushDetailLevel, SessionMetadata } from "../packages/protocol/src/types.ts";
+import { PUSH_API_VERSION, type PushDetailLevel, type SessionMetadata } from "../packages/protocol/src/types.ts";
 import { withAndroidChrome, requireSingleDevice, parseAndroidPackageVersion, parseAlternateBouncerFocused, requireAndroidDevicePreconditions, parseKeyguardShowing, readAndroidRadioBaseline, restoreAndroidRadios, readAndroidQualificationPin, resolveAndroidBrowserTarget,
   runAdb, wakeAndroidDisplay, unlockAndroidKeyguard, showAndroidPinBouncer, type AndroidAdbCommand, type AndroidChromeDriver } from "./android-device.ts";
 import { closeWebApk, openWebApk, requireWebApk, webApkTasks } from "./android-webapk.ts";
@@ -11,7 +11,7 @@ import { readAndroidUi, findAndroidNotification, tapAndroidNotification, readAnd
 import { commandPushFixture, executeFixture, type FixtureExecutor, type PushFixtureLocation } from "./push-qualification-fixture.ts";
 import { PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE } from "./fixtures/push-qualification-extension.ts";
 import { PAGE_PRELUDE } from "./android-leak-probe.ts";
-import type { AndroidPushIdentity, AndroidPushRuntime, PushBrowserBaseline, PushDeviceBaseline, PushTapObservation } from "./android-push-qualification.ts";
+import type { AndroidPushIdentity, AndroidPushRuntime, PushBrowserBaseline, PushDeviceBaseline, PushFixtureRole, PushTapObservation, TriageObservation } from "./android-push-qualification.ts";
 import { everyError, runWithRestoration } from "./restoration.ts";
 
 export interface AndroidPushRuntimeOptions {
@@ -113,6 +113,29 @@ export async function authenticateAndroidNotification(runtime: NotificationAuthe
   await runtime.wait(async () => !await locked(), "notification keyguard dismissal", 20_000);
 }
 
+/** The installed app's device-local triage controls; `$ID` is the row's escaped instance ID. */
+const TRIAGE_CONTROLS = {
+  hold: 'article.queue-hero[data-instance-id="$ID"] .hero-hold',
+  requeue: 'div.held-row[data-instance-id="$ID"] .held-requeue',
+  hide: '.working-row-frame:has(> button.working-row[data-instance-id="$ID"]) .dismiss-session',
+  undo: '#local-action-toast:not([hidden]) #local-action-toast-undo',
+  showAll: "aside.dismissed-control > button",
+} as const;
+/** The app's Hold and Hide stores (apps/web/src/app.ts); records carry instance IDs, never capabilities. */
+const LOCAL_TRIAGE_KEYS = ["omp.sessions.held-asks.v1", "omp.sessions.dismissed.v1"];
+const DIRECTORY_STATE = `(() => {
+  const ids = selector => [...document.querySelectorAll(selector)].map(element => element.dataset.instanceId ?? "");
+  const pill = document.querySelector("#directory-count");
+  const count = pill === null || pill.hidden ? "" : pill.textContent ?? "";
+  const waiting = /^(\\d+) waiting(?: · (\\d+) held)?$/u.exec(count);
+  const live = /^Live · (\\d+)$/u.exec(count);
+  const hidden = /^(\\d+) hidden on this device$/u.exec(document.querySelector("aside.dismissed-control > span")?.textContent ?? "");
+  return { waiting: [...ids("article.queue-hero"), ...ids("button.queue-row")], held: ids("div.held-row"), working: ids("button.working-row"),
+    hidden: hidden === null ? 0 : Number(hidden[1]), allHeld: document.querySelector(".all-held-summary") !== null,
+    pending: waiting === null ? 0 : Number(waiting[1]), heldCount: waiting?.[2] === undefined ? 0 : Number(waiting[2]),
+    live: live === null ? 0 : Number(live[1]), toast: document.querySelector("#local-action-toast")?.hidden === false };
+})()`;
+
 export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "origin" | "omp">, options: AndroidPushRuntimeOptions = {}): AndroidPushRuntime {
   const base = options.fixtureBase ?? join(homedir(), ".local/share/omp-session-gateway/qualification/dev/androidPush/fixtures");
   let serial: string | undefined;
@@ -120,12 +143,14 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
   let currentEpoch: string | undefined;
   let selectedDetail: PushDetailLevel = "private";
   let observationArmed = false;
-  let observedTopic = "";
+  let observedTopics: string[] = [];
   let releasePermission: (() => Promise<void>) | undefined;
   let baselineRecords = new Map<string, number>();
   const observedPosts = new Map<string, { key: string; postedAt: number }>();
   const execute = options.execute ?? executeFixture;
-  const location = (epoch: string): PushFixtureLocation => ({ root: join(base, `omp-push-${epoch}`), epoch,
+  // Neither root's label is a prefix of the other's: notification bodies carry the label.
+  const location = (epoch: string, role: PushFixtureRole = "primary"): PushFixtureLocation => ({
+    root: join(base, role === "primary" ? `omp-push-${epoch}` : `omp-push-b-${epoch}`), epoch,
     bun: options.fixtureBun ?? process.execPath,
     binary: options.fixtureBinary ?? process.env.OMP_PUSH_FIXTURE_BINARY ?? "",
     scripts: options.fixtureScripts ?? resolve(import.meta.dir) });
@@ -186,11 +211,11 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     body: level === "private" ? "" : [...[session.title, session.cwdLabel].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ")].slice(0, 256).join(""),
     forbidden: [PUSH_FIXTURE_ASK_BODY, PUSH_FIXTURE_ASK_TITLE, "Qualification benign activity canary"], originHost: new URL(identity.origin).host,
   });
-  const snapshot = async (epoch: string) => {
+  const snapshot = async (epoch: string, role: PushFixtureRole = "primary") => {
     const response = await fetch(`${identity.origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error("Android Push gateway snapshot refused");
     const list = parseSessionListResponse(await response.json());
-    const matches = list.sessions.filter(session => session.cwdLabel === basename(location(epoch).root));
+    const matches = list.sessions.filter(session => session.cwdLabel === basename(location(epoch, role).root));
     if (matches.length > 1) throw new Error("multiple owned fixture publications");
     return matches[0];
   };
@@ -198,7 +223,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
     if (!observationArmed) throw new Error("Push notification phase has no record baseline");
     packageName ??= await requireWebApk(command, identity.origin);
     const records = await readAndroidNotificationRecords(command, packageName);
-    if (records.some(record => record.tag.includes("omp-attention-") && !record.tag.endsWith(observedTopic) && baselineRecords.get(record.key) !== record.postedAt)) throw new NotificationOverlapError();
+    if (records.some(record => record.tag.includes("omp-attention-") && !observedTopics.some(topic => record.tag.endsWith(topic)) && baselineRecords.get(record.key) !== record.postedAt)) throw new NotificationOverlapError();
     return records;
   };
   const runtime: AndroidPushRuntime = {
@@ -238,10 +263,10 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
         webApkNotificationsAllowed: /android.permission.POST_NOTIFICATIONS: granted=true/u.test(await command("shell", "dumpsys", "package", packageName)) };
     },
     browser: () => page(browserState, true),
-    async fixture(operation, epoch) {
+    async fixture(operation, epoch, role = "primary") {
       currentEpoch = epoch;
       if (operation === "start") {
-        const host = location(epoch);
+        const host = location(epoch, role);
         if (host.binary === "") throw new Error("OMP_PUSH_FIXTURE_BINARY must name the pinned OMP entrypoint");
         const bun = await execute([host.bun, "--version"]);
         if (bun.exitCode !== 0 || bun.stdout.trim() !== identity.omp.bunVersion) throw new Error("Push fixture Bun does not match the pin");
@@ -254,14 +279,14 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
         if (version.exitCode !== 0 || version.stdout.trim() !== `omp/${identity.omp.version}`) throw new Error("Push fixture OMP does not match the exact pin");
       }
       await runtime.beforeEffect();
-      await commandPushFixture(location(epoch), operation, execute);
+      await commandPushFixture(location(epoch, role), operation, execute);
     },
     snapshot,
     async beginNotificationPhase(epoch) {
-      const session = await snapshot(epoch);
-      if (session === undefined) throw new Error("Push fixture missing before notification phase");
+      const [primary, secondary] = [await snapshot(epoch), await snapshot(epoch, "secondary")];
+      if (primary === undefined) throw new Error("Push fixture missing before notification phase");
       packageName ??= await requireWebApk(command, identity.origin);
-      observedTopic = `omp-attention-${session.instanceId}`;
+      observedTopics = [primary, secondary].flatMap(session => session === undefined ? [] : [`omp-attention-${session.instanceId}`]);
       baselineRecords = new Map((await readAndroidNotificationRecords(command, packageName)).map(record => [record.key, record.postedAt]));
       observedPosts.clear(); observationArmed = true;
     },
@@ -498,6 +523,77 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       await runtime.assertNotificationOwnership();
       return observation;
     },
+    async triage(action) {
+      return page(async driver => {
+        // Count only what the control causes: a starting app re-registers its push subscription.
+        let counting = false;
+        let mutations = 0;
+        await driver.send("Network.enable");
+        const stopListening = driver.onEvent((method, params) => {
+          const request = params.request;
+          if (counting && method === "Network.requestWillBeSent" && typeof request === "object" && request !== null && "method" in request && "url" in request &&
+            request.method !== "GET" && typeof request.url === "string" && request.url.startsWith(`${identity.origin}/`)) mutations++;
+        });
+        try {
+          // Reload only away from the directory: an open Undo window lives in page memory.
+          if (!await driver.evaluate<boolean>('location.pathname === "/"')) await navigateRoot(driver);
+          // That re-registration settles the notification control; wait for it and the directory.
+          await wait(async () => driver.evaluate<boolean>('document.querySelector("#status-banner")?.dataset.kind === "ready" && !["checking", undefined].includes(document.querySelector("#notify")?.dataset.state)'), "ready directory");
+          if (action !== undefined) {
+            await runtime.beforeEffect();
+            counting = true;
+            const clicked = await driver.evaluate<boolean>(`(() => {
+              const control = document.querySelector(${JSON.stringify(TRIAGE_CONTROLS[action.kind])}.replaceAll("$ID", CSS.escape(${JSON.stringify("instanceId" in action ? action.instanceId : "")})));
+              if (!(control instanceof HTMLButtonElement) || control.disabled) return false;
+              control.click(); return true;
+            })()`);
+            if (!clicked) throw new Error(`Android Push ${action.kind} control unavailable`);
+          }
+          await Bun.sleep(action?.settleMs ?? 1_500);
+          return { ...await driver.evaluate<Omit<TriageObservation, "mutations">>(DIRECTORY_STATE), mutations };
+        } finally {
+          stopListening();
+        }
+      });
+    },
+    async replay(session) {
+      if (session.ask === undefined || currentEpoch === undefined) throw new Error("Android Push replay needs the request it re-presents");
+      const expected = expectation(session, "attention");
+      // Launching the app re-saves its subscription, and the gateway then re-sends each current ask
+      // on this tag, replacing the replay. A newer ask therefore needs the app already open.
+      const live = [await snapshot(currentEpoch), await snapshot(currentEpoch, "secondary")].find(item => item?.instanceId === session.instanceId);
+      if (live?.ask !== undefined && live.ask.requestId !== session.ask.requestId &&
+        webApkTasks(await command("shell", "dumpsys", "activity", "activities"), expected.packageName).length === 0) {
+        throw new Error("Android Push replay over a newer ask needs the app already open");
+      }
+      const posted = async () => (await phaseRecords()).filter(record => record.tag.endsWith(expected.tag));
+      const before = Math.max(0, ...(await posted()).map(record => record.postedAt));
+      // The worker's own fields for this request: metadata only, as the push that carried it.
+      const options = { tag: expected.tag, icon: "/icon-192.png", badge: "/icon-192.png", ...(expected.body === "" ? {} : { body: expected.body }),
+        data: { version: PUSH_API_VERSION, type: "attention", instanceId: session.instanceId, requestId: session.ask.requestId } };
+      await page(async driver => {
+        await runtime.beforeEffect();
+        await driver.evaluate(`(async () => {
+          await (await navigator.serviceWorker.ready).showNotification(${JSON.stringify(expected.title)}, ${JSON.stringify(options)});
+        })()`);
+      });
+      await wait(async () => {
+        const records = await posted();
+        return records.length === 1 && records[0]!.postedAt > before && records[0]!.title === expected.title && records[0]!.body === expected.body;
+      }, "replayed notification", 15_000);
+      await runtime.closePwa();
+    },
+    async dismissOwned() {
+      const topics = observedTopics;
+      await page(async driver => {
+        await runtime.beforeEffect();
+        await driver.evaluate(`(async () => {
+          const topics = ${JSON.stringify(topics)};
+          for (const notice of await (await navigator.serviceWorker.ready).getNotifications()) if (topics.includes(notice.tag)) notice.close();
+        })()`);
+      });
+      await wait(async () => (await phaseRecords()).every(record => !topics.some(topic => record.tag.endsWith(topic))), "owned notification dismissal", 15_000);
+    },
     async answer() {
       await wake();
       await withAndroidChrome(async driver => {
@@ -610,17 +706,28 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       switch (step) {
         case "fixtureAsk":
           // A not-yet-started fixture has nothing to settle. Stop verifies ownership before notification cleanup.
-          if (await snapshot(currentEpoch) !== undefined) {
-            await runtime.fixture("answer", currentEpoch);
-            await wait(async () => (await snapshot(currentEpoch!))?.inputRequired !== true, "cleanup authoritative resolution", 90_000);
+          for (const role of ["secondary", "primary"] as const) {
+            if (await snapshot(currentEpoch, role) === undefined) continue;
+            await runtime.fixture("answer", currentEpoch, role);
+            await wait(async () => (await snapshot(currentEpoch!, role))?.inputRequired !== true, "cleanup authoritative resolution", 90_000);
           }
           break;
-        case "notifications":
+        case "notifications": {
+          const digests = [progress.notificationTopicDigest, progress.secondaryNotificationTopicDigest].filter((digest): digest is string => digest !== null);
           await page(async driver => {
-            if (progress.notificationTopicDigest !== null) await driver.evaluate(`(async()=>{
+            // The fixtures are stopped, so the loaded directory drops their Hold and Hide records; wait for that.
+            if (digests.length > 0) await driver.evaluate(`(async()=>{
+              const owned = ${JSON.stringify(digests)};
               const digest = async tag => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tag)))].map(byte => byte.toString(16).padStart(2,'0')).join('');
-              for (const notice of await (await navigator.serviceWorker.ready).getNotifications()) if (await digest(notice.tag) === ${JSON.stringify(progress.notificationTopicDigest)}) notice.close();
+              for (const notice of await (await navigator.serviceWorker.ready).getNotifications()) if (owned.includes(await digest(notice.tag))) notice.close();
             })()`);
+            if (digests.length > 0) await wait(async () => driver.evaluate<boolean>(`(async()=>{
+              const owned = ${JSON.stringify(digests)};
+              const digest = async tag => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tag)))].map(byte => byte.toString(16).padStart(2,'0')).join('');
+              const records = ${JSON.stringify(LOCAL_TRIAGE_KEYS)}.flatMap(key => { try { const value = JSON.parse(localStorage.getItem(key) ?? '[]'); return Array.isArray(value) ? value : []; } catch { return []; } });
+              for (const record of records) if (owned.includes(await digest('omp-attention-' + record?.instanceId))) return false;
+              return true;
+            })()`), "owned local triage records cleanup");
             await driver.evaluate(`(async()=>{
               const key=${JSON.stringify(`__push_sink_control_${currentEpoch}`)};
               for(const n of await (await navigator.serviceWorker.ready).getNotifications({tag:key}))n.close();
@@ -628,8 +735,9 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
               await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(key);request.onsuccess=resolve;request.onerror=reject;request.onblocked=()=>reject(Error('owned sink database is still open'));});
             })()`);
           }, true);
-          if (progress.notificationTopicDigest !== null) await wait(async () => (await readAndroidNotificationRecords(command, packageName!)).every(record => !notificationMatchesDigest(record.tag, progress.notificationTopicDigest!)), "owned notification cleanup");
+          if (digests.length > 0) await wait(async () => (await readAndroidNotificationRecords(command, packageName!)).every(record => digests.every(digest => !notificationMatchesDigest(record.tag, digest))), "owned notification cleanup");
           break;
+        }
         case "browser":
           await runWithRestoration("Android Push browser", async () => {
             if (progress.browser === null) return;
@@ -671,8 +779,10 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
           }
           break;
         case "fixture":
-          await runtime.fixture("stop", currentEpoch);
-          await wait(async () => await snapshot(currentEpoch!) === undefined, "fixture unpublication", 45_000);
+          for (const role of ["secondary", "primary"] as const) {
+            await runtime.fixture("stop", currentEpoch, role);
+            await wait(async () => await snapshot(currentEpoch!, role) === undefined, "fixture unpublication", 45_000);
+          }
           break;
       }
     },

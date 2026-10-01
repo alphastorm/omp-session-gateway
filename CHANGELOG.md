@@ -6,6 +6,20 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Extend the upstream OMP canary with new-session, immediate fork, in-session rewind, and saved
+  session continuation checks. Windows runs continuation and explicitly skips the three
+  keystroke-driven stages; bounded summaries include the platform.
+- Add retained-Mac `ompPublication` lifecycle evidence for `/new`, `/fork`, stop/revocation,
+  `--continue`, and final revocation. Add `bun scripts/omp-lifecycle-development.ts --omp <path>`
+  to prove the shared runner in an isolated loopback gateway before a stable campaign.
+- Add physical Push triage and delayed-tap phases with two owned fixture hosts: FIFO,
+  Hold/requeue, Hide/Undo/Show all, and stale attention taps. Delayed taps re-present the original
+  notification's metadata-only data, proving tap handling rather than push delay or ordering.
+  These scenarios qualify only after the next passed signed-candidate campaign.
+- Document granular tailnet/device posture guidance in the operations and security guides.
+
 ### Changed
 
 - Move the OMP engineering baseline to published v18.4.8. Its collaboration host source and
@@ -14,6 +28,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
   18.4.8; upstream reports that 18.4.3 through 18.4.7 crash at startup on Apple silicon macOS
   earlier than 27. The minimum host stays 18.1.20, and qualified release claims stay with v18.4.2
   until a candidate built from this baseline qualifies.
+- Archive restored Push development progress automatically when the candidate, origin, or OMP
+  pin changes, while retaining unfinished cleanup requirements.
+
+### Fixed
+
+- Re-arm a Push phase after its one permitted foreign-notification overlap by waiting only for
+  pending attention clears, then dismissing remaining owned notices. An activity-stop notice has
+  no clear and previously held the re-arm until its 160-second timeout.
 
 ## [v0.7.1] — 2026-09-30
 

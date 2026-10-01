@@ -74,6 +74,13 @@ on its first attempt in one campaign. The [release ledger](RELEASE_STATUS.md) re
 qualification lanes and exact source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md)
 covers the rollback predecessor, v0.7.0.
 
+Specialized attention and lifecycle (branch/resume) remain outside the qualified matrix below.
+They are tested by the expanded `androidPush` triage/delayed-tap phases, upstream canary stages,
+and retained-Mac `ompPublication` lifecycle runner. Development runs are tested evidence only;
+the new scenarios qualify only from a passed stable campaign on its exact signed candidate.
+See [attention acceptance](ATTENTION_SPEC.md) and
+[lifecycle coverage and pending Windows CI](LIFECYCLE_BRANCH_RESUME.md).
+
 | Surface | Current contract | Qualification |
 |---|---|---|
 | Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.4.2` publication, View/Control, stale-generation rejection, and revocation passed |
@@ -362,8 +369,13 @@ For every proposed OMP update:
    downstream OMP patch or fallback transport.
 4. Rebuild the pinned collab-web integration and verify its provenance and license notices.
 5. Run discovery/query, protocol, link parsing, View, and Control verification.
-6. Run start, stop, switch, branch, resume/tree-navigation, relay-replacement, fatal-failure,
-   and shutdown lifecycle tests.
+6. Run the [upstream canary](LIFECYCLE_BRANCH_RESUME.md#daily-upstream-canary): `publish`,
+   `snapshot`, `stale-generation`, `view`, `control`, `new-generation`, `fork`, `branch-rewind`,
+   `continue`, and `unregister`. Windows runs `continue` but skips exactly the three keystroke
+   stages. Prove the retained-Mac `ompPublication` lifecycle step with
+   `bun scripts/omp-lifecycle-development.ts --omp <absolute path to stock OMP dist/cli.js>`
+   before the campaign; require its additive lifecycle evidence in that campaign. Keep
+   relay-replacement, fatal-failure, and shutdown checks; these stages do not stand in for them.
 7. Run the complete capability-leak suite and real browser/Android acceptance.
 8. Qualify every advertised host installer and deployment path.
 9. Update this matrix, [`RELEASE_STATUS.md`](RELEASE_STATUS.md), and the changelog.

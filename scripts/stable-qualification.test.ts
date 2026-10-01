@@ -13,6 +13,7 @@ import {
   createPixelLease,
   createReceiptPersister,
   createStableQualificationReceipt,
+  completeOmpPublicationLifecycle,
   executeReceiptLane,
   externalCleanupCurrent,
   incompleteQualification,
@@ -25,6 +26,9 @@ import {
   runStableQualification,
   receiptNeedsMacCleanup,
   validateStableQualificationReceipt,
+  verifyLaunchContracts,
+  waitForPublishedSession,
+  waitForRevocation,
   type DebianQualificationRuntime,
   type ExternalLaneIdentity,
   type ExternalLaneModule,
@@ -32,6 +36,7 @@ import {
   type StablePreflightRuntime,
   type StableQualificationLaneModules,
 } from "./stable-qualification.ts";
+import { OmpLifecycleFailure, type OmpLifecycleEvidence } from "./omp-lifecycle-qualification.ts";
 
 const TAG = `v${PRODUCT_VERSION}-prealpha.21`;
 // Derived exactly as the orchestrator derives it, so this suite cannot pass against a predecessor
@@ -508,6 +513,88 @@ describe("stable qualification read-only admission", () => {
       await expect(runStableQualification(argv, guarded, admissionLanes())).rejects.toThrow();
     }
     expect(probes).toBe(0);
+  });
+});
+
+const lifecycleEvidence: OmpLifecycleEvidence = {
+  newGeneration: { sameInstance: true, generationDelta: 1, staleRejected: true, liveLaunches: 2, noStore: true },
+  fork: { sameInstance: true, generationDelta: 1, syntheticMessages: 2, staleRejected: true, liveLaunches: 2, noStore: true },
+  resumed: { newInstance: true, generation: 1, sameLabel: true, liveLaunches: 2, noStore: true, revocations: 2 },
+};
+
+describe("publication lifecycle receipt", () => {
+  test("adds lifecycle evidence without changing the receipt version or earlier publication observations", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const lane = receipt.lanes.ompPublication;
+    lane.evidence = { published: true, generation: 1, modes: [{ status: 200 }] };
+    const checkpoints: string[] = [];
+    await completeOmpPublicationLifecycle(lane, async () => { checkpoints.push(lane.status); }, async () => lifecycleEvidence);
+    expect(checkpoints).toEqual(["running", "passed"]);
+    expect(receipt.schemaVersion).toBe(3);
+    expect(lane.evidence).toEqual({ published: true, generation: 1, modes: [{ status: 200 }], revoked: true, lifecycle: lifecycleEvidence });
+    expect(lane.completedAt).toBeDefined();
+  });
+
+  test("an interrupted lifecycle checkpoint stays non-passed and resumes by rerunning the whole step", async () => {
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const lane = receipt.lanes.ompPublication;
+    lane.evidence = { published: true, lifecycle: lifecycleEvidence, revoked: true };
+    let interrupted: typeof lane | undefined;
+    await expect(completeOmpPublicationLifecycle(lane, async () => {
+      if (lane.status === "running") interrupted = structuredClone(lane);
+    }, async () => { throw new Error("private terminal diagnostic"); })).rejects.toThrow("OMP publication lifecycle failed");
+    expect(lane.status).toBe("failed");
+    expect(lane.error).toBe("OMP publication lifecycle failed");
+    expect(lane.completedAt).toBeUndefined();
+    if (interrupted === undefined) throw new Error("missing interruption checkpoint");
+    expect(interrupted.status).toBe("running");
+    expect(interrupted.evidence).toEqual({ published: true });
+    let reruns = 0;
+    await completeOmpPublicationLifecycle(interrupted, async () => {}, async () => { reruns += 1; return lifecycleEvidence; });
+    expect(reruns).toBe(1);
+    expect(interrupted.status).toBe("passed");
+    expect(interrupted.evidence?.lifecycle).toEqual(lifecycleEvidence);
+    expect(JSON.stringify(lane)).not.toContain("private terminal diagnostic");
+    // A runner failure names its fixed step, so the receipt says where the lifecycle stopped.
+    await expect(completeOmpPublicationLifecycle(lane, async () => {}, async () => { throw new OmpLifecycleFailure("fork"); }))
+      .rejects.toThrow("OMP lifecycle fork failed");
+    expect(lane.error).toBe("OMP lifecycle fork failed");
+  });
+});
+
+describe("lifecycle HTTP observations", () => {
+  test("waits for the expected rotated card rather than accepting the previous generation", async () => {
+    let lists = 0;
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ sessions: [{
+      instanceId: "synthetic-instance", generation: ++lists === 1 ? 1 : 2, cwdLabel: "synthetic-label",
+      canView: true, canControl: true, model: "synthetic-model",
+    }] }, { headers: { "cache-control": "no-store" } }) });
+    try {
+      const session = await waitForPublishedSession(server.url.origin, "synthetic-label", { timeoutMs: 2_000, matches: card => card.generation === 2 });
+      expect(session.generation).toBe(2);
+      expect(lists).toBe(2);
+    } finally { server.stop(true); }
+  });
+
+  test.each(["wrong-status", "wrong-code", "capability-field", "cacheable"] as const)("rejects a stale launch with %s", async fault => {
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({
+      code: fault === "wrong-code" ? "mode_unavailable" : "generation_mismatch",
+      ...(fault === "capability-field" ? { capability: "" } : {}),
+    }, { status: fault === "wrong-status" ? 200 : 409, headers: fault === "cacheable" ? {} : { "cache-control": "no-store" } }) });
+    try {
+      await expect(verifyLaunchContracts(server.url.origin, { instanceId: "synthetic-instance", generation: 1 }, "stale")).rejects.toThrow("OMP launch contract failed");
+    } finally { server.stop(true); }
+  });
+
+  test("accepts both stale role refusals and never treats an HTTP error as revocation", async () => {
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => request.method === "POST"
+      ? Response.json({ code: "generation_mismatch" }, { status: 409, headers: { "cache-control": "no-store" } })
+      : Response.json({ code: "forbidden" }, { status: 403, headers: { "cache-control": "no-store" } }) });
+    try {
+      const evidence = await verifyLaunchContracts(server.url.origin, { instanceId: "synthetic-instance", generation: 1 }, "stale");
+      expect(evidence.modes).toEqual(["view", "control"].map(mode => ({ mode, status: 409, keys: ["code"], valuePresent: false, noStore: true })));
+      await expect(waitForRevocation(server.url.origin, "synthetic-label", 10)).rejects.toThrow("did not revoke before the deadline");
+    } finally { server.stop(true); }
   });
 });
 

@@ -161,6 +161,28 @@ writes a private receipt (schema 3) under
 `~/.local/share/omp-session-gateway/qualification/<tag>/stable-qualification.json`. Retargeted
 scripts are not qualification evidence until these lanes run against the exact candidate.
 
+Before spending a campaign, prove changed or previously failing lanes end to end in development
+mode at the exact orchestrator tree. In particular, run the expanded Push lane with the pinned Bun:
+`bun scripts/android-push-qualification.ts development <published archive>` (with the matching
+`OMP_PUSH_FIXTURE_BINARY`), and run
+`bun scripts/omp-lifecycle-development.ts --omp <absolute path to stock OMP dist/cli.js>`.
+Follow the [Push procedure](ANDROID.md#physical-background-push-lane) and
+[lifecycle procedure](LIFECYCLE_BRANCH_RESUME.md). These are tested evidence, not qualification;
+a stable campaign must not be used to discover harness failures.
+
+The next stable campaign must pass `androidPush`'s `triage_verified` and `stale_taps_verified`
+after `clear_verified` and before `force_stop_verified`, including the second fixture's cleanup.
+Delayed taps re-present the original notification's metadata-only data after authoritative clear;
+`replayed: true` proves physical delayed-tap handling, not push delivery ordering or delay.
+`ompPublication` must also contain passed `evidence.lifecycle` with `newGeneration`, `fork`, and
+`resumed` observations. After all live-session users settle successfully and the relay tunnel
+stops, the Mac host runs `/new`, `/fork` after two synthetic messages, stop/revocation,
+`--continue`, and stop/revocation again. Rotations require generation + 1 on the same instance,
+stale launches rejected without capabilities, and live View/Control `200 no-store`; resume requires
+a new instance at generation 1 with the same label and working launches. Rewind is not
+gateway-visible and stays in the canary rather than this Mac step. Evidence is additive, the
+receipt schema stays 3, and an interrupted lifecycle step remains non-passed and reruns in full.
+
 The Windows, background Push, and device-cloud lanes own external state, so each has a cleanup lane
 (`windowsCleanup`, `androidPushCleanup`, `deviceCloudCleanup`) that runs after every attempt and
 passes only for the attempt epoch its lane recorded. A crash leaves a lane `running`, and a rerun may
