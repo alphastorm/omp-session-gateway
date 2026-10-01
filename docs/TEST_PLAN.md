@@ -190,6 +190,14 @@ Follow [ANDROID.md](ANDROID.md#physical-background-push-lane) before running a s
 the [specialized checklist](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending)
 remains unchecked until that exact signed candidate passes.
 
+Configured-Mac regressions require an explicit SSH destination and expected hardware model, reject
+unsafe password-file ownership/mode/type, and prove that an omitted password file reaches
+`sudo -n` through SSH stdin. Read-only admission rejects a measured hardware mismatch before
+staging; lifecycle receipts persist the measured hardware and OS, retain schema 3, and resume
+passed evidence for both the original and replacement models. The SSH exposure probe names the
+configured SSH destination, which may resolve to the same tailnet address as the other probe; it
+does not imply that the host has a separate public interface.
+
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
 

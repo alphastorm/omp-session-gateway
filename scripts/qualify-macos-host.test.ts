@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
-import { assertMacExposureEvidence } from "./stable-qualification.ts";
+import { assertMacExposureEvidence, loadConfiguredMacTarget, parseStableQualificationArgs } from "./stable-qualification.ts";
+import { PRODUCT_VERSION } from "./build-release.ts";
 
 const POSIX = process.platform !== "win32";
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -164,6 +165,28 @@ issue_reboot
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+test.skipIf(!POSIX)("an omitted configured password file reaches noninteractive sudo through SSH stdin", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-passwordless-"));
+  const capture = join(temporaryRoot, "sudo-argv");
+  const target = await loadConfiguredMacTarget(parseStableQualificationArgs(["--tag", `v${PRODUCT_VERSION}-prealpha.1`], {
+    OMP_STABLE_MAC_HOST: "gwqual@fixture.invalid", OMP_STABLE_MAC_MODEL: "Mac17,14",
+  }));
+  try {
+    const result = await runHarness(`
+set -euo pipefail
+source "$1"
+sudo() { printf '%s\\n' "$@" >"$SUDO_CAPTURE"; }
+export -f sudo
+ssh() { /bin/bash -c "\${!#}"; }
+issue_reboot
+`, [], { ...environment("a".repeat(64)), OMP_MAC_SUDO_PW: target.sudoPassword, SUDO_CAPTURE: capture });
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect((await readFile(capture, "utf8")).trim().split("\n")).toEqual(["-n", "shutdown", "-r", "now"]);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(!POSIX)("bundle scan keeps readiness token bytes out of subprocess argv", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-bundle-argv-"));
   const fakeBin = join(temporaryRoot, "bin");

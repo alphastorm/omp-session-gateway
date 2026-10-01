@@ -22,6 +22,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Changed
 
+- Select the stable-qualification Mac through an explicit SSH destination and expected hardware
+  model instead of a retained cloud lease lookup. Support a private sudo-password file or narrow
+  passwordless sudo, record the measured hardware in schema-3 receipts, and make Homebrew tools
+  available to noninteractive remote lanes. Existing qualification claims are unchanged.
 - Move the OMP engineering baseline to published v18.4.8. Its collaboration host source and
   `collab-web` are byte-identical to v18.4.2, so the embedded client and its `@oh-my-pi/pi-wire`
   18.4.2 pin are unchanged. The Mac, Debian, and Windows qualification lanes now build stock OMP

@@ -17,8 +17,12 @@
 #
 # WHAT THE HOST MUST ALREADY HAVE
 #
-#   - SSH as a non-root admin user, with `sudo` available (a password may be supplied out of band).
-#   - Bun on PATH for that user.
+#   - SSH as a non-root standard or admin account with automatic console login after reboot.
+#     On bare metal, automatic login requires FileVault off.
+#   - sudo for the exact lane commands, either narrow passwordless grants (sudo -n) or a password
+#     supplied out of band through OMP_MAC_SUDO_PW. No administrator membership is required.
+#   - The pinned Bun in ~/.bun/bin and the lane's tools on PATH for that user.
+#     Remote blocks add /opt/homebrew/bin for Apple-silicon Homebrew tools.
 #   - Tailscale running its **TUN-mode** client, joined as a **user-owned** node.
 #
 # That last requirement is the whole reason the earlier attempt failed, and the correction is worth
@@ -178,7 +182,7 @@ remote() {
   helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
   script="${helpers}"$'\n'"$(cat)"
   printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$HOME/go/bin:$PATH"; eval "$SCRIPT"'
   {
     local value
     for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_SOURCE_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
@@ -401,12 +405,14 @@ REMOTE
 
   note "The two probes below must get no HTTP answer. Any HTTP status means the backend is reachable"
   note "from a distinct node, which is #98 and is a release blocker, not a warning."
-  local tailnet_probe public_probe
+  # The configured SSH name may resolve to the same tailnet address. This is not a claim about
+  # an additional public interface; both labels name the actual destinations probed from here.
+  local tailnet_probe ssh_probe
   tailnet_probe="$(backend_answer "$host_ip")"
-  public_probe="$(backend_answer "${HOST#*@}")"
+  ssh_probe="$(backend_answer "${HOST#*@}")"
   measure "backend at tailnet address" "$tailnet_probe"
-  measure "backend at ssh address" "$public_probe"
-  case "$tailnet_probe$public_probe" in *EXPOSED*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
+  measure "backend at ssh address" "$ssh_probe"
+  case "$tailnet_probe$ssh_probe" in *EXPOSED*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
 }
 
 # Only an HTTP answer proves a listener. A completed TCP handshake does not: a carrier network's

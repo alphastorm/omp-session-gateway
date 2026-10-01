@@ -214,7 +214,42 @@ from `UPSTREAM.lock.json`; the OMP pin uses `sourceTree`, not a patched-tree ass
 counts `liveOmpHosts`. Fork-era receipt fields remain historical and must not be relabeled as new
 mainline output.
 
-Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and a mode-private `~/.scaleway-apikey` for the retained `omp-macqual-01` lease. The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel, no hotspot, USB or Bluetooth tethering from it (the controller must not depend on the Pixel for its network), and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). The device-cloud lane needs Java for the TestingBot tunnel (`/opt/homebrew/opt/openjdk@17/bin/java`, or `OMP_STABLE_JAVA`) and the read-only 1Password service-account token at `~/.local/state/alpha-founder/retained-host/op-service-account.token` (mode `0600`, or `OMP_STABLE_OP_TOKEN_FILE`), which must be able to read `op://Centaur/TestingBot/key` and `op://Centaur/TestingBot/secret`; the tunnel jar is downloaded once into `~/.cache/omp-session-gateway/testingbot/` and verified against its pinned SHA-256 before every use. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
+Prerequisites are `gh`, `cosign`, `adb`, the repository workflow secrets, one attached Pixel, and an explicitly configured Mac SSH target. Configure it before admission or a campaign:
+
+```sh
+export OMP_STABLE_MAC_HOST=gwqual@mac.example.ts.net  # replace with the qualification host
+export OMP_STABLE_MAC_MODEL=Mac17,14
+unset OMP_STABLE_MAC_SUDO_PASSWORD_FILE
+# OMP_STABLE_MAC_LOGIN remains alphastorm@github unless explicitly overridden.
+```
+
+`OMP_STABLE_MAC_HOST` must be `user@host` with a DNS name or IPv4 address, not SSH options,
+a port, or shell syntax. `OMP_STABLE_MAC_MODEL` is the exact expected `sysctl -n hw.model`
+identifier; admission and lifecycle evidence reject a different model. The receipt keeps schema 3
+and records the measured model and macOS version, without pinning the old host's OS or build.
+This target configuration is not qualification evidence for Mac17,14 or macOS 27.
+
+The SSH account may be standard or administrator and must log in automatically after a reboot:
+the persistence lane measures its per-user LaunchAgent returning at **console login**, not boot
+without a login. On a bare-metal automatic-login host, FileVault must be off. The account needs
+Bun 1.4.0 in `~/.bun/bin`, the lane's command-line tools, and a user-owned TUN-mode Tailscale
+node. The remote tool PATH includes `/opt/homebrew/bin`; qualification does not provision these
+prerequisites or make the account an administrator.
+
+With no `OMP_STABLE_MAC_SUDO_PASSWORD_FILE`, the orchestrator passes an empty
+`OMP_MAC_SUDO_PW` and the shell uses `sudo -n`. Narrow passwordless sudo must permit the
+lane's exact commands: `true`, Tailscale `status --json`, `set --operator=<SSH account>`,
+`cert --cert-file /tmp/omp-qual.crt --key-file /tmp/omp-qual.key <tailnet DNS name>`,
+and `shutdown -r now`. Tailscale Serve and cleanup run as the Tailscale operator without sudo.
+For a password-requiring host, set `OMP_STABLE_MAC_SUDO_PASSWORD_FILE` to a current-user-owned
+regular file with no group/other permissions (for example mode 0600); symlinks are refused.
+The file contains one nonempty password line, with an optional final newline. Its contents never
+enter argv or receipts and reach remote sudo only through the existing SSH-stdin framing.
+The former `omp-macqual-01` remains selectable using its actual `user@host`, `Mac14,3`,
+and that private password file; no cloud-provider lookup or credential is used for a Mac.
+Keep the same host/model configuration for the entire campaign, including resumed cleanup.
+
+The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel, no hotspot, USB or Bluetooth tethering from it (the controller must not depend on the Pixel for its network), and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). The device-cloud lane needs Java for the TestingBot tunnel (`/opt/homebrew/opt/openjdk@17/bin/java`, or `OMP_STABLE_JAVA`) and the read-only 1Password service-account token at `~/.local/state/alpha-founder/retained-host/op-service-account.token` (mode `0600`, or `OMP_STABLE_OP_TOKEN_FILE`), which must be able to read `op://Centaur/TestingBot/key` and `op://Centaur/TestingBot/secret`; the tunnel jar is downloaded once into `~/.cache/omp-session-gateway/testingbot/` and verified against its pinned SHA-256 before every use. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
 
 The orchestrator refuses a dirty or unpublished branch, rejects changed candidate or receipt identity, and hash-guards `STABLE_RELEASE.lock.json` plus `docs/RELEASE_STATUS.md`. It never edits either file, creates a stable tag, or publishes a stable release. Ledger approval and stable publication remain separate maintainer effects after the receipt is reviewed.
 

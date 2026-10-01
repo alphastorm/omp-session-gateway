@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import {
   executeReceiptLane,
   externalCleanupCurrent,
   incompleteQualification,
+  loadConfiguredMacTarget,
   markMacCleanupRequired,
   parseQualificationPins,
   parseStableQualificationArgs,
@@ -48,6 +49,7 @@ const STABLE_LOCK = JSON.parse(
 const PREVIOUS_TAG =
   STABLE_LOCK.releaseTag === `v${PRODUCT_VERSION}` ? STABLE_LOCK.previousTag : STABLE_LOCK.releaseTag;
 const COMMIT = "a".repeat(40);
+const MAC_ENV = { OMP_STABLE_MAC_HOST: "gwqual@fixture.invalid", OMP_STABLE_MAC_MODEL: "Mac17,14" };
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 function digest(value: string): string {
@@ -85,6 +87,26 @@ function admissionLanes(refuse?: "windows" | "androidPush" | "deviceCloud"): Sta
 }
 
 describe("stable qualification arguments", () => {
+  test.each([undefined, "", "host.invalid", "root@host.invalid:22", "-oProxyCommand=x@host", "user@host;true", "user@bad..host", "user@host\n"])("requires a plain Mac SSH destination: %s", host => {
+    expect(() => parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_HOST: host })).toThrow("OMP_STABLE_MAC_HOST");
+  });
+
+  test.each([undefined, "", "Mac17", "Mac17,14\n", "Mac17,14;true"])("requires an exact hardware model: %s", model => {
+    expect(() => parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_MODEL: model })).toThrow("OMP_STABLE_MAC_MODEL");
+  });
+
+  test("accepts a configured leased host without a provider lookup", async () => {
+    const options = parseStableQualificationArgs(["--tag", TAG], {
+      OMP_STABLE_MAC_HOST: "admin@192.0.2.10", OMP_STABLE_MAC_MODEL: "Mac14,3",
+    });
+    expect(await loadConfiguredMacTarget(options)).toEqual({ sshDestination: "admin@192.0.2.10", sudoPassword: "" });
+  });
+
+  test("rejects a blank password file rather than silently enabling passwordless sudo", () => {
+    expect(() => parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_SUDO_PASSWORD_FILE: "" })).toThrow("OMP_STABLE_MAC_SUDO_PASSWORD_FILE");
+  });
+
+
   test("rejects stable, rc, zero-indexed, and prior-version candidate tags", () => {
     for (const tag of [`v${PRODUCT_VERSION}`, `v${PRODUCT_VERSION}-rc.1`, `v${PRODUCT_VERSION}-prealpha.0`, "v0.3.0-prealpha.25"]) {
       expect(() => parseStableQualificationArgs(["--tag", tag], {})).toThrow("--tag must match");
@@ -92,7 +114,7 @@ describe("stable qualification arguments", () => {
   });
 
   test("accepts only the published stable as the rollback predecessor", () => {
-    expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], {}).previousTag).toBe(
+    expect(parseStableQualificationArgs(["--tag", TAG, "--previous-tag", PREVIOUS_TAG], MAC_ENV).previousTag).toBe(
       PREVIOUS_TAG,
     );
     // Every superseded stable is rejected by name. Each was the correct predecessor for exactly one
@@ -110,7 +132,7 @@ describe("stable qualification arguments", () => {
     // The constant this replaced went stale once per release: #200 corrected it from v0.3.0 to
     // v0.4.0, and it was still v0.4.0 while 0.4.2 was being cut. Deriving it from the lock that
     // publication rewrites is what stops that recurring, so the derivation itself is the assertion.
-    expect(parseStableQualificationArgs(["--tag", TAG], {}).previousTag).toBe(PREVIOUS_TAG);
+    expect(parseStableQualificationArgs(["--tag", TAG], MAC_ENV).previousTag).toBe(PREVIOUS_TAG);
     expect(PREVIOUS_TAG).toMatch(/^v[0-9]+\.[0-9]+\.[0-9]+$/u);
     // A candidate cannot roll back to itself: the lock must still name the superseded stable while
     // this version is in development.
@@ -124,12 +146,12 @@ describe("stable qualification arguments", () => {
   });
 
   test("requires the campaign floor while allowing longer bounded relay checks", () => {
-    expect(parseStableQualificationArgs(["--tag", TAG], {}).relaySeconds).toBe(1_800);
+    expect(parseStableQualificationArgs(["--tag", TAG], MAC_ENV).relaySeconds).toBe(1_800);
     for (const duration of ["60", "1799"]) {
       expect(() => parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_RELAY_SECONDS: duration })).toThrow("at least 1800");
     }
     for (const duration of ["1800", "2400", "3600"]) {
-      expect(parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_RELAY_SECONDS: duration }).relaySeconds).toBe(Number(duration));
+      expect(parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_RELAY_SECONDS: duration }).relaySeconds).toBe(Number(duration));
     }
   });
 
@@ -138,6 +160,62 @@ describe("stable qualification arguments", () => {
       expect(() =>
         parseStableQualificationArgs(["--tag", TAG], { OMP_STABLE_SESSION_LABEL: sessionLabel }),
       ).toThrow("safe single path component");
+    }
+  });
+});
+
+describe("configured Mac sudo password file", () => {
+  test.skipIf(process.platform === "win32")("accepts only a private owned regular file containing one password line", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-mac-password-"));
+    const path = join(root, "sudo-password");
+    const options = parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_SUDO_PASSWORD_FILE: path });
+    const password = "synthetic-private-sudo-'canary ";
+    try {
+      await writeFile(path, password + "\n", { mode: 0o600 });
+      expect(await loadConfiguredMacTarget(options)).toEqual({ sshDestination: MAC_ENV.OMP_STABLE_MAC_HOST, sudoPassword: password });
+      for (const mode of [0o640, 0o604, 0o620]) {
+        await chmod(path, mode);
+        await expect(loadConfiguredMacTarget(options)).rejects.toThrow("no group or other access");
+      }
+      await chmod(path, 0o600);
+      const link = join(root, "link");
+      await symlink(path, link);
+      for (const macSudoPasswordFile of [link, root]) {
+        await expect(loadConfiguredMacTarget({ ...options, macSudoPasswordFile })).rejects.toThrow("current-user regular file");
+      }
+      for (const contents of ["", "\n", "first\nsecond", "nul\0password"]) {
+        await writeFile(path, contents);
+        await expect(loadConfiguredMacTarget(options)).rejects.toThrow("one nonempty password line");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(process.platform === "win32")("rejects another owner's private file without returning its contents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-mac-password-owner-"));
+    const path = join(root, "sudo-password");
+    try {
+      await writeFile(path, "synthetic-private-owner-canary", { mode: 0o600 });
+      // Isolate the uid seam: no privilege or host-wide ownership change is needed for this refusal.
+      const child = Bun.spawn([process.execPath, "-e", `
+        import { loadConfiguredMacTarget, parseStableQualificationArgs } from "./scripts/stable-qualification.ts";
+        const uid = process.getuid();
+        process.getuid = () => uid + 1;
+        try {
+          await loadConfiguredMacTarget(parseStableQualificationArgs(["--tag", process.env.TEST_TAG], process.env));
+          process.exitCode = 2;
+        } catch (error) { console.log(error.message); }
+      `], {
+        cwd: REPOSITORY_ROOT,
+        env: { ...process.env, ...MAC_ENV, OMP_STABLE_MAC_SUDO_PASSWORD_FILE: path, TEST_TAG: TAG },
+        stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      });
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+      expect(stdout.trim()).toBe("Mac sudo password file must be a current-user regular file with no group or other access");
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
@@ -196,7 +274,7 @@ describe("resumed relay qualification proof", () => {
           externalProbe = true;
           throw new Error("unexpected admission");
         },
-        recoverMac: async () => { throw new Error("completed cleanup must not reopen"); },
+        loadMacTarget: async () => { throw new Error("completed cleanup must not reopen"); },
       };
       await expect(runStableQualification(["--tag", TAG], guarded, admissionLanes())).rejects.toThrow("relay evidence");
       const persisted = JSON.parse(await readFile(path, "utf8"));
@@ -272,14 +350,14 @@ test.skipIf(process.platform === "win32")("rejected resumed relay proof still cl
       try {
         await runStableQualification(["--tag", ${JSON.stringify(TAG)}], {
           platform: "darwin", arch: "arm64", bunVersion: Bun.version,
-          environment: { OMP_STABLE_QUALIFICATION_DIR: root, OMP_STABLE_RELAY_SECONDS: "1800" },
+          environment: { ...${JSON.stringify(MAC_ENV)}, OMP_STABLE_QUALIFICATION_DIR: root, OMP_STABLE_RELAY_SECONDS: "1800" },
           executable: name => process.env.PATH + "/" + name,
           output: async command => {
             if (command.join(" ") === "git rev-parse HEAD") return ${JSON.stringify(COMMIT)};
             await writeFile(root + "/unexpected-admission", command[0]);
             throw new Error("unexpected admission");
           },
-          recoverMac: async () => {
+          loadMacTarget: async () => {
             await writeFile(root + "/recovered", "yes");
             return { sshDestination: "fixture.invalid", sudoPassword: "fixture" };
           },
@@ -318,9 +396,9 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
     platform: "darwin",
     arch: "arm64",
     bunVersion: failure === "bun" ? "0.0.0" : pins.bunVersion,
-    environment: { OMP_STABLE_QUALIFICATION_DIR: root },
+    environment: { ...MAC_ENV, OMP_STABLE_QUALIFICATION_DIR: root },
     executable: name => failure === "executable" && name === "cosign" ? null : "/fixture/" + name,
-    recoverMac: async () => {
+    loadMacTarget: async () => {
       if (failure === "mac") throw new Error("private-host private-credential");
       return { sshDestination: "private-host", sudoPassword: "private-credential" };
     },
@@ -352,7 +430,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
       if (invocation === "git ls-remote --exit-code origin refs/heads/fixture") return COMMIT + "\trefs/heads/fixture";
       if (command[0] === "ssh") {
         if (failure === "ssh") throw new Error("private-host private-credential");
-        return "qualification-mac.example.ts.net";
+        return MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net";
       }
       throw new Error("fixture refuses a non-prerequisite command: " + invocation);
     },
@@ -378,7 +456,7 @@ describe("stable qualification read-only admission", () => {
       let providerLookups = 0, laneAdmissions = 0;
       const runtime: StablePreflightRuntime = {
         ...fixture,
-        recoverMac: async options => { providerLookups += 1; return fixture.recoverMac(options); },
+        loadMacTarget: async options => { providerLookups += 1; return fixture.loadMacTarget(options); },
         adb: async (serial, args) => {
           if (args.join(" ") === "shell dumpsys tethering") {
             if (tethering === "probe-failure") throw new Error("synthetic-private-device probe failure");
@@ -415,7 +493,7 @@ describe("stable qualification read-only admission", () => {
     ["executable", "cosign"],
     ["pin", "Keychain"],
     ["github", "GitHub CLI"],
-    ["mac", "retained Mac lookup"],
+    ["mac", "configured Mac target"],
     ["ssh", "retained Mac SSH"],
   ] as const)("%s prerequisite failure stops normal qualification before receipts or dispatch", async (failure, diagnostic) => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-failure-"));
@@ -462,15 +540,15 @@ describe("stable qualification read-only admission", () => {
   test("retained Mac probe uses the pinned home Bun without requiring a staged qualification directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-host-"));
     const home = join(root, "home");
-    const bin = join(root, "bin");
+    const bin = join(home, ".bun", "bin");
     try {
-      await mkdir(join(home, ".bun", "bin"), { recursive: true });
-      await mkdir(bin);
+      await mkdir(bin, { recursive: true });
       const runtime = await preflightFixture(join(root, "receipts"));
       const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
       const fixtureCommand = async (path: string, body: string) => writeFile(path, "#!/bin/sh\n" + body + "\n", { mode: 0o700 });
       await fixtureCommand(join(home, ".bun", "bin", "bun"), "[ \"$1\" = --version ] || exit 1; echo " + pins.bunVersion);
       await fixtureCommand(join(bin, "uname"), "case \"$1\" in -s) echo Darwin;; -m) echo arm64;; *) exit 1;; esac");
+      await fixtureCommand(join(bin, "sysctl"), "[ \"$*\" = '-n hw.model' ] || exit 1; echo " + MAC_ENV.OMP_STABLE_MAC_MODEL);
       await fixtureCommand(join(bin, "tailscale"), "[ \"$*\" = 'status --json' ] || exit 1; echo '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'");
       await fixtureCommand(join(bin, "ifconfig"), "echo 'inet6 fd7a:115c:a1e0::1'");
       for (const name of ["curl", "git", "shasum", "tar", "lsof", "launchctl", "sudo"]) {
@@ -491,6 +569,8 @@ describe("stable qualification read-only admission", () => {
       };
       expect((await runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).status).toBe("preflight-passed");
       await expect(stat(join(home, "qual"))).rejects.toMatchObject({ code: "ENOENT" });
+      await fixtureCommand(join(bin, "sysctl"), "echo Mac14,3");
+      await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).rejects.toThrow("Mac hardware mismatch: expected Mac17,14, measured Mac14,3");
       await fixtureCommand(join(home, ".bun", "bin", "bun"), "echo 0.0.0");
       await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).rejects.toThrow("retained Mac SSH");
       expect(await Bun.file(join(root, "receipts", "stable-qualification.json")).exists()).toBe(false);
@@ -628,12 +708,12 @@ test("Mac evidence follows the exact OMP pin and rejects a stale build", async (
   expect(() => assertMacBuildOutput(output.replace("17/17 true", "16/17 true"), candidate, pins)).toThrow("doctor");
 });
 
-test("Mac lifecycle evidence records measured pass counts and refuses an incomplete rollback or a reachable backend", async () => {
+test.each([["Mac14,3", "26.6.1"], ["Mac17,14", "27.0.1"]])("Mac %s lifecycle persists measured schema-3 evidence and refuses failures", async (model, version) => {
   const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
   const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
   const output = [
-    "host:                                 macOS 26.6.1 arm64",
-    "hardware:                              Mac14,3",
+    `host:                                 macOS ${version} arm64`,
+    `hardware:                              ${model}`,
     "release-info commit:                   " + candidate.sourceCommit,
     candidate.archiveSha256,
     "doctor                                 18/18 true",
@@ -647,12 +727,34 @@ test("Mac lifecycle evidence records measured pass counts and refuses an incompl
     "23/23 invariants PASS",
     JSON.stringify({ version: pins.version, sourceCommit: pins.sourceCommit, sourceTree: pins.sourceTree, nativeSha256: pins.nativeBinarySha256 }),
   ].join("\n");
-  expect(assertMacLifecycleOutput(output, candidate, pins)).toEqual({ doctor: "18/18", rollbackInvariants: "23/23", os: "macOS 26.6.1 arm64" });
-  expect(() => assertMacLifecycleOutput(output.replace("23/23", "22/23"), candidate, pins)).toThrow("rollback");
+  expect(assertMacLifecycleOutput(output, candidate, pins, model)).toEqual({ hardware: model, doctor: "18/18", rollbackInvariants: "23/23", os: `macOS ${version} arm64` });
+  expect(() => assertMacLifecycleOutput(output.replace("23/23", "22/23"), candidate, pins, model)).toThrow("rollback");
   const exposed = output.replace("no HTTP answer (curl exit 56)", "HTTP 403 — EXPOSED");
-  expect(() => assertMacLifecycleOutput(exposed, candidate, pins)).toThrow("backend at ssh address");
+  expect(() => assertMacLifecycleOutput(exposed, candidate, pins, model)).toThrow("backend at ssh address");
   const handshakeOnly = output.replace("no HTTP answer (curl exit 7)", "refused");
-  expect(() => assertMacLifecycleOutput(handshakeOnly, candidate, pins)).toThrow("backend at tailnet address");
+  expect(() => assertMacLifecycleOutput(handshakeOnly, candidate, pins, model)).toThrow("backend at tailnet address");
+
+  const mismatched = output + "\nhardware: Mac99,1";
+  expect(() => assertMacLifecycleOutput(mismatched, candidate, pins, model)).toThrow(
+    `Mac hardware mismatch: expected ${model}, measured Mac99,1`,
+  );
+  expect(() => assertMacLifecycleOutput(output.replace(/hardware:.*\n/u, ""), candidate, pins, model)).toThrow("hardware evidence");
+  const root = await mkdtemp(join(tmpdir(), "stable-measured-mac-"));
+  try {
+    const path = join(root, "receipt.json");
+    const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    const persist = createReceiptPersister(path, receipt);
+    await executeReceiptLane(receipt, "macos", persist, async () => assertMacLifecycleOutput(output, candidate, pins, model));
+    const restored = validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), TAG, COMMIT, PREVIOUS_TAG);
+    expect(restored.schemaVersion).toBe(3);
+    expect(restored.lanes.macos).toMatchObject({ status: "passed", evidence: { hardware: model, os: `macOS ${version} arm64` } });
+    const resumed = await executeReceiptLane<ReturnType<typeof assertMacLifecycleOutput>>(restored, "macos", createReceiptPersister(path, restored), async () => {
+      throw new Error("passed schema-3 Mac evidence must not rerun");
+    });
+    expect(resumed.hardware).toBe(model);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("resumable receipt lanes", () => {
@@ -745,7 +847,7 @@ test("receipt-driven Mac cleanup survives restarts and reopens before renewed ef
 
 describe("Debian workflow dispatch resume", () => {
   const dispatchId = "11111111-1111-4111-8111-111111111111";
-  const options = parseStableQualificationArgs(["--tag", TAG], {});
+  const options = parseStableQualificationArgs(["--tag", TAG], MAC_ENV);
 
   test("persists dispatch intent before creating one discoverable run", async () => {
     const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
