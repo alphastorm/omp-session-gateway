@@ -557,8 +557,15 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       });
     },
     async replay(session) {
-      if (session.ask === undefined) throw new Error("Android Push replay needs the request it re-presents");
+      if (session.ask === undefined || currentEpoch === undefined) throw new Error("Android Push replay needs the request it re-presents");
       const expected = expectation(session, "attention");
+      // Launching the app re-saves its subscription, and the gateway then re-sends each current ask
+      // on this tag, replacing the replay. A newer ask therefore needs the app already open.
+      const live = [await snapshot(currentEpoch), await snapshot(currentEpoch, "secondary")].find(item => item?.instanceId === session.instanceId);
+      if (live?.ask !== undefined && live.ask.requestId !== session.ask.requestId &&
+        webApkTasks(await command("shell", "dumpsys", "activity", "activities"), expected.packageName).length === 0) {
+        throw new Error("Android Push replay over a newer ask needs the app already open");
+      }
       const posted = async () => (await phaseRecords()).filter(record => record.tag.endsWith(expected.tag));
       const before = Math.max(0, ...(await posted()).map(record => record.postedAt));
       // The worker's own fields for this request: metadata only, as the push that carried it.

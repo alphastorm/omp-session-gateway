@@ -262,7 +262,12 @@ destination page. A missing or ambiguous credential surface still fails while th
   show the expired/changed notice. Authoritative clear already removes the original notification,
   so the lane re-presents its original metadata-only data through the app's service-worker
   registration and taps it from the lock screen. The result records `replayed: true`: this proves
-  delayed-tap handling on the physical Pixel, not Web Push delivery ordering or delay.
+  delayed-tap handling on the physical Pixel, not Web Push delivery ordering or delay. Two gateway
+  pushes would replace or close a replay on the same tag, so the lane orders around them. Launching
+  the app re-saves its subscription, and the gateway then re-sends every current ask, so the lane
+  opens and settles the app before each newer ask, and the runtime refuses a replay over a newer
+  ask while the app is closed. Removing a host with an open ask sends that ask's clear, so the lane
+  waits for it to land before re-presenting the gone host's request.
 - Browser force-stop records delivery while stopped or suppression until relaunch; both variants
   still require a fresh post-relaunch delivery.
 - Origin-permission denial suppresses notifications; restoring permission must permit a fresh

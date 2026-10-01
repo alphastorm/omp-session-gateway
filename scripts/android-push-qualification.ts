@@ -76,6 +76,8 @@ export interface AndroidPushRuntime {
   /**
    * Re-presents the attention notification `session` would have shown, with its metadata-only data,
    * so a later tap exercises the delayed-tap path after its clear already ran. Closes the app after.
+   * While a newer ask exists on the instance, the app must already be open: launching it re-sends
+   * current asks, which would replace the replay.
    */
   replay(session: SessionMetadata): Promise<void>;
   /** Closes every notification for the hosts this phase owns, then waits until the OS shows none. */
@@ -470,15 +472,22 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         };
         const resolved = await delivery("session"); await clear();
         await staleTap(resolved.session, "resolved");
+        // Launching the app re-saves its subscription, and the gateway then re-sends every current ask,
+        // which would replace a replay on the same tag. Open and settle the app before the newer ask.
+        const newer = async (stale: SessionMetadata) => {
+          await runtime.openPwa();
+          await fixture("ask");
+          await delivered(await snapshot(s => s.inputRequired && s.ask !== undefined && s.ask.requestId !== stale.ask?.requestId));
+        };
         const earlier = await delivery("session"); await clear();
-        await delivery("session");
+        await newer(earlier.session);
         await staleTap(earlier.session, "re-armed");
         await clear();
         const replaced = await delivery("session"); await clear();
         await fixture("replace");
         const replacement = await snapshot(s => s.generation === replaced.session.generation + 1);
         if (replacement.instanceId !== replaced.session.instanceId) throw new Error("Android Push replacement changed instance");
-        await delivery("session");
+        await newer(replaced.session);
         await staleTap(replaced.session, "replaced-generation");
         await clear();
         await runtime.closePwa(); await runtime.lock();
@@ -487,6 +496,8 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         await delivered(expiring);
         await fixture("stop", "secondary");
         await wait("secondary unpublication", async () => await runtime.snapshot(progress.epoch, "secondary") === undefined ? true : undefined, 45_000);
+        // Removing a host with an open ask sends its clear; one landing after the replay would close it.
+        await wait("secondary removal clear", async () => (await runtime.observe(expiring, "attention", "private")).count === 0 ? true : undefined, 60_000);
         await staleTap(expiring, "expired-host");
         await finish("stale_taps_verified", { resolved: true, rearmed: true, replaced: true, expired: true, launches: 0, scrubbed: true, replayed: true });
       });

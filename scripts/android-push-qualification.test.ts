@@ -29,7 +29,8 @@ function fake(options: FakeOptions = {}) {
   let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false; let dozed = false; let deferredClear = false;
   let socketStaleUntil = -Infinity; let heldAsk = false; let heldClear = false;
   let shown: "attention" | "activity_stop" | undefined;
-  const second = { started: false, asking: false, request: 0, askedAt: 0, shown: false };
+  // `clearing`: the gateway's clear for a removed host's ask is still in flight to the device.
+  const second = { started: false, asking: false, request: 0, askedAt: 0, shown: false, clearing: false };
   // The installed app's device-local Hold and Hide records, keyed as the app keys them.
   const held = new Set<string>(); const hidden: string[] = []; let toastUntil = -Infinity;
   const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
@@ -84,7 +85,7 @@ function fake(options: FakeOptions = {}) {
         if (operation === "start") second.started = true;
         else if (operation === "ask") { second.asking = true; second.request++; second.askedAt = time; second.shown = browser.permission === "granted"; }
         else if (operation === "answer") { second.asking = false; second.shown = false; }
-        else if (operation === "stop") { second.started = false; second.asking = false; second.shown = false; }
+        else if (operation === "stop") { second.clearing = second.shown; second.started = false; second.asking = false; }
         else throw new Error("synthetic secondary operation unsupported");
         return;
       }
@@ -102,12 +103,14 @@ function fake(options: FakeOptions = {}) {
     openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; if (deferredClear) { shown = undefined; deferredClear = false; } show(); }); },
     lock: async () => { await effect(() => { device.locked = true; device.awake = false; }); },
     observe: async (session, kind) => {
+      // Waiting lets an in-flight removal clear land.
+      if (session.instanceId === SECONDARY && second.clearing) { second.shown = false; second.clearing = false; }
       // As on the device, a host has one owned tag, whichever kind of notice it shows.
       const notice = session.instanceId === SECONDARY ? second.shown ? "attention" : undefined : shown;
       if (notice === "activity_stop" && foreignDuringStop) { foreignDuringStop = false; throw new NotificationOverlapError(); }
       return { count: notice === undefined ? 0 : options.duplicate ? 2 : 1, titleMatches: notice === kind, bodyMatches: notice === kind, forbiddenFound: false };
     },
-    dismissOwned: async () => { await effect(() => { shown = undefined; second.shown = false; }); },
+    dismissOwned: async () => { await effect(() => { shown = undefined; second.shown = false; second.clearing = false; }); },
     presentation: async () => device.locked && shown === "attention",
     async tap(session, kind, stale) { await effect(() => { if (session.instanceId === SECONDARY) second.shown = false; else shown = undefined; device.webApkTask = true; });
       const live = sessions().find(item => item.instanceId === session.instanceId);
@@ -137,7 +140,15 @@ function fake(options: FakeOptions = {}) {
       time += action?.settleMs ?? 1_500;
       return directory(mutations);
     },
-    replay: async session => { await effect(() => { if (session.instanceId === SECONDARY) second.shown = true; else shown = "attention"; device.webApkTask = false; }); },
+    replay: async session => {
+      // As on the device: launching the app re-saves its subscription, and the gateway re-sends each
+      // current ask, replacing a replay on the same tag. The runtime refuses that state.
+      const live = sessions().find(item => item.instanceId === session.instanceId);
+      if (!device.webApkTask && live?.ask !== undefined && live.ask.requestId !== session.ask?.requestId) throw new Error("Android Push replay over a newer ask needs the app already open");
+      // A removal clear that lands after the replay closes it: the same request.
+      if (session.instanceId === SECONDARY && second.clearing) throw new Error("Android Push replayed notification unavailable");
+      await effect(() => { if (session.instanceId === SECONDARY) second.shown = true; else shown = "attention"; device.webApkTask = false; });
+    },
     answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },
     permission: async value => { await effect(() => { browser.permission = value; }); },
@@ -155,7 +166,7 @@ function fake(options: FakeOptions = {}) {
     async cleanup(step) { cleanup.push(step);
       if (step === options.cleanupFail) throw new Error("synthetic cleanup failure");
       if (step === "fixtureAsk") { asking = false; second.asking = false; }
-      if (step === "notifications") { shown = undefined; second.shown = false; reconcile(); }
+      if (step === "notifications") { shown = undefined; second.shown = false; second.clearing = false; reconcile(); }
       if (step === "browser") browser = { ...initialBrowser };
       if (step === "doze") { device.forcedDoze = false; device.batteryOverride = false; }
       if (step === "network") { device.wifi = baseline.wifi; device.mobile = baseline.mobile; device.airplane = baseline.airplane; }
