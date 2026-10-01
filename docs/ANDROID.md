@@ -335,6 +335,22 @@ Private checkpoints and tested evidence live under
 explicitly development evidence, never a stable receipt. Only the lead-owned `qualify:stable`
 integration may qualify the exact signed candidate.
 
+Development observations on 2026-10-01, for the triage and delayed-tap phases: the runs used the
+pinned Bun **1.4.0**, the installed **v0.7.1** gateway, stock OMP **18.4.8** fixtures, and the
+Pixel 10 Pro on Android **17** with Chrome **154.0.8037.57**. Three runs exposed three lane
+defects, each fixed with a failing-first fake regression:
+
+- the one permitted re-arm waited on an owned activity-stop notice that never clears;
+- a delayed-tap replay was replaced by the gateway's re-send of current asks after the app relaunch
+  re-saved its subscription, or closed by a gone host's removal clear;
+- the force-stop privacy check read Session notices, left by the new phases, as Private.
+
+The fourth run passed every phase from `subscription_ready` through `evidence_complete` with no
+re-arm. Triage recorded zero mutations, and the delayed taps recorded zero launches. Force-stop
+delivered while stopped, Doze delivered after exit, and the sink sweep found ten detectable sinks
+with zero findings. Cleanup restored the phone and stopped both fixture hosts. This is tested
+evidence only.
+
 Development observations on 2026-09-25: the isolated stock OMP **18.3.0** fixture published a real
 ask, held known busy across two gateway polls, returned idle, and replaced the same instance by
 exactly one generation; its process was stopped. The local **v0.5.3** gateway with Pixel 10 Pro,

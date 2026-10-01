@@ -367,7 +367,10 @@ Their measured assertions do not prove an unobserved interval between samples; u
    handling evidence, not evidence of Web Push delay or ordering.
 10. Verify one notification per instance, silent duplicate updates, authoritative clear, and `setAppBadge`/`clearAppBadge` pending counts.
     The detail and `clear_verified` phases prove delivery/clear; `triage_verified` also requires
-    held asks to remain in the authoritative pending count.
+    held asks to remain in the authoritative pending count. Badge counts are not observed on the
+    Pixel. On 2026-10-01, the installed WebAPK there (Chrome 154) exposed `setAppBadge` and
+    `clearAppBadge`, but the count is shown by the launcher, which the lane does not read. Badge
+    calls stay covered by the service-worker unit tests.
 11. Force-stop/disable Chrome notifications and exercise Android battery policy; record best-effort failure behavior without claiming guaranteed delivery.
     `force_stop_verified`, `permission_verified`, and `doze_verified` keep their existing physical
     observations after the two new phases; lock/resume and network phases remain required.
