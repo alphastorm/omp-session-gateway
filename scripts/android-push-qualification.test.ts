@@ -29,8 +29,10 @@ function fake(options: FakeOptions = {}) {
   let asking = false; let busy = false; let stopped = false; let forced = false; let asleep = false; let offline = false; let dozed = false; let deferredClear = false;
   let socketStaleUntil = -Infinity; let heldAsk = false; let heldClear = false;
   let shown: "attention" | "activity_stop" | undefined;
+  // The subscription detail each notice was sent at: a Private notice has no body.
+  let shownDetail = browserBaseline.detail;
   // `clearing`: the gateway's clear for a removed host's ask is still in flight to the device.
-  const second = { started: false, asking: false, request: 0, askedAt: 0, shown: false, clearing: false };
+  const second = { started: false, asking: false, request: 0, askedAt: 0, shown: false, clearing: false, detail: browserBaseline.detail };
   // The installed app's device-local Hold and Hide records, keyed as the app keys them.
   const held = new Set<string>(); const hidden: string[] = []; let toastUntil = -Infinity;
   const initialBrowser = { ...browserBaseline, permission: options.browserPermission ?? browserBaseline.permission };
@@ -64,7 +66,7 @@ function fake(options: FakeOptions = {}) {
   };
   const show = () => {
     if (!asking || browser.permission !== "granted" || offline || (forced && !options.forceDelivery) || (asleep && !options.dozeDelivery)) return;
-    if (time < socketStaleUntil) heldAsk = true; else shown = "attention";
+    if (time < socketStaleUntil) heldAsk = true; else { shown = "attention"; shownDetail = browser.detail; }
   };
   const effect = async (action: () => void) => { await runtime.beforeEffect(); effects++; action(); if (effects === options.failAfter) throw new Error("synthetic interruption"); };
   const runtime: AndroidPushRuntime = {
@@ -83,7 +85,7 @@ function fake(options: FakeOptions = {}) {
     async fixture(operation, _epoch, role = "primary") { await effect(() => {
       if (role === "secondary") {
         if (operation === "start") second.started = true;
-        else if (operation === "ask") { second.asking = true; second.request++; second.askedAt = time; second.shown = browser.permission === "granted"; }
+        else if (operation === "ask") { second.asking = true; second.request++; second.askedAt = time; second.shown = browser.permission === "granted"; second.detail = browser.detail; }
         else if (operation === "answer") { second.asking = false; second.shown = false; }
         else if (operation === "stop") { second.clearing = second.shown; second.started = false; second.asking = false; }
         else throw new Error("synthetic secondary operation unsupported");
@@ -93,7 +95,7 @@ function fake(options: FakeOptions = {}) {
       if (operation === "ask") { asking = true; request++; askedAt = time; pending = true; show(); }
       if (operation === "answer") { asking = false; pending = false; if (shown === "attention") { if (options.deferredAfterDoze && dozed) deferredClear = true; else if (time < socketStaleUntil) heldClear = true; else shown = undefined; } }
       if (operation === "busy") { busy = true; stopped = false; }
-      if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; }
+      if (operation === "release") { busy = false; stopped = true; shown = "activity_stop"; shownDetail = browser.detail; }
       if (operation === "replace") generation++;
       if (operation === "stop") started = false;
     }); },
@@ -102,13 +104,14 @@ function fake(options: FakeOptions = {}) {
     closePwa: async () => { await effect(() => { device.webApkTask = false; }); },
     openPwa: async () => { await effect(() => { device.webApkTask = true; forced = false; if (deferredClear) { shown = undefined; deferredClear = false; } show(); }); },
     lock: async () => { await effect(() => { device.locked = true; device.awake = false; }); },
-    observe: async (session, kind) => {
+    observe: async (session, kind, detail) => {
       // Waiting lets an in-flight removal clear land.
       if (session.instanceId === SECONDARY && second.clearing) { second.shown = false; second.clearing = false; }
       // As on the device, a host has one owned tag, whichever kind of notice it shows.
       const notice = session.instanceId === SECONDARY ? second.shown ? "attention" : undefined : shown;
+      const sentPrivate = (session.instanceId === SECONDARY ? second.detail : shownDetail) === "private";
       if (notice === "activity_stop" && foreignDuringStop) { foreignDuringStop = false; throw new NotificationOverlapError(); }
-      return { count: notice === undefined ? 0 : options.duplicate ? 2 : 1, titleMatches: notice === kind, bodyMatches: notice === kind, forbiddenFound: false };
+      return { count: notice === undefined ? 0 : options.duplicate ? 2 : 1, titleMatches: notice === kind, bodyMatches: notice === kind && sentPrivate === (detail === "private"), forbiddenFound: false };
     },
     dismissOwned: async () => { await effect(() => { shown = undefined; second.shown = false; second.clearing = false; }); },
     presentation: async () => device.locked && shown === "attention",
@@ -147,7 +150,7 @@ function fake(options: FakeOptions = {}) {
       if (!device.webApkTask && live?.ask !== undefined && live.ask.requestId !== session.ask?.requestId) throw new Error("Android Push replay over a newer ask needs the app already open");
       // A removal clear that lands after the replay closes it: the same request.
       if (session.instanceId === SECONDARY && second.clearing) throw new Error("Android Push replayed notification unavailable");
-      await effect(() => { if (session.instanceId === SECONDARY) second.shown = true; else shown = "attention"; device.webApkTask = false; });
+      await effect(() => { if (session.instanceId === SECONDARY) { second.shown = true; second.detail = browser.detail; } else { shown = "attention"; shownDetail = browser.detail; } device.webApkTask = false; });
     },
     answer: async () => { await effect(() => { asking = false; shown = undefined; }); },
     forceStop: async () => { await effect(() => { forced = true; shown = undefined; }); },

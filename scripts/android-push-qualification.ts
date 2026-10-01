@@ -502,7 +502,8 @@ export async function runAndroidPush(input: LaneInput): Promise<Record<string, u
         await finish("stale_taps_verified", { resolved: true, rearmed: true, replaced: true, expired: true, launches: 0, scrubbed: true, replayed: true });
       });
       await attempt("force_stop_verified", async () => {
-        await runtime.forceStop(); await fixture("ask");
+        // Its privacy check reads Private notices; the triage and delayed-tap phases leave Session.
+        await runtime.detail("private"); await runtime.forceStop(); await fixture("ask");
         const forced = await snapshot(s => s.inputRequired);
         let whileStopped = false;
         for (let elapsed = 0; elapsed < 30_000; elapsed += 500) {
