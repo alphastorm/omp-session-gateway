@@ -251,8 +251,9 @@ rewarms Chrome before releasing that connection, then verifies the restored pref
 - [x] Original subscription/detail/permission, radios, battery/Doze, task, and display/keyguard
   state restored; owned fixture stopped. No screenshots, notification content, or XML persisted.
 
-Every stable campaign since v0.6.0 passed the twelve checks above through its `androidPush`
-lane; the latest is [v0.7.1](RELEASE_STATUS.md#mainline-v071--published-stable), on the Pixel 10 Pro,
+The qualifying campaign of every stable release since v0.6.0 passed the twelve checks above
+through its `androidPush` lane. Failed earlier attempts are recorded in the ledger. The latest is
+[v0.7.1](RELEASE_STATUS.md#mainline-v071--published-stable), on the Pixel 10 Pro,
 Android 17 build `CP3A.260905.009`, Chrome `154.0.8037.57`. The lane's detail, attention-tap,
 activity-stop, stale-generation, clear, force-stop, permission, lock/resume, network, Doze,
 forbidden-sink, and restoration phases map to these checks. The campaign rows record delivery,
