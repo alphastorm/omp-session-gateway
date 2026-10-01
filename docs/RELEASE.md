@@ -233,8 +233,12 @@ The SSH account may be standard or administrator and must log in automatically a
 the persistence lane measures its per-user LaunchAgent returning at **console login**, not boot
 without a login. On a bare-metal automatic-login host, FileVault must be off. The account needs
 Bun 1.4.0 in `~/.bun/bin`, the lane's command-line tools, and a user-owned TUN-mode Tailscale
-node. The remote tool PATH includes `/opt/homebrew/bin`; qualification does not provision these
-prerequisites or make the account an administrator.
+node. Remote commands use the fixed PATH
+`/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin`: system and
+admin-owned tools precede account-writable directories, and hardware probes call
+`/usr/sbin/sysctl` directly. Qualification does not provision these prerequisites or make the
+account an administrator. The rollback lane selects its staged Cosign by explicit executable
+path rather than putting `~/qual-tools` ahead of system tools.
 
 With no `OMP_STABLE_MAC_SUDO_PASSWORD_FILE`, the orchestrator passes an empty
 `OMP_MAC_SUDO_PW` and the shell uses `sudo -n`. Narrow passwordless sudo must permit the
@@ -248,6 +252,13 @@ enter argv or receipts and reach remote sudo only through the existing SSH-stdin
 The former `omp-macqual-01` remains selectable using its actual `user@host`, `Mac14,3`,
 and that private password file; no cloud-provider lookup or credential is used for a Mac.
 Keep the same host/model configuration for the entire campaign, including resumed cleanup.
+Before the first Mac effect, the private schema-3 receipt persists its configured `macHost`.
+A resumed campaign refuses a different host before admission or any remote cleanup. Historical
+receipts with recorded Mac effects but no bound host cannot authorize automated cleanup: manually
+clean the original Mac's gateway, Tailscale Serve, OMP fixtures, and qualification artifacts using
+the original campaign checkout before starting a new campaign directory. A receipt with no Mac
+effects may still start unbound; a hardware-model admission refusal never creates cleanup work
+on an unowned host.
 
 The Windows lane also needs a mode-private `~/.vultr-apikey` whose API access control admits the operator's current egress `/32`, the tagged Tailscale join key and API key in the private qualification files, and the controller tools pinned in `scripts/windows-qualification-pins.json` ([WINDOWS_QUALIFICATION.md](WINDOWS_QUALIFICATION.md)). Background Push needs Do Not Disturb off on the Pixel, no hotspot, USB or Bluetooth tethering from it (the controller must not depend on the Pixel for its network), and the OMP Sessions app installed, with notification permission granted, for the retained Mac's origin, as one-time equipment ([ANDROID.md](ANDROID.md)). The device-cloud lane needs Java for the TestingBot tunnel (`/opt/homebrew/opt/openjdk@17/bin/java`, or `OMP_STABLE_JAVA`) and the read-only 1Password service-account token at `~/.local/state/alpha-founder/retained-host/op-service-account.token` (mode `0600`, or `OMP_STABLE_OP_TOKEN_FILE`), which must be able to read `op://Centaur/TestingBot/key` and `op://Centaur/TestingBot/secret`; the tunnel jar is downloaded once into `~/.cache/omp-session-gateway/testingbot/` and verified against its pinned SHA-256 before every use. Environment overrides are prefixed `OMP_STABLE_`. The rollback predecessor comes from `STABLE_RELEASE.lock.json`; `--previous-tag` and `OMP_STABLE_PREVIOUS_TAG` may only restate it.
 

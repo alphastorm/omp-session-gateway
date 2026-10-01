@@ -29,7 +29,7 @@ case "$session_label" in
 esac
 [ "${#session_label}" -le 128 ] || fail "OMP_QUAL_SESSION_LABEL must not exceed 128 characters"
 
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 omp_root="$HOME/src/oh-my-pi-gateway-v${omp_version}"
 version_dir="$HOME/.local/lib/omp-session-gateway/omp/v${omp_version}-${source_tree:0:8}"
 binary="$version_dir/omp"

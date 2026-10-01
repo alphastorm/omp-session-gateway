@@ -37,6 +37,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Bind Mac qualification effects to their configured SSH host in schema-3 receipts; refuse
+  retargeted resume and unbound legacy cleanup before any remote call, and never clean an unowned
+  host after admission refusal. Resolve remote measurement tools from a fixed system-first PATH
+  and use the absolute system hardware probe so account-local executables cannot shadow it.
 - Re-arm a Push phase after its one permitted foreign-notification overlap by waiting only for
   pending attention clears, then dismissing remaining owned notices. An activity-stop notice has
   no clear and previously held the re-arm until its 160-second timeout.

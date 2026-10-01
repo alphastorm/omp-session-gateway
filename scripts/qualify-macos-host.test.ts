@@ -135,6 +135,32 @@ printf 'LANE_REACHED\\n'
   expect(result.stdout).not.toContain("LANE_REACHED");
 });
 
+test.skipIf(process.platform !== "darwin")("Mac host evidence ignores a sysctl planted in the account's Bun directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omp-mac-hardware-path-"));
+  const home = join(root, "home");
+  const bin = join(home, ".bun", "bin");
+  const planted = join(root, "planted-called");
+  const measured = Bun.spawnSync(["/usr/sbin/sysctl", "-n", "hw.model"], { stdout: "pipe", stderr: "pipe" });
+  expect(measured.exitCode).toBe(0);
+  const model = Buffer.from(measured.stdout).toString().trim();
+  try {
+    await mkdir(bin, { recursive: true });
+    for (const command of ["sysctl", "uname", "sw_vers"]) {
+      await writeFile(join(bin, command), "#!/bin/sh\nprintf '%s\\n' Mac99999,1\n: >\"$PLANTED_CALLED\"\n", { mode: 0o700 });
+    }
+    const pins = JSON.parse(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
+    const result = await runHarness("set -euo pipefail\nsource \"$1\"\nneed_command() { :; }\nbun() { printf '%s\\n' \"$EXPECTED_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nsudo() { return 0; }\nexport -f bun tailscale ifconfig sudo\nssh() { /bin/bash -c \"${!#}\"; }\npreflight", [], {
+      ...environment("a".repeat(64)), HOME: home, PATH: bin + ":" + process.env.PATH,
+      EXPECTED_BUN: pins.bunVersion, PLANTED_CALLED: planted, OMP_MAC_SUDO_PW: "",
+    });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(result.stdout.match(/^\s*hardware:\s+(\S+)/mu)?.[1]).toBe(model);
+    expect(await Bun.file(planted).exists()).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(!POSIX)("Mac reboot keeps the sudo password in NUL-framed SSH stdin", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-reboot-secret-"));
   const argvPath = join(temporaryRoot, "argv");

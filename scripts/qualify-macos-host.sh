@@ -22,7 +22,8 @@
 #   - sudo for the exact lane commands, either narrow passwordless grants (sudo -n) or a password
 #     supplied out of band through OMP_MAC_SUDO_PW. No administrator membership is required.
 #   - The pinned Bun in ~/.bun/bin and the lane's tools on PATH for that user.
-#     Remote blocks add /opt/homebrew/bin for Apple-silicon Homebrew tools.
+#     Remote blocks use a fixed system/admin-first PATH, including /opt/homebrew/bin, before
+#     the account's Bun and Go tools; hardware is measured with /usr/sbin/sysctl.
 #   - Tailscale running its **TUN-mode** client, joined as a **user-owned** node.
 #
 # That last requirement is the whole reason the earlier attempt failed, and the correction is worth
@@ -181,8 +182,8 @@ remote() {
   local script bootstrap helpers
   helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
   script="${helpers}"$'\n'"$(cat)"
-  printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$HOME/go/bin:$PATH"; eval "$SCRIPT"'
+  printf -v bootstrap '/bin/bash -c %q' \
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; eval "$SCRIPT"'
   {
     local value
     for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_SOURCE_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
@@ -217,11 +218,11 @@ preflight() {
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 show "host" "$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
-show "hardware" "$(sysctl -n hw.model 2>/dev/null || echo unknown)"
+show "hardware" "$(/usr/sbin/sysctl -n hw.model 2>/dev/null || echo unknown)"
 show "user / shell" "$(whoami) / $SHELL"
 # Same PATH the lanes export. Probing a bare login shell reported `bun: MISSING` on a host where bun
 # was installed and every lane worked, which is a misleading preflight rather than a real finding.
-actual_bun="$(PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
+actual_bun="$(PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
 show "bun" "$actual_bun"
 if [ "$actual_bun" != "$BUN_VERSION" ]; then
   printf 'Mac qualification requires Bun %s; found %s. Update the retained host before running lanes.\n' "$BUN_VERSION" "$actual_bun" >&2
@@ -319,7 +320,7 @@ lane_install() {
   remote <<REMOTE
 S() { if [ -n "\$PW" ]; then echo "\$PW" | sudo -S -p '' "\$@"; else sudo -n "\$@"; fi; }
 show() { printf '   %-38s %s\n' "\$1:" "\$2"; }
-export PATH="\$HOME/.bun/bin:\$HOME/go/bin:\$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:\$HOME/.bun/bin:\$HOME/go/bin"
 CLI="\$HOME/qual/\$(cd ~/qual && ls -d omp-session-gateway-*-bun)/apps/gateway/src/cli.js"
 TS="\$(command -v tailscale || echo "\$HOME/go/bin/tailscale")"
 
@@ -451,7 +452,7 @@ REMOTE
   local up=""
   for _ in $(seq 1 36); do
     sleep 10
-    up="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'ps -o etime= -p 1 | tr -d " "' 2>/dev/null || true)"
+    up="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; ps -o etime= -p 1 | tr -d " "' 2>/dev/null || true)"
     [ -n "$up" ] && break
   done
   [ -n "$up" ] || die "the host did not come back after the reboot."
@@ -465,7 +466,7 @@ REMOTE
   local waited=0 ready=""
   for _ in $(seq 1 24); do
     ready="$(remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 lsof -nP -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}'
 REMOTE
 )"
@@ -481,7 +482,7 @@ REMOTE
 
   remote <<'REMOTE'
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
-export PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 CLI="$HOME/qual/$(cd ~/qual && ls -d omp-session-gateway-*-bun)/apps/gateway/src/cli.js"
 pid="$(lsof -nP -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')"
 show "gateway pid" "${pid:-<none>}"
@@ -555,7 +556,8 @@ lane_rollback() {
   step "Lane 5: isolated gateway upgrade and rollback"
   stage_remote_rollback_tools
   remote <<'REMOTE'
-export PATH="$HOME/qual-tools:$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
+OMP_ROLLBACK_COSIGN="$HOME/qual-tools/cosign" \
 OMP_ROLLBACK_ARTIFACT_ROOT="$HOME/qual-tools/rollback-assets" \
 OMP_ROLLBACK_OLD_TAG="$PREVIOUS_TAG" OMP_ROLLBACK_NEW_TAG="$TAG" \
   bash "$HOME/qual-tools/qualify-rollback.sh" run
@@ -578,7 +580,7 @@ lane_omp_build() {
   step "Lane 6: exact mainline OMP build"
   stage_remote_omp_helper
   remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"
 OMP_QUAL_GATEWAY_ROOT="$root" \
 OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
@@ -596,7 +598,7 @@ lane_omp_clean() {
   step "Lane 7: mainline OMP cleanup"
   stage_remote_omp_helper
   remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 archive_root="$(cd "$HOME/qual" 2>/dev/null && ls -d omp-session-gateway-*-bun 2>/dev/null | head -1 || true)"
 root="$HOME/qual/${archive_root:-absent}"
 OMP_QUAL_GATEWAY_ROOT="$root" \
@@ -614,7 +616,7 @@ lane_uninstall() {
   step "Lane 5: uninstall"
   remote <<'REMOTE'
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 archive_root="$(cd "$HOME/qual" 2>/dev/null && ls -d omp-session-gateway-*-bun 2>/dev/null | head -1 || true)"
 CLI="$HOME/qual/$archive_root/apps/gateway/src/cli.js"
 if [ -n "$archive_root" ] && [ -f "$CLI" ]; then

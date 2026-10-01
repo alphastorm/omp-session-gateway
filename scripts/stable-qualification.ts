@@ -20,7 +20,8 @@ const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
 const DEFAULT_MAC_LOGIN = "alphastorm@github";
-const MAC_PATH_SETUP = 'export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$HOME/go/bin:$PATH"';
+const MAC_PATH_SETUP = 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"';
+const MAC_HOST_PATTERN = /^[A-Za-z_][A-Za-z0-9._-]*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/u;
 const MAC_MODEL_PATTERN = /^[A-Za-z][A-Za-z0-9]*[0-9],[0-9]+$/u;
 const DEFAULT_SESSION_LABEL = "omp-stable-pixel-qualification";
 const MINIMUM_RELAY_SECONDS = 1_800;
@@ -128,6 +129,8 @@ export interface StableQualificationReceipt {
   candidate?: CandidateIdentity;
   /** The verified rollback predecessor that host lanes install before the candidate. */
   predecessor?: CandidateIdentity;
+  /** SSH target bound before the first Mac effect; absent only in pre-Mac or historical receipts. */
+  macHost?: string;
   lanes: Record<StableQualificationLane, LaneReceipt>;
   error?: string;
 }
@@ -354,7 +357,7 @@ export function parseStableQualificationArgs(
   );
   if (relaySeconds < MINIMUM_RELAY_SECONDS) throw new Error("OMP_STABLE_RELAY_SECONDS must be at least 1800");
   const macHost = environment.OMP_STABLE_MAC_HOST;
-  if (macHost === undefined || !/^[A-Za-z_][A-Za-z0-9._-]*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/u.test(macHost)) {
+  if (macHost === undefined || !MAC_HOST_PATTERN.test(macHost)) {
     throw new Error("OMP_STABLE_MAC_HOST is required as user@host (DNS name or IPv4 address, without SSH options or a port)");
   }
   const macModel = environment.OMP_STABLE_MAC_MODEL;
@@ -426,6 +429,9 @@ export function validateStableQualificationReceipt(
     throw new Error(
       "qualification receipt identity is invalid; do not resume evidence across orchestrator commits or rollback predecessors",
     );
+  }
+  if (receipt.macHost !== undefined && (typeof receipt.macHost !== "string" || !MAC_HOST_PATTERN.test(receipt.macHost))) {
+    throw new Error("qualification receipt Mac host is invalid");
   }
   if (typeof receipt.lanes !== "object" || receipt.lanes === null) throw new Error("qualification receipt lanes are invalid");
   for (const name of LANE_NAMES) {
@@ -563,6 +569,7 @@ function laneProgress(lane: LaneReceipt): unknown {
 
 /** Whether a lane's receipt still records external effects. Unreadable progress counts as effects. */
 function recordedEffects(module: ExternalLaneModule<never>, lane: LaneReceipt): boolean {
+  if (lane.attempts === 0 && lane.status === "pending" && lane.evidence === undefined) return false;
   try {
     return module.needsCleanup(laneProgress(lane));
   } catch {
@@ -1245,13 +1252,13 @@ export async function preflightStableQualification(
       '[ "$(bun --version)" = ' + shellQuote(ompPins.bunVersion) + ' ]',
       'for tool in bash python3 curl git shasum tar lsof launchctl sudo tailscale ifconfig sysctl; do command -v "$tool" >/dev/null; done',
       'ifconfig | python3 -c ' + shellQuote('import sys; assert "inet6 fd7a:115c:a1e0:" in sys.stdin.read()'),
-      'sysctl -n hw.model',
+      '/usr/sbin/sysctl -n hw.model',
       'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip("."); print(s["DNSName"].rstrip("."))'),
     ].join("; ");
     const result = (await runtime.output([
       "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
       "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
-      "-o", "BatchMode=yes", "-q", target.sshDestination, "bash -c " + shellQuote(probe),
+      "-o", "BatchMode=yes", "-q", target.sshDestination, "/bin/bash -c " + shellQuote(probe),
     ])).trim();
     const [hardware, dnsName, extra] = result.split(/\r?\n/u);
     if (extra !== undefined || dnsName === undefined || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
@@ -1791,7 +1798,7 @@ async function cleanupMac(
       "BatchMode=yes",
       "-q",
       context.target.sshDestination,
-      'rm -rf "$HOME/qual" "$HOME/qual-tools"',
+      MAC_PATH_SETUP + '; rm -rf "$HOME/qual" "$HOME/qual-tools"',
     ]);
   });
 
@@ -1813,6 +1820,21 @@ async function cleanupMac(
   };
 }
 
+function receiptHasMacEffects(receipt: StableQualificationReceipt): boolean {
+  return (["macos", "ompPublication", "android", "androidPush", "androidPushCleanup", "deviceCloud", "deviceCloudCleanup", "relay", "cleanup"] as const).some(
+    name => receipt.lanes[name].attempts > 0 || receipt.lanes[name].status !== "pending" || receipt.lanes[name].evidence !== undefined,
+  );
+}
+
+function assertMacHostBinding(receipt: StableQualificationReceipt, macHost: string): void {
+  if (receipt.macHost !== undefined && receipt.macHost !== macHost) {
+    throw new Error("configured Mac host differs from the receipt; restore OMP_STABLE_MAC_HOST to the recorded host before resuming");
+  }
+  if (receipt.macHost === undefined && receiptHasMacEffects(receipt)) {
+    throw new Error("receipt records Mac effects without a bound host; automated cleanup is refused. Perform manual cleanup of the original Mac's gateway, Tailscale Serve, OMP fixtures and qualification artifacts using the original campaign checkout before starting a new campaign directory");
+  }
+}
+
 export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boolean {
   if (receipt.lanes.cleanup.status === "passed") return false;
   return (["macos", "ompPublication", "android", "androidPush", "deviceCloud", "relay", "cleanup"] as const).some(
@@ -1820,9 +1842,12 @@ export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boo
   );
 }
 
-export function markMacCleanupRequired(receipt: StableQualificationReceipt): boolean {
+export function markMacCleanupRequired(receipt: StableQualificationReceipt, macHost: string): boolean {
+  assertMacHostBinding(receipt, macHost);
+  const newlyBound = receipt.macHost === undefined;
+  receipt.macHost = macHost;
   const cleanup = receipt.lanes.cleanup;
-  if (cleanup.status !== "passed") return false;
+  if (cleanup.status !== "passed") return newlyBound;
   cleanup.status = "pending";
   delete cleanup.startedAt;
   delete cleanup.completedAt;
@@ -1893,6 +1918,8 @@ export async function runStableQualification(
     runtime.output(["git", "rev-parse", "HEAD"]),
   );
   const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit, options.previousTag);
+  // Refuse retargeting before admission, target resolution, or any finally-path remote cleanup.
+  assertMacHostBinding(receipt, options.macHost);
   receipt.status = "running";
   delete receipt.completedAt;
   delete receipt.error;
@@ -1915,7 +1942,7 @@ export async function runStableQualification(
   let cleanupRequired = receiptNeedsMacCleanup(receipt);
   const requireMacCleanup = async (): Promise<void> => {
     cleanupRequired = true;
-    if (markMacCleanupRequired(receipt)) await persist();
+    if (markMacCleanupRequired(receipt, options.macHost)) await persist();
   };
   try {
     if (cleanupRequired) {

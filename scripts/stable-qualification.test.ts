@@ -228,6 +228,7 @@ function passedRelayReceipt(durationSeconds = 1_800) {
   receipt.status = "passed";
   receipt.completedAt = at(3_700);
   receipt.candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
+  receipt.macHost = MAC_ENV.OMP_STABLE_MAC_HOST;
   for (const lane of Object.values(receipt.lanes)) {
     Object.assign(lane, { status: "passed", attempts: 1, startedAt: at(1), completedAt: at(3_700) });
   }
@@ -307,7 +308,106 @@ describe("resumed relay qualification proof", () => {
   });
 });
 
-test.skipIf(process.platform === "win32")("rejected resumed relay proof still cleans recorded Mac effects without admission or dispatch", async () => {
+describe("Mac receipt host ownership", () => {
+  test.each(["different host", "unbound legacy"] as const)("refuses %s Mac effects before target resolution or any remote command", async variant => {
+    const root = await mkdtemp(join(tmpdir(), "stable-mac-binding-"));
+    try {
+      const receipt = passedRelayReceipt(60);
+      receipt.status = "failed";
+      receipt.lanes.cleanup = { status: "pending", attempts: 1 };
+      if (variant === "unbound legacy") delete receipt.macHost;
+      const original = JSON.stringify(receipt);
+      const path = join(root, "stable-qualification.json");
+      await writeFile(path, original);
+      const fixture = await preflightFixture(root);
+      let remoteCommands = 0, targetLoads = 0;
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        environment: { ...fixture.environment, OMP_STABLE_MAC_HOST: variant === "different host" ? "gwqual@other.invalid" : MAC_ENV.OMP_STABLE_MAC_HOST },
+        output: async command => {
+          if (command.join(" ") === "git rev-parse HEAD") return COMMIT;
+          remoteCommands += 1;
+          throw new Error("unexpected remote admission or cleanup");
+        },
+        loadMacTarget: async () => { targetLoads += 1; throw new Error("unexpected target resolution"); },
+      };
+      await expect(runStableQualification(["--tag", TAG], runtime, admissionLanes())).rejects.toThrow(
+        variant === "different host" ? "configured Mac host differs from the receipt" : "Perform manual cleanup of the original Mac",
+      );
+      expect({ remoteCommands, targetLoads }).toEqual({ remoteCommands: 0, targetLoads: 0 });
+      expect(await readFile(path, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("persists the configured Mac host before the first effect and preserves schema 3", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stable-mac-first-effect-"));
+    try {
+      const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+      expect(validateStableQualificationReceipt(receipt, TAG, COMMIT, PREVIOUS_TAG).macHost).toBeUndefined();
+      const path = join(root, "stable-qualification.json");
+      const persist = createReceiptPersister(path, receipt);
+      expect(markMacCleanupRequired(receipt, MAC_ENV.OMP_STABLE_MAC_HOST)).toBe(true);
+      await persist();
+      await executeReceiptLane(receipt, "macos", persist, async () => {
+        const beforeEffect = validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), TAG, COMMIT, PREVIOUS_TAG);
+        expect(beforeEffect.schemaVersion).toBe(3);
+        expect(beforeEffect.macHost).toBe(MAC_ENV.OMP_STABLE_MAC_HOST);
+        expect(beforeEffect.lanes.macos).toMatchObject({ status: "running", attempts: 1 });
+        return { hardware: "Mac17,14" };
+      });
+      const restored = validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), TAG, COMMIT, PREVIOUS_TAG);
+      expect(restored.macHost).toBe(MAC_ENV.OMP_STABLE_MAC_HOST);
+      expect(() => markMacCleanupRequired(restored, "gwqual@other.invalid")).toThrow("configured Mac host differs");
+      for (const macHost of [null, 7, "not a destination"]) {
+        expect(() => validateStableQualificationReceipt({ ...restored, macHost }, TAG, COMMIT, PREVIOUS_TAG)).toThrow("Mac host is invalid");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([false, true])("model refusal never cleans a host with no recorded effects (resumed=%s)", async resumed => {
+    const root = await mkdtemp(join(tmpdir(), "stable-mac-unowned-"));
+    try {
+      const path = join(root, "stable-qualification.json");
+      const original = JSON.stringify(createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG));
+      if (resumed) await writeFile(path, original);
+      const fixture = await preflightFixture(root);
+      let targetLoads = 0, cleanupCalls = 0, cleanupProbes = 0, sshProbes = 0;
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        loadMacTarget: async options => {
+          targetLoads += 1;
+          if (targetLoads > 1) throw new Error("unexpected cleanup target load");
+          return loadConfiguredMacTarget(options);
+        },
+        output: async command => {
+          if (command[0] !== "ssh") return fixture.output(command);
+          sshProbes += 1;
+          return "Mac14,3\nqualification-mac.example.ts.net";
+        },
+      };
+      const lane: ExternalLaneModule = {
+        preflight: async () => { throw new Error("model refusal must precede lane admission"); },
+        run: async () => { throw new Error("unexpected lane run"); },
+        needsCleanup: () => { cleanupProbes += 1; throw new Error("no progress has ever been recorded"); },
+        cleanup: async () => { cleanupCalls += 1; throw new Error("unexpected lane cleanup"); },
+      };
+      await expect(runStableQualification(["--tag", TAG], runtime, {
+        windows: lane, androidPush: lane, deviceCloud: lane, createPixelLease: () => createPixelLease(() => {}),
+      })).rejects.toThrow("Mac hardware mismatch: expected Mac17,14, measured Mac14,3");
+      expect({ targetLoads, cleanupCalls, cleanupProbes, sshProbes }).toEqual({ targetLoads: 1, cleanupCalls: 0, cleanupProbes: 0, sshProbes: 1 });
+      if (resumed) expect(await readFile(path, "utf8")).toBe(original);
+      else expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+test.skipIf(process.platform === "win32")("same-host resume cleans bound Mac effects when relay admission refuses", async () => {
   const root = await mkdtemp(join(tmpdir(), "stable-relay-cleanup-"));
   try {
     const receipt = passedRelayReceipt(60);
@@ -359,7 +459,7 @@ test.skipIf(process.platform === "win32")("rejected resumed relay proof still cl
           },
           loadMacTarget: async () => {
             await writeFile(root + "/recovered", "yes");
-            return { sshDestination: "fixture.invalid", sudoPassword: "fixture" };
+            return { sshDestination: "gwqual@fixture.invalid", sudoPassword: "fixture" };
           },
         }, { windows: lane, androidPush: lane, deviceCloud: lane, createPixelLease: () => (_owner, action) => action() });
         process.exitCode = 2;
@@ -537,29 +637,31 @@ describe("stable qualification read-only admission", () => {
     }
   });
 
-  test("retained Mac probe uses the pinned home Bun without requiring a staged qualification directory", async () => {
+  test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("Mac admission ignores a sysctl planted in the account's Bun directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "stable-preflight-host-"));
     const home = join(root, "home");
     const bin = join(home, ".bun", "bin");
+    const planted = join(root, "planted-called");
+    const measured = Bun.spawnSync(["/usr/sbin/sysctl", "-n", "hw.model"], { stdout: "pipe", stderr: "pipe" });
+    expect(measured.exitCode).toBe(0);
+    const model = Buffer.from(measured.stdout).toString().trim();
     try {
       await mkdir(bin, { recursive: true });
+      for (const command of ["sysctl", "uname", "sw_vers"]) {
+        await writeFile(join(bin, command), "#!/bin/sh\nprintf '%s\\n' Mac99999,1\n: >\"$PLANTED_CALLED\"\n", { mode: 0o700 });
+      }
       const runtime = await preflightFixture(join(root, "receipts"));
       const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
-      const fixtureCommand = async (path: string, body: string) => writeFile(path, "#!/bin/sh\n" + body + "\n", { mode: 0o700 });
-      await fixtureCommand(join(home, ".bun", "bin", "bun"), "[ \"$1\" = --version ] || exit 1; echo " + pins.bunVersion);
-      await fixtureCommand(join(bin, "uname"), "case \"$1\" in -s) echo Darwin;; -m) echo arm64;; *) exit 1;; esac");
-      await fixtureCommand(join(bin, "sysctl"), "[ \"$*\" = '-n hw.model' ] || exit 1; echo " + MAC_ENV.OMP_STABLE_MAC_MODEL);
-      await fixtureCommand(join(bin, "tailscale"), "[ \"$*\" = 'status --json' ] || exit 1; echo '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'");
-      await fixtureCommand(join(bin, "ifconfig"), "echo 'inet6 fd7a:115c:a1e0::1'");
-      for (const name of ["curl", "git", "shasum", "tar", "lsof", "launchctl", "sudo"]) {
-        await fixtureCommand(join(bin, name), "exit 1");
-      }
-      const hostRuntime = {
+      let probeBun = pins.bunVersion;
+      // Test-only shell functions provide the unavailable tailnet and pinned Bun. Hardware is real.
+      const fixtures = "bun() { printf '%s\\n' \"$PROBE_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nexport -f bun tailscale ifconfig\neval \"$1\"";
+      const hostRuntime: StablePreflightRuntime = {
         ...runtime,
-        output: async (command: readonly string[]) => {
+        environment: { ...runtime.environment, OMP_STABLE_MAC_MODEL: model },
+        output: async command => {
           if (command[0] !== "ssh") return runtime.output(command);
-          const child = Bun.spawn(["/bin/bash", "-c", command.at(-1)!], {
-            env: { HOME: home, PATH: bin + ":/usr/bin:/bin" },
+          const child = Bun.spawn(["/bin/bash", "-c", fixtures, "probe-fixture", command.at(-1)!], {
+            env: { HOME: home, PATH: bin + ":/usr/bin:/bin", PROBE_BUN: probeBun, PLANTED_CALLED: planted },
             stdin: "ignore", stdout: "pipe", stderr: "pipe",
           });
           const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -568,10 +670,12 @@ describe("stable qualification read-only admission", () => {
         },
       };
       expect((await runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).status).toBe("preflight-passed");
+      expect(await Bun.file(planted).exists()).toBe(false);
       await expect(stat(join(home, "qual"))).rejects.toMatchObject({ code: "ENOENT" });
-      await fixtureCommand(join(bin, "sysctl"), "echo Mac14,3");
-      await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).rejects.toThrow("Mac hardware mismatch: expected Mac17,14, measured Mac14,3");
-      await fixtureCommand(join(home, ".bun", "bin", "bun"), "echo 0.0.0");
+      await expect(runStableQualification(["--preflight", "--tag", TAG], {
+        ...hostRuntime, environment: { ...hostRuntime.environment, OMP_STABLE_MAC_MODEL: "Mac99999,1" },
+      }, admissionLanes())).rejects.toThrow("Mac hardware mismatch: expected Mac99999,1, measured " + model);
+      probeBun = "0.0.0";
       await expect(runStableQualification(["--preflight", "--tag", TAG], hostRuntime, admissionLanes())).rejects.toThrow("retained Mac SSH");
       expect(await Bun.file(join(root, "receipts", "stable-qualification.json")).exists()).toBe(false);
     } finally {
@@ -828,6 +932,7 @@ test("receipt identity cannot mix passed lanes across orchestrator commits", () 
 test("receipt-driven Mac cleanup survives restarts and reopens before renewed effects", () => {
   const receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
   expect(receiptNeedsMacCleanup(receipt)).toBe(false);
+  expect(markMacCleanupRequired(receipt, MAC_ENV.OMP_STABLE_MAC_HOST)).toBe(true);
   receipt.lanes.macos.attempts = 1;
   receipt.lanes.macos.status = "failed";
   expect(receiptNeedsMacCleanup(receipt)).toBe(true);
@@ -838,7 +943,7 @@ test("receipt-driven Mac cleanup survives restarts and reopens before renewed ef
   receipt.lanes.cleanup.completedAt = "2026-08-22T00:00:00.000Z";
   receipt.lanes.cleanup.evidence = { gatewayProcesses: 0 };
   expect(receiptNeedsMacCleanup(receipt)).toBe(false);
-  expect(markMacCleanupRequired(receipt)).toBe(true);
+  expect(markMacCleanupRequired(receipt, MAC_ENV.OMP_STABLE_MAC_HOST)).toBe(true);
   expect(receipt.lanes.cleanup).toMatchObject({ status: "pending", attempts: 1 });
   expect(receipt.lanes.cleanup.completedAt).toBeUndefined();
   expect(receipt.lanes.cleanup.evidence).toBeUndefined();

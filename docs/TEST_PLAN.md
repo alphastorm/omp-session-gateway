@@ -198,6 +198,15 @@ passed evidence for both the original and replacement models. The SSH exposure p
 configured SSH destination, which may resolve to the same tailnet address as the other probe; it
 does not imply that the host has a separate public interface.
 
+Mac ownership regressions persist the configured host before the first effect, reject mismatched
+hosts and unbound legacy effects before target resolution or remote commands, leave refused
+receipts unchanged, and preserve same-host cleanup after a failed admission. A model refusal
+with no recorded effects cannot trigger cleanup, including when an external lane cannot parse
+absent progress. Schema 3 accepts the additive `macHost` binding without reclassifying historical
+evidence. Darwin shell proofs plant `sysctl`, `uname`, and `sw_vers` in the account's Bun directory
+and require the actual system hardware measurement through both admission and host evidence.
+Rollback verification also exercises its explicit staged Cosign outside PATH.
+
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
 

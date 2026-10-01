@@ -71,7 +71,7 @@ test.skipIf(!POSIX)("rollback cleanup succeeds when no LaunchAgent is loaded", a
   }
 });
 
-test.skipIf(!POSIX)("rollback consumes preloaded verified assets without GitHub authentication", async () => {
+test.skipIf(!POSIX).each([false, true])("rollback verifies preloaded assets without GitHub using explicit staged Cosign=%s", async staged => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-rollback-preload-test-"));
   const tag = "v0.2.0-prealpha.21";
   const artifactRoot = join(temporaryRoot, "artifacts");
@@ -82,13 +82,15 @@ test.skipIf(!POSIX)("rollback consumes preloaded verified assets without GitHub 
   const archive = Buffer.alloc(1024);
   const archiveDigest = createHash("sha256").update(archive).digest("hex");
   const ghMarker = join(temporaryRoot, "gh-called");
+  const stagedCosign = join(temporaryRoot, "staged cosign");
   await Promise.all([mkdir(tagRoot, { recursive: true }), mkdir(bin)]);
   await Promise.all([
     writeFile(join(tagRoot, archiveName), archive),
     writeFile(join(tagRoot, `${archiveName}.sigstore.json`), "synthetic bundle"),
     writeFile(join(tagRoot, "SHA256SUMS"), `${archiveDigest}  ${archiveName}\n`),
     writeFile(join(tagRoot, "SHA256SUMS.sigstore.json"), "synthetic bundle"),
-    writeFile(join(bin, "cosign"), "#!/bin/bash\nexit 0\n"),
+    writeFile(join(bin, "cosign"), staged ? "#!/bin/bash\nexit 99\n" : "#!/bin/bash\nexit 0\n"),
+    writeFile(stagedCosign, "#!/bin/bash\nexit 0\n", { mode: 0o700 }),
     writeFile(join(bin, "gh"), `#!/bin/bash\ntouch "${ghMarker}"\nexit 99\n`),
   ]);
   await Promise.all([chmod(join(bin, "cosign"), 0o700), chmod(join(bin, "gh"), 0o700)]);
@@ -102,6 +104,7 @@ test.skipIf(!POSIX)("rollback consumes preloaded verified assets without GitHub 
           ...process.env,
           PATH: `${bin}:${process.env.PATH ?? ""}`,
           OMP_ROLLBACK_ARTIFACT_ROOT: artifactRoot,
+          OMP_ROLLBACK_COSIGN: staged ? stagedCosign : undefined,
         },
         stdin: "ignore",
         stdout: "pipe",

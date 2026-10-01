@@ -46,6 +46,7 @@
 #   OMP_ROLLBACK_OLD_TAG=v0.4.0 OMP_ROLLBACK_NEW_TAG=v0.4.1-prealpha.3 \
 #     scripts/qualify-rollback.sh run   # full qualification; prints an invariant table
 #   scripts/qualify-rollback.sh clean   # remove leftover scratch roots from earlier runs
+#   OMP_ROLLBACK_COSIGN may name the staged verifier executable without changing PATH.
 set -euo pipefail
 
 REPO="alphastorm/omp-session-gateway"
@@ -56,6 +57,7 @@ NEW_TAG="${OMP_ROLLBACK_NEW_TAG:-}"
 LABEL="omp-session-gateway"
 QUAL_BASE="${OMP_ROLLBACK_QUAL_BASE:-/tmp/omp-rollback-qual}"
 ARTIFACT_ROOT="${OMP_ROLLBACK_ARTIFACT_ROOT:-}"
+COSIGN="${OMP_ROLLBACK_COSIGN:-cosign}"
 
 # Deliberately not 4317. The installer probes its own configured loopback port for a live listener;
 # reusing the production port would aim that probe at the live daemon.
@@ -279,7 +281,7 @@ preflight() {
   [ "$(id -u)" != "0" ] || die "refusing to run as root"
   [ -x /bin/launchctl ] || die "/bin/launchctl is missing"
   local tool
-  for tool in bun cosign tar shasum; do
+  for tool in bun "$COSIGN" tar shasum; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is required and was not found on PATH"
   done
   if [ -z "$ARTIFACT_ROOT" ]; then
@@ -413,7 +415,7 @@ fetch_tag() { # tag destination
     for asset in "$archive" SHA256SUMS; do
       verified=0
       for workflow in signed-release.yml release.yml; do
-        if cosign verify-blob \
+        if "$COSIGN" verify-blob \
           --bundle "$asset.sigstore.json" \
           --certificate-identity "https://github.com/$REPO/.github/workflows/$workflow@refs/tags/$tag" \
           --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
