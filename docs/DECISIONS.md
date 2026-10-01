@@ -775,6 +775,19 @@ Windows x64 baseline native hashes identify official npm artifacts, not qualific
 Published v0.6.3 qualification stays bound to v18.3.0. This source update requires fresh exact
 signed-candidate qualification before any stable claim; unpublished v18.4.3 is not the baseline.
 
+**Engineering baseline update (2026-10-01):** Accept published mainline v18.4.8
+(`717f97f4d22b3d65c4a4eef6a744255d46f4d1a6`, tree `3f8ecdad21e55c5f47785ccfbd4f8c0528186976`) as the
+engineering pin. `packages/coding-agent/src/collab` and `packages/collab-web` are byte-identical to
+v18.4.2, so registry v1, host queries, the collaboration protocol, and relay framing are unchanged,
+and the minimum host remains `18.1.20`. The embedded client keeps its v18.4.2 source and npm wire
+pin: a client refresh would change only provenance labels, and pi-wire 18.4.8 adds only the Tern
+Surface Protocol module and optional `AgentProgress` fields, which `collab-web` does not read.
+Upstream reports that 18.4.3 through 18.4.7 crash at startup on Apple silicon macOS earlier than 27,
+which includes the macOS 26.6.1 qualification host, so none of them is a baseline. The Darwin arm64
+and Windows x64 baseline native hashes identify official npm artifacts, not qualification results.
+Published v0.7.1 qualification stays bound to v18.4.2; this source update requires fresh exact
+signed-candidate qualification before any stable claim.
+
 ---
 
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability
