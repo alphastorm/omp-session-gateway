@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-09-29",
+  "observedAt": "2026-10-01",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v18.4.2",
-  "commit": "4620bb8338e0ecace7ea237da9d5088d16068617",
-  "packageVersion": "18.4.2",
+  "tag": "v18.4.8",
+  "commit": "717f97f4d22b3d65c4a4eef6a744255d46f4d1a6",
+  "packageVersion": "18.4.8",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "18.4.2",
-    "@oh-my-pi/pi-wire": "18.4.2",
+    "@oh-my-pi/pi-coding-agent": "18.4.8",
+    "@oh-my-pi/pi-wire": "18.4.8",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.4.0",
@@ -16,29 +16,31 @@
     "docs/collab.md",
     "docs/extensions.md",
     "package.json",
+    "packages/coding-agent/src/collab",
     "packages/coding-agent/src/collab/host.ts",
     "packages/coding-agent/src/modes/controllers/extension-ui-controller.ts",
     "packages/coding-agent/src/collab/registry.ts",
     "packages/coding-agent/src/modes/types.ts",
     "packages/coding-agent/src/config/settings-schema.ts",
     "packages/coding-agent/src/slash-commands/builtin-registry.ts",
+    "packages/coding-agent/src/slash-commands/builtin-collaboration.ts",
     "packages/wire/src/index.ts",
     "packages/collab-web",
     "packages/collab-web/src/app.tsx",
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Baseline moved to published mainline OMP v18.4.2 on 2026-09-29. Registry v1 and wire source are unchanged from the previous baseline; no collaboration protocol or relay version changed. The minimum supported host stays 18.1.20; this baseline is qualified only once a candidate built from it passes stable qualification.",
+    "Baseline moved to published mainline OMP v18.4.8 on 2026-10-01. packages/coding-agent/src/collab (tree 7879c32761e23d0375ef62829deafd09b08c7018) and packages/collab-web (tree ba2ff27439f57a0a4a890d9cae0b3981c7d12f4d) are identical to v18.4.2, so registry v1, host queries, the collaboration protocol, and relay framing are unchanged. pi-wire 18.4.8 adds only the Tern Surface Protocol module and optional AgentProgress fields. Upstream reports that 18.4.3 through 18.4.7 crash at startup on Apple silicon macOS earlier than 27, which includes the macOS 26.6.1 qualification host; 18.4.8 fixes that, so no intermediate version is a baseline. The minimum supported host stays 18.1.20; this baseline is qualified only once a candidate built from it passes stable qualification.",
     "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown.",
     "Upstream PR #11908 merged the collaboration controller and host registry, first shipped in v18.1.20; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
     "The gateway reads OMP discovery files and queries each host for metadata snapshots. View and Control links are resolved on demand; OMP requires only collab.autoStart, with no gateway-facing credential or integration patch.",
     "Discovery endpoints are read from each owner-only file, including upstream socket-path relocation; the gateway never modifies OMP discovery state.",
-    "The embedded client follows collab-web and npm pi-wire at v18.4.2. Its provenance and local modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
-    "The Darwin arm64 native hashes identify the official 18.4.2 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
+    "The embedded client follows collab-web and npm pi-wire at v18.4.2. collab-web is byte-identical at v18.4.8, so the client keeps its v18.4.2 provenance and wire pin. Its provenance and local modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
+    "The Darwin arm64 native hashes identify the official 18.4.8 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
   ],
-  "tree": "71855eece785c0655d99d7700b52ef5f77c0e185",
+  "tree": "3f8ecdad21e55c5f47785ccfbd4f8c0528186976",
   "darwinArm64Native": {
-    "tarballSha256": "1393810d0a615d98629f815e45fd87939047ad402c66a91e22fbe55de23b6203",
-    "binarySha256": "02135de929e128cfc111df4b912d306e5434cc47c7318096b73403e807ebbf49"
+    "tarballSha256": "7691cfa45160b612feb22c6b8937ee4e3c9702415fa4e843d3b4d50a33f2a2de",
+    "binarySha256": "b9a905e063b37d11f3fdd1356b3ac3b9e8c309c1b2541a3c0deb40b6d887410a"
   }
 }

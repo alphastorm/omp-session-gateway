@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Move the OMP engineering baseline to published v18.4.8. Its collaboration host source and
+  `collab-web` are byte-identical to v18.4.2, so the embedded client and its `@oh-my-pi/pi-wire`
+  18.4.2 pin are unchanged. The Mac, Debian, and Windows qualification lanes now build stock OMP
+  18.4.8; upstream reports that 18.4.3 through 18.4.7 crash at startup on Apple silicon macOS
+  earlier than 27. The minimum host stays 18.1.20, and qualified release claims stay with v18.4.2
+  until a candidate built from this baseline qualifies.
+
 ## [v0.7.1] — 2026-09-30
 
 Tapping a notification no longer reloads an open collaboration or reopens it as View, a session
