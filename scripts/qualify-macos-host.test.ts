@@ -264,6 +264,45 @@ main persistence
   }
 });
 
+test.skipIf(!POSIX)("Mac reboot request returns while the remote session never closes, and still reboots", async () => {
+  // A guest behind a tailnet TUN sends no FIN when it reboots: the session that issued
+  // `shutdown -r now` stayed open for the orchestrator's whole Mac budget on 2026-10-02.
+  // The remote block must return before the reboot, with the shutdown detached from the session.
+  const root = await mkdtemp(join(tmpdir(), "omp-mac-reboot-detach-"));
+  const shutdown = join(root, "shutdown");
+  try {
+    await mkdir(join(root, ".config", "omp-session-gateway"), { recursive: true });
+    await writeFile(join(root, ".config", "omp-session-gateway", "readiness-token"), "synthetic-readiness-token");
+    const started = Date.now();
+    const result = await runHarness(`
+set -euo pipefail
+source "$1"
+need_command() { :; }
+bun() { if [ "$1" = --version ]; then printf '%s\n' "$BUN_VERSION"; else "$REAL_BUN" "$@"; fi; }
+omp() { printf 'omp/18.1.20\\n'; }
+tailscale() { printf '%s\\n' '{"BackendState":"Running","Self":{"DNSName":"fixture.invalid."}}'; }
+ifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }
+# The session that carries the shutdown never returns on its own: a foreground shutdown would hang here.
+sudo() { if [ "\${*: -3}" = 'shutdown -r now' ]; then : >"$SHUTDOWN_MARKER"; command sleep 30; fi; }
+sysctl() { if [ "$*" = '-n kern.bootsessionuuid' ]; then printf '11111111-1111-4111-8111-111111111111\\n'; else command sysctl "$@"; fi; }
+sleep() { exit 99; }
+export -f bun omp tailscale ifconfig sudo sysctl
+ssh() { /bin/bash -c "\${!#}"; }
+main persistence
+`, [], { ...environment("a".repeat(64)), HOME: root, REAL_BUN: process.execPath, SHUTDOWN_MARKER: shutdown });
+    expect(result.exitCode).toBe(99);
+    expect(result.stdout).toContain("reboot issued");
+    expect(Date.now() - started).toBeLessThan(20_000);
+    // The shutdown runs in a detached OS process the lane deliberately does not wait for (that is the
+    // behavior under test), so there is no promise or event to await: poll its marker, bounded.
+    const deadline = Date.now() + 10_000;
+    while (!(await pathEntryExists(shutdown)) && Date.now() < deadline) await Bun.sleep(100);
+    expect(await pathEntryExists(shutdown)).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 40_000);
+
 test.skipIf(!POSIX)("Mac reboot keeps the sudo password in NUL-framed SSH stdin", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-reboot-secret-"));
   const argvPath = join(temporaryRoot, "argv");
@@ -315,6 +354,9 @@ ssh() { /bin/bash -c "\${!#}"; }
 issue_reboot
 `, [], { ...environment("a".repeat(64)), HOME: temporaryRoot, OMP_MAC_SUDO_PW: target.sudoPassword, SUDO_CAPTURE: capture });
     expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    // The shutdown is detached from the session on purpose; its argv capture lands shortly after.
+    const deadline = Date.now() + 10_000;
+    while (!(await pathEntryExists(capture)) && Date.now() < deadline) await Bun.sleep(100);
     expect((await readFile(capture, "utf8")).trim().split("\n")).toEqual(["-n", "shutdown", "-r", "now"]);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
