@@ -176,6 +176,21 @@ export type AndroidAdbSpawner = (
 ) => { stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>; kill: () => void };
 
 /** The only adb subprocess owner. Never include argv, device identifiers, output or raw causes in failures. */
+/**
+ * The value of a `Runtime.evaluate` result. A page-side exception is a failure of the step
+ * that evaluated it, never an `undefined` value: the Push lane's replay once evaluated
+ * `navigator.serviceWorker.ready` in a WebAPK showing `chrome-error://` and reported only
+ * that its notification never appeared (v0.7.2-prealpha.2, 2026-10-02).
+ */
+export function evaluationValue<T>(result: Record<string, unknown>): T {
+  const details = result.exceptionDetails as { text?: string; exception?: { description?: string } } | undefined;
+  if (details !== undefined) {
+    throw new Error(`CDP Runtime.evaluate: ${details.exception?.description?.split("\n")[0] ?? details.text ?? "page exception"}`);
+  }
+  const wrapper = result.result as { value?: T } | undefined;
+  return wrapper?.value as T;
+}
+
 export async function runAdb(
   serial: string | undefined,
   args: readonly string[],
@@ -793,9 +808,7 @@ export async function withAndroidChrome<T>(
         throw new Error(`page did not finish loading: ${url}`);
       },
       async evaluate<T>(expression: string) {
-        const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-        const wrapper = result.result as { value?: T } | undefined;
-        return wrapper?.value as T;
+        return evaluationValue<T>(await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }));
       },
       send: (method, parameters) => send(method, parameters),
     };

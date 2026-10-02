@@ -215,7 +215,11 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       await wait(async () => { target = await targetForOrigin(driver); return target !== undefined; }, "WebAPK target");
       await driver.attachTab(target!);
       await awaitPageExecutionContext(() => driver.evaluate("document.readyState"));
-      if (navigate) await navigateRoot(driver);
+      // The target keeps the origin URL while its document is a chrome-error:// page (the app
+      // launched while the gateway was unreachable). Such a document has no service worker and
+      // no secure context, so every page-side step would fail inside it: load the directory.
+      const document = await driver.evaluate<{ href: string; secure: boolean }>("({ href: location.href, secure: window.isSecureContext })");
+      if (navigate || !document.href.startsWith(`${identity.origin}/`) || !document.secure) await navigateRoot(driver);
       return action(driver);
     }, { port: 9238, launchBrowser: false });
   };
@@ -599,10 +603,16 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
           await (await navigator.serviceWorker.ready).showNotification(${JSON.stringify(expected.title)}, ${JSON.stringify(options)});
         })()`);
       });
-      await wait(async () => {
-        const records = await posted();
-        return records.length === 1 && records[0]!.postedAt > before && records[0]!.title === expected.title && records[0]!.body === expected.body;
-      }, "replayed notification", 15_000);
+      try {
+        await wait(async () => {
+          const records = await posted();
+          return records.length === 1 && records[0]!.postedAt > before && records[0]!.title === expected.title && records[0]!.body === expected.body;
+        }, "replayed notification", 15_000);
+      } catch (error) {
+        // The closed values the wait saw, so a missing replay names what the device did show.
+        const seen = (await posted()).map(record => ({ tag: record.tag.slice(-48), title: record.title, body: record.body, postedAfterBaseline: record.postedAt > before }));
+        throw new Error(`${error instanceof Error ? error.message : "Android Push replayed notification unavailable"} (expected title ${JSON.stringify(expected.title)}, body ${JSON.stringify(expected.body)}; records ${JSON.stringify(seen)})`, { cause: error });
+      }
       await runtime.closePwa();
     },
     async dismissOwned() {

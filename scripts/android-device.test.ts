@@ -8,6 +8,7 @@ import {
   type AndroidAdbSpawner,
   type AndroidRadioBaseline,
   assertDevtoolsEndpointMatchesPackage,
+  evaluationValue,
   assertBrowserVersionMatchesPackage,
   parseAndroidPackageVersion,
   parseAndroidTethering,
@@ -665,4 +666,15 @@ describe("Android DevTools endpoint wait", () => {
     expect(clock.elapsed).toBeGreaterThanOrEqual(30_000);
     expect(clock.elapsed).toBeLessThan(32_000);
   });
+});
+
+test("a page-side exception from Runtime.evaluate is the step's failure, never an undefined value", () => {
+  // The Push lane's replay evaluated `navigator.serviceWorker.ready` inside a WebAPK that was
+  // showing chrome-error:// (gateway unreachable at launch); the rejection was read as
+  // `undefined` and the lane reported only "replayed notification unavailable" (2026-10-02).
+  expect(evaluationValue<string>({ result: { type: "string", value: "complete" } })).toBe("complete");
+  expect(evaluationValue<undefined>({ result: { type: "undefined" } })).toBeUndefined();
+  expect(() => evaluationValue({ result: { type: "object", value: {} }, exceptionDetails: { exceptionId: 1, text: "Uncaught (in promise) TypeError", exception: { description: "TypeError: Cannot read properties of undefined (reading 'ready')\n    at <anonymous>:2:56" } } }))
+    .toThrow("CDP Runtime.evaluate: TypeError: Cannot read properties of undefined (reading 'ready')");
+  expect(() => evaluationValue({ exceptionDetails: { exceptionId: 2, text: "Uncaught" } })).toThrow("CDP Runtime.evaluate: Uncaught");
 });
