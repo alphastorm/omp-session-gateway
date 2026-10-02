@@ -762,6 +762,22 @@ export function preferStockOmp(onPath: OmpInstall, alternative: OmpInstall): Omp
   return onPath.stock !== true && alternative.stock === true ? alternative : onPath;
 }
 
+/**
+ * Bun's global install directory does not exist until the first `bun add --global`, and
+ * `bun pm bin --global` fails there ("No package.json was found"). Before anything is installed
+ * that is the ordinary fresh-host state, not a broken toolchain: it means Bun's global install
+ * holds no omp. The first Studio smoke (v0.7.3) died on this probe before installing anything.
+ */
+export async function inspectBunGlobalOmp(bunGlobalBin: () => Promise<string>): Promise<OmpInstall> {
+  let directory: string;
+  try {
+    directory = await bunGlobalBin();
+  } catch {
+    return { compatible: false };
+  }
+  return inspectOmpBinary(join(directory, "omp"));
+}
+
 interface ResolvedOmp {
   readonly installed: boolean;
   readonly version: string;
@@ -782,7 +798,7 @@ async function resolveOmp(
   const bunGlobalBin = () => commandOutput("Bun global bin", [bunExecutable, "pm", "bin", "--global"]);
   let inspection = await inspectOmpInstall();
   if (!options.rebuildOmp && inspection.stock !== true) {
-    inspection = preferStockOmp(inspection, await inspectOmpBinary(join(await bunGlobalBin(), "omp")));
+    inspection = preferStockOmp(inspection, await inspectBunGlobalOmp(bunGlobalBin));
   }
   let installed = false;
   if (options.rebuildOmp || inspection.binary === undefined) {
