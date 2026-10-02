@@ -16,6 +16,8 @@ import {
   findWebApkForHost,
   isStockOmpBinary,
   type OmpInstall,
+  ensureOnPath,
+  inspectBunGlobalOmp,
   preferStockOmp,
   isWebApkAppTarget,
   formatCommandFailure,
@@ -116,6 +118,22 @@ describe("stock OMP selection", () => {
 
   test("uses Bun's global stock install when PATH has no omp at all", () => {
     expect(preferStockOmp({ compatible: false }, bunGlobal)).toBe(bunGlobal);
+  });
+
+  test("treats a host with no Bun global install yet as having no global omp", async () => {
+    // The first Studio smoke (v0.7.3, attempt 1) died here: `bun pm bin --global` fails until the
+    // first `bun add --global` creates the directory, so the probe must report absence, not throw.
+    const result = await inspectBunGlobalOmp(async () => { throw new Error("Bun global bin failed with exit 1"); });
+    expect(result).toEqual({ compatible: false });
+    expect(preferStockOmp({ compatible: false }, result).binary).toBeUndefined();
+  });
+
+  test("puts the selected omp's directory on PATH once, so the doctor and launched hosts resolve it", () => {
+    // Attempt 3: omp 18.4.12 selected from Bun's global bin, PATH without that directory, gateway
+    // doctor `compatibility: false`.
+    expect(ensureOnPath("/Users/x/.bun/bin", "/opt/homebrew/bin:/usr/bin")).toBe("/Users/x/.bun/bin:/opt/homebrew/bin:/usr/bin");
+    expect(ensureOnPath("/Users/x/.bun/bin", "/Users/x/.bun/bin:/usr/bin")).toBe("/Users/x/.bun/bin:/usr/bin");
+    expect(ensureOnPath("/Users/x/.bun/bin", "")).toBe("/Users/x/.bun/bin");
   });
 });
 
