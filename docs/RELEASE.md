@@ -228,6 +228,7 @@ a port, or shell syntax. `OMP_STABLE_MAC_MODEL` is the exact expected `sysctl -n
 identifier; admission and lifecycle evidence reject a different model. The receipt keeps schema 3
 and records the measured model and macOS version, without pinning the old host's OS or build.
 This target configuration is not qualification evidence for Mac17,14 or macOS 27.
+For the proposed Virtualization.framework target (ADR-033), replace the model with the guest's measured `hw.model`, not the physical host's; retain the old target for any outstanding cleanup.
 
 The SSH account may be standard or administrator and must log in automatically after a reboot:
 the persistence lane measures its per-user LaunchAgent returning at **console login**, not boot
