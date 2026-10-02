@@ -863,6 +863,42 @@ for (const choiceSheet of [false, true]) test(`one-time WebAPK setup installs th
   expect(taps).toBe(installedTaps);
 });
 
+test("one-time WebAPK setup scrolls Chrome's app menu to an install entry below the fold", async () => {
+  // Chrome 154 on the Pixel 10 Pro lists "Install and create shortcut" two screens down; the menu
+  // materializes only visible rows, so the entry is absent from the dump until the list scrolls.
+  let installed = false;
+  let surface: "page" | "menu" | "confirmation" = "page";
+  let scrolls = 0;
+  const node = (text: string, resource: string, y: number, x = 0, child = "") =>
+    '<node text="' + text + '" resource-id="' + resource + '" bounds="[' + x + ',' + y + '][' + (x + 40) + ',' + (y + 40) + ']">' + child + '</node>';
+  const menu = (rows: string) => '<node text="" resource-id="com.android.chrome:id/app_menu_list" bounds="[0,100][40,700]">' + rows + "</node>";
+  const command = async (...args: string[]) => {
+    if (args.includes("list")) return installed ? "package:org.chromium.webapk.synthetic" : "";
+    if (args.includes("package") && args.includes("dumpsys")) return 'Authority: "gateway.example.test"';
+    if (args.includes("uiautomator")) return "<hierarchy>" + (surface === "page" ? node("", "com.android.chrome:id/menu_button", 0) :
+      surface === "menu" ? menu(scrolls < 2
+        ? node("New tab", "com.android.chrome:id/new_tab_menu_id", 120) + node("History", "com.android.chrome:id/open_history_menu_id", 600)
+        : node("Translate", "com.android.chrome:id/translate_id", 120) + node("", "com.android.chrome:id/universal_install", 600))
+      : node("Install", "com.android.chrome:id/positive_button", 80)) + "</hierarchy>";
+    if (args.includes("swipe")) {
+      const [x1 = NaN, y1 = NaN, x2 = NaN, y2 = NaN] = args.slice(-5, -1).map(Number);
+      if (surface !== "menu" || x1 !== x2 || !(y1 > y2)) throw new Error("scroll must move the open menu toward its lower rows");
+      scrolls++;
+    }
+    if (args.includes("tap")) {
+      const [x, y] = args.slice(-2).map(Number);
+      if (x !== 20) throw new Error("unrelated native action selected");
+      if (surface === "page" && y === 20) surface = "menu";
+      else if (surface === "menu" && y === 620 && scrolls >= 2) surface = "confirmation";
+      else if (surface === "confirmation" && y === 100) { installed = true; surface = "page"; }
+      else throw new Error("invalid installation transition");
+    }
+    return "";
+  };
+  expect(await setupAndroidWebApk(identity.origin, { command, navigate: async () => {}, pause: async () => {} })).toEqual({ alreadyInstalled: false, installed: true });
+  expect(scrolls).toBeGreaterThanOrEqual(2);
+});
+
 for (const closes of [true, false]) test(`failed WebAPK setup ${closes ? "closes its menu" : "poisons an unrestored native surface"}`, async () => {
   let menuOpen = false;
   const primary = new Error("setup UI unavailable");

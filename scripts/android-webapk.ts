@@ -63,14 +63,24 @@ export async function setupAndroidWebApk(origin: string, runtime: WebApkSetupRun
   let ownsNativeUi = false;
   const click = async (name: string, resources: readonly string[]) => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const matches = (await readAndroidUi(runtime.command)).filter(node => resources.some(resource =>
-        node.resource.endsWith(`:id/${resource}`)));
+      const nodes = await readAndroidUi(runtime.command);
+      const matches = nodes.filter(node => resources.some(resource => node.resource.endsWith(`:id/${resource}`)));
       if (matches.length > 1) throw new Error(`WebAPK setup ${name} ambiguous`);
       const node = matches[0];
       if (node !== undefined) {
         if (name === "menu") ownsNativeUi = true;
         await runtime.command("shell", "input", "tap", String(node.x), String(node.y));
         return node;
+      }
+      // Chrome's app menu is a list that materializes only its visible rows; on Chrome 154 the
+      // install entry sits two screens down. Scroll the open menu toward its lower rows and look again.
+      const menu = nodes.find(entry => entry.resource.endsWith(":id/app_menu_list"));
+      if (menu !== undefined && attempt % 2 === 1) {
+        const rows = nodes.filter(entry => entry.parent !== undefined && nodes[entry.parent] === menu && entry.y > 0);
+        const span = rows.length > 1 ? Math.max(...rows.map(entry => entry.y)) - Math.min(...rows.map(entry => entry.y)) : 0;
+        if (span > 0) {
+          await runtime.command("shell", "input", "swipe", String(menu.x), String(menu.y + Math.floor(span / 2)), String(menu.x), String(menu.y - Math.floor(span / 2)), "400");
+        }
       }
       await runtime.pause(250);
     }
