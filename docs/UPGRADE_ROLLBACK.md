@@ -1,5 +1,17 @@
 # Upgrade and rollback lane
 
+## v0.7.3 predecessor compatibility
+
+The selected predecessor is published v0.7.2. Gateway rollback does not change the separately
+running OMP process. Both versions embed the same OMP 18.4.2 collaboration client and wire pin;
+v0.7.3 moves the engineering baseline to stock OMP v18.4.12 without gateway runtime fixes.
+Rolling back to v0.7.2 therefore does not undo a gateway runtime fix or replace OMP with the
+predecessor's engineering baseline. After a v0.7.3 install, `rollback --to` can select only the
+runtimes pruning retained. The candidate passed 23/23 rollback invariants in the
+Virtualization.framework guest (VirtualMac2,1) and Windows history-selected predecessor restoration.
+Earlier predecessors retain the compatibility limits recorded below; none of their historical
+receipts qualifies this candidate.
+
 ## v0.7.2 predecessor compatibility
 
 The selected predecessor is published v0.7.1. Gateway rollback does not change the separately
