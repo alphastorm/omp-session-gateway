@@ -11,7 +11,7 @@ import { webApkTasks, closeWebApk, setupAndroidWebApk, withWebApkSetupRestoratio
 import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
 import { runFixtureOperation, type FixtureExecutor } from "./push-qualification-fixture.ts";
-import { authenticateAndroidNotification, isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
+import { authenticateAndroidNotification, awaitPageExecutionContext, isPushNotificationRoute, holdAndroidNotificationDenial, ownedPushForwards, observePushLaunch } from "./android-push-runtime.ts";
 import { pixelUnrestored } from "./restoration.ts";
 
 const identity: AndroidPushIdentity = { tag: "v0.6.0-prealpha.1", candidate: { tag: "v0.6.0-prealpha.1", sourceCommit: "a".repeat(40), archiveSha256: "b".repeat(64), archivePath: "synthetic.tar" },
@@ -786,6 +786,24 @@ test("a collapsed group hides each child's template and origin, so selection exp
   expect(selected.target.y).toBeGreaterThan(400);
   expect(selected.rowNodes.some(node => node.text === owned)).toBe(true);
   expect(selected.rowNodes.some(node => node.text === "daily.example.test" || node.text === generic.body)).toBe(false);
+});
+
+test("an attached page is used only once its document answers; the context race is retried, nothing else is", async () => {
+  // The v0.7.2-prealpha.1 campaign's third Push attempt died in stale_taps_verified with
+  // "CDP Runtime.evaluate: Cannot find default execution context": the WebAPK had just been
+  // reopened and its document was still being swapped under the attachment (2026-10-02).
+  let clock = 0;
+  const pause = async (milliseconds: number) => { clock += milliseconds; };
+  let calls = 0;
+  await awaitPageExecutionContext(async () => { calls++; if (calls < 3) throw new Error("CDP Runtime.evaluate: Cannot find default execution context"); return "complete"; }, pause, 15_000, () => clock);
+  expect(calls).toBe(3);
+  expect(clock).toBe(500);
+  const other = new Error("CDP Runtime.evaluate: Execution context was destroyed");
+  await expect(awaitPageExecutionContext(async () => { throw other; }, pause, 15_000, () => clock)).rejects.toBe(other);
+  let attempts = 0;
+  await expect(awaitPageExecutionContext(async () => { attempts++; throw new Error("CDP Runtime.evaluate: Cannot find default execution context"); }, pause, 1_000, () => clock))
+    .rejects.toThrow("Cannot find default execution context");
+  expect(attempts).toBe(5);
 });
 
 test("task removal ignores retained focus references and waits for active task withdrawal", async () => {
