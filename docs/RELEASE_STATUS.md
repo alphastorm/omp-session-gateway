@@ -1,10 +1,18 @@
 # Release status
 
-## Mainline v0.7.2 — qualified; stable publication pending
+## Mainline v0.7.2 — published stable
 
-**Updated:** 2026-10-02. The exact candidate below is approved for stable promotion. Published
-v0.7.1 remains GitHub Latest until the signed stable workflow succeeds. Published-byte local/Pixel
-smoke is still pending; candidate qualification is not evidence of that separate outcome.
+**Updated:** 2026-10-02. [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2)
+was published at **12:37:44 UTC** and is GitHub Latest, with six assets. Signed release workflow
+[37007713319](https://github.com/alphastorm/omp-session-gateway/actions/runs/37007713319) succeeded.
+The published archive matches the clean local `OMP_RELEASE_CHANNEL=stable` build of the tag;
+`gh release verify` passed, `gh release verify-asset` passed for all six assets, and
+`SHA256SUMS` verified.
+
+**Stable source:** `af81ac2b90292bd62212019651f4d597bd2645fc` (merge of #345).<br>
+**Stable archive SHA-256:** `98bb3aba1338ee0f0f53076b5fd95c474cd2d9f71981599c148a898dfa572f6a`.
+
+The published-byte workstation/Pixel smoke passed on its **second attempt**; see below.
 
 **Candidate:** [v0.7.2-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2-prealpha.2).<br>
 **Source:** `60f7e10362c8541c65509843e9de854db75d1dad`.<br>
@@ -57,7 +65,9 @@ the signed-candidate campaign above.
 **Runtime equivalence:** a clean `OMP_RELEASE_CHANNEL=stable` build of the promotion tree matched
 all **46 non-metadata candidate files** by path, mode, and bytes (`bun run release:compare`), after
 re-verifying the candidate digest. Only the existing workflow exclusions apply: release-info.json,
-SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json. The merged promotion
+tree was identical to the tested tree (`d62c334`), and the published stable archive also matched all
+46 non-metadata candidate files.
 
 **Assurance scope:** the campaign ran a fresh 1,800-second relay check in place of the eight-hour
 gate. Eight-hour endurance and bounded memory growth are not claimed. Windows qualification is
@@ -71,6 +81,43 @@ records Home Screen alert delivery and a Control tap, not lock-screen presentati
 Airplane, Doze, force-stop, and cellular behavior stay Pixel-only. The export does not identify
 the cloud tunnel's host or observed Serve identity. Desktop Safari and broader host/browser
 combinations remain unqualified. Every other release gate stays required.
+
+### Published-byte workstation/Pixel verification
+
+The first `smoke:release` invocation, bound to the stable tag and archive digest above,
+ran 12:39:27–12:43 UTC and failed at the installed-WebAPK check. Two seconds after launch,
+`dumpsys activity` still showed Chrome's browser activity in front after the acceptance lane's
+lock/airplane/doze cycles. The WebAPK was installed, and the same launch was the focused standalone
+task when sampled a few seconds later. [PR #346](https://github.com/alphastorm/omp-session-gateway/pull/346),
+`fix(smoke): wait for the launched WebAPK task instead of sampling once after two seconds`,
+corrected the tooling to poll for up to 30 s while still failing closed.
+
+The second invocation from that corrected tooling, 12:47:02–12:50:38 UTC, **passed**:
+`bun run smoke:release -- --tag v0.7.2 --archive-sha256 98bb3aba1338ee0f0f53076b5fd95c474cd2d9f71981599c148a898dfa572f6a`.
+It verified the published provenance. The gateway result was `installed: false` because the failed
+first attempt had already upgraded the workstation to the published bytes, `0.7.2-0e6104d6ee0b`;
+the passing run recorded `configPreserved: true`, `readinessTokenPreserved: true`, and
+`doctorChecks: 18`. Tailscale Serve was unchanged and unrelated mappings were preserved.
+The `omp` on the default PATH is not stock OMP, so the smoke selected Bun's global stock OMP
+**18.1.20**, the minimum supported version, and did not reinstall it. Its binary SHA-256 was
+`b3718d4e536e6385c4d8a875376d6b728847f32a0d7ec471cde63c767b3c7c2b`.
+The candidate evidence above, not this smoke, covers stock OMP v18.4.8 built from source.
+
+The retained runtime directories were `0.7.1-2c4f80b3ccc2`, `0.7.2-0e6104d6ee0b`, and
+`0.7.2-737c81e5d92f`. The last is a development install of the candidate archive made earlier
+that day for the Push lane's development run. Activation history ends
+`…, 0.7.0-ac32668c3851, 0.7.1-2c4f80b3ccc2, 0.7.2-737c81e5d92f, 0.7.2-0e6104d6ee0b`:
+plain `rollback` selects the candidate build `0.7.2-737c81e5d92f`, not the published predecessor
+`0.7.1-2c4f80b3ccc2`, which is retained one step further back.
+
+On the Pixel 10 Pro, with asset `app.5c4a35b3f50f.js`, View was read-only and Control writable;
+the capability-sink, same-page recovery, and installed-WebAPK checks passed. The gateway,
+mainline OMP, and WebAPK were left installed.
+
+Afterwards, `status` reported active, ready, and not diverged, with active and service versions
+`0.7.2-0e6104d6ee0b`. The smoke does not expand the exact candidate host/client matrix. It runs
+on macOS, so it does not exercise Windows; that rests on the Windows evidence above. iPhone,
+iPad, and Galaxy browsers rest on the campaign's cloud lane, and background Push on its Pixel lane.
 
 ## Mainline v0.7.1 — published stable
 
