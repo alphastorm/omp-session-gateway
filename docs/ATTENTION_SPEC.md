@@ -211,8 +211,9 @@ worker messages, browser storage, caches, logs, and diagnostics.
 The first checklist records pre-cutover implementation acceptance, including **fork-era** layout
 and leak-suite evidence, not transferred mainline qualification. The physical background-Push
 checklist below records signed-candidate evidence separately. Specialized triage and delayed-tap
-qualification remains pending the v0.7.2 campaign; implementation and development runs alone
-do not qualify it. The [release ledger](RELEASE_STATUS.md) is authoritative.
+qualification for v0.7.3 remains pending its campaign; the v0.7.2 evidence stays bound to that
+release, and implementation and development runs alone do not qualify a candidate.
+The [release ledger](RELEASE_STATUS.md) is authoritative.
 
 - [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
 - [x] Seven exact notification states; permission only after explicit enable.
@@ -264,12 +265,14 @@ guarantee background delivery.
 ### Specialized triage and delayed-tap acceptance — qualification pending
 
 The implemented `triage_verified` and `stale_taps_verified` phases run after `clear_verified`
-and before `force_stop_verified`. They qualify only when the v0.7.2 campaign passes on its
-exact signed candidate. On 2026-10-01, a development run of the whole lane passed every phase,
+and before `force_stop_verified`. The v0.7.2 campaign qualified them for its recorded candidate
+and devices; v0.7.3 must pass them again on its exact signed candidate.
+On 2026-10-01, a development run of the whole lane passed every phase,
 these two included, with no re-arm, and restored the phone. It ran against the installed v0.7.1
 gateway with stock OMP 18.4.8 fixtures on the Pixel 10 Pro, Android 17, Chrome `154.0.8037.57`.
-That is tested evidence ([ANDROID.md](ANDROID.md#physical-background-push-lane)), so the boxes
-below stay unchecked.
+That development run is tested evidence ([ANDROID.md](ANDROID.md#physical-background-push-lane)).
+The boxes below stay unchecked for the pending v0.7.3 campaign, without discarding the
+v0.7.2 qualification recorded in the ledger.
 The lane owns a second fixture host. Before triage, no other session in the installed app's
 directory may be waiting for input or hidden: order, Hold, and Show all act on the whole
 device-local directory. The phase fails closed when this precondition is not met.

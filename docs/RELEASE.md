@@ -170,7 +170,7 @@ Follow the [Push procedure](ANDROID.md#physical-background-push-lane) and
 [lifecycle procedure](LIFECYCLE_BRANCH_RESUME.md). These are tested evidence, not qualification;
 a stable campaign must not be used to discover harness failures.
 
-The v0.7.2 campaign must pass `androidPush`'s `triage_verified` and `stale_taps_verified`
+The v0.7.3 campaign must pass `androidPush`'s `triage_verified` and `stale_taps_verified`
 after `clear_verified` and before `force_stop_verified`, including the second fixture's cleanup.
 Delayed taps re-present the original notification's metadata-only data after authoritative clear;
 `replayed: true` proves physical delayed-tap handling, not push delivery ordering or delay.

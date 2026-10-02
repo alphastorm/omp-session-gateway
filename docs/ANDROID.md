@@ -296,8 +296,9 @@ ambiguous ownership fails closed. Re-arm settles owned asks and waits only for p
 clears, then dismisses remaining owned notices. An activity-stop notice has no authoritative clear,
 so waiting for its tag to empty would time out instead of re-arming.
 
-The new phases are implemented coverage, not qualification until the v0.7.2 campaign passes
-on an exact signed candidate. Their unchecked acceptance is in
+The v0.7.2 campaign qualified these phases only for its recorded candidate and devices. The
+v0.7.3 campaign must pass them again on its exact signed candidate; historical evidence does
+not transfer. The candidate acceptance checklist is in
 [ATTENTION_SPEC.md](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending).
 
 The complete checkpoint precedes effects and contains only an attempt UUID, identity binding hash,

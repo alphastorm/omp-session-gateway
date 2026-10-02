@@ -8,8 +8,12 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify the specialized attention and lifecycle (branch/resume) scenarios in the v0.7.2
-  campaign. The lanes are implemented and tested; development evidence does not qualify a release.
+- Qualify and publish v0.7.3: the OMP v18.4.12 engineering baseline, stricter Mac persistence
+  proof, Pixel Android 13+ admission, and the bounded WebAPK smoke wait. The planned Mac row is
+  the retained Virtualization.framework guest (`VirtualMac2,1`, ADR-033), driven by the new
+  Mac Studio orchestrator; this plan is not qualification. Published v0.7.2 remains current stable.
+- Requalify the specialized attention and lifecycle (branch/resume) scenarios in the v0.7.3
+  campaign. The v0.7.2 evidence remains bound to that release; development evidence does not qualify a release.
   See [attention acceptance](ATTENTION_SPEC.md) and [lifecycle coverage](LIFECYCLE_BRANCH_RESUME.md).
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.
