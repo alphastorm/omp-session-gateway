@@ -10,12 +10,13 @@ than 18.1.20 lack this registry and are unsupported by the current gateway. The 
 requires Bun 1.4.0, TUN-mode Tailscale Serve, an exact login allowlist, and the one-time
 `collab.autoStart` setting below; native integration does not mean a bundled gateway or public access.
 
-`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.4.8`, commit
-`717f97f4d22b3d65c4a4eef6a744255d46f4d1a6`, tree
-`3f8ecdad21e55c5f47785ccfbd4f8c0528186976`. The minimum supported host version is distinct from
+`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.4.12`, commit
+`7318a70cf4ed04133366884d2723f72d9d490a15`, tree
+`d804bc6bff03bb96057dd46f3bf6ae0479e7c649`. The minimum supported host version is distinct from
 that exact host/source baseline. The embedded browser client has its own preserved
-[source and wire pins](../packages/collab-client/README.md), currently `v18.4.2`, whose
-`collab-web` source is byte-identical at `v18.4.8`; do not conflate them with the host minimum.
+[source and wire pins](../packages/collab-client/README.md), currently `v18.4.2`. The host-only
+baseline update does not import upstream v18.4.12's `collab-web` Markdown-rendering changes;
+do not conflate the embedded client pins with the host minimum or engineering baseline.
 
 The current published stable and its exact qualified matrix are recorded in the
 [compatibility policy](COMPATIBILITY.md); per-candidate receipts, limits, and published-byte checks
@@ -32,7 +33,7 @@ Its source is `session.isStreaming`: true while running a turn, false while idle
 when omitted/null. It is not proof of successful completion or process exit. The parser validates
 this named extension. Other fields upstream adds under v1 are ignored rather than rejected and are
 never projected; a snapshot naming prompt/answer content is still refused (ADR-028).
-The minimum host version stayed unchanged when the engineering baseline later moved to v18.4.8.
+The minimum host version stayed unchanged when the engineering baseline later moved to v18.4.12.
 Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
 The source activity extension projects known `busy` into browser metadata and supports stop alerts

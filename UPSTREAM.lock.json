@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-10-01",
+  "observedAt": "2026-10-02",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v18.4.8",
-  "commit": "717f97f4d22b3d65c4a4eef6a744255d46f4d1a6",
-  "packageVersion": "18.4.8",
+  "tag": "v18.4.12",
+  "commit": "7318a70cf4ed04133366884d2723f72d9d490a15",
+  "packageVersion": "18.4.12",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "18.4.8",
-    "@oh-my-pi/pi-wire": "18.4.8",
+    "@oh-my-pi/pi-coding-agent": "18.4.12",
+    "@oh-my-pi/pi-wire": "18.4.12",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.4.0",
@@ -30,17 +30,17 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
-    "Baseline moved to published mainline OMP v18.4.8 on 2026-10-01. packages/coding-agent/src/collab (tree 7879c32761e23d0375ef62829deafd09b08c7018) and packages/collab-web (tree ba2ff27439f57a0a4a890d9cae0b3981c7d12f4d) are identical to v18.4.2, so registry v1, host queries, the collaboration protocol, and relay framing are unchanged. pi-wire 18.4.8 adds only the Tern Surface Protocol module and optional AgentProgress fields. Upstream reports that 18.4.3 through 18.4.7 crash at startup on Apple silicon macOS earlier than 27, which includes the macOS 26.6.1 qualification host; 18.4.8 fixes that, so no intermediate version is a baseline. The minimum supported host stays 18.1.20; this baseline is qualified only once a candidate built from it passes stable qualification.",
+    "Baseline moved to published mainline OMP v18.4.12 on 2026-10-02. Relative to v18.4.8, packages/coding-agent/src/collab changes only guest.ts for extension lifecycle mirroring; the host, controller, registry, and relay sources are unchanged. packages/wire/src/index.ts is unchanged; wire changes are confined to Tern Surface Protocol and package metadata. Canary run 37040958377 passed all ten Linux stages and all seven supported Windows stages, with three intentional Windows keystroke-stage skips. The minimum supported host stays 18.1.20; published v0.7.2 qualification remains bound to v18.4.8, not this engineering baseline.",
     "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown.",
     "Upstream PR #11908 merged the collaboration controller and host registry, first shipped in v18.1.20; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
     "The gateway reads OMP discovery files and queries each host for metadata snapshots. View and Control links are resolved on demand; OMP requires only collab.autoStart, with no gateway-facing credential or integration patch.",
     "Discovery endpoints are read from each owner-only file, including upstream socket-path relocation; the gateway never modifies OMP discovery state.",
-    "The embedded client follows collab-web and npm pi-wire at v18.4.2. collab-web is byte-identical at v18.4.8, so the client keeps its v18.4.2 provenance and wire pin. Its provenance and local modifications are recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
-    "The Darwin arm64 native hashes identify the official 18.4.8 npm tarball and its pi_natives.darwin-arm64.node payload, measured for the mainline source-build qualification helper. They are not a qualification result."
+    "The embedded client keeps its collab-web provenance and npm pi-wire pin at v18.4.2. Upstream collab-web at v18.4.12 differs from v18.4.8 only in its changelog and transcript/math.ts Markdown performance changes; this host-only baseline update does not import them. Client provenance and local modifications remain recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
+    "The Darwin arm64 native hashes identify the official 18.4.12 npm tarball and its pi_natives.darwin-arm64.node payload. The tarball matches the registry sha512 integrity and sha1 shasum. These measured source-build inputs are not a qualification result."
   ],
-  "tree": "3f8ecdad21e55c5f47785ccfbd4f8c0528186976",
+  "tree": "d804bc6bff03bb96057dd46f3bf6ae0479e7c649",
   "darwinArm64Native": {
-    "tarballSha256": "7691cfa45160b612feb22c6b8937ee4e3c9702415fa4e843d3b4d50a33f2a2de",
-    "binarySha256": "b9a905e063b37d11f3fdd1356b3ac3b9e8c309c1b2541a3c0deb40b6d887410a"
+    "tarballSha256": "e3a2a0671e608d9db413a0be9522081a027a6600f0f3f3c30a5110c755a4b2bd",
+    "binarySha256": "209ffc607c67726d4683a1c57fc3cf4050ecb699ad92f14299864021d3e25216"
   }
 }

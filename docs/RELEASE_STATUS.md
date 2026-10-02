@@ -2,6 +2,17 @@
 
 Planned retained-Mac replacement (ADR-033): a Virtualization.framework guest, not yet qualified; the next passed campaign must name its measured macOS version and guest `hw.model`, without rewriting the bare-metal evidence below.
 
+## Engineering baseline v18.4.12 — canary evidence only
+
+On 2026-10-02, [canary run 37040958377](https://github.com/alphastorm/omp-session-gateway/actions/runs/37040958377)
+passed all ten Linux stages and all seven supported Windows stages against stock OMP v18.4.12.
+Windows intentionally skipped `new-generation`, `fork`, and `branch-rewind`. The source pin
+is `7318a70cf4ed04133366884d2723f72d9d490a15`, tree `d804bc6bff03bb96057dd46f3bf6ae0479e7c649`.
+Darwin arm64 and Windows x64 native hashes were measured from official npm artifacts, with
+registry integrity verified. The embedded client stays at v18.4.2. No candidate, campaign,
+macOS execution, or new platform qualification is claimed; the published matrix below is unchanged.
+Issue #343 remains open because a green sample does not prove the pending upstream retry fix.
+
 ## Mainline v0.7.2 — published stable
 
 **Updated:** 2026-10-02. [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2)

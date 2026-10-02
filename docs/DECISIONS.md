@@ -790,6 +790,23 @@ signed-candidate qualification before any stable claim.
 
 ---
 
+**Engineering baseline update (2026-10-02):** Accept published mainline v18.4.12
+(`7318a70cf4ed04133366884d2723f72d9d490a15`, tree `d804bc6bff03bb96057dd46f3bf6ae0479e7c649`)
+as the host engineering pin, with registry v1 and minimum host `18.1.20` unchanged. Relative
+to v18.4.8, collaboration changes are confined to CLI guest extension lifecycle mirroring;
+host/controller/registry/relay sources and the wire index are unchanged. The embedded client
+retains its v18.4.2 provenance and wire pin; upstream's transcript math performance changes are
+not part of this host-only update. Official npm native tarballs supply both platform hashes,
+verified against registry sha512 integrity and sha1 shasums.
+
+[Canary run 37040958377](https://github.com/alphastorm/omp-session-gateway/actions/runs/37040958377)
+passed all ten Linux and all seven supported Windows stages; the three Windows keystroke stages
+are intentional skips. This does not establish signed-artifact or macOS qualification. Published
+v0.7.2 remains qualified on v18.4.8. The green run does not resolve the transient auto-start risk
+tracked in #343; upstream retry fix can1357/oh-my-pi#14112 remains open at this observation.
+
+---
+
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability
 
 **Status:** Accepted
