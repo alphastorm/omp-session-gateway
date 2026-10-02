@@ -1014,3 +1014,80 @@ tunnel (`openjdk@17`), and TestingBot's open-source plan. A TestingBot outage, o
 within ten minutes, fails the lane and holds the release, as a Pixel failure does. Replacing the vendor
 means replacing the tunnel launch and the record audit; the journeys are standard WebDriver. iPhone
 and iPad enter the qualified matrix only from a passed campaign on the exact signed candidate.
+
+## ADR-033 — Retain a macOS virtual machine as the campaign Mac
+
+**Status:** Proposed; founder-selected design, amending ADR-030 only for the retained Mac.
+
+**Date:** 2026-10-02
+
+**Context:** The retained Mac now shares a physical host with the release worker and the planned
+campaign operator. The Mac persistence lane reboots its SSH target while other campaign lanes run
+concurrently. Rebooting that physical host interrupts the operator, release jobs, device connection,
+and tunnels; resuming only the Mac lane would not preserve those other owners. ADR-030 distinguishes
+tested, supported, and qualified evidence, and forbids presenting emulation as a physical-device
+result. Moving the retained Mac into a VM therefore needs an explicit change to the qualified
+environment, not a relabeling of the existing bare-metal result.
+
+**Decision:** Use one persistent Apple-silicon macOS guest on the retained physical Mac, managed by
+[Tart](https://github.com/openai/tart) through Apple Virtualization.framework. The guest is the
+retained Mac; the operator and unrelated workers remain on the physical host. Initially allocate
+four virtual CPUs and 8 GiB of memory. Use an official base image matching the host macOS major
+when available, and record the selected image and the guest OS and model instead of inheriting the
+physical host identity.
+The staged image is `ghcr.io/cirruslabs/macos-golden-gate-base:latest`, resolved on 2026-10-02 to
+`sha256:9a2f20d179d6418a128dcb76c593588ea85a263dbfa286e757db63f3d949af7c`.
+
+The lane contract is unchanged: SSH to a standard guest qualification account, install the exact
+signed candidate, run the existing identity and lifecycle checks, request a guest reboot, wait for
+the same guest to return, and uninstall the gateway and fixtures during cleanup. The guest has its
+own user-owned, TUN-mode Tailscale node and Serve origin. Its account has the pinned Bun, stock OMP,
+command-line prerequisites, SSH key, automatic console login, and only the five exact passwordless
+sudo commands documented in RELEASE.md. Tailscale runs as a guest LaunchDaemon, not a GUI client.
+No operator/provider credentials belong in the guest. Cleanup retains the VM and its node; it must
+not reboot the physical host or restore a disk snapshot to manufacture a clean lifecycle result.
+
+A passed signed-candidate campaign in this guest still exercises a real macOS kernel, launchd,
+loginwindow, per-user LaunchAgent, native addon, filesystem, TUN interface, and guest reboot.
+Automatic login proves return at **console login**, not gateway startup before login. A bootstrap
+SSH/reboot probe is only setup evidence, not proof that the gateway LaunchAgent or full campaign
+passed. The guest does not exercise the physical Mac firmware, FileVault unlock, Secure Boot paths,
+power loss, physical sleep/wake, or physical device drivers. A guest success does not qualify a
+bare-metal model, and no physical-phone or cloud-device requirement changes.
+
+`OMP_STABLE_MAC_MODEL` must equal the guest
+`sysctl -n hw.model`, never the physical Mac model. Admission continues to compare the exact model.
+The next passed campaign must name its Mac row as a **Virtualization.framework guest**, with that
+model and measured macOS version in both RELEASE_STATUS.md and COMPATIBILITY.md. Keep the existing
+bare-metal rows and receipts unchanged until there is new signed-candidate evidence; do not transfer
+their pass counts to the guest. Complete any old target-bound cleanup before starting a new campaign
+with the guest target.
+
+VM process supervision is separate from guest service persistence. A detached Tart process survives
+an SSH disconnect but is not host-boot supervision. Prefer a KeepAlive LaunchAgent in the operator
+account once the founder approves its console-login policy and transfers VM ownership.
+[Tart documents](https://tart.run/faq/#headless-machines) that macOS 15 and later require the VM
+owner's login keychain to exist and be unlocked. Unattended host-boot recovery therefore needs
+automatic console login for that owner, or a separately reviewed noninteractive keychain-unlock
+design. A root-installed LaunchDaemon alone does not establish that prerequisite. Do not put an
+unlock password in a plist or wrapper; enabling automatic login for an operator holding credentials
+is a founder security decision, not a consequence of accepting virtualized qualification.
+
+The base image ships public credentials. Before admitting the guest to the tailnet, the founder
+must rotate the guest administrator password, qualification-account password, and automatic-login
+credential together. Bootstrap may stop at an unconsumed Tailscale login URL; it must not admit a
+node with public credentials. Guest SSH becomes key-only after the key has been proven.
+
+Tart 2.40.1 is maintained by OpenAI and distributed under the Fair Source
+[Functional Source License 1.1, Apache-2.0 future license](https://github.com/openai/tart/blob/main/LICENSE)
+(`FSL-1.1-ALv2`), not an unrestricted open-source license at publication. Its permitted purposes
+explicitly include internal use; competing commercial virtualization offerings are restricted. Each
+version becomes additionally available under Apache-2.0 on its second anniversary. This internal
+qualification use does not bundle Tart into the gateway or change the gateway license.
+
+**Consequences:** Guest reboot no longer interrupts sibling lanes or physical-host workers. Host
+outage still interrupts all guests and the operator; this is isolation of campaign reboots, not high
+availability. The retained guest consumes host memory and disk and must not be run concurrently by
+two owners. Qualification now distinguishes physical and virtual Mac environments explicitly, while
+ADR-030's supported platform families and evidence vocabulary otherwise remain unchanged. The new
+target remains unqualified until a full signed-candidate campaign passes on it.

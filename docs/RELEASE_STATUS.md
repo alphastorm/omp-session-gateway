@@ -1,5 +1,7 @@
 # Release status
 
+Planned retained-Mac replacement (ADR-033): a Virtualization.framework guest, not yet qualified; the next passed campaign must name its measured macOS version and guest `hw.model`, without rewriting the bare-metal evidence below.
+
 ## Mainline v0.7.2 — published stable
 
 **Updated:** 2026-10-02. [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2)

@@ -54,6 +54,8 @@ This does not qualify physical background delivery or imply successful task comp
 
 ## Current claim
 
+ADR-033 proposes a Virtualization.framework retained Mac; it is not yet qualified, and the existing physical-Mac rows remain unchanged until a signed-candidate campaign names the guest's measured OS and `hw.model`.
+
 Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.
 Earlier releases are unsupported because this local registry does not exist in them.
 [PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in
