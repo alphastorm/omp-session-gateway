@@ -8,9 +8,6 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Qualify and publish v0.7.2: qualification tooling, the configured Mac Studio (Mac17,14) replacing
-  the retained Scaleway Mac, and the OMP 18.4.8 engineering baseline; no gateway runtime fixes and
-  no embedded-client change. Published v0.7.1 remains current stable until qualification and approval.
 - Qualify the specialized attention and lifecycle (branch/resume) scenarios in the v0.7.2
   campaign. The lanes are implemented and tested; development evidence does not qualify a release.
   See [attention acceptance](ATTENTION_SPEC.md) and [lifecycle coverage](LIFECYCLE_BRANCH_RESUME.md).

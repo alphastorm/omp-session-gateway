@@ -1,8 +1,8 @@
 # OMP Session Gateway
 
 > Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
-> gateway-specific OMP plugin, or publisher credential. v0.7.2 is qualified for stable promotion; publication is pending.
-> Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> gateway-specific OMP plugin, or publisher credential. Stable v0.7.2 is published as immutable
+> GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
 > sessions and opens OMP's own encrypted View/Control client in any modern browser, installable as a PWA where the platform supports it. One-time
 > setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
 > with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
@@ -14,7 +14,7 @@
 
 ## Current qualification boundary
 
-- v0.7.2 is qualified for stable promotion from signed candidate v0.7.2-prealpha.2 (source 60f7e10362c8541c65509843e9de854db75d1dad, archive SHA-256 7ebaf9b43d7a2248f394476c7a3ee109a31d220e9714dbd5ad60286eac841922) against stock OMP v18.4.8 built from source. There are no gateway runtime fixes since v0.7.1. Published v0.7.1 remains GitHub Latest until the signed stable workflow succeeds. All thirteen lanes passed on their first attempt in the 2026-10-02 campaign, 11:32:08Z–12:20:54Z, orchestrator 5e167f4ea11060c1563a5bdd84587fb3d76f311e. Earlier failed and stopped attempts are recorded in the release ledger. No claim for arbitrary builds from main.
+- Stable v0.7.2 (source af81ac2b90292bd62212019651f4d597bd2645fc, archive SHA-256 98bb3aba1338ee0f0f53076b5fd95c474cd2d9f71981599c148a898dfa572f6a) was promoted from signed candidate v0.7.2-prealpha.2 with identical runtime bytes, qualified against stock OMP v18.4.8 built from source. There are no gateway runtime fixes since v0.7.1. Stable v0.7.2 was published 2026-10-02 at 12:37:44 UTC as GitHub Latest; published v0.7.1 is the predecessor. All thirteen lanes passed on their first attempt in the 2026-10-02 campaign, 11:32:08Z–12:20:54Z, orchestrator 5e167f4ea11060c1563a5bdd84587fb3d76f311e. Earlier failed and stopped attempts are recorded in the release ledger. No claim for arbitrary builds from main.
 - Exact OMP v18.4.8 source: 717f97f4d22b3d65c4a4eef6a744255d46f4d1a6. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway. The embedded client retains its v18.4.2 provenance and wire pin.
 - Debian lane: run 37001605048 succeeded against the candidate archive with stock OMP v18.4.8 built from source. The export does not enumerate OS/kernel versions or migration/recovery invariant counts.
 - Mac17,14 / macOS 27.0.1 arm64, the Mac Studio: stock OMP v18.4.8 built from source, native addon b9a905e063b3, doctor 18/18, rollback 23/23. This is the first campaign on the Studio; earlier Mac receipts remain historical.
@@ -27,7 +27,7 @@
 - Attention and lifecycle qualification is limited to the recorded retained-Mac new-generation/fork/resume and Pixel triage/stale-tap scenarios, not arbitrary behavior on every platform. Other Windows builds, desktop Safari and new media qualification remain outside this exact claim. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
 - v0.7.1 is the migration/rollback predecessor. Both versions embed the same OMP 18.4.2 collaboration client and wire pin; there are no gateway runtime fixes to undo. Gateway rollback does not switch OMP. Retained-runtime selection and earlier predecessor limits are recorded in the upgrade/rollback document.
 - In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The first post-release View/Control smoke failures match this navigation. The v0.5.1 fix never navigates from the worker.
-- The v0.7.2 published-byte local/Pixel smoke is pending after publication. Candidate qualification does not substitute for the installed published-byte check.
+- The v0.7.2 published-byte local/Pixel smoke passed on its second attempt against Bun's global stock OMP 18.1.20, not reinstalled. The first attempt had already upgraded the gateway to 0.7.2-0e6104d6ee0b but failed at the installed-WebAPK check's two-second sample; #346 corrected the tooling to wait up to 30 s for the launched task, still failing closed. The passing run reported installed: false, configPreserved: true, readinessTokenPreserved: true, and doctorChecks: 18; Tailscale Serve was unchanged with unrelated mappings preserved. Pixel View was read-only and Control writable; capability-sink, same-page recovery and installed-WebAPK checks passed. Gateway, mainline OMP and WebAPK were left installed. The retained development candidate 0.7.2-737c81e5d92f is the plain rollback target; published predecessor 0.7.1-2c4f80b3ccc2 is retained one step further back. This smoke runs on macOS and does not expand the candidate matrix: Windows rests on its lane, iPhone, iPad and Galaxy browsers on the cloud lane, background Push on the Pixel lane, and exact stock OMP v18.4.8 on the candidate evidence.
 
 ## Fork-era release history
 

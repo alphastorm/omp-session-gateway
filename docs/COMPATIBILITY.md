@@ -65,14 +65,16 @@ gateway change. The current checkout's engineering baseline is v18.4.8 (`UPSTREA
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-**Qualified for stable promotion:** [v0.7.2-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2-prealpha.2),
-for [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2). Publication
-and the separate published-byte local/Pixel smoke are pending; published v0.7.1 remains GitHub
-Latest until the signed stable workflow succeeds. There are no gateway runtime fixes since
+**Published stable:** [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2),
+GitHub Latest, promoted from v0.7.2-prealpha.2 with identical runtime bytes. Its published-byte
+local/Pixel smoke passed on the second attempt against Bun's global stock OMP 18.1.20, after
+#346 corrected the installed-WebAPK check's launch wait. There are no gateway runtime fixes since
 v0.7.1; the engineering baseline is stock OMP v18.4.8 built from source. All thirteen lanes passed
 on their first attempt in the passing campaign. The [release ledger](RELEASE_STATUS.md) records
 the qualification lanes, earlier failed attempts, and exact source/archive bindings;
-[upgrade and rollback](UPGRADE_ROLLBACK.md#v072-predecessor-compatibility) covers v0.7.1.
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v072-predecessor-compatibility) covers the published
+predecessor, v0.7.1. The workstation's plain rollback instead selects a retained development
+candidate build; the ledger records the installed activation history.
 
 The qualified scope includes the retained-Mac new-generation/fork/resume transitions and Pixel
 Push triage/stale-tap scenarios recorded in this campaign, not arbitrary attention or lifecycle
