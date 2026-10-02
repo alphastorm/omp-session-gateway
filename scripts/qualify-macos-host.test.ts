@@ -235,6 +235,8 @@ test.skipIf(!POSIX)("Mac reboot guard rechecks immediately before shutdown and b
   const busy = "release runner busy: " + "x".repeat(500);
   try {
     await mkdir(dirname(guard), { recursive: true });
+    await mkdir(join(root, ".config", "omp-session-gateway"), { recursive: true });
+    await writeFile(join(root, ".config", "omp-session-gateway", "readiness-token"), "synthetic-readiness-token");
     await writeFile(guard, '#!/bin/sh\n[ "$#" = 0 ] || exit 2\n[ "$PATH" = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin" ] || exit 3\nif [ ! -e "$HOME/admitted" ]; then touch "$HOME/admitted"; exit 0; fi\nprintf "%s" ' + JSON.stringify(busy) + '\nexit 1\n', { mode: 0o700 });
     const result = await runHarness(`
 set -euo pipefail
@@ -245,8 +247,9 @@ omp() { printf 'omp/18.1.20\n'; }
 tailscale() { printf '%s\n' '{"BackendState":"Running","Self":{"DNSName":"fixture.invalid."}}'; }
 ifconfig() { printf '%s\n' 'inet6 fd7a:115c:a1e0::1'; }
 sudo() { if [ "\${*: -3}" = 'shutdown -r now' ]; then : >"$SHUTDOWN_MARKER"; fi; }
+sysctl() { if [ "$*" = '-n kern.bootsessionuuid' ]; then printf '11111111-1111-4111-8111-111111111111\\n'; else command sysctl "$@"; fi; }
 sleep() { exit 99; }
-export -f bun omp tailscale ifconfig sudo
+export -f bun omp tailscale ifconfig sudo sysctl
 ssh() { /bin/bash -c "\${!#}"; }
 main persistence
 `, [], { ...environment("a".repeat(64)), HOME: root, REAL_BUN: process.execPath, SHUTDOWN_MARKER: shutdown });

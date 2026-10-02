@@ -1404,7 +1404,13 @@ export function assertMacLifecycleOutput(output: string, candidate: CandidateIde
   if (doctor === undefined || rollbackInvariants === undefined || os === undefined) {
     throw new Error("Mac lifecycle output missed a passing doctor, rollback or host summary");
   }
-  return { hardware, doctor, rollbackInvariants, os };
+  for (const label of ["guest reboot changed", "console login", "readiness token preserved"]) {
+    const verdicts = [...output.matchAll(new RegExp(`^[\\t ]*${label}:[\\t ]*(.*)$`, "gmu"))];
+    if (verdicts.length !== 1 || verdicts[0]?.[1]?.trim() !== "yes") {
+      throw new Error(`Mac lifecycle output missed required passing verdict: ${label}`);
+    }
+  }
+  return { hardware, doctor, rollbackInvariants, os, guestRebootChanged: true, consoleLogin: true, readinessPreserved: true };
 }
 async function readMacPublicOrigin(target: MacTarget): Promise<string> {
   const result = await commandOutput([
