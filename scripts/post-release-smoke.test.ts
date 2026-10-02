@@ -9,6 +9,7 @@ import { requireSingleDevice } from "./android-device.ts";
 import {
   assertFixtureOwnership,
   assertWebApkActiveTask,
+  awaitWebApkActiveTask,
   assertReleaseArchiveIdentity,
   createSmokeLabel,
   enableOmpAutoStart,
@@ -373,4 +374,21 @@ describe("physical Android release target", () => {
       "active standalone task",
     );
   });
+});
+
+test("the WebAPK task check polls until the launch settles and still fails closed at its deadline", async () => {
+  const packageName = "org.chromium.webapk.abc_v2";
+  const browserInFront = "topResumedActivity=ActivityRecord{1 u0 com.android.chrome/com.google.android.apps.chrome.Main t1}\n  topDisplayFocusedRootTask=Task{2 #1 type=standard A=10123:com.android.chrome}";
+  const webApkInFront = `topResumedActivity=ActivityRecord{3 u0 com.android.chrome/org.chromium.chrome.browser.webapps.SameTaskWebApkActivity t2}\n  topDisplayFocusedRootTask=Task{4 #2 type=standard A=10466:${packageName}}`;
+  let clock = 0;
+  const pause = async (milliseconds: number) => { clock += milliseconds; };
+  let reads = 0;
+  await awaitWebApkActiveTask(async () => (++reads < 4 ? browserInFront : webApkInFront), packageName, pause, 30_000, () => clock);
+  expect(reads).toBe(4);
+  expect(clock).toBe(3_000);
+  reads = 0;
+  await expect(awaitWebApkActiveTask(async () => { reads++; return browserInFront; }, packageName, pause, 5_000, () => clock)).rejects.toThrow(
+    "installed WebAPK did not become the active standalone task",
+  );
+  expect(reads).toBe(6);
 });
