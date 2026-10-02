@@ -1100,6 +1100,23 @@ owned the console, its GUI launchd domain existed, Finder and Dock ran, and the 
 had restarted. This proves guest reboot and automatic-console-login mechanics only; it does not
 prove tailnet reachability, gateway persistence, a full campaign, or host-boot VM supervision.
 
+**Admission observation, later on 2026-10-02:** After credential rotation the guest joined the
+tailnet as a user-owned node with its own Serve-capable name; direct key-only SSH and the five
+sudo grants were proven from both the workstation and the operator account. `sysadminctl
+-autologin set` cannot complete from SSH on this macOS (it records the user but leaves the
+automatic-login credential stale, so the next boot stops at the login window); automatic login
+for both the physical operator account and the guest qualification account was configured with a
+founder-run script that verifies the password and writes the credential file directly. VM
+ownership moved to the operator account with a KeepAlive Aqua LaunchAgent; a physical-host reboot
+returned the operator console, started the guest unattended, and the guest rejoined the tailnet
+within about two minutes, satisfying the keychain prerequisite above. A guest reboot then produced
+the three verdicts the strengthened Mac lane requires. The standalone host lanes installed the
+current stable release in the guest (doctor 18/18, identity lane clean), the OMP Sessions WebAPK
+was installed for the guest origin, and the stable preflight reported `preflight-passed` from the
+operator account with `OMP_STABLE_MAC_MODEL=VirtualMac2,1`. The only code change needed was the
+Push lane's handset-model pin (#350). No campaign has run against the guest yet; the ledger rows
+above remain bare-metal until a signed candidate passes with the guest named.
+
 Tart 2.40.1 is maintained by OpenAI and distributed under the Fair Source
 [Functional Source License 1.1, Apache-2.0 future license](https://github.com/openai/tart/blob/main/LICENSE)
 (`FSL-1.1-ALv2`), not an unrestricted open-source license at publication. Its permitted purposes
