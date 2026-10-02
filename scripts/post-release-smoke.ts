@@ -232,7 +232,7 @@ export function assertFixtureOwnership(actualMarker: string, runId: string): voi
   }
 }
 
-export function assertWebApkActiveTask(activities: string, packageName: string): void {
+export function isWebApkActiveTask(activities: string, packageName: string): boolean {
   const activityLines = activities.split(/\r?\n/u);
   const focusedTask = activityLines.some(
     line => line.includes("topDisplayFocusedRootTask=") && line.includes(`:${packageName}`),
@@ -240,7 +240,33 @@ export function assertWebApkActiveTask(activities: string, packageName: string):
   const resumedWebApk = activityLines.some(
     line => line.includes("topResumedActivity=") && line.includes("SameTaskWebApkActivity"),
   );
-  if (!focusedTask || !resumedWebApk) throw new Error("installed WebAPK did not become the active standalone task");
+  return focusedTask && resumedWebApk;
+}
+
+export function assertWebApkActiveTask(activities: string, packageName: string): void {
+  if (!isWebApkActiveTask(activities, packageName)) throw new Error("installed WebAPK did not become the active standalone task");
+}
+
+/**
+ * Waits, bounded, until the launched WebAPK is the focused, resumed standalone task. A fixed
+ * two-second wait read Chrome's browser activity still in front after the acceptance lane's
+ * lock/airplane/doze cycles (v0.7.2 published-byte smoke, 2026-10-02); the same launch settled
+ * within the next seconds. The deadline keeps the check fail-closed.
+ */
+export async function awaitWebApkActiveTask(
+  readActivities: () => Promise<string>,
+  packageName: string,
+  pause: (milliseconds: number) => Promise<void> = sleep,
+  deadlineMs = 30_000,
+  now: () => number = Date.now,
+): Promise<void> {
+  const deadline = now() + deadlineMs;
+  let activities = await readActivities();
+  while (!isWebApkActiveTask(activities, packageName) && now() < deadline) {
+    await pause(1_000);
+    activities = await readActivities();
+  }
+  assertWebApkActiveTask(activities, packageName);
 }
 
 function hashBytes(value: Uint8Array): string {
@@ -971,9 +997,7 @@ async function verifyInstalledWebApk(origin: string): Promise<void> {
     ["shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"],
     { timeoutMs: 30_000 },
   );
-  await sleep(2_000);
-  const activities = await device("shell", "dumpsys", "activity", "activities");
-  assertWebApkActiveTask(activities, packageName);
+  await awaitWebApkActiveTask(() => device("shell", "dumpsys", "activity", "activities"), packageName);
 
   const port = await chooseLoopbackPort();
   await device("forward", `tcp:${port}`, "localabstract:chrome_devtools_remote");
