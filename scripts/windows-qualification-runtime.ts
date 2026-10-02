@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import pins from "./windows-qualification-pins.json";
 import { cleanupWindows, preflightWindows, runWindows, windowsCampaignLabel, windowsNeedsCleanup } from "./windows-stable-qualification.ts";
 import type { WindowsAdmission, WindowsArtifact, WindowsContext, WindowsFirewall, WindowsIdentity, WindowsInstance, WindowsPreflightInput, WindowsPrincipal, WindowsRuntime } from "./windows-stable-qualification.ts";
-import { parseQualificationPins, parseStableQualificationArgs, releaseArchivePath, verifyLaunchContracts, verifyRelease, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
+import { parseCandidateTagArgs, parseQualificationPins, releaseArchivePath, verifyLaunchContracts, verifyRelease, waitForPublishedSession, waitForRevocation } from "./stable-qualification.ts";
 import { windowsHostScript } from "./upstream-canary.ts";
 import { OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 import { runAdb, parseKeyguardShowing, requireSingleDevice, withAndroidChrome } from "./android-device.ts";
@@ -536,8 +536,8 @@ export async function windowsDevelopmentCli(args: readonly string[]): Promise<vo
   const [mode = "", ...rest] = args;
   const usage = "usage: bun scripts/windows-stable-qualification.ts preflight|cleanup, or artifacts|run --tag vX.Y.Z-prealpha.N";
   if (!["preflight", "artifacts", "run", "cleanup"].includes(mode)) throw new Error(usage);
-  // The campaign's tag grammar and published predecessor: the probe never installs a pair a campaign would not.
-  const options = mode === "artifacts" || mode === "run" ? parseStableQualificationArgs(rest, {}) : undefined;
+  // The campaign's tag grammar and published predecessor, without the campaign's Mac configuration: the probe never installs a pair a campaign would not.
+  const options = mode === "artifacts" || mode === "run" ? parseCandidateTagArgs(rest, {}) : undefined;
   if ((options === undefined && rest.length > 0) || options?.preflight === true) throw new Error(usage);
   const runtime = await createWindowsRuntime({ development: true });
   if (mode === "preflight") { console.log(JSON.stringify(await preflightWindows({}, runtime))); return; }

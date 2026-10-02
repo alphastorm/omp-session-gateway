@@ -97,6 +97,12 @@ used. The tagged Tailscale join uses a private guest file consumed via `--auth-k
 removed in `finally`. TUN-mode Serve targets loopback, with Funnel disabled.
 Windows uses `tailscale up --unattended=true` for machine-wide connectivity; authenticating
 with `login` alone did not establish the persistent backend in the development run.
+The guest does not rely on the provider's resolver: before its first download, toolchain staging
+sets every up adapter to `1.1.1.1` and `8.8.8.8`, clears the DNS cache, and proves `github.com`,
+`pkgs.tailscale.com`, `registry.npmjs.org` and `login.tailscale.com` resolve, failing as
+`name resolution failed: <host>` otherwise. On 2026-10-02 the Vultr-assigned resolver answered
+SERVFAIL for the Tailscale names and their CloudFront target while `github.com` resolved, which
+failed two v0.7.2 campaign attempts with a bare `WebException` at the Tailscale MSI download.
 Allocation and authenticated WinRM admission share one 12-minute deadline. Admission requires
 three consecutive read-only successes spanning at least 60 seconds; a transport error resets
 both the count and window, while a guest assertion failure aborts immediately. The observed

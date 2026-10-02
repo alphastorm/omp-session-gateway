@@ -19,6 +19,7 @@ import {
   incompleteQualification,
   loadConfiguredMacTarget,
   markMacCleanupRequired,
+  parseCandidateTagArgs,
   parseQualificationPins,
   parseStableQualificationArgs,
   qualifyDebian,
@@ -104,6 +105,15 @@ describe("stable qualification arguments", () => {
 
   test("rejects a blank password file rather than silently enabling passwordless sudo", () => {
     expect(() => parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_SUDO_PASSWORD_FILE: "" })).toThrow("OMP_STABLE_MAC_SUDO_PASSWORD_FILE");
+  });
+
+  test("a lane without a Mac parses the candidate pair with no Mac configuration at all", () => {
+    // The Windows development CLI passes an empty environment on purpose, so the configured-Mac
+    // requirement that #339 added to the campaign parser must not reach it: it broke every
+    // `windows-stable-qualification.ts run` with "OMP_STABLE_MAC_HOST is required" (2026-10-02).
+    expect(parseCandidateTagArgs(["--tag", TAG], {})).toEqual({ preflight: false, tag: TAG, previousTag: PREVIOUS_TAG });
+    expect(() => parseCandidateTagArgs(["--tag", TAG, "--previous-tag", "v0.1.0"], {})).toThrow("--previous-tag");
+    expect(() => parseStableQualificationArgs(["--tag", TAG], {})).toThrow("OMP_STABLE_MAC_HOST");
   });
 
 

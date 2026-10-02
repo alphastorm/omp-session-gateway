@@ -130,6 +130,13 @@ class WinrmFramingTests(unittest.TestCase):
         result = self.run_request(script='synthetic')
         self.assertEqual(result['diagnostic'], 'guest execution failed at line 82: RuntimeException; status mismatch: ready,active')
 
+    def test_name_resolution_failure_forwards_the_host_name_and_nothing_after_it(self):
+        # A bare WebException hid two campaign failures behind a provider resolver that could not
+        # resolve pkgs.tailscale.com (2026-10-02); the host name is not private, the tail still is.
+        Transport.response = (b'', b'guest execution failed at line 200: RuntimeException; name resolution failed: pkgs.tailscale.com private-tail', 1)
+        result = self.run_request(script='synthetic')
+        self.assertEqual(result['diagnostic'], 'guest execution failed at line 200: RuntimeException; name resolution failed: pkgs.tailscale.com')
+
     def test_teardown_failure_after_a_result_still_answers_exactly_once(self):
         # A guest whose WinRM service is still settling can finish the command and then fail
         # the shell teardown. The finished result used to be followed by a second transport-error
