@@ -1078,6 +1078,28 @@ must rotate the guest administrator password, qualification-account password, an
 credential together. Bootstrap may stop at an unconsumed Tailscale login URL; it must not admit a
 node with public credentials. Guest SSH becomes key-only after the key has been proven.
 
+**Bootstrap observation, 2026-10-02:** The pinned image reports macOS 27.0 (build 26A428),
+`hw.model=VirtualMac2,1`, `arm64`, four virtual CPUs, 8 GiB RAM, and a 50,000,000,000-byte
+virtual disk (46.566 GiB). Use `OMP_STABLE_MAC_MODEL=VirtualMac2,1` for this guest. Its private
+Tart NAT address is reachable only through the physical host; it is not a tailnet address.
+The standard qualification account now has proven key-only SSH, the five exact sudo grants
+(with only the certificate hostname adapted), checksum-verified Bun 1.4.0, and stock OMP 18.4.8.
+The image already provided administrator-owned Homebrew and Command Line Tools. The existing
+automatic-login credential was authenticated against both guest accounts before reuse.
+Homebrew Tailscale 1.102.5 runs as the guest `sh.brew.tailscale` LaunchDaemon. Its enrollment
+command printed a login URL and was interrupted without authorizing it; the guest remains
+`NeedsLogin`, with no tailnet address. Unauthenticated enrollment preferences did not survive
+the reboot, so repeat the hostname-bearing enrollment command and operator grant after rotation.
+
+The qualification account invoked its allowed `sudo -n /sbin/shutdown -r now` over SSH through
+the physical host. SSH became unavailable, then answered with a new guest boot identity
+**11.39 seconds** after the reboot request (one-second polling with bounded SSH connection
+attempts). The original Tart process remained running with the same PID, and the physical host
+boot identity was unchanged: no Tart restart or host reboot was needed. Afterward the account
+owned the console, its GUI launchd domain existed, Finder and Dock ran, and the Tailscale daemon
+had restarted. This proves guest reboot and automatic-console-login mechanics only; it does not
+prove tailnet reachability, gateway persistence, a full campaign, or host-boot VM supervision.
+
 Tart 2.40.1 is maintained by OpenAI and distributed under the Fair Source
 [Functional Source License 1.1, Apache-2.0 future license](https://github.com/openai/tart/blob/main/LICENSE)
 (`FSL-1.1-ALv2`), not an unrestricted open-source license at publication. Its permitted purposes
