@@ -758,6 +758,11 @@ export async function inspectOmpBinary(binary: string): Promise<OmpInstall> {
  * another product, such as a Code Mode launcher, a stock alternative replaces it; otherwise the PATH
  * result stands so the refusal names the binary the operator would run.
  */
+/** Prepends `directory` unless PATH already lists it, so repeated calls stay idempotent. */
+export function ensureOnPath(directory: string, path: string): string {
+  return path.split(":").includes(directory) ? path : directory + (path === "" ? "" : ":" + path);
+}
+
 export function preferStockOmp(onPath: OmpInstall, alternative: OmpInstall): OmpInstall {
   return onPath.stock !== true && alternative.stock === true ? alternative : onPath;
 }
@@ -810,6 +815,11 @@ async function resolveOmp(
     installed = true;
     inspection = await inspectOmpInstall();
   }
+  // The gateway's doctor and the OMP hosts it launches resolve `omp` on PATH. A stock omp selected
+  // from Bun's global bin on a host whose PATH lacks that directory (the Studio's operator account)
+  // is otherwise invisible to them: the first Studio smoke's third attempt failed its doctor with
+  // `compatibility: false` while the selected omp 18.4.12 sat one directory off PATH.
+  if (inspection.binary !== undefined) process.env.PATH = ensureOnPath(dirname(inspection.binary), process.env.PATH ?? "");
   if (inspection.stock === false) {
     throw new Error(
       "the omp on PATH is not stock mainline and Bun's global install has no stock omp: it resolves outside @oh-my-pi/pi-coding-agent, so it is a different product wearing the same name. " +
