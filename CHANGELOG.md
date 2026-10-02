@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Added
 
+- Support an optional host-owned Mac qualification reboot guard. Both preflights refuse busy
+  or misconfigured guards before lane effects; persistence rechecks immediately before shutdown
+  and reports up to 400 diagnostic bytes on refusal, without rebooting a busy shared host.
 - Extend the upstream OMP canary with new-session, immediate fork, in-session rewind, and saved
   session continuation checks. Windows runs continuation and explicitly skips the three
   keystroke-driven stages; bounded summaries include the platform.
@@ -22,6 +25,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Changed
 
+- Select the stable-qualification Mac through an explicit SSH destination and expected hardware
+  model instead of a retained cloud lease lookup. Support a private sudo-password file or narrow
+  passwordless sudo, record the measured hardware in schema-3 receipts, and make Homebrew tools
+  available to noninteractive remote lanes. Existing qualification claims are unchanged.
 - Move the OMP engineering baseline to published v18.4.8. Its collaboration host source and
   `collab-web` are byte-identical to v18.4.2, so the embedded client and its `@oh-my-pi/pi-wire`
   18.4.2 pin are unchanged. The Mac, Debian, and Windows qualification lanes now build stock OMP
@@ -33,6 +40,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
+- Require stock OMP >=18.1.20 on the Mac lane PATH during both preflights, before doctor can
+  fail its compatibility check on a fresh account. Missing or unsupported OMP now refuses before
+  any lane and reports the exact coding-agent install command from the upstream package pin.
+- Bind Mac qualification effects to their configured SSH host in schema-3 receipts; refuse
+  retargeted resume and unbound legacy cleanup before any remote call, and never clean an unowned
+  host after admission refusal. Resolve remote measurement tools from a fixed system-first PATH
+  and use the absolute system hardware probe so account-local executables cannot shadow it.
 - Re-arm a Push phase after its one permitted foreign-notification overlap by waiting only for
   pending attention clears, then dismissing remaining owned notices. An activity-stop notice has
   no clear and previously held the re-arm until its 160-second timeout.

@@ -17,8 +17,16 @@
 #
 # WHAT THE HOST MUST ALREADY HAVE
 #
-#   - SSH as a non-root admin user, with `sudo` available (a password may be supplied out of band).
-#   - Bun on PATH for that user.
+#   - SSH as a non-root standard or admin account with automatic console login after reboot.
+#     On bare metal, automatic login requires FileVault off.
+#   - sudo for the exact lane commands, either narrow passwordless grants (sudo -n) or a password
+#     supplied out of band through OMP_MAC_SUDO_PW. No administrator membership is required.
+#   - The pinned Bun in ~/.bun/bin and the lane's tools on PATH for that user.
+#     Remote blocks use a fixed system/admin-first PATH, including /opt/homebrew/bin, before
+#     the account's Bun and Go tools; hardware is measured with /usr/sbin/sysctl.
+#   - Stock OMP >=18.1.20 on that PATH, required by doctor's compatibility check before omp-build.
+#     Install the coding-agent package version pinned in UPSTREAM.lock.json with
+#     bun add --global --exact @oh-my-pi/pi-coding-agent@<pin> as the qualification account.
 #   - Tailscale running its **TUN-mode** client, joined as a **user-owned** node.
 #
 # That last requirement is the whole reason the earlier attempt failed, and the correction is worth
@@ -36,6 +44,13 @@
 # A tagged node cannot present a user identity, so Serve populates no identity headers and the
 # identity lane would measure nothing. That is the opposite of the Linux lane, which *wants* a tagged
 # node to prove denial.
+#
+# WHAT THE HOST MAY HAVE
+#
+#   - Optional host-owned ~/.config/omp-qualification/reboot-guard: a regular, owner-executable
+#     file called without arguments on the fixed remote PATH during preflight and immediately
+#     before reboot. Exit zero only when reboot is safe; otherwise explain why and exit nonzero.
+#     The first 400 output bytes are reported on refusal. The guard must be read-only.
 #
 # CERTIFICATES, AND A TRAP WORTH INHERITING
 #
@@ -82,7 +97,9 @@ import sys
 with open(sys.argv[1]) as source:
     lock = json.load(source)
 native = lock["darwinArm64Native"]
-values = [lock["commit"], lock["tree"], lock["packageVersion"], lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
+omp_version = lock["packageVersions"]["@oh-my-pi/pi-coding-agent"]
+assert omp_version == lock["packageVersion"], "inconsistent OMP package pin"
+values = [lock["commit"], lock["tree"], omp_version, lock["bunVersion"], native["tarballSha256"], native["binarySha256"]]
 patterns = [r"[0-9a-f]{40}", r"[0-9a-f]{40}", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9]+[.][0-9]+[.][0-9]+", r"[0-9a-f]{64}", r"[0-9a-f]{64}"]
 assert all(isinstance(value, str) and re.fullmatch(pattern, value) for value, pattern in zip(values, patterns)), "invalid OMP upstream lock"
 print(*values)
@@ -173,12 +190,25 @@ SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
 # Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
 # and stay as unexported variables in the one static remote shell that evaluates the supplied block.
+check_reboot_guard() {
+  local guard="$HOME/.config/omp-qualification/reboot-guard" output
+  [ -e "$guard" ] || [ -L "$guard" ] || return 0
+  if ! { [ -f "$guard" ] && [ -x "$guard" ] && python3 -c 'import os,stat,sys; sys.exit(not (os.stat(sys.argv[1]).st_mode & stat.S_IXUSR))' "$guard"; }; then
+    printf "the host's reboot guard must be a regular, owner-executable file: %s\n" "$guard" >&2
+    return 1
+  fi
+  if ! output="$("$guard" </dev/null 2>&1)"; then
+    printf "the host's reboot guard refused: %s\n" "$(printf '%s' "$output" | head -c 400)" >&2
+    return 1
+  fi
+}
+
 remote() {
   local script bootstrap helpers
-  helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
+  helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle check_reboot_guard)"
   script="${helpers}"$'\n'"$(cat)"
-  printf -v bootstrap 'bash -c %q' \
-    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; eval "$SCRIPT"'
+  printf -v bootstrap '/bin/bash -c %q' \
+    'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; eval "$SCRIPT"'
   {
     local value
     for value in "${OMP_MAC_SUDO_PW:-}" "$GATEWAY_PORT" "$LOGIN" "$TAG" "$PREVIOUS_TAG" "$OMP_SOURCE_COMMIT" "$OMP_SOURCE_TREE" "$OMP_VERSION" "$BUN_VERSION" "$OMP_NATIVE_TARBALL_SHA256" "$OMP_NATIVE_BINARY_SHA256" "$SESSION_LABEL" "$script"; do
@@ -209,20 +239,30 @@ preflight() {
   need_command shasum
   need_command scp
 
-  remote <<'REMOTE' || die "cannot reach the host over SSH, or its shell rejected the probe."
+  remote <<'REMOTE' || die "Mac host prerequisite probe failed; no lane was run."
+check_reboot_guard || exit 1
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 show "host" "$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
-show "hardware" "$(sysctl -n hw.model 2>/dev/null || echo unknown)"
+show "hardware" "$(/usr/sbin/sysctl -n hw.model 2>/dev/null || echo unknown)"
 show "user / shell" "$(whoami) / $SHELL"
 # Same PATH the lanes export. Probing a bare login shell reported `bun: MISSING` on a host where bun
 # was installed and every lane worked, which is a misleading preflight rather than a real finding.
-actual_bun="$(PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
+actual_bun="$(PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; command -v bun >/dev/null 2>&1 && bun --version || echo MISSING)"
 show "bun" "$actual_bun"
 if [ "$actual_bun" != "$BUN_VERSION" ]; then
   printf 'Mac qualification requires Bun %s; found %s. Update the retained host before running lanes.\n' "$BUN_VERSION" "$actual_bun" >&2
   exit 1
 fi
+actual_omp="$(omp --version </dev/null 2>/dev/null)" || actual_omp=""
+if ! printf '%s' "$actual_omp" | bun -e '
+  const version = /^(?:omp[ /])?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u.exec((await Bun.stdin.text()).trim())?.[1];
+  process.exit(version !== undefined && Bun.semver.satisfies(version, ">=18.1.20") ? 0 : 1);
+'; then
+  printf 'Mac qualification requires stock OMP >=18.1.20 on PATH for doctor compatibility; install it with: bun add --global --exact @oh-my-pi/pi-coding-agent@%s\n' "$OMP_VERSION" >&2
+  exit 1
+fi
+show "omp" "$actual_omp"
 show "sudo" "$(S true >/dev/null 2>&1 && echo available || echo UNAVAILABLE)"
 REMOTE
 
@@ -315,7 +355,7 @@ lane_install() {
   remote <<REMOTE
 S() { if [ -n "\$PW" ]; then echo "\$PW" | sudo -S -p '' "\$@"; else sudo -n "\$@"; fi; }
 show() { printf '   %-38s %s\n' "\$1:" "\$2"; }
-export PATH="\$HOME/.bun/bin:\$HOME/go/bin:\$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:\$HOME/.bun/bin:\$HOME/go/bin"
 CLI="\$HOME/qual/\$(cd ~/qual && ls -d omp-session-gateway-*-bun)/apps/gateway/src/cli.js"
 TS="\$(command -v tailscale || echo "\$HOME/go/bin/tailscale")"
 
@@ -401,12 +441,14 @@ REMOTE
 
   note "The two probes below must get no HTTP answer. Any HTTP status means the backend is reachable"
   note "from a distinct node, which is #98 and is a release blocker, not a warning."
-  local tailnet_probe public_probe
+  # The configured SSH name may resolve to the same tailnet address. This is not a claim about
+  # an additional public interface; both labels name the actual destinations probed from here.
+  local tailnet_probe ssh_probe
   tailnet_probe="$(backend_answer "$host_ip")"
-  public_probe="$(backend_answer "${HOST#*@}")"
+  ssh_probe="$(backend_answer "${HOST#*@}")"
   measure "backend at tailnet address" "$tailnet_probe"
-  measure "backend at ssh address" "$public_probe"
-  case "$tailnet_probe$public_probe" in *EXPOSED*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
+  measure "backend at ssh address" "$ssh_probe"
+  case "$tailnet_probe$ssh_probe" in *EXPOSED*) die "the gateway port answered from a distinct node. That is #98; stop and fix before recording anything." ;; esac
 }
 
 # Only an HTTP answer proves a listener. A completed TCP handshake does not: a carrier network's
@@ -423,10 +465,15 @@ backend_answer() {
 }
 
 issue_reboot() {
-  remote <<'REMOTE' >/dev/null 2>&1 || true
+  local output status=0
+  output="$(remote <<'REMOTE' 2>&1
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
-S shutdown -r now
+check_reboot_guard || exit 97
+S shutdown -r now >/dev/null 2>&1 || true
 REMOTE
+  )" || status=$?
+  # Preserve tolerance of SSH disconnecting at shutdown, but never swallow a guard refusal.
+  [ "$status" -ne 97 ] || die "$output"
 }
 
 lane_persistence() {
@@ -445,7 +492,7 @@ REMOTE
   local up=""
   for _ in $(seq 1 36); do
     sleep 10
-    up="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'ps -o etime= -p 1 | tr -d " "' 2>/dev/null || true)"
+    up="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; ps -o etime= -p 1 | tr -d " "' 2>/dev/null || true)"
     [ -n "$up" ] && break
   done
   [ -n "$up" ] || die "the host did not come back after the reboot."
@@ -459,7 +506,7 @@ REMOTE
   local waited=0 ready=""
   for _ in $(seq 1 24); do
     ready="$(remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 lsof -nP -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}'
 REMOTE
 )"
@@ -475,7 +522,7 @@ REMOTE
 
   remote <<'REMOTE'
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
-export PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 CLI="$HOME/qual/$(cd ~/qual && ls -d omp-session-gateway-*-bun)/apps/gateway/src/cli.js"
 pid="$(lsof -nP -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')"
 show "gateway pid" "${pid:-<none>}"
@@ -549,7 +596,8 @@ lane_rollback() {
   step "Lane 5: isolated gateway upgrade and rollback"
   stage_remote_rollback_tools
   remote <<'REMOTE'
-export PATH="$HOME/qual-tools:$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
+OMP_ROLLBACK_COSIGN="$HOME/qual-tools/cosign" \
 OMP_ROLLBACK_ARTIFACT_ROOT="$HOME/qual-tools/rollback-assets" \
 OMP_ROLLBACK_OLD_TAG="$PREVIOUS_TAG" OMP_ROLLBACK_NEW_TAG="$TAG" \
   bash "$HOME/qual-tools/qualify-rollback.sh" run
@@ -572,7 +620,7 @@ lane_omp_build() {
   step "Lane 6: exact mainline OMP build"
   stage_remote_omp_helper
   remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"
 OMP_QUAL_GATEWAY_ROOT="$root" \
 OMP_PIN_SOURCE_COMMIT="$OMP_SOURCE_COMMIT" \
@@ -590,7 +638,7 @@ lane_omp_clean() {
   step "Lane 7: mainline OMP cleanup"
   stage_remote_omp_helper
   remote <<'REMOTE'
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 archive_root="$(cd "$HOME/qual" 2>/dev/null && ls -d omp-session-gateway-*-bun 2>/dev/null | head -1 || true)"
 root="$HOME/qual/${archive_root:-absent}"
 OMP_QUAL_GATEWAY_ROOT="$root" \
@@ -608,7 +656,7 @@ lane_uninstall() {
   step "Lane 5: uninstall"
   remote <<'REMOTE'
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
 archive_root="$(cd "$HOME/qual" 2>/dev/null && ls -d omp-session-gateway-*-bun 2>/dev/null | head -1 || true)"
 CLI="$HOME/qual/$archive_root/apps/gateway/src/cli.js"
 if [ -n "$archive_root" ] && [ -f "$CLI" ]; then

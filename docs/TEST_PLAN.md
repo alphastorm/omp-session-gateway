@@ -190,6 +190,38 @@ Follow [ANDROID.md](ANDROID.md#physical-background-push-lane) before running a s
 the [specialized checklist](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending)
 remains unchecked until that exact signed candidate passes.
 
+Configured-Mac regressions require an explicit SSH destination and expected hardware model, reject
+unsafe password-file ownership/mode/type, and prove that an omitted password file reaches
+`sudo -n` through SSH stdin. Read-only admission rejects a measured hardware mismatch before
+staging; lifecycle receipts persist the measured hardware and OS, retain schema 3, and resume
+passed evidence for both the original and replacement models. The SSH exposure probe names the
+configured SSH destination, which may resolve to the same tailnet address as the other probe; it
+does not imply that the host has a separate public interface.
+
+Mac ownership regressions persist the configured host before the first effect, reject mismatched
+hosts and unbound legacy effects before target resolution or remote commands, leave refused
+receipts unchanged, and preserve same-host cleanup after a failed admission. A model refusal
+with no recorded effects cannot trigger cleanup, including when an external lane cannot parse
+absent progress. Schema 3 accepts the additive `macHost` binding without reclassifying historical
+evidence. Darwin shell proofs plant `sysctl`, `uname`, and `sw_vers` in the account's Bun directory
+and require the actual system hardware measurement through both admission and host evidence.
+Rollback verification also exercises its explicit staged Cosign outside PATH.
+
+Both Mac preflights reject absent stock OMP, releases below 18.1.20, prereleases, and malformed
+version banners before lane effects. Refusals identify the coding-agent install command from
+`UPSTREAM.lock.json`; admission creates no receipt and invokes no lane or cleanup, and shell
+preflight never reaches sudo. The exact compatibility minimum passes. Additional probe output
+is rejected without exposing its raw diagnostic.
+
+Optional host-owned reboot-guard regressions execute the remote shell and admission probe in
+isolated local homes: a busy guard refuses before sudo, lanes, cleanup, or new receipts; a
+non-regular or non-owner-executable guard names its exact path and refuses preflight. A guard
+that passes preflight but becomes busy before persistence prevents shutdown and fails the lane
+with only the first 400 diagnostic bytes. Absent and allowing guards preserve the exact
+passwordless shutdown command. Admission keeps a fixed four-line protocol, hex-frames multiline
+diagnostics, and rejects malformed, oversized, or extra guard output without creating receipts.
+These local proofs do not reboot or qualify a real shared host.
+
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
 

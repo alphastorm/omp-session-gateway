@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { runAdb, parseAndroidPackageVersion, readAndroidQualificationPin, requireAndroidDevicePreconditions, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
-import { readProvider } from "./provider-read.ts";
 import { releaseVersion } from "./release-policy.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
+import { isSupportedOmpVersion, parseOmpVersion } from "./upstream-canary.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
 import { pixelUnrestored } from "./restoration.ts";
 import { createOmpStdinDriver, OmpLifecycleFailure, runOmpLifecycle, type OmpLifecycleEvidence, type OmpLifecycleHost, type OmpSessionWait } from "./omp-lifecycle-qualification.ts";
@@ -20,9 +20,10 @@ const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][
 const SIGNED_WORKFLOW = "signed-release.yml";
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
-const DEFAULT_MAC_ZONE = "fr-par-1";
-const DEFAULT_MAC_NAME = "omp-macqual-01";
 const DEFAULT_MAC_LOGIN = "alphastorm@github";
+const MAC_PATH_SETUP = 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"';
+const MAC_HOST_PATTERN = /^[A-Za-z_][A-Za-z0-9._-]*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/u;
+const MAC_MODEL_PATTERN = /^[A-Za-z][A-Za-z0-9]*[0-9],[0-9]+$/u;
 const DEFAULT_SESSION_LABEL = "omp-stable-pixel-qualification";
 const MINIMUM_RELAY_SECONDS = 1_800;
 const PROTECTED_REPOSITORY_FILES = ["STABLE_RELEASE.lock.json", "docs/RELEASE_STATUS.md"] as const;
@@ -129,6 +130,8 @@ export interface StableQualificationReceipt {
   candidate?: CandidateIdentity;
   /** The verified rollback predecessor that host lanes install before the candidate. */
   predecessor?: CandidateIdentity;
+  /** SSH target bound before the first Mac effect; absent only in pre-Mac or historical receipts. */
+  macHost?: string;
   lanes: Record<StableQualificationLane, LaneReceipt>;
   error?: string;
 }
@@ -138,8 +141,9 @@ export interface StableQualificationOptions {
   readonly tag: string;
   readonly previousTag: string;
   readonly receiptRoot: string;
-  readonly macZone: string;
-  readonly macName: string;
+  readonly macHost: string;
+  readonly macModel: string;
+  readonly macSudoPasswordFile?: string;
   readonly macLogin: string;
   readonly sessionLabel: string;
   readonly relaySeconds: number;
@@ -353,13 +357,26 @@ export function parseStableQualificationArgs(
     3_600,
   );
   if (relaySeconds < MINIMUM_RELAY_SECONDS) throw new Error("OMP_STABLE_RELAY_SECONDS must be at least 1800");
+  const macHost = environment.OMP_STABLE_MAC_HOST;
+  if (macHost === undefined || !MAC_HOST_PATTERN.test(macHost)) {
+    throw new Error("OMP_STABLE_MAC_HOST is required as user@host (DNS name or IPv4 address, without SSH options or a port)");
+  }
+  const macModel = environment.OMP_STABLE_MAC_MODEL;
+  if (macModel === undefined || !MAC_MODEL_PATTERN.test(macModel)) {
+    throw new Error("OMP_STABLE_MAC_MODEL is required as an exact hardware model, for example Mac17,14");
+  }
+  const macSudoPasswordFile = environment.OMP_STABLE_MAC_SUDO_PASSWORD_FILE;
+  if (macSudoPasswordFile !== undefined && macSudoPasswordFile.trim() === "") {
+    throw new Error("OMP_STABLE_MAC_SUDO_PASSWORD_FILE must name a private password file or be unset for passwordless sudo");
+  }
   return {
     preflight,
     tag,
     previousTag,
     receiptRoot,
-    macZone: environment.OMP_STABLE_MAC_ZONE ?? DEFAULT_MAC_ZONE,
-    macName: environment.OMP_STABLE_MAC_NAME ?? DEFAULT_MAC_NAME,
+    macHost,
+    macModel,
+    ...(macSudoPasswordFile === undefined ? {} : { macSudoPasswordFile: resolve(macSudoPasswordFile) }),
     macLogin: (environment.OMP_STABLE_MAC_LOGIN ?? DEFAULT_MAC_LOGIN).trim().toLowerCase(),
     sessionLabel,
     relaySeconds,
@@ -413,6 +430,9 @@ export function validateStableQualificationReceipt(
     throw new Error(
       "qualification receipt identity is invalid; do not resume evidence across orchestrator commits or rollback predecessors",
     );
+  }
+  if (receipt.macHost !== undefined && (typeof receipt.macHost !== "string" || !MAC_HOST_PATTERN.test(receipt.macHost))) {
+    throw new Error("qualification receipt Mac host is invalid");
   }
   if (typeof receipt.lanes !== "object" || receipt.lanes === null) throw new Error("qualification receipt lanes are invalid");
   for (const name of LANE_NAMES) {
@@ -550,6 +570,7 @@ function laneProgress(lane: LaneReceipt): unknown {
 
 /** Whether a lane's receipt still records external effects. Unreadable progress counts as effects. */
 function recordedEffects(module: ExternalLaneModule<never>, lane: LaneReceipt): boolean {
+  if (lane.attempts === 0 && lane.status === "pending" && lane.evidence === undefined) return false;
   try {
     return module.needsCleanup(laneProgress(lane));
   } catch {
@@ -873,7 +894,7 @@ export function remoteExecutor(target: MacTarget): RemoteExecutor {
         "BatchMode=yes",
         "-q",
         target.sshDestination,
-        remoteCommandLine(argv),
+        `${MAC_PATH_SETUP}; ${remoteCommandLine(argv)}`,
       ],
       {
         allowFailure: true,
@@ -1083,33 +1104,14 @@ export async function qualifyDebian(
   };
 }
 
-function parseCredentialAssignments(text: string): Record<string, string> {
-  const values: Record<string, string> = {};
-  for (const rawLine of text.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const normalized = line.startsWith("export ") ? line.slice(7).trim() : line;
-    const separator = normalized.indexOf("=");
-    if (separator <= 0) throw new Error("Scaleway credential file contains an unsupported line");
-    const key = normalized.slice(0, separator).trim();
-    let value = normalized.slice(separator + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (!/^SCW_[A-Z_]+$/u.test(key) || value === "") throw new Error("Scaleway credential entry is invalid");
-    values[key] = value;
-  }
-  return values;
-}
-
 export function parseQualificationPins(text: string): OmpPins {
   const value: unknown = JSON.parse(text);
-  if (!isRecord(value) || !isRecord(value.darwinArm64Native)) throw new Error("OMP qualification pin is invalid");
+  if (!isRecord(value) || !isRecord(value.darwinArm64Native) || !isRecord(value.packageVersions)) throw new Error("OMP qualification pin is invalid");
   const pins = {
     bunVersion: value.bunVersion,
     sourceCommit: value.commit,
     sourceTree: value.tree,
-    version: value.packageVersion,
+    version: value.packageVersions["@oh-my-pi/pi-coding-agent"],
     nativeTarballSha256: value.darwinArm64Native.tarballSha256,
     nativeBinarySha256: value.darwinArm64Native.binarySha256,
   };
@@ -1118,7 +1120,7 @@ export function parseQualificationPins(text: string): OmpPins {
     typeof pins.sourceCommit !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceCommit) ||
     typeof pins.sourceTree !== "string" || !/^[0-9a-f]{40}$/u.test(pins.sourceTree) ||
     typeof pins.version !== "string" || !/^[0-9]+[.][0-9]+[.][0-9]+$/u.test(pins.version) ||
-    !Bun.semver.satisfies(pins.version, ">=18.1.20") ||
+    pins.version !== value.packageVersion || !isSupportedOmpVersion(pins.version) ||
     typeof pins.nativeTarballSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeTarballSha256) ||
     typeof pins.nativeBinarySha256 !== "string" || !/^[0-9a-f]{64}$/u.test(pins.nativeBinarySha256)
   ) {
@@ -1131,45 +1133,19 @@ async function loadQualificationPins(): Promise<OmpPins> {
   return parseQualificationPins(await readFile(join(repositoryRoot, "UPSTREAM.lock.json"), "utf8"));
 }
 
-export async function recoverRetainedMac(options: StableQualificationOptions): Promise<MacTarget> {
-  const credentialPath = resolve(process.env.OMP_STABLE_SCW_CREDENTIAL_FILE ?? join(homedir(), ".scaleway-apikey"));
-  const credentialMetadata = await lstat(credentialPath);
-  if (!credentialMetadata.isFile() || credentialMetadata.isSymbolicLink() || credentialMetadata.uid !== process.getuid?.() || (credentialMetadata.mode & 0o077) !== 0) {
-    throw new Error("Scaleway credential file must be a current-user regular file with no group or other access");
+export async function loadConfiguredMacTarget(options: StableQualificationOptions): Promise<MacTarget> {
+  let sudoPassword = "";
+  if (options.macSudoPasswordFile !== undefined) {
+    const metadata = await lstat(options.macSudoPasswordFile);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0) {
+      throw new Error("Mac sudo password file must be a current-user regular file with no group or other access");
+    }
+    sudoPassword = (await readFile(options.macSudoPasswordFile, "utf8")).replace(/\r?\n$/u, "");
+    if (sudoPassword === "" || /[\r\n\0]/u.test(sudoPassword)) {
+      throw new Error("Mac sudo password file must contain one nonempty password line");
+    }
   }
-  const credentials = parseCredentialAssignments(await readFile(credentialPath, "utf8"));
-  const secretKey = credentials.SCW_SECRET_KEY;
-  const projectId = credentials.SCW_DEFAULT_PROJECT_ID;
-  if (!secretKey || !projectId) throw new Error("Scaleway credential file is missing required entries");
-  const endpoint = `https://api.scaleway.com/apple-silicon/v1alpha1/zones/${encodeURIComponent(options.macZone)}/servers`;
-  const listResponse = await readProvider(() => fetch(`${endpoint}?project_id=${encodeURIComponent(projectId)}`, {
-    headers: { "X-Auth-Token": secretKey },
-    signal: AbortSignal.timeout(15_000),
-  }));
-  if (!listResponse.ok) throw new Error(`Scaleway server list failed with status ${listResponse.status}`);
-  const list = (await listResponse.json()) as { servers?: unknown[] };
-  const matches = (list.servers ?? []).filter(
-    (entry): entry is Record<string, unknown> => isRecord(entry) && entry.name === options.macName,
-  );
-  if (matches.length !== 1 || typeof matches[0]?.id !== "string") {
-    throw new Error("expected exactly one retained Scaleway Mac");
-  }
-  const serverId = matches[0].id;
-  const detailResponse = await readProvider(() => fetch(`${endpoint}/${encodeURIComponent(serverId)}`, {
-    headers: { "X-Auth-Token": secretKey },
-    signal: AbortSignal.timeout(15_000),
-  }));
-  if (!detailResponse.ok) throw new Error(`Scaleway server detail failed with status ${detailResponse.status}`);
-  const detail = (await detailResponse.json()) as { server?: Record<string, unknown> } & Record<string, unknown>;
-  const server = detail.server ?? detail;
-  if (server.status !== "ready" || server.type !== "M2-M") throw new Error("retained Scaleway Mac is not ready as M2-M");
-  const user = server.ssh_username;
-  const ip = server.ip;
-  const sudoPassword = server.sudo_password ?? server.password;
-  if (typeof user !== "string" || typeof ip !== "string" || typeof sudoPassword !== "string" || sudoPassword === "") {
-    throw new Error("retained Scaleway Mac access fields are incomplete");
-  }
-  return { sshDestination: `${user}@${ip}`, sudoPassword };
+  return { sshDestination: options.macHost, sudoPassword };
 }
 
 export interface StablePreflightRuntime {
@@ -1180,7 +1156,7 @@ export interface StablePreflightRuntime {
   readonly executable: (name: string) => string | null;
   readonly output: (command: readonly string[]) => Promise<string>;
   readonly adb: (serial: string | undefined, args: readonly string[]) => Promise<string>;
-  readonly recoverMac: (options: StableQualificationOptions) => Promise<MacTarget>;
+  readonly loadMacTarget: (options: StableQualificationOptions) => Promise<MacTarget>;
 }
 
 const defaultPreflightRuntime: StablePreflightRuntime = {
@@ -1191,7 +1167,7 @@ const defaultPreflightRuntime: StablePreflightRuntime = {
   executable: Bun.which,
   output: command => commandOutput(command, { timeoutMs: 15_000 }),
   adb: (serial, args) => runAdb(serial, args, { timeoutMs: 15_000 }),
-  recoverMac: recoverRetainedMac,
+  loadMacTarget: loadConfiguredMacTarget,
 };
 
 /** Discard raw probe errors: SSH, adb and credential tools can include private identifiers or secrets. */
@@ -1265,29 +1241,63 @@ export async function preflightStableQualification(
   const qualificationRef = await prerequisite("qualification source must be a clean branch whose published HEAD matches locally", () =>
     gitQualificationRef(orchestratorCommit, runtime.output),
   );
-  const target = await prerequisite("retained Mac lookup failed; check the private Scaleway credential and exactly one ready retained host", () =>
-    runtime.recoverMac(options),
+  const target = await prerequisite("configured Mac target unavailable; check the optional private sudo password file", () =>
+    runtime.loadMacTarget(options),
   );
-  const macDnsName = await prerequisite("retained Mac SSH, Darwin-arm64, pinned Bun, required tools or user-owned TUN-mode Tailscale prerequisites are unavailable", async () => {
+  const macProbe = await prerequisite("retained Mac SSH, Darwin-arm64, pinned Bun, required tools or user-owned TUN-mode Tailscale prerequisites are unavailable", async () => {
     // Match the qualifier's PATH; ~/qual is created later by artifact staging, not a prerequisite.
     const probe = [
       'set -eu',
-      'export PATH="$HOME/.bun/bin:$HOME/go/bin:$PATH"',
+      MAC_PATH_SETUP,
       '[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]',
       '[ "$(bun --version)" = ' + shellQuote(ompPins.bunVersion) + ' ]',
-      'for tool in bash python3 curl git shasum tar lsof launchctl sudo tailscale ifconfig; do command -v "$tool" >/dev/null; done',
+      'for tool in bash python3 curl git shasum tar lsof launchctl sudo tailscale ifconfig sysctl; do command -v "$tool" >/dev/null; done',
       'ifconfig | python3 -c ' + shellQuote('import sys; assert "inet6 fd7a:115c:a1e0:" in sys.stdin.read()'),
+      '/usr/sbin/sysctl -n hw.model',
       'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip("."); print(s["DNSName"].rstrip("."))'),
+      'omp_version="$(omp --version </dev/null 2>/dev/null)" || omp_version=MISSING',
+      'printf "%s\n" "${omp_version:-MISSING}"',
+      // Hex framing keeps multiline guard diagnostics inside one fixed protocol line.
+      'python3 -c ' + shellQuote(`
+import os,stat,subprocess
+path = os.path.join(os.environ["HOME"], ".config/omp-qualification/reboot-guard")
+if not os.path.lexists(path):
+    print("guard=absent")
+elif not os.path.isfile(path) or not os.access(path, os.X_OK) or not os.stat(path).st_mode & stat.S_IXUSR:
+    print("guard=invalid:" + os.fsencode(path).hex())
+else:
+    try:
+        result = subprocess.run([path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print("guard=passed" if result.returncode == 0 else "guard=refused:" + result.stdout[:400].hex())
+    except OSError as error:
+        print("guard=refused:" + str(error).encode()[:400].hex())
+`),
     ].join("; ");
-    const dnsName = (await runtime.output([
+    const result = (await runtime.output([
       "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
       "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
-      "-o", "BatchMode=yes", "-q", target.sshDestination, "bash -c " + shellQuote(probe),
+      "-o", "BatchMode=yes", "-q", target.sshDestination, "/bin/bash -c " + shellQuote(probe),
     ])).trim();
-    if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) throw new Error("retained Mac has no tailnet DNS name");
-    return dnsName;
+    const [hardware, dnsName, ompBanner, guard, extra] = result.split(/\r?\n/u);
+    if (extra !== undefined || dnsName === undefined || ompBanner === undefined || guard === undefined ||
+      !/^guard=(?:absent|passed|refused:(?:[0-9a-f]{2}){0,400}|invalid:(?:[0-9a-f]{2})+)$/u.test(guard) ||
+      !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
+      throw new Error("retained Mac probe did not return exactly its model, tailnet DNS name, OMP version banner and reboot guard result");
+    }
+    return { hardware, dnsName, ompBanner, guard };
   });
-  const macOrigin = `https://${macDnsName}`;
+  if (macProbe.guard.startsWith("guard=refused:")) {
+    throw new Error("Stable preflight: the host's reboot guard refused: " + Buffer.from(macProbe.guard.slice(14), "hex").toString("utf8"));
+  }
+  if (macProbe.guard.startsWith("guard=invalid:")) {
+    throw new Error("Stable preflight: the host's reboot guard must be a regular, owner-executable file: " + Buffer.from(macProbe.guard.slice(14), "hex").toString("utf8"));
+  }
+  assertMacHardware(macProbe.hardware, options.macModel);
+  const installedOmpVersion = parseOmpVersion(macProbe.ompBanner);
+  if (installedOmpVersion === undefined || !isSupportedOmpVersion(installedOmpVersion)) {
+    throw new Error(`Stable preflight: Mac requires stock OMP >=18.1.20 on PATH for doctor compatibility; install it with: bun add --global --exact @oh-my-pi/pi-coding-agent@${ompPins.version}`);
+  }
+  const macOrigin = `https://${macProbe.dnsName}`;
   const laneContext: ExternalLanePreflightContext = { environment: runtime.environment, serial, omp: ompPins, macOrigin };
   for (const [name, lane] of [
     ["Windows", lanes.windows],
@@ -1345,10 +1355,22 @@ export function assertMacExposureEvidence(output: string): void {
   }
 }
 
-export function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins) {
+function assertMacHardware(measured: string | undefined, expected: string): string {
+  if (measured === undefined || !MAC_MODEL_PATTERN.test(measured)) {
+    throw new Error("Mac hardware measurement is missing or invalid");
+  }
+  if (measured !== expected) throw new Error(`Mac hardware mismatch: expected ${expected}, measured ${measured}`);
+  return measured;
+}
+
+export function assertMacLifecycleOutput(output: string, candidate: CandidateIdentity, pins: OmpPins, expectedHardware: string) {
   assertMacBuildOutput(output, candidate, pins);
+  const measurements = [...output.matchAll(/^\s*hardware:[ \t]+(\S+)[ \t]*$/gmu)];
+  if (measurements.length === 0) throw new Error("Mac lifecycle output missed required hardware evidence");
+  // Each staged shell invocation probes the host again; all measurements must agree.
+  const hardware = assertMacHardware(measurements[0]?.[1], expectedHardware);
+  for (const measurement of measurements.slice(1)) assertMacHardware(measurement[1], expectedHardware);
   for (const expected of [
-    "hardware:                              Mac14,3",
     "doctor false checks                    (none)",
     "token bytes in bundle:                 0",
     "login in bundle:                       0",
@@ -1364,7 +1386,7 @@ export function assertMacLifecycleOutput(output: string, candidate: CandidateIde
   if (doctor === undefined || rollbackInvariants === undefined || os === undefined) {
     throw new Error("Mac lifecycle output missed a passing doctor, rollback or host summary");
   }
-  return { doctor, rollbackInvariants, os };
+  return { hardware, doctor, rollbackInvariants, os };
 }
 async function readMacPublicOrigin(target: MacTarget): Promise<string> {
   const result = await commandOutput([
@@ -1377,7 +1399,7 @@ async function readMacPublicOrigin(target: MacTarget): Promise<string> {
     "BatchMode=yes",
     "-q",
     target.sshDestination,
-    'TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" status --json',
+    MAC_PATH_SETUP + '; TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" status --json',
   ]);
   const status = JSON.parse(result) as { Self?: { DNSName?: unknown; Tags?: unknown[] }; BackendState?: unknown };
   const dnsName = status.Self?.DNSName;
@@ -1433,9 +1455,8 @@ async function qualifyMacLifecycle(
     ["omp-clean", "uninstall", "install", "identity", "persistence", "rollback", "omp-build"],
     50 * 60 * 1_000,
   );
-  const summaries = assertMacLifecycleOutput(run.output, candidate, pins);
+  const summaries = assertMacLifecycleOutput(run.output, candidate, pins, options.macModel);
   return {
-    hardware: "Mac14,3",
     ...summaries,
     archiveSha256: candidate.archiveSha256,
     nativeAddonSha256: pins.nativeBinarySha256,
@@ -1462,7 +1483,7 @@ async function prepareMacFixture(
 
 function ompRemoteCommand(options: StableQualificationOptions, pins: OmpPins, mode: "run" | "continue"): string {
   return [
-    'export PATH="$HOME/.bun/bin:$PATH"',
+    MAC_PATH_SETUP,
     'root="$HOME/qual/$(cd "$HOME/qual" && ls -d omp-session-gateway-*-bun)"',
     `OMP_QUAL_GATEWAY_ROOT="$root" OMP_PIN_SOURCE_COMMIT=${shellQuote(pins.sourceCommit)} OMP_PIN_SOURCE_TREE=${shellQuote(pins.sourceTree)} OMP_PIN_VERSION=${shellQuote(pins.version)} OMP_PIN_BUN_VERSION=${shellQuote(pins.bunVersion)} OMP_PIN_NATIVE_TARBALL_SHA256=${shellQuote(pins.nativeTarballSha256)} OMP_PIN_NATIVE_BINARY_SHA256=${shellQuote(pins.nativeBinarySha256)} OMP_QUAL_SESSION_LABEL=${shellQuote(options.sessionLabel)} OMP_FIXTURE_MODEL=${shellQuote(OMP_FIXTURE_MODEL)} exec bash "$HOME/qual-tools/qualify-macos-omp.sh" ${mode}`,
   ].join("; ");
@@ -1790,7 +1811,7 @@ async function cleanupMac(
       "BatchMode=yes",
       "-q",
       context.target.sshDestination,
-      'TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" serve reset >/dev/null',
+      MAC_PATH_SETUP + '; TS="$(command -v tailscale || echo "$HOME/go/bin/tailscale")"; "$TS" serve reset >/dev/null',
     ]);
   });
   await attempt("mainline OMP cleanup", async () => {
@@ -1807,7 +1828,7 @@ async function cleanupMac(
       "BatchMode=yes",
       "-q",
       context.target.sshDestination,
-      'rm -rf "$HOME/qual" "$HOME/qual-tools"',
+      MAC_PATH_SETUP + '; rm -rf "$HOME/qual" "$HOME/qual-tools"',
     ]);
   });
 
@@ -1829,6 +1850,21 @@ async function cleanupMac(
   };
 }
 
+function receiptHasMacEffects(receipt: StableQualificationReceipt): boolean {
+  return (["macos", "ompPublication", "android", "androidPush", "androidPushCleanup", "deviceCloud", "deviceCloudCleanup", "relay", "cleanup"] as const).some(
+    name => receipt.lanes[name].attempts > 0 || receipt.lanes[name].status !== "pending" || receipt.lanes[name].evidence !== undefined,
+  );
+}
+
+function assertMacHostBinding(receipt: StableQualificationReceipt, macHost: string): void {
+  if (receipt.macHost !== undefined && receipt.macHost !== macHost) {
+    throw new Error("configured Mac host differs from the receipt; restore OMP_STABLE_MAC_HOST to the recorded host before resuming");
+  }
+  if (receipt.macHost === undefined && receiptHasMacEffects(receipt)) {
+    throw new Error("receipt records Mac effects without a bound host; automated cleanup is refused. Perform manual cleanup of the original Mac's gateway, Tailscale Serve, OMP fixtures and qualification artifacts using the original campaign checkout before starting a new campaign directory");
+  }
+}
+
 export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boolean {
   if (receipt.lanes.cleanup.status === "passed") return false;
   return (["macos", "ompPublication", "android", "androidPush", "deviceCloud", "relay", "cleanup"] as const).some(
@@ -1836,9 +1872,12 @@ export function receiptNeedsMacCleanup(receipt: StableQualificationReceipt): boo
   );
 }
 
-export function markMacCleanupRequired(receipt: StableQualificationReceipt): boolean {
+export function markMacCleanupRequired(receipt: StableQualificationReceipt, macHost: string): boolean {
+  assertMacHostBinding(receipt, macHost);
+  const newlyBound = receipt.macHost === undefined;
+  receipt.macHost = macHost;
   const cleanup = receipt.lanes.cleanup;
-  if (cleanup.status !== "passed") return false;
+  if (cleanup.status !== "passed") return newlyBound;
   cleanup.status = "pending";
   delete cleanup.startedAt;
   delete cleanup.completedAt;
@@ -1909,6 +1948,8 @@ export async function runStableQualification(
     runtime.output(["git", "rev-parse", "HEAD"]),
   );
   const receipt = await loadReceipt(receiptPath, options.tag, orchestratorCommit, options.previousTag);
+  // Refuse retargeting before admission, target resolution, or any finally-path remote cleanup.
+  assertMacHostBinding(receipt, options.macHost);
   receipt.status = "running";
   delete receipt.completedAt;
   delete receipt.error;
@@ -1931,12 +1972,12 @@ export async function runStableQualification(
   let cleanupRequired = receiptNeedsMacCleanup(receipt);
   const requireMacCleanup = async (): Promise<void> => {
     cleanupRequired = true;
-    if (markMacCleanupRequired(receipt)) await persist();
+    if (markMacCleanupRequired(receipt, options.macHost)) await persist();
   };
   try {
     if (cleanupRequired) {
       if (receipt.candidate === undefined) throw new Error("receipt records Mac effects without a candidate identity");
-      target = await prerequisite("retained Mac cleanup access is unavailable", () => runtime.recoverMac(options));
+      target = await prerequisite("configured Mac cleanup access is unavailable", () => runtime.loadMacTarget(options));
       macCleanupContext = {
         target,
         environment: macEnvironment(options, target, receipt.candidate),
@@ -2131,7 +2172,7 @@ export async function runStableQualification(
       externalEffects = true;
       try {
         const mac = target ?? await prerequisite(`retained Mac access for ${description} cleanup is unavailable`, () =>
-          runtime.recoverMac(options),
+          runtime.loadMacTarget(options),
         );
         await cleanExternalLane(receipt, name, persist, lanes[name], {
           identity: externalLaneIdentity(options, receipt, orchestratorCommit, ompPins),

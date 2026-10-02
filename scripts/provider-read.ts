@@ -19,7 +19,7 @@ function transientNetworkError(error: unknown): boolean {
 }
 
 /**
- * Qualification drives third-party control planes (Vultr, Tailscale, Scaleway) whose APIs answer an
+ * Qualification drives third-party control planes (Vultr, Tailscale) whose APIs answer an
  * occasional transient 5xx or transport failure. Vultr returned HTTP 502 twice in one day: once at Windows admission, and
  * once on the instance lookup after the lane's reboot, which failed the attempt with its VM running.
  * On 2026-09-29 it returned 502 to three reads spanning six seconds while the lane staged its guest,
