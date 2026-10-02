@@ -944,7 +944,7 @@ test("Mac evidence follows the exact OMP pin and rejects a stale build", async (
   expect(() => assertMacBuildOutput(output.replace("17/17 true", "16/17 true"), candidate, pins)).toThrow("doctor");
 });
 
-test.each([["Mac14,3", "26.6.1"], ["Mac17,14", "27.0.1"]])("Mac %s lifecycle persists measured schema-3 evidence and refuses failures", async (model, version) => {
+async function macLifecycleFixture(model = MAC_ENV.OMP_STABLE_MAC_MODEL, version = "27.0.1") {
   const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
   const candidate = { tag: TAG, sourceCommit: COMMIT, archiveSha256: "b".repeat(64) };
   const output = [
@@ -959,11 +959,23 @@ test.each([["Mac14,3", "26.6.1"], ["Mac17,14", "27.0.1"]])("Mac %s lifecycle per
     "forged header, real login allowed:     200",
     "   backend at tailnet address:            no HTTP answer (curl exit 7)",
     "   backend at ssh address:                no HTTP answer (curl exit 56)",
+    "guest reboot changed: yes",
+    "console login: yes",
     "gateway returned after: 1 second",
+    "readiness token preserved: yes",
     "23/23 invariants PASS",
     JSON.stringify({ version: pins.version, sourceCommit: pins.sourceCommit, sourceTree: pins.sourceTree, nativeSha256: pins.nativeBinarySha256 }),
   ].join("\n");
-  expect(assertMacLifecycleOutput(output, candidate, pins, model)).toEqual({ hardware: model, doctor: "18/18", rollbackInvariants: "23/23", os: `macOS ${version} arm64` });
+  return { pins, candidate, output };
+}
+
+test.each([["Mac14,3", "26.6.1"], ["Mac17,14", "27.0.1"], ["VirtualMac2,1", "27.0.1"]])("Mac %s lifecycle persists measured schema-3 evidence and refuses failures", async (model, version) => {
+  const { pins, candidate, output } = await macLifecycleFixture(model, version);
+  const evidence = {
+    hardware: model, doctor: "18/18", rollbackInvariants: "23/23", os: `macOS ${version} arm64`,
+    guestRebootChanged: true, consoleLogin: true, readinessPreserved: true,
+  };
+  expect(assertMacLifecycleOutput(output, candidate, pins, model)).toEqual(evidence);
   expect(() => assertMacLifecycleOutput(output.replace("23/23", "22/23"), candidate, pins, model)).toThrow("rollback");
   const exposed = output.replace("no HTTP answer (curl exit 56)", "HTTP 403 — EXPOSED");
   expect(() => assertMacLifecycleOutput(exposed, candidate, pins, model)).toThrow("backend at ssh address");
@@ -983,11 +995,77 @@ test.each([["Mac14,3", "26.6.1"], ["Mac17,14", "27.0.1"]])("Mac %s lifecycle per
     await executeReceiptLane(receipt, "macos", persist, async () => assertMacLifecycleOutput(output, candidate, pins, model));
     const restored = validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), TAG, COMMIT, PREVIOUS_TAG);
     expect(restored.schemaVersion).toBe(3);
-    expect(restored.lanes.macos).toMatchObject({ status: "passed", evidence: { hardware: model, os: `macOS ${version} arm64` } });
+    expect(restored.lanes.macos).toMatchObject({ status: "passed", evidence });
     const resumed = await executeReceiptLane<ReturnType<typeof assertMacLifecycleOutput>>(restored, "macos", createReceiptPersister(path, restored), async () => {
       throw new Error("passed schema-3 Mac evidence must not rerun");
     });
-    expect(resumed.hardware).toBe(model);
+    expect(resumed).toEqual(evidence);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.each(["guest reboot changed", "console login", "readiness token preserved"])("Mac lifecycle refuses a failed or missing %s verdict", async label => {
+  const { pins, candidate, output } = await macLifecycleFixture();
+  for (const rejected of [
+    output.replace(`${label}: yes`, `${label}: no`),
+    output.replace(`${label}: yes\n`, ""),
+    `${output}\n${label}: no`,
+  ]) {
+    expect(() => assertMacLifecycleOutput(rejected, candidate, pins, MAC_ENV.OMP_STABLE_MAC_MODEL)).toThrow(label);
+  }
+});
+
+test.skipIf(process.platform === "win32")("same-host resume cannot pass stale gateway output when the boot UUID stays unchanged", async () => {
+  const { pins, candidate, output } = await macLifecycleFixture();
+  const root = await mkdtemp(join(tmpdir(), "stable-mac-stale-boot-"));
+  const bootUuid = "11111111-1111-4111-8111-111111111111";
+  try {
+    await mkdir(join(root, ".config", "omp-session-gateway"), { recursive: true });
+    await writeFile(join(root, ".config", "omp-session-gateway", "readiness-token"), "synthetic-readiness-token");
+    const child = Bun.spawn(["/bin/bash", "-c", `
+set -euo pipefail
+source "$1"
+sleep() { :; }
+sysctl() { [ "$*" = "-n kern.bootsessionuuid" ] || return 91; printf '%s\\n' "$BOOT_UUID"; }
+sudo() { [ "$*" = "-n shutdown -r now" ] || return 92; : >"$HOME/reboot-requested"; }
+lsof() { printf 'COMMAND PID\\nbun 42\\n'; }
+ps() { printf '00:01\\n'; }
+launchctl() { return 0; }
+who() { printf 'gwqual console\\n'; }
+bun() { return 0; }
+export -f sysctl sudo lsof ps launchctl who bun
+ssh() { /bin/bash -c "\${!#}"; }
+lane_persistence
+`, "test", join(REPOSITORY_ROOT, "scripts", "qualify-macos-host.sh")], {
+      cwd: REPOSITORY_ROOT,
+      env: {
+        ...process.env, HOME: root, BOOT_UUID: bootUuid,
+        OMP_MAC_HOST: MAC_ENV.OMP_STABLE_MAC_HOST, OMP_MAC_TAG: TAG, OMP_MAC_PREVIOUS_TAG: PREVIOUS_TAG,
+        OMP_MAC_LOGIN: "synthetic@example.invalid", OMP_MAC_SUDO_PW: "", OMP_MAC_ARCHIVE_SHA256: candidate.archiveSha256,
+      },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toMatch(/guest reboot changed:[ \t]+no/u);
+    expect(stderr).toContain("a changed boot identity");
+    expect(stdout + stderr).not.toContain(bootUuid);
+    expect((await stat(join(root, "reboot-requested"))).isFile()).toBe(true);
+    const staleOutput = output.split("\n").filter(line => !/^(guest reboot changed|console login|readiness token preserved):/u.test(line)).join("\n") + "\n" + stdout;
+    const path = join(root, "receipt.json");
+    let receipt = createStableQualificationReceipt(TAG, COMMIT, PREVIOUS_TAG);
+    markMacCleanupRequired(receipt, MAC_ENV.OMP_STABLE_MAC_HOST);
+    for (const attempt of [1, 2]) {
+      await expect(executeReceiptLane(receipt, "macos", createReceiptPersister(path, receipt), async () =>
+        assertMacLifecycleOutput(staleOutput, candidate, pins, MAC_ENV.OMP_STABLE_MAC_MODEL),
+      )).rejects.toThrow("guest reboot changed");
+      receipt = validateStableQualificationReceipt(JSON.parse(await readFile(path, "utf8")), TAG, COMMIT, PREVIOUS_TAG);
+      expect(receipt.macHost).toBe(MAC_ENV.OMP_STABLE_MAC_HOST);
+      expect(receipt.lanes.macos).toMatchObject({ status: "failed", attempts: attempt });
+      expect(receipt.lanes.macos.evidence).toBeUndefined();
+      expect(receiptNeedsMacCleanup(receipt)).toBe(true);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
