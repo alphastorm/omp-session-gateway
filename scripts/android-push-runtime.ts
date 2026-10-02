@@ -157,6 +157,18 @@ const DIRECTORY_STATE = `(() => {
     live: live === null ? 0 : Number(live[1]), toast: document.querySelector("#local-action-toast")?.hidden === false };
 })()`;
 
+/**
+ * Admission is the fleet contract, not one handset: any identified Pixel on Android 13+ (runtime
+ * POST_NOTIFICATIONS exists from 13). The orchestrator's own device gate uses the same prefix test;
+ * the first version pinned the exact model of the first phone, and the next phone was refused by a
+ * message blaming notification permissions.
+ */
+export function requireAndroidPushDevice(model: string, androidRelease: string): void {
+  if (!model.startsWith("Pixel ")) throw new Error(`Android Push requires a Pixel; attached model is ${JSON.stringify(model)}`);
+  const major = Number.parseInt(androidRelease, 10);
+  if (!Number.isInteger(major) || major < 13) throw new Error(`Android Push requires Android 13 or newer for runtime notification permissions; attached release is ${JSON.stringify(androidRelease)}`);
+}
+
 export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "origin" | "omp">, options: AndroidPushRuntimeOptions = {}): AndroidPushRuntime {
   const base = options.fixtureBase ?? join(homedir(), ".local/share/omp-session-gateway/qualification/dev/androidPush/fixtures");
   let serial: string | undefined;
@@ -269,7 +281,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       const model = (await command("shell", "getprop", "ro.product.model")).trim();
       const android = (await command("shell", "getprop", "ro.build.version.release")).trim();
       const browser = parseAndroidPackageVersion(await command("shell", "dumpsys", "package", "com.android.chrome"));
-      if (model !== "Pixel 10 Pro" || Number(android) < 13) throw new Error("Android Push requires the physical Pixel and runtime notification permissions");
+      requireAndroidPushDevice(model, android);
       if (Bun.version !== identity.omp.bunVersion) throw new Error("Push driver Bun does not match the pin");
       const device = await runtime.device();
       if (device.forcedDoze || device.batteryOverride) throw new Error("Push qualification requires no pre-existing battery/Doze override");
