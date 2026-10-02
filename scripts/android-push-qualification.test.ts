@@ -7,6 +7,7 @@ import { runAndroidPush, cleanupAndroidPush, parseAndroidPushProgress, androidPu
   type AndroidPushIdentity, type AndroidPushRuntime, type PushDeviceBaseline, type PushBrowserBaseline, type PushCleanupStep, type TriageAction, type TriageObservation } from "./android-push-qualification.ts";
 import type { SessionMetadata } from "../packages/protocol/src/types.ts";
 import { observeNotificationDump, parseAndroidUi, NotificationOverlapError, findAndroidNotification, tapAndroidNotification, notificationTopicDigest, notificationMatchesDigest, trackUnchangedNotificationPost } from "./android-notification.ts";
+import { requireAndroidPushDevice } from "./android-push-runtime.ts";
 import { webApkTasks, closeWebApk, setupAndroidWebApk, withWebApkSetupRestoration } from "./android-webapk.ts";
 import { parseFixtureCommand } from "./fixtures/push-qualification-extension.ts";
 import { withDevelopmentPixelLease } from "./android-pixel-lease.ts";
@@ -311,6 +312,16 @@ test("non-granted origin permission fails admission without starting a fixture o
     expect(state.state().browser.permission).toBe(browserPermission);
     expect(state.checkpoints.at(-1)?.cleanupRequired).toBe(false);
   }
+});
+
+test("Push admission accepts any identified Pixel on Android 13+ and names what it refused", () => {
+  for (const [model, release] of [["Pixel 10 Pro", "17"], ["Pixel 8 Pro", "17"], ["Pixel 7", "13"], ["Pixel 9a", "16.1"]] as const) {
+    expect(() => requireAndroidPushDevice(model, release)).not.toThrow();
+  }
+  expect(() => requireAndroidPushDevice("SM-S928B", "17")).toThrow('Android Push requires a Pixel; attached model is "SM-S928B"');
+  expect(() => requireAndroidPushDevice("Pixel 6", "12")).toThrow("Android 13 or newer");
+  expect(() => requireAndroidPushDevice("Pixel 8 Pro", "")).toThrow("Android 13 or newer");
+  expect(() => requireAndroidPushDevice("", "17")).toThrow("requires a Pixel");
 });
 
 test("delayed clears for distinct requests do not look like a duplicate unchanged ask", () => {

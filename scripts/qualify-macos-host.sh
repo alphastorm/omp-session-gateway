@@ -480,23 +480,33 @@ lane_persistence() {
   step "Lane 4: reboot and login persistence"
   note "macOS starts a LaunchAgent at console login, so this measures return at login. With"
   note "auto-login enabled that is automatic; it is still not start-with-nobody-logged-in."
-  local before_digest
-  before_digest="$(remote <<'REMOTE'
-shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12
+  # Unlike uptime, the boot-session UUID is constant for one boot and changes at every reboot.
+  # Keep both identities private; only their comparison is qualification evidence.
+  local before_boot before_digest after_boot="" reboot_changed="no" after_digest token_preserved="no"
+  before_boot="$(remote <<'REMOTE'
+sysctl -n kern.bootsessionuuid 2>/dev/null
 REMOTE
-)"
-  measure "token digest before reboot" "$before_digest"
+)" || die "could not read the pre-reboot boot identity."
+  [ -n "$before_boot" ] || die "the pre-reboot boot identity was empty."
+  before_digest="$(remote <<'REMOTE'
+set -o pipefail
+shasum -a 256 ~/.config/omp-session-gateway/readiness-token 2>/dev/null | cut -d' ' -f1
+REMOTE
+)" || die "could not read the pre-reboot readiness token."
+  [ -n "$before_digest" ] || die "the pre-reboot readiness-token digest was empty."
 
   issue_reboot
-  note "reboot issued; waiting for SSH, then for the gateway to bind its listener"
-  local up=""
+  note "reboot issued; waiting for SSH on a new boot, then for the gateway to bind its listener"
   for _ in $(seq 1 36); do
     sleep 10
-    up="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; ps -o etime= -p 1 | tr -d " "' 2>/dev/null || true)"
-    [ -n "$up" ] && break
+    if after_boot="$(ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 -q "$HOST" 'export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; sysctl -n kern.bootsessionuuid' 2>/dev/null)" &&
+      [ -n "$after_boot" ] && [ "$after_boot" != "$before_boot" ]; then
+      reboot_changed="yes"
+      break
+    fi
   done
-  [ -n "$up" ] || die "the host did not come back after the reboot."
-  measure "pid 1 elapsed when ssh answered" "$up"
+  measure "guest reboot changed" "$reboot_changed"
+  [ "$reboot_changed" = "yes" ] || die "SSH did not return with a changed boot identity after the reboot."
 
   # Readiness is waited for, not sampled. The first version of this lane snapshotted as soon as SSH
   # answered, which on a real run was 22 seconds after boot: the LaunchAgent was already `running`
@@ -520,21 +530,31 @@ REMOTE
   fi
   measure "gateway returned after" "${waited}s of polling (pid $ready)"
 
-  remote <<'REMOTE'
+  remote <<'REMOTE' || die "the post-reboot console login or gateway doctor did not recover."
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"
+# Explicit gui/<uid> addresses the qualification account's Aqua login domain over SSH on macOS
+# 26/27. An SSH login can create a user domain, but cannot itself create this GUI domain.
+if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+  show "console login" "yes"
+else
+  show "console login" "no"
+  exit 1
+fi
 CLI="$HOME/qual/$(cd ~/qual && ls -d omp-session-gateway-*-bun)/apps/gateway/src/cli.js"
-pid="$(lsof -nP -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')"
-show "gateway pid" "${pid:-<none>}"
-[ -n "$pid" ] && show "gateway process age" "$(ps -o etime= -p "$pid" | tr -d ' ')"
-show "launchagent state" "$(launchctl print "gui/$(id -u)/omp-session-gateway" 2>/dev/null | awk '/state =/{print $3; exit}')"
-show "console sessions" "$(who | awk '{print $1"/"$2}' | tr '\n' ' ')"
-show "token digest after reboot" "$(shasum -a 256 ~/.config/omp-session-gateway/readiness-token | cut -c1-12)"
-show "status" "$(bun "$CLI" status 2>/dev/null)"
-bun "$CLI" doctor >/tmp/omp-doctor2.json 2>/dev/null; show "doctor exit" "$?"
+bun "$CLI" doctor >/tmp/omp-doctor2.json 2>/dev/null
+status=$?
+show "doctor exit" "$status"
+exit "$status"
 REMOTE
-  note "Compare the two token digests: an unchanged digest is the point, because a reboot must not"
-  note "mint new readiness credentials."
+  after_digest="$(remote <<'REMOTE'
+set -o pipefail
+shasum -a 256 ~/.config/omp-session-gateway/readiness-token 2>/dev/null | cut -d' ' -f1
+REMOTE
+)" || die "could not read the post-reboot readiness token."
+  [ "$before_digest" != "$after_digest" ] || token_preserved="yes"
+  measure "readiness token preserved" "$token_preserved"
+  [ "$token_preserved" = "yes" ] || die "the reboot changed the readiness token."
 }
 
 verify_rollback_bundle() {

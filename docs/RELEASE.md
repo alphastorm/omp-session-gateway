@@ -232,7 +232,12 @@ For the proposed Virtualization.framework target (ADR-033), replace the model wi
 
 The SSH account may be standard or administrator and must log in automatically after a reboot:
 the persistence lane measures its per-user LaunchAgent returning at **console login**, not boot
-without a login. On a bare-metal automatic-login host, FileVault must be off. The account needs
+without a login. A pass requires a changed `kern.bootsessionuuid` (stable within one boot), the
+qualification account's `gui/<uid>` Aqua login domain after SSH returns, a recovered gateway
+listener and successful doctor, and an unchanged full SHA-256 readiness-token digest. The
+non-identifying `guest reboot changed`, `console login`, and `readiness token preserved` verdicts
+must all be `yes` and are recorded as booleans in the schema-3 Mac evidence.
+On a bare-metal automatic-login host, FileVault must be off. The account needs
 Bun 1.4.0 in `~/.bun/bin`, **stock OMP >=18.1.20 on PATH**, the lane's command-line tools, and a
 user-owned TUN-mode Tailscale node. Doctor checks OMP compatibility during install, before the
 `omp-build` lane creates its separate pinned fixture. Install the stock coding-agent package as
