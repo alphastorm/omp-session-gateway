@@ -1051,6 +1051,9 @@ lane_persistence
     expect(stdout).toMatch(/guest reboot changed:[ \t]+no/u);
     expect(stderr).toContain("a changed boot identity");
     expect(stdout + stderr).not.toContain(bootUuid);
+    // The shutdown is detached from the session on purpose; its marker lands shortly after the verdict.
+    const markerDeadline = Date.now() + 10_000;
+    while (!(await stat(join(root, "reboot-requested")).then(() => true, () => false)) && Date.now() < markerDeadline) await Bun.sleep(100);
     expect((await stat(join(root, "reboot-requested"))).isFile()).toBe(true);
     const staleOutput = output.split("\n").filter(line => !/^(guest reboot changed|console login|readiness token preserved):/u.test(line)).join("\n") + "\n" + stdout;
     const path = join(root, "receipt.json");

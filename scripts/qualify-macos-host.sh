@@ -186,7 +186,10 @@ create_doctor_bundle() {
   bun "$cli" doctor --bundle --output "$destination" >/dev/null 2>&1
   [ -s "$destination" ]
 }
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes)
+# A dead peer must surface within seconds: when a Virtualization.framework guest reboots behind a
+# tailnet TUN its session sends no FIN, and without keepalives the first campaign against such a
+# guest hung in issue_reboot for the orchestrator's whole Mac budget (2026-10-02).
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
 # Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
 # and stay as unexported variables in the one static remote shell that evaluates the supplied block.
@@ -467,9 +470,15 @@ backend_answer() {
 issue_reboot() {
   local output status=0
   output="$(remote <<'REMOTE' 2>&1
-S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 check_reboot_guard || exit 97
-S shutdown -r now >/dev/null 2>&1 || true
+# Return before the reboot tears this session down; the caller measures the new boot identity.
+# A sudo password, when there is one, travels over the detached shell stdin, never its argv.
+if [ -n "$PW" ]; then
+  printf '%s\n' "$PW" | nohup /bin/bash -c 'sleep 2; sudo -S -p "" shutdown -r now' >/dev/null 2>&1 &
+else
+  nohup /bin/bash -c 'sleep 2; sudo -n shutdown -r now' >/dev/null 2>&1 &
+fi
+exit 0
 REMOTE
   )" || status=$?
   # Preserve tolerance of SSH disconnecting at shutdown, but never swallow a guard refusal.
