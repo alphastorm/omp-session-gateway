@@ -225,10 +225,10 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - Tapping a notification no longer reloads an open collaboration. In the installed Android app, the tap reloaded the open page: the live collaboration and any unsent composer text were lost, and an activity-stop alert reopened a Control session as View. The open page now takes the tap and switches in place, and a tap for the session already open keeps it.
-          - A session list left in the background closes its live-update stream when the browser freezes it and rebuilds it from a fresh snapshot when shown again, so a backgrounded phone no longer wakes for keepalives every five seconds.
-          - The gateway releases an event stream whose client stops reading once its queue fills, even while the session directory is quiet, instead of keeping its subscription and keepalive timer.
-          - The OMP engineering baseline stays v18.4.2. Mainline OMP >=18.1.20 is still required and supported; the qualified matrix is unchanged, and every lane passed again on these bytes.
+          - This release carries no gateway runtime fixes since v0.7.1. The changes are qualification tooling, the configured Mac host, and the OMP engineering baseline.
+          - Qualification tooling adds session-lifecycle and Push-triage scenarios, including new sessions, fork/continue/revocation, queue actions, and delayed notification taps.
+          - The configured Mac Studio (Mac17,14, macOS 27.0.1 build 26A434) replaces the retained Scaleway Mac for qualification, with host-bound receipts and a host-owned reboot guard.
+          - The OMP engineering baseline moves to v18.4.8. Its collaboration host source and embedded client are byte-identical to v18.4.2; the embedded client and its 18.4.2 wire pin are unchanged. Mainline OMP >=18.1.20 remains required and supported.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -236,7 +236,7 @@ jobs:
           | role | combination |
           |---|---|
           | host | Debian 13 (trixie) x86-64 |
-          | host | macOS arm64 (Mac14,3) |
+          | host | macOS 27.0.1 (26A434) arm64 (Mac Studio, Mac17,14) |
           | host | Windows Server 2025 x86-64, started at interactive logon; Administrator lifecycle plus a fresh standard-user install |
           | client | Chrome on Android (Pixel 10 Pro), including background Web Push |
           | client | Safari on iPhone and iPad, real devices in TestingBot's cloud, in the browser; iPhone background alerts in the Home Screen app |
@@ -262,7 +262,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.7.0 predecessor embeds the same OMP 18.4.2 collaboration client; rolling back to it restores its notification taps, which reload an open collaboration. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.7.1 predecessor embeds the same OMP 18.4.2 collaboration client; its engineering baseline is v18.4.2, while this release uses v18.4.8. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -277,8 +277,9 @@ jobs:
 
           ### Changes to test
 
-          - A notification tap while a page is open: the worker hands it to that page, which revalidates it against fresh metadata and switches in place; a tap for the session already shown keeps it (Control is never downgraded to View), and with no open page the tap opens its route as before.
-          - A frozen session-list page closes its live-update stream and rebuilds it from a fresh snapshot when shown again; a briefly hidden page keeps its stream. Gateway event streams that stop reading are released once their queue fills, even while the directory is quiet.
+          - The candidate carries no gateway runtime fixes since v0.7.1. Exercise the session-lifecycle and Push-triage qualification scenarios, including new sessions, fork/continue/revocation, queue actions, and delayed notification taps.
+          - Run the Mac qualification lane on the configured Mac Studio (Mac17,14, macOS 27.0.1 build 26A434), including host-bound admission and receipts, the host-owned reboot guard, and reboot-to-login persistence.
+          - Qualify stock OMP v18.4.8 on the host lanes. The embedded collaboration client and its 18.4.2 wire pin remain unchanged; the collaboration host source and client are byte-identical to v18.4.2.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -290,12 +291,12 @@ jobs:
 
           - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
-          - Debian 13 x86-64, macOS 26.6.1 arm64 (Mac14,3), a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install), Chrome on the physical Pixel, including its background-Push lane, and real iPhone, iPad, and Galaxy devices in TestingBot's cloud must pass against these exact signed bytes before stable promotion.
+          - Debian 13 x86-64, macOS 27.0.1 (26A434) arm64 (Mac Studio, Mac17,14), a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install), Chrome on the physical Pixel, including its background-Push lane, and real iPhone, iPad, and Galaxy devices in TestingBot's cloud must pass against these exact signed bytes before stable promotion.
           - The Chrome process-wide network wedge remains a disclosed environment limitation; Portal Tunnel and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          The selected predecessor is v0.7.0; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.7.1; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 

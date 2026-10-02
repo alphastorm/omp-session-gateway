@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.7.2] — 2026-10-02
+
+This release carries no gateway runtime fixes. Qualification tooling adds session-lifecycle and
+Push-triage scenarios, and the configured Mac Studio replaces the retained Scaleway Mac as the
+qualification host, with a host-owned reboot guard. The OMP engineering baseline moves to v18.4.8;
+its embedded collaboration client is byte-identical to v18.4.2 and stays unchanged.
+
 ### Added
 
 - Support an optional host-owned Mac qualification reboot guard. Both preflights refuse busy

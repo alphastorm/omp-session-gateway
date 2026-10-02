@@ -211,7 +211,7 @@ worker messages, browser storage, caches, logs, and diagnostics.
 The first checklist records pre-cutover implementation acceptance, including **fork-era** layout
 and leak-suite evidence, not transferred mainline qualification. The physical background-Push
 checklist below records signed-candidate evidence separately. Specialized triage and delayed-tap
-qualification remains pending the next stable campaign; implementation and development runs alone
+qualification remains pending the v0.7.2 campaign; implementation and development runs alone
 do not qualify it. The [release ledger](RELEASE_STATUS.md) is authoritative.
 
 - [x] Whole-mode queue, FIFO `Up next`, boolean fallback, whole-row actions, and no manual Refresh.
@@ -264,7 +264,7 @@ guarantee background delivery.
 ### Specialized triage and delayed-tap acceptance — qualification pending
 
 The implemented `triage_verified` and `stale_taps_verified` phases run after `clear_verified`
-and before `force_stop_verified`. They qualify only when the next stable campaign passes on its
+and before `force_stop_verified`. They qualify only when the v0.7.2 campaign passes on its
 exact signed candidate. On 2026-10-01, a development run of the whole lane passed every phase,
 these two included, with no re-arm, and restored the phone. It ran against the installed v0.7.1
 gateway with stock OMP 18.4.8 fixtures on the Pixel 10 Pro, Android 17, Chrome `154.0.8037.57`.

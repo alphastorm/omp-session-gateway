@@ -1,5 +1,18 @@
 # Release status
 
+## v0.7.2 preparation — not yet qualified or published
+
+The candidate carries no gateway runtime fixes since v0.7.1. The OMP engineering baseline moves
+to v18.4.8 (#336); its collaboration host source and embedded client are byte-identical to v18.4.2,
+and the embedded client and its 18.4.2 wire pin are unchanged. Qualification tooling adds
+session-lifecycle and Push-triage scenarios (#337) and an explicitly configured Mac host with a
+host-owned reboot guard (#339). The candidate's Mac lane will use the Mac Studio (Mac17,14,
+macOS 27.0.1, build 26A434) instead of the retained Scaleway Mac. Development checks and historical
+receipts are not qualification of this candidate.
+Published v0.7.1 remains the predecessor and current stable; no v0.7.2 qualification or publication
+is claimed, and the stable lock remains unchanged until approval. Historical Mac-lane results
+below remain evidence for their original hosts and releases, not for the Mac Studio.
+
 ## Mainline v0.7.1 — published stable
 
 **Updated:** 2026-09-30. [v0.7.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.1)
