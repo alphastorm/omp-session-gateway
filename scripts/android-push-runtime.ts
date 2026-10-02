@@ -56,6 +56,27 @@ export function ownedPushForwards(list: string, serial: string, socket: string):
   return forwards;
 }
 
+/**
+ * Waits until an attached page answers `Runtime.evaluate`. A WebAPK that was just opened or
+ * relaunched swaps its document under the attachment, and Chrome answers "Cannot find default
+ * execution context" until the new document's context exists. Only that answer is retried; any
+ * other failure, and the deadline, surface unchanged.
+ */
+export async function awaitPageExecutionContext(
+  evaluate: () => Promise<unknown>,
+  pause: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds),
+  deadlineMs = 15_000,
+  now: () => number = Date.now,
+): Promise<void> {
+  const deadline = now() + deadlineMs;
+  for (;;) {
+    try { await evaluate(); return; }
+    catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("Cannot find default execution context") || now() >= deadline) throw error;
+      await pause(250);
+    }
+  }
+}
 // Chrome removes CDP permission overrides when their browser connection closes.
 // Keep this browser-only connection (no page target) alive for the negative window.
 export async function holdAndroidNotificationDenial(origin: string, connect: PermissionConnection = run =>
@@ -193,6 +214,7 @@ export function createAndroidPushRuntime(identity: Pick<AndroidPushIdentity, "or
       let target: string | undefined;
       await wait(async () => { target = await targetForOrigin(driver); return target !== undefined; }, "WebAPK target");
       await driver.attachTab(target!);
+      await awaitPageExecutionContext(() => driver.evaluate("document.readyState"));
       if (navigate) await navigateRoot(driver);
       return action(driver);
     }, { port: 9238, launchBrowser: false });
