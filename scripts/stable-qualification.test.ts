@@ -1261,6 +1261,42 @@ test.skipIf(process.platform === "win32")("mainline OMP helper refuses missing p
   expect(stderr).toContain("OMP_QUAL_GATEWAY_ROOT is required");
 });
 
+test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("mainline OMP helper names a failed clone instead of dying silently", async () => {
+  // A silenced `git clone` under set -e once ended a campaign's build lane with a bare exit 128.
+  const home = await mkdtemp(join(tmpdir(), "omp-helper-clone-"));
+  const bin = join(home, "bin");
+  await mkdir(bin, { recursive: true });
+  // The helper pins its own PATH, so git cannot be stubbed; route the clone to a closed local port instead.
+  await writeFile(join(home, ".gitconfig"), '[url "http://127.0.0.1:1/"]\n\tinsteadOf = https://github.com/can1357/oh-my-pi.git\n');
+  await writeFile(join(bin, "bun"), `#!/bin/sh\nif [ "$1" = --version ]; then echo 1.4.0; fi\nexit 0\n`, { mode: 0o755 });
+  try {
+    const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "build"], {
+      cwd: REPOSITORY_ROOT,
+      env: {
+        PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        HOME: home,
+        OMP_QUAL_GATEWAY_ROOT: home,
+        OMP_PIN_SOURCE_COMMIT: "a".repeat(40),
+        OMP_PIN_SOURCE_TREE: "b".repeat(40),
+        OMP_PIN_VERSION: "0.0.0",
+        OMP_PIN_BUN_VERSION: "1.4.0",
+        OMP_PIN_NATIVE_TARBALL_SHA256: "c".repeat(64),
+        OMP_PIN_NATIVE_BINARY_SHA256: "d".repeat(64),
+        OMP_QUAL_SESSION_LABEL: "synthetic",
+        OMP_PIN_BUN_EXECUTABLE: join(bin, "bun"),
+      },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("mainline OMP clone failed (git exit 128)");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(process.platform === "win32")("mainline OMP helper rejects path-special labels before cleanup", async () => {
   for (const sessionLabel of ["..", ".ssh"]) {
     const child = Bun.spawn(["/bin/bash", "scripts/qualify-macos-omp.sh", "clean"], {

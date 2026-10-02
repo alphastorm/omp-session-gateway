@@ -68,8 +68,12 @@ prepare_source() {
     return
   fi
   rm -rf "$omp_root" "$fixture"
-  git clone --filter=blob:none https://github.com/can1357/oh-my-pi.git "$omp_root" >/dev/null 2>&1
-  git -C "$omp_root" checkout --detach "$source_commit" >/dev/null 2>&1
+  # Keep git's diagnostics: a silenced clone under set -e once ended a campaign's build lane with a
+  # bare exit 128 and nothing to act on (2026-10-02).
+  git clone --quiet --filter=blob:none https://github.com/can1357/oh-my-pi.git "$omp_root" ||
+    fail "mainline OMP clone failed (git exit $?)"
+  git -C "$omp_root" checkout --quiet --detach "$source_commit" ||
+    fail "mainline OMP checkout of the pinned commit failed (git exit $?)"
   [ "$(git -C "$omp_root" rev-parse HEAD)" = "$source_commit" ] || fail "source checkout does not match the pin"
   [ "$(git -C "$omp_root" rev-parse 'HEAD^{tree}')" = "$source_tree" ] || fail "mainline tree does not match the pin"
   (
