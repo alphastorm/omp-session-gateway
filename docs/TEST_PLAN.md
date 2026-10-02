@@ -213,6 +213,15 @@ version banners before lane effects. Refusals identify the coding-agent install 
 preflight never reaches sudo. The exact compatibility minimum passes. Additional probe output
 is rejected without exposing its raw diagnostic.
 
+Optional host-owned reboot-guard regressions execute the remote shell and admission probe in
+isolated local homes: a busy guard refuses before sudo, lanes, cleanup, or new receipts; a
+non-regular or non-owner-executable guard names its exact path and refuses preflight. A guard
+that passes preflight but becomes busy before persistence prevents shutdown and fails the lane
+with only the first 400 diagnostic bytes. Absent and allowing guards preserve the exact
+passwordless shutdown command. Admission keeps a fixed four-line protocol, hex-frames multiline
+diagnostics, and rejects malformed, oversized, or extra guard output without creating receipts.
+These local proofs do not reboot or qualify a real shared host.
+
 It also covers the three resource-owning lanes (ADR-031, ADR-032), with injected lane modules so no
 test reaches a VM, a phone, or a device cloud:
 

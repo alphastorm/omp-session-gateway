@@ -45,6 +45,13 @@
 # identity lane would measure nothing. That is the opposite of the Linux lane, which *wants* a tagged
 # node to prove denial.
 #
+# WHAT THE HOST MAY HAVE
+#
+#   - Optional host-owned ~/.config/omp-qualification/reboot-guard: a regular, owner-executable
+#     file called without arguments on the fixed remote PATH during preflight and immediately
+#     before reboot. Exit zero only when reboot is safe; otherwise explain why and exit nonzero.
+#     The first 400 output bytes are reported on refusal. The guard must be read-only.
+#
 # CERTIFICATES, AND A TRAP WORTH INHERITING
 #
 # Never probe `https://<name>` to find out whether Serve is ready. Each TLS handshake without a
@@ -183,9 +190,22 @@ SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=
 [ -z "${OMP_MAC_SSH_KEY:-}" ] || SSH_OPTS+=(-i "$OMP_MAC_SSH_KEY" -o IdentitiesOnly=yes)
 # Every remote block and its values travel over SSH stdin. Secrets never enter local or remote argv
 # and stay as unexported variables in the one static remote shell that evaluates the supplied block.
+check_reboot_guard() {
+  local guard="$HOME/.config/omp-qualification/reboot-guard" output
+  [ -e "$guard" ] || [ -L "$guard" ] || return 0
+  if ! { [ -f "$guard" ] && [ -x "$guard" ] && python3 -c 'import os,stat,sys; sys.exit(not (os.stat(sys.argv[1]).st_mode & stat.S_IXUSR))' "$guard"; }; then
+    printf "the host's reboot guard must be a regular, owner-executable file: %s\n" "$guard" >&2
+    return 1
+  fi
+  if ! output="$("$guard" </dev/null 2>&1)"; then
+    printf "the host's reboot guard refused: %s\n" "$(printf '%s' "$output" | head -c 400)" >&2
+    return 1
+  fi
+}
+
 remote() {
   local script bootstrap helpers
-  helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle)"
+  helpers="$(declare -f count_file_occurrences count_environment_occurrences create_doctor_bundle check_reboot_guard)"
   script="${helpers}"$'\n'"$(cat)"
   printf -v bootstrap '/bin/bash -c %q' \
     'IFS= read -r -d "" PW || exit; IFS= read -r -d "" PORT || exit; IFS= read -r -d "" LOGIN || exit; IFS= read -r -d "" TAG || exit; IFS= read -r -d "" PREVIOUS_TAG || exit; IFS= read -r -d "" OMP_SOURCE_COMMIT || exit; IFS= read -r -d "" OMP_SOURCE_TREE || exit; IFS= read -r -d "" OMP_VERSION || exit; IFS= read -r -d "" BUN_VERSION || exit; IFS= read -r -d "" OMP_NATIVE_TARBALL_SHA256 || exit; IFS= read -r -d "" OMP_NATIVE_BINARY_SHA256 || exit; IFS= read -r -d "" SESSION_LABEL || exit; IFS= read -r -d "" SCRIPT || exit; export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin"; eval "$SCRIPT"'
@@ -220,6 +240,7 @@ preflight() {
   need_command scp
 
   remote <<'REMOTE' || die "Mac host prerequisite probe failed; no lane was run."
+check_reboot_guard || exit 1
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
 show "host" "$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
@@ -444,10 +465,15 @@ backend_answer() {
 }
 
 issue_reboot() {
-  remote <<'REMOTE' >/dev/null 2>&1 || true
+  local output status=0
+  output="$(remote <<'REMOTE' 2>&1
 S() { if [ -n "$PW" ]; then echo "$PW" | sudo -S -p '' "$@"; else sudo -n "$@"; fi; }
-S shutdown -r now
+check_reboot_guard || exit 97
+S shutdown -r now >/dev/null 2>&1 || true
 REMOTE
+  )" || status=$?
+  # Preserve tolerance of SSH disconnecting at shutdown, but never swallow a guard refusal.
+  [ "$status" -ne 97 ] || die "$output"
 }
 
 lane_persistence() {

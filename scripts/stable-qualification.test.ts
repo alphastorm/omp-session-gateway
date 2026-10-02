@@ -386,7 +386,7 @@ describe("Mac receipt host ownership", () => {
         output: async command => {
           if (command[0] !== "ssh") return fixture.output(command);
           sshProbes += 1;
-          return "Mac14,3\nqualification-mac.example.ts.net\nomp/18.1.20";
+          return "Mac14,3\nqualification-mac.example.ts.net\nomp/18.1.20\nguard=absent";
         },
       };
       const lane: ExternalLaneModule = {
@@ -530,7 +530,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
       if (invocation === "git ls-remote --exit-code origin refs/heads/fixture") return COMMIT + "\trefs/heads/fixture";
       if (command[0] === "ssh") {
         if (failure === "ssh") throw new Error("private-host private-credential");
-        return MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/" + pins.version;
+        return MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/" + pins.version + "\nguard=absent";
       }
       throw new Error("fixture refuses a non-prerequisite command: " + invocation);
     },
@@ -539,6 +539,63 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
 }
 
 describe("stable qualification read-only admission", () => {
+  test.each(["guard=unknown", "guard=refused:f", "guard=refused:" + "61".repeat(401), "guard=invalid:", "guard=passed\nextra"])("Mac admission rejects malformed reboot guard framing without receipts: %s", async guardLine => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-guard-protocol-"));
+    try {
+      const fixture = await preflightFixture(root);
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        output: async command => {
+          const result = await fixture.output(command);
+          return command[0] === "ssh" ? result.replace("guard=absent", guardLine) : result;
+        },
+      };
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, admissionLanes()));
+      expect(error).toContain("retained Mac SSH");
+      expect(error).not.toContain(guardLine);
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  test.skipIf(process.platform !== "darwin" || process.arch !== "arm64").each(["busy", "not executable", "directory"] as const)("Mac admission reboot guard %s refuses without lane effects or receipts", async kind => {
+    const root = await mkdtemp(join(tmpdir(), "stable-preflight-guard-"));
+    const home = join(root, "home");
+    const guard = join(home, ".config", "omp-qualification", "reboot-guard");
+    const receipts = join(root, "receipts");
+    const busy = "runner busy\n" + "x".repeat(500);
+    try {
+      await mkdir(join(home, ".config", "omp-qualification"), { recursive: true });
+      if (kind === "directory") await mkdir(guard);
+      else await writeFile(guard, "#!/bin/sh\nprintf '%s' " + "'" + busy + "'\nexit 1\n", { mode: kind === "busy" ? 0o700 : 0o600 });
+      const fixture = await preflightFixture(receipts);
+      let laneCalls = 0;
+      const refusal = async (): Promise<never> => { laneCalls += 1; throw new Error("unexpected lane effect"); };
+      const lane: ExternalLaneModule = { preflight: refusal, run: refusal, cleanup: refusal, needsCleanup: () => { laneCalls += 1; return true; } };
+      const runtime: StablePreflightRuntime = {
+        ...fixture,
+        output: async command => {
+          if (command[0] !== "ssh") return fixture.output(command);
+          const fixtures = "bun() { printf '%s\\n' \"$PROBE_BUN\"; }\ntailscale() { printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"fixture.invalid.\"}}'; }\nifconfig() { printf '%s\\n' 'inet6 fd7a:115c:a1e0::1'; }\nomp() { printf 'omp/18.1.20\\n'; }\nexport -f bun tailscale ifconfig omp\neval \"$1\"";
+          const child = Bun.spawn(["/bin/bash", "-c", fixtures, "probe-fixture", command.at(-1)!], {
+            env: { HOME: home, PATH: "/usr/bin:/bin", PROBE_BUN: fixture.bunVersion },
+            stdin: "ignore", stdout: "pipe", stderr: "pipe",
+          });
+          const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+          if (code !== 0) throw new Error(stderr);
+          return stdout.trim();
+        },
+      };
+      const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, {
+        windows: lane, androidPush: lane, deviceCloud: lane, createPixelLease: () => createPixelLease(() => {}),
+      }));
+      expect(error).toBe("Stable preflight: " + (kind === "busy" ? "the host's reboot guard refused: " + busy.slice(0, 400) : "the host's reboot guard must be a regular, owner-executable file: " + guard));
+      expect(laneCalls).toBe(0);
+      expect(await Bun.file(join(receipts, "stable-qualification.json")).exists()).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   test.each([
     ["    Upstream wanted: true\n", "0", "tethering"],
     ["    wlan1 - TetheredState - lastError = 0\n    Upstream wanted: false\n", "0", "tethering"],
@@ -624,7 +681,7 @@ describe("stable qualification read-only admission", () => {
       const runtime: StablePreflightRuntime = {
         ...fixture,
         output: command => command[0] === "ssh"
-          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\n" + banner)
+          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\n" + banner + "\nguard=absent")
           : fixture.output(command),
       };
       const error = await rejectionMessage(runStableQualification(["--tag", TAG], runtime, {
@@ -663,7 +720,7 @@ describe("stable qualification read-only admission", () => {
       const runtime: StablePreflightRuntime = {
         ...fixture,
         output: command => command[0] === "ssh"
-          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/18.1.20")
+          ? Promise.resolve(MAC_ENV.OMP_STABLE_MAC_MODEL + "\nqualification-mac.example.ts.net\nomp/18.1.20\nguard=absent")
           : fixture.output(command),
       };
       expect((await runStableQualification(["--preflight", "--tag", TAG], runtime, admissionLanes())).status).toBe("preflight-passed");

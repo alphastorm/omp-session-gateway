@@ -195,6 +195,72 @@ test.skipIf(process.platform !== "darwin")("Mac host evidence ignores a sysctl p
   }
 });
 
+test.skipIf(!POSIX).each(["busy", "not executable", "not owner-executable", "directory"] as const)("Mac reboot guard %s refuses preflight before sudo, lanes or receipts", async kind => {
+  const root = await mkdtemp(join(tmpdir(), "omp-mac-guard-"));
+  const guard = join(root, ".config", "omp-qualification", "reboot-guard");
+  const effect = join(root, "effect");
+  const receipt = join(root, "receipts");
+  try {
+    await mkdir(dirname(guard), { recursive: true });
+    if (kind === "directory") await mkdir(guard);
+    else await writeFile(guard, "#!/bin/sh\nprintf 'release runner busy\\n' >&2\nexit 1\n", { mode: kind === "busy" ? 0o700 : kind === "not executable" ? 0o600 : 0o601 });
+    const result = await runHarness(`
+set -euo pipefail
+source "$1"
+need_command() { :; }
+bun() { if [ "$1" = --version ]; then printf '%s\n' "$BUN_VERSION"; else "$REAL_BUN" "$@"; fi; }
+omp() { printf 'omp/18.1.20\n'; }
+sudo() { : >"$EFFECT_MARKER"; return 1; }
+tailscale() { return 1; }
+ifconfig() { return 1; }
+export -f bun omp sudo tailscale ifconfig
+ssh() { /bin/bash -c "\${!#}"; }
+lane_install() { : >"$EFFECT_MARKER"; }
+main install
+`, [], { ...environment("a".repeat(64)), HOME: root, REAL_BUN: process.execPath, EFFECT_MARKER: effect, OMP_MAC_RECORD_DIR: receipt });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(kind === "busy" ? "the host's reboot guard refused: release runner busy" : "the host's reboot guard must be a regular, owner-executable file: " + guard);
+    expect(await pathEntryExists(effect)).toBe(false);
+    expect(await pathEntryExists(receipt)).toBe(false);
+    expect(result.stdout).not.toContain("Lane ");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!POSIX)("Mac reboot guard rechecks immediately before shutdown and bounds refusal output to 400 bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omp-mac-guard-race-"));
+  const guard = join(root, ".config", "omp-qualification", "reboot-guard");
+  const shutdown = join(root, "shutdown");
+  const busy = "release runner busy: " + "x".repeat(500);
+  try {
+    await mkdir(dirname(guard), { recursive: true });
+    await writeFile(guard, '#!/bin/sh\n[ "$#" = 0 ] || exit 2\n[ "$PATH" = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.bun/bin:$HOME/go/bin" ] || exit 3\nif [ ! -e "$HOME/admitted" ]; then touch "$HOME/admitted"; exit 0; fi\nprintf "%s" ' + JSON.stringify(busy) + '\nexit 1\n', { mode: 0o700 });
+    const result = await runHarness(`
+set -euo pipefail
+source "$1"
+need_command() { :; }
+bun() { if [ "$1" = --version ]; then printf '%s\n' "$BUN_VERSION"; else "$REAL_BUN" "$@"; fi; }
+omp() { printf 'omp/18.1.20\n'; }
+tailscale() { printf '%s\n' '{"BackendState":"Running","Self":{"DNSName":"fixture.invalid."}}'; }
+ifconfig() { printf '%s\n' 'inet6 fd7a:115c:a1e0::1'; }
+sudo() { if [ "\${*: -3}" = 'shutdown -r now' ]; then : >"$SHUTDOWN_MARKER"; fi; }
+sleep() { exit 99; }
+export -f bun omp tailscale ifconfig sudo
+ssh() { /bin/bash -c "\${!#}"; }
+main persistence
+`, [], { ...environment("a".repeat(64)), HOME: root, REAL_BUN: process.execPath, SHUTDOWN_MARKER: shutdown });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("Lane 4: reboot and login persistence");
+    expect(result.stderr).toContain("the host's reboot guard refused: " + busy.slice(0, 400));
+    expect(result.stderr).not.toContain(busy.slice(0, 401));
+    expect(result.stdout).not.toContain("reboot issued");
+    expect(await pathEntryExists(shutdown)).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(!POSIX)("Mac reboot keeps the sudo password in NUL-framed SSH stdin", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-reboot-secret-"));
   const argvPath = join(temporaryRoot, "argv");
@@ -225,13 +291,18 @@ issue_reboot
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
-test.skipIf(!POSIX)("an omitted configured password file reaches noninteractive sudo through SSH stdin", async () => {
+test.skipIf(!POSIX).each(["absent", "allows"])("Mac reboot guard %s preserves the exact passwordless shutdown command through SSH stdin", async guardState => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "omp-mac-passwordless-"));
   const capture = join(temporaryRoot, "sudo-argv");
   const target = await loadConfiguredMacTarget(parseStableQualificationArgs(["--tag", `v${PRODUCT_VERSION}-prealpha.1`], {
     OMP_STABLE_MAC_HOST: "gwqual@fixture.invalid", OMP_STABLE_MAC_MODEL: "Mac17,14",
   }));
   try {
+    if (guardState === "allows") {
+      const guard = join(temporaryRoot, ".config", "omp-qualification", "reboot-guard");
+      await mkdir(dirname(guard), { recursive: true });
+      await writeFile(guard, "#!/bin/sh\nprintf 'safe to reboot\\n'\nexit 0\n", { mode: 0o700 });
+    }
     const result = await runHarness(`
 set -euo pipefail
 source "$1"
@@ -239,7 +310,7 @@ sudo() { printf '%s\\n' "$@" >"$SUDO_CAPTURE"; }
 export -f sudo
 ssh() { /bin/bash -c "\${!#}"; }
 issue_reboot
-`, [], { ...environment("a".repeat(64)), OMP_MAC_SUDO_PW: target.sudoPassword, SUDO_CAPTURE: capture });
+`, [], { ...environment("a".repeat(64)), HOME: temporaryRoot, OMP_MAC_SUDO_PW: target.sudoPassword, SUDO_CAPTURE: capture });
     expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     expect((await readFile(capture, "utf8")).trim().split("\n")).toEqual(["-n", "shutdown", "-r", "now"]);
   } finally {

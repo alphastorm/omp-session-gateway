@@ -8,6 +8,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Added
 
+- Support an optional host-owned Mac qualification reboot guard. Both preflights refuse busy
+  or misconfigured guards before lane effects; persistence rechecks immediately before shutdown
+  and reports up to 400 diagnostic bytes on refusal, without rebooting a busy shared host.
 - Extend the upstream OMP canary with new-session, immediate fork, in-session rewind, and saved
   session continuation checks. Windows runs continuation and explicitly skips the three
   keystroke-driven stages; bounded summaries include the platform.

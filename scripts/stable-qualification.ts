@@ -1256,19 +1256,42 @@ export async function preflightStableQualification(
       '/usr/sbin/sysctl -n hw.model',
       'tailscale status --json | python3 -c ' + shellQuote('import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); assert d.get("BackendState")=="Running" and not s.get("Tags") and s.get("DNSName","").rstrip("."); print(s["DNSName"].rstrip("."))'),
       'omp_version="$(omp --version </dev/null 2>/dev/null)" || omp_version=MISSING',
-      'printf "%s\\n" "${omp_version:-MISSING}"',
+      'printf "%s\n" "${omp_version:-MISSING}"',
+      // Hex framing keeps multiline guard diagnostics inside one fixed protocol line.
+      'python3 -c ' + shellQuote(`
+import os,stat,subprocess
+path = os.path.join(os.environ["HOME"], ".config/omp-qualification/reboot-guard")
+if not os.path.lexists(path):
+    print("guard=absent")
+elif not os.path.isfile(path) or not os.access(path, os.X_OK) or not os.stat(path).st_mode & stat.S_IXUSR:
+    print("guard=invalid:" + os.fsencode(path).hex())
+else:
+    try:
+        result = subprocess.run([path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print("guard=passed" if result.returncode == 0 else "guard=refused:" + result.stdout[:400].hex())
+    except OSError as error:
+        print("guard=refused:" + str(error).encode()[:400].hex())
+`),
     ].join("; ");
     const result = (await runtime.output([
       "ssh", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
       "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10",
       "-o", "BatchMode=yes", "-q", target.sshDestination, "/bin/bash -c " + shellQuote(probe),
     ])).trim();
-    const [hardware, dnsName, ompBanner, extra] = result.split(/\r?\n/u);
-    if (extra !== undefined || dnsName === undefined || ompBanner === undefined || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
-      throw new Error("retained Mac probe did not return exactly its model, tailnet DNS name and OMP version banner");
+    const [hardware, dnsName, ompBanner, guard, extra] = result.split(/\r?\n/u);
+    if (extra !== undefined || dnsName === undefined || ompBanner === undefined || guard === undefined ||
+      !/^guard=(?:absent|passed|refused:(?:[0-9a-f]{2}){0,400}|invalid:(?:[0-9a-f]{2})+)$/u.test(guard) ||
+      !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(dnsName)) {
+      throw new Error("retained Mac probe did not return exactly its model, tailnet DNS name, OMP version banner and reboot guard result");
     }
-    return { hardware, dnsName, ompBanner };
+    return { hardware, dnsName, ompBanner, guard };
   });
+  if (macProbe.guard.startsWith("guard=refused:")) {
+    throw new Error("Stable preflight: the host's reboot guard refused: " + Buffer.from(macProbe.guard.slice(14), "hex").toString("utf8"));
+  }
+  if (macProbe.guard.startsWith("guard=invalid:")) {
+    throw new Error("Stable preflight: the host's reboot guard must be a regular, owner-executable file: " + Buffer.from(macProbe.guard.slice(14), "hex").toString("utf8"));
+  }
   assertMacHardware(macProbe.hardware, options.macModel);
   const installedOmpVersion = parseOmpVersion(macProbe.ompBanner);
   if (installedOmpVersion === undefined || !isSupportedOmpVersion(installedOmpVersion)) {

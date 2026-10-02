@@ -246,6 +246,20 @@ admin-owned tools precede account-writable directories, and hardware probes call
 account an administrator. The rollback lane selects its staged Cosign by explicit executable
 path rather than putting `~/qual-tools` ahead of system tools.
 
+On a shared host, the qualification account may provide the optional, host-owned
+`$HOME/.config/omp-qualification/reboot-guard`. It must be a regular file with its owner's
+execute bit set and executable by that account. Both preflights run it without arguments on
+the same fixed remote PATH, before lane effects; persistence runs it again immediately before
+`shutdown -r now`. A missing guard leaves the existing commands unchanged. A present but
+invalid guard refuses preflight and names its exact path.
+
+The guard must be a read-only, prompt check of the host's own workload state: exit zero only
+when reboot is safe, or exit nonzero with a diagnostic explaining why it is not. Refusal reports
+`the host's reboot guard refused: <output>` using the first 400 bytes of combined stdout/stderr;
+no shutdown is invoked. Do not put credentials in diagnostics. Qualification does not install
+the guard, know which other workloads run, wait for them, or reserve the host after a successful
+check. The host owner must coordinate workload starts to avoid a race after that check.
+
 With no `OMP_STABLE_MAC_SUDO_PASSWORD_FILE`, the orchestrator passes an empty
 `OMP_MAC_SUDO_PW` and the shell uses `sudo -n`. Narrow passwordless sudo must permit the
 lane's exact commands: `true`, Tailscale `status --json`, `set --operator=<SSH account>`,
