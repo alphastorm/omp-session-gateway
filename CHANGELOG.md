@@ -6,12 +6,35 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.7.3] — 2026-10-02
+
+This release carries no gateway runtime fixes since v0.7.2. The OMP engineering baseline moves
+to v18.4.12; the embedded collaboration client and its 18.4.2 wire pin remain unchanged.
+Qualification tooling tightens Mac reboot proof, admits any Pixel on Android 13+, and waits for
+the launched WebAPK task. ADR-033 plans a retained Virtualization.framework Mac guest;
+preparation and historical receipts do not qualify the new candidate.
+
 ### Changed
 
 - Move the OMP engineering baseline to published v18.4.12 and refresh the measured Darwin arm64
   and Windows x64 native pins. The upstream canary passed all ten Linux stages and all seven
   supported Windows stages. The embedded client remains at v18.4.2; upstream Markdown-rendering
-  changes are not imported. Published v0.7.2 qualification stays bound to OMP v18.4.8.
+  changes are not imported. Published v0.7.2 qualification stays bound to OMP v18.4.8 (#351;
+  canary run 37040958377).
+- Document the planned retained Virtualization.framework macOS guest under ADR-033 (#348).
+  Guest kernel, launchd, loginwindow, and reboot coverage do not cover physical firmware,
+  FileVault, or Secure Boot; published bare-metal qualification remains historical evidence.
+
+### Fixed
+
+- Require the Mac persistence verdict to prove a changed guest boot identity, console login,
+  recovered gateway readiness and doctor, and unchanged full readiness-token digest. Old-boot
+  SSH or gateway output cannot qualify a reboot; identifying values are not printed (#349).
+- Admit any identified Pixel on Android 13+ to background-Push qualification instead of
+  requiring one handset model; refusals identify the attached model or Android release (#350).
+- Poll for the launched WebAPK task every second for up to 30 seconds during published-byte
+  smoke instead of sampling once after two seconds; the unchanged task assertion still fails
+  closed at the deadline (#346).
 
 ## [v0.7.2] — 2026-10-02
 

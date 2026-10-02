@@ -3,7 +3,7 @@ import { open } from "node:fs/promises";
 import { PROTOCOL_VERSION } from "@omp-session-gateway/protocol";
 
 export const DIAGNOSTICS_FORMAT_VERSION = 1 as const;
-export const PRODUCT_VERSION = "0.7.2";
+export const PRODUCT_VERSION = "0.7.3";
 
 export interface DoctorReport {
   readonly service: "omp-session-gateway";

@@ -1,6 +1,25 @@
 # Release status
 
-Planned retained-Mac replacement (ADR-033): a Virtualization.framework guest, not yet qualified; the next passed campaign must name its measured macOS version and guest `hw.model`, without rewriting the bare-metal evidence below.
+## v0.7.3 preparation — not yet qualified or published
+
+**Prepared:** 2026-10-02. The candidate carries no gateway runtime fixes since v0.7.2.
+The OMP engineering baseline moves to v18.4.12 (#351; canary run 37040958377 below); the embedded
+client and its 18.4.2 wire pin remain unchanged. Qualification tooling requires a real Mac
+reboot, console login, recovered readiness and doctor, and full readiness-token preservation
+(#349), admits any identified Pixel on Android 13+ (#350), and waits for the launched WebAPK
+task during published-byte smoke (#346).
+
+The planned campaign uses the new Mac Studio orchestrator and a retained Virtualization.framework
+guest for the Mac row (ADR-033, #348): macOS 27.0 (26A428), arm64, `VirtualMac2,1`. This is the
+planned environment, not candidate qualification evidence. The campaign must record its measured
+guest OS and model, and cannot claim physical firmware, FileVault, or Secure Boot coverage.
+Development checks, bootstrap observations, canary results, and historical receipts do not
+qualify this candidate.
+
+Published v0.7.2 remains the predecessor and current stable. The planned candidate tag is
+`v0.7.3-prealpha.1`; no v0.7.3 qualification or publication is claimed, and the stable lock stays
+unchanged until approval. Historical Mac-lane results below remain evidence for their original
+hosts and releases, not for the planned guest.
 
 ## Engineering baseline v18.4.12 — canary evidence only
 
