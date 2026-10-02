@@ -322,10 +322,20 @@ function parsePositiveInteger(value: string, name: string, maximum: number): num
   return parsed;
 }
 
-export function parseStableQualificationArgs(
+export interface CandidateTagOptions {
+  readonly preflight: boolean;
+  readonly tag: string;
+  readonly previousTag: string;
+}
+
+/**
+ * The campaign's tag grammar and published predecessor, with no host configuration: lanes that
+ * probe one surface (the Windows development CLI) share the candidate pair a campaign would use.
+ */
+export function parseCandidateTagArgs(
   argv: readonly string[],
   environment: Readonly<Record<string, string | undefined>> = process.env,
-): StableQualificationOptions {
+): CandidateTagOptions {
   let tag: string | undefined;
   let preflight = false;
   let previousTag = environment.OMP_STABLE_PREVIOUS_TAG ?? PREVIOUS_TAG;
@@ -343,6 +353,14 @@ export function parseStableQualificationArgs(
   if (previousTag !== PREVIOUS_TAG) {
     throw new Error(`--previous-tag must name the published ${PREVIOUS_TAG} stable`);
   }
+  return { preflight, tag, previousTag };
+}
+
+export function parseStableQualificationArgs(
+  argv: readonly string[],
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): StableQualificationOptions {
+  const { preflight, tag, previousTag } = parseCandidateTagArgs(argv, environment);
   const receiptRoot = resolve(
     environment.OMP_STABLE_QUALIFICATION_DIR ??
       join(homedir(), ".local", "share", "omp-session-gateway", "qualification", tag),

@@ -188,6 +188,17 @@ switch ($p.action) {
   'stage' {
     PrivateDirectory $root
     foreach ($folder in @('bun', 'candidate', 'predecessor', 'source', 'native', 'omp-winqual-fixture')) { PrivateDirectory "$root\$folder" }
+    # The provider's resolver is not part of the subject. On 2026-10-02 the Vultr-assigned resolver answered
+    # SERVFAIL for pkgs.tailscale.com, its CloudFront CNAME and login.tailscale.com while github.com
+    # resolved, which failed two campaigns at the first download. Every up adapter gets public
+    # resolvers before any download, and the names the lane needs are proven before it starts.
+    foreach ($adapter in @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notlike '*Tailscale*' })) {
+      Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @('1.1.1.1', '8.8.8.8')
+    }
+    Clear-DnsClientCache
+    foreach ($name in @('github.com', 'pkgs.tailscale.com', 'registry.npmjs.org', 'login.tailscale.com')) {
+      try { Resolve-DnsName $name -Type A -DnsOnly -ErrorAction Stop | Out-Null } catch { throw ('name resolution failed: ' + $name) }
+    }
     $downloads = @(
       @{ url = "https://github.com/oven-sh/bun/releases/download/bun-v$($p.pins.bunVersion)/bun-windows-x64.zip"; file = 'bun.zip'; digest = $p.pins.bunSha256 },
       @{ url = "https://pkgs.tailscale.com/stable/tailscale-setup-$($p.pins.tailscaleVersion)-amd64.msi"; file = 'tailscale.msi'; digest = $p.pins.tailscaleSha256 },
