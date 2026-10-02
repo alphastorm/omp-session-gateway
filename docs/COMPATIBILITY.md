@@ -63,9 +63,14 @@ Earlier releases are unsupported because this local registry does not exist in t
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
-gateway change. The current checkout's engineering baseline is v18.4.8 (`UPSTREAM.lock.json`);
+gateway change. The current checkout's engineering baseline is v18.4.12 (`UPSTREAM.lock.json`);
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
+
+The v18.4.12 [upstream canary](https://github.com/alphastorm/omp-session-gateway/actions/runs/37040958377)
+passed all ten Linux stages and all seven supported Windows stages on 2026-10-02. Windows
+intentionally skips `new-generation`, `fork`, and `branch-rewind`. This is compatibility
+evidence, not signed-artifact or macOS qualification. The embedded client retains v18.4.2.
 
 **Published stable:** [v0.7.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2),
 GitHub Latest, promoted from v0.7.2-prealpha.2 with identical runtime bytes. Its published-byte

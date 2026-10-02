@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Move the OMP engineering baseline to published v18.4.12 and refresh the measured Darwin arm64
+  and Windows x64 native pins. The upstream canary passed all ten Linux stages and all seven
+  supported Windows stages. The embedded client remains at v18.4.2; upstream Markdown-rendering
+  changes are not imported. Published v0.7.2 qualification stays bound to OMP v18.4.8.
+
 ## [v0.7.2] — 2026-10-02
 
 This release carries no gateway runtime fixes. Qualification tooling adds session-lifecycle and
