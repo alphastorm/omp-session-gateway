@@ -265,14 +265,14 @@ guarantee background delivery.
 ### Specialized triage and delayed-tap acceptance — qualification pending
 
 The implemented `triage_verified` and `stale_taps_verified` phases run after `clear_verified`
-and before `force_stop_verified`. The v0.7.3 campaign qualified them for its recorded candidate
-and devices; v0.7.4 must pass them again on its exact signed candidate.
+and before `force_stop_verified`. The v0.7.4 campaign qualified them for its recorded candidate
+and devices; each later candidate must pass them again on its exact signed bytes.
 On 2026-10-01, a development run of the whole lane passed every phase,
 these two included, with no re-arm, and restored the phone. It ran against the installed v0.7.1
 gateway with stock OMP 18.4.8 fixtures on the Pixel 10 Pro, Android 17, Chrome `154.0.8037.57`.
 That development run is tested evidence ([ANDROID.md](ANDROID.md#physical-background-push-lane)).
-The boxes below stay unchecked for the pending v0.7.4 campaign, without discarding the
-v0.7.3 qualification recorded in the ledger.
+The boxes below stay unchecked because every candidate requalifies these phases; the v0.7.4
+qualification is recorded in the ledger.
 The lane owns a second fixture host. Before triage, no other session in the installed app's
 directory may be waiting for input or hidden: order, Hold, and Show all act on the whole
 device-local directory. The phase fails closed when this precondition is not met.

@@ -77,15 +77,17 @@ evidence, not signed-artifact or macOS qualification. The embedded client retain
 v18.5.1 is the first release that retries an automatic start whose relay is unreachable or times
 out ([operator settings](OMP_INTEGRATION.md#1-operator-settings)).
 
-**Qualified; publication pending:** [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4),
-from signed candidate v0.7.4-prealpha.1. Published v0.7.3 remains GitHub Latest and the predecessor;
-v0.7.4 stable publication and published-byte smoke are pending. There are no gateway runtime fixes
-since v0.7.3; the engineering baseline is stock OMP v18.5.1 built from source. All thirteen lanes
+**Published stable:** [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4),
+GitHub Latest, promoted from signed candidate v0.7.4-prealpha.1. Its published-byte smoke passed
+on the first attempt on the Studio operator account, at the Studio's own tailnet origin, with the
+attached Pixel 10 Pro and Bun's global stock OMP **18.5.1**, matching v0.7.4's engineering
+baseline. Published v0.7.3 remains the predecessor. There are no gateway runtime fixes since
+v0.7.3; v0.7.4's engineering baseline is stock OMP v18.5.1 built from source. All thirteen lanes
 passed on their first attempt in the 2026-10-03 campaign, orchestrated from the Studio's operator
 account. The [release ledger](RELEASE_STATUS.md) records each lane and exact source/archive
 bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md#v074-predecessor-compatibility) covers
 v0.7.4 → v0.7.3. Physical Android acceptance and background Push both ran on the Pixel 10 Pro.
-Historical published-byte smoke does not qualify this release.
+The separate published-byte smoke does not expand that matrix.
 
 The qualified scope includes the retained-Mac new-generation/fork/resume transitions and Pixel
 Push triage/stale-tap scenarios recorded in this campaign, not arbitrary attention or lifecycle
