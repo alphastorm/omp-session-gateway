@@ -1,9 +1,21 @@
 # Release status
 
-## Mainline v0.7.3 — qualified; stable publication pending
+## Mainline v0.7.3 — published stable
 
-**Updated:** 2026-10-02. v0.7.3 is qualified for stable promotion; publication is pending.
-Published v0.7.2 remains GitHub Latest. No v0.7.3 stable publication or published-byte smoke is claimed.
+**Updated:** 2026-10-03. [v0.7.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3)
+was published at **2026-10-02T23:27:30Z** and is GitHub Latest, with six assets. Signed release workflow
+[37077558898](https://github.com/alphastorm/omp-session-gateway/actions/runs/37077558898)
+(`signed-release.yml`) succeeded. The signed annotated tag `v0.7.3` points to the stable source below.
+The assets are `omp-session-gateway-0.7.3-bun.tar`, its `.sigstore.json`,
+`omp-session-gateway-0.7.3.spdx.json`, its `.sigstore.json`, `SHA256SUMS`, and
+`SHA256SUMS.sigstore.json`. GitHub attestation verification passed for the archive; the subjects
+are `SHA256SUMS`, the archive, and the SPDX. A local `OMP_RELEASE_CHANNEL=stable bun run release:build`
+of the tag reproduced the published archive digest byte-for-byte.
+
+**Stable source:** `5589ae1ac1ebe687e25886ef30ee1683cb0b2502` (merge of approve PR #357).<br>
+**Stable archive SHA-256:** `aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1`.
+
+The published-byte Studio/Pixel smoke passed on its **fourth attempt**; see below.
 
 **Candidate:** [v0.7.3-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3-prealpha.1).<br>
 **Source:** `7a5f988d980e7f9200ce2c66b43cc85acbc21033`.<br>
@@ -71,6 +83,56 @@ proves Home Screen delivery and a Control tap, not lock-screen presentation; loc
 force-stop, and cellular behavior stay Pixel-only. The export does not identify the cloud tunnel's
 host or observed Serve identity. Desktop Safari and broader host/browser combinations remain
 unqualified. Every other release gate stays required.
+
+### Published-byte Studio/Pixel verification
+
+The founder's 2026-10-02 decision to "move everything off the MBP" moved this smoke to **the Studio**,
+from the Studio operator account, with the gateway at the Studio's own tailnet origin: the first
+published-byte smoke off the workstation. That account became tailscaled's operator with one
+founder sudo. The verified published predecessor v0.7.2 (archive SHA-256
+`98bb3aba1338ee0f0f53076b5fd95c474cd2d9f71981599c148a898dfa572f6a`) was installed under that account
+at the Studio origin; Tailscale Serve mapped that origin's HTTPS endpoint to loopback port 4317.
+The Pixel 10 Pro, attached to the Studio, already held the OMP Sessions WebAPK for that origin
+from the first Studio campaign. The smoke requires an existing installed gateway and Serve
+configuration because it is an upgrade smoke; install the published predecessor first on a fresh
+host. The smoke installs Bun's global stock OMP itself.
+
+The first `smoke:release` invocation, at **23:34Z** on 2026-10-02, failed before any change:
+`bun pm bin --global` fails on a host that has never run `bun add --global`.
+[PR #358](https://github.com/alphastorm/omp-session-gateway/pull/358) fixed that tooling failure.
+The second invocation, at **23:44Z**, failed at admission because the host had no existing gateway
+configuration; the upgrade smoke requires an existing Tailscale Serve configuration. Published
+predecessor v0.7.2 was then installed as described above.
+The third invocation, at **23:51Z**, upgraded the gateway to `0.7.3-11c3cc5ce86f` but failed its
+doctor with `compatibility: false`: the selected stock OMP 18.4.12 in Bun's global bin was not on
+the operator PATH. [PR #359](https://github.com/alphastorm/omp-session-gateway/pull/359) fixed the
+tooling by placing the selected OMP's directory on PATH.
+
+The fourth invocation, **00:00:03Z–00:04:14Z** on 2026-10-03, with tooling at `b7f456e`, **passed**:
+`bun run smoke:release -- --tag v0.7.3 --archive-sha256 aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1`.
+Its result JSON recorded `sourceCommit: 5589ae1ac1ebe687e25886ef30ee1683cb0b2502` and
+`appAsset: /assets/app.5c4a35b3f50f.js`. The gateway result was `installed: false` because attempt 3
+had already upgraded it, with `configPreserved: true`, `readinessTokenPreserved: true`, and
+`doctorChecks: 18`. Tailscale Serve recorded `changed: false` and
+`unrelatedMappingsPreserved: true`.
+The smoke selected Bun's global stock OMP **18.4.12**, installed by its own
+`bun add --global --exact @oh-my-pi/pi-coding-agent@18.4.12`. The passing result recorded
+`installed: false` because attempt 2 had installed it; its `binarySha256` was
+`d659505080c80a091524de1335caccdb815e05367bd825048cda4a0e98d8b7a0`.
+Unlike v0.7.2's smoke against stock OMP 18.1.20, this matches the candidate evidence's engineering
+baseline, while the candidate used stock OMP v18.4.12 built from source.
+
+The retained runtime directories on the Studio operator account were `0.7.2-0e6104d6ee0b`
+(the published predecessor) and `0.7.3-11c3cc5ce86f`.
+
+On the Pixel 10 Pro, the Android result recorded `viewReadOnly: true`, `controlWritable: true`,
+`capabilitySinksClean: true`, `samePageRecovery: true`, and `installedWebApk: true`.
+The `leaveInstalled` result recorded `gateway: true`, `mainlineOmp: true`, and `webApk: true`.
+
+Afterwards, `status` reported active, ready, and not diverged, with active and service versions
+`0.7.3-11c3cc5ce86f`. The smoke does not expand the exact candidate host/client matrix or turn
+the guest qualification into bare-metal qualification. Windows, cloud browsers, and background
+Push rest on their respective candidate lanes above.
 
 ## Engineering baseline v18.4.12 — canary evidence only
 

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway status — current qualified release and support boundary</title>
-<meta name="description" content="v0.7.3 is qualified for stable promotion with stock OMP v18.4.12; publication is pending. Exact Debian/macOS guest/Windows/Pixel evidence and support boundaries.">
+<meta name="description" content="Published stable v0.7.3, stock OMP v18.4.12. Exact Debian/macOS guest/Windows/Pixel evidence and support boundaries.">
 <link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
-<meta property="og:description" content="v0.7.3 is qualified for stable promotion with stock OMP v18.4.12; publication is pending. Exact qualification, provenance, and support boundaries are recorded in the release ledger.">
+<meta property="og:description" content="Published stable v0.7.3, stock OMP v18.4.12. Exact qualification, provenance, and support boundaries are recorded in the release ledger.">
 <meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
@@ -29,17 +29,17 @@
 </header>
 <main>
 <p class="eyebrow">Native OMP integration · release status</p>
-<h1>v0.7.3 — qualified; publication pending</h1>
+<h1>Stable v0.7.3</h1>
 <p class="lede"><strong>Works with stock OMP 18.1.20+.</strong> No OMP fork, custom build, or
 gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
 setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve.
-<strong>v0.7.3</strong> is qualified for stable promotion from <code>v0.7.3-prealpha.1</code>;
-publication and published-byte smoke are pending. Qualification applies to the exact combinations below; supported platform families
+<strong>v0.7.3</strong> was promoted from <code>v0.7.3-prealpha.1</code>;
+stable publication and the separate published-byte Studio/Pixel smoke passed. Qualification applies to the exact combinations below; supported platform families
 are tested in CI (first row). Neither covers every later OMP version or an arbitrary build from <code>main</code>.</p>
 <table>
 <tr><th>Claim</th><th>Current</th></tr>
 <tr><td>Supported platforms (CI-tested)</td><td>Linux, macOS, and Windows hosts; Chrome and Chromium, Edge through Chromium, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser, emulated in CI. Tested on every change by <code>portable-source</code>, <code>browser-core</code>, <code>browser-notifications</code> and <code>windows-service-lifecycle</code>, and daily by the stock-OMP canaries on Linux and Windows. Supported is not qualified; see the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md#platforms-and-browsers">platform matrix</a>.</td></tr>
-<tr><td>Stable publication</td><td>v0.7.3 is qualified; publication is pending. <a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.2">Published v0.7.2</a> remains GitHub Latest and the predecessor. There are no gateway runtime fixes since v0.7.2; the engineering baseline moves to stock OMP v18.4.12. Exact source, digest, attempt history, and all thirteen lanes are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
+<tr><td>Stable publication</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3">Stable v0.7.3</a> (source 5589ae1ac1ebe687e25886ef30ee1683cb0b2502, archive SHA-256 aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1) was published 2026-10-02T23:27:30Z by signed-release.yml <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/37077558898">run 37077558898</a> and is GitHub Latest. Its signed annotated tag, archive attestation verification, and byte-for-byte local stable-build reproduction are recorded in the release ledger. Published v0.7.2 remains the predecessor. There are no gateway runtime fixes since v0.7.2; the engineering baseline moves to stock OMP v18.4.12. Exact source, digest, attempt history, and all thirteen lanes are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
 <tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3-prealpha.1">v0.7.3-prealpha.1</a>; source <code>7a5f988d980e</code>, archive <code>ff0f98f3…351e17</code>. Signed tag, checksums, three GitHub attestations and three Sigstore bundles passed; published v0.7.2 verified the same way.</td></tr>
 <tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; stock OMP v18.4.12 built from source, <a href="https://github.com/can1357/oh-my-pi/commit/7318a70cf4ed04133366884d2723f72d9d490a15"><code>7318a70cf4ed</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential; embedded client and wire pin remain v18.4.2.</td></tr>
 <tr><td>Qualified Linux host</td><td>The Debian lane passed against the candidate archive: <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/37056255113">run 37056255113</a>. The receipt export does not enumerate OS/kernel versions or migration/recovery invariant counts.</td></tr>
@@ -53,7 +53,7 @@ are tested in CI (first row). Neither covers every later OMP version or an arbit
 <tr><td>Fresh relay check</td><td>1,800 seconds, 2026-10-02T20:28:08.005Z–20:58:08.019Z; two transitions, final phase live</td></tr>
 <tr><td>OMP publication and revocation</td><td>stock OMP v18.4.12 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked. New-generation and fork transitions kept the instance, advanced generation by 1, rejected stale launches, and each allowed two live launches; fork used two synthetic messages. Resume created a new instance at generation 1 with the same label, two live launches, and two revocations; all launches were no-store.</td></tr>
 <tr><td>Migration/rollback predecessor</td><td>Published <code>v0.7.2</code>, mainline. Guest Mac rollback passed 23/23 invariants; Windows history-selected predecessor restoration passed. Both versions embed the same OMP 18.4.2 client and wire pin; there are no gateway runtime fixes to undo. Gateway rollback does not switch OMP.</td></tr>
-<tr><td>Published-byte local/Pixel smoke</td><td>Pending stable publication of v0.7.3. Historical v0.7.2 smoke and retained-runtime observations remain in the release ledger, not this candidate’s evidence.</td></tr>
+<tr><td>Published-byte local/Pixel smoke</td><td>Passed on the fourth attempt, 00:00:03Z–00:04:14Z, tooling b7f456e, on the Studio operator account at the Studio's own tailnet origin with the attached Pixel 10 Pro. Earlier attempts failed at global-bin discovery (#358), missing predecessor configuration, and the selected OMP's PATH (#359); the ledger records all four. Attempt 3 had already upgraded to 0.7.3-11c3cc5ce86f, so the passing run reported installed: false; configPreserved: true, readinessTokenPreserved: true, doctorChecks: 18; tailscaleServe changed: false, unrelatedMappingsPreserved: true. Bun's global stock OMP 18.4.12, installed by attempt 2, was not reinstalled; binary SHA-256 d659505080c80a091524de1335caccdb815e05367bd825048cda4a0e98d8b7a0. This matches the candidate engineering baseline, unlike v0.7.2's smoke against 18.1.20. Asset /assets/app.5c4a35b3f50f.js; View read-only, Control writable, capability sinks clean, same-page recovery and installed WebAPK passed. Gateway, mainline OMP, and WebAPK were left installed. Status: active, ready, not diverged; active/service version 0.7.3-11c3cc5ce86f. Retained runtimes: 0.7.2-0e6104d6ee0b and 0.7.3-11c3cc5ce86f. The ledger records the Studio prerequisites; the smoke does not expand candidate qualification.</td></tr>
 </table>
 <h2>Known limits — part of the claim</h2>
 <ul>
@@ -74,7 +74,7 @@ are tested in CI (first row). Neither covers every later OMP version or an arbit
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json">upstream lock</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md">compatibility matrix</a> ·
 <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a> (authoritative where they disagree)</p>
-<p class="verified">The <code>v0.7.3-prealpha.1</code> campaign on 2026-10-02, 19:45:09Z–23:00:26Z, passed all thirteen lanes after resumes. Attempts: artifacts 6, macos 2, ompPublication 4, androidPush 4, androidPushCleanup 5, cleanup 6; the other seven lanes passed on attempt 1. The ledger records the reboot-session hang, guest disk growth, transient clone failure, phone change for cellular service, and extra-tab refusal. Final cleanup measured zero gateway processes, zero listeners, and zero live OMP hosts; Windows resources were removed, and Push and cloud cleanup passed. Publication and published-byte smoke remain pending.</p>
+<p class="verified">The <code>v0.7.3-prealpha.1</code> campaign on 2026-10-02, 19:45:09Z–23:00:26Z, passed all thirteen lanes after resumes. Attempts: artifacts 6, macos 2, ompPublication 4, androidPush 4, androidPushCleanup 5, cleanup 6; the other seven lanes passed on attempt 1. The ledger records the reboot-session hang, guest disk growth, transient clone failure, phone change for cellular service, and extra-tab refusal. Final cleanup measured zero gateway processes, zero listeners, and zero live OMP hosts; Windows resources were removed, and Push and cloud cleanup passed. Stable publication succeeded; the separate published-byte smoke passed on its fourth attempt on the Studio.</p>
 <h2>Fork-era release history</h2>
 <p><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.3.0">v0.3.0</a> was approved
 2026-09-09 against exact patched OMP <code>v18.1.14</code> observed 2026-09-08, with Bun
