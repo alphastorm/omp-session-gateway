@@ -1,9 +1,23 @@
 # Release status
 
-## Mainline v0.7.4 — qualified; stable publication pending
+## Mainline v0.7.4 — published stable
 
-**Updated:** 2026-10-03. v0.7.4 is qualified for stable promotion; publication is pending.
-Published v0.7.3 remains GitHub Latest. No v0.7.4 stable publication or published-byte smoke is claimed.
+**Updated:** 2026-10-03. [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4)
+was published at **2026-10-03T19:02:03Z** and is GitHub Latest, with six assets. Signed release workflow
+[37146354037](https://github.com/alphastorm/omp-session-gateway/actions/runs/37146354037)
+(`signed-release.yml`) succeeded. The signed annotated tag `v0.7.4` points to the stable source below.
+The assets are `omp-session-gateway-0.7.4-bun.tar`, its `.sigstore.json`,
+`omp-session-gateway-0.7.4.spdx.json`, its `.sigstore.json`, `SHA256SUMS`, and
+`SHA256SUMS.sigstore.json`. On the Studio's operator account, the release attestation and all six
+assets verified, the checksums matched, and GitHub build attestations and Sigstore bundles each
+verified 3/3 for the archive, SBOM, and `SHA256SUMS`. A local
+`OMP_RELEASE_CHANNEL=stable bun run release:build` of the tag on that account reproduced the
+published archive digest byte-for-byte.
+
+**Stable source:** `39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` (merge of approve PR #363).<br>
+**Stable archive SHA-256:** `80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3`.
+
+The published-byte Studio/Pixel smoke passed on its **first attempt**; see below.
 
 **Candidate:** [v0.7.4-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4-prealpha.1).<br>
 **Source:** `dcfa0b32503ca83e71e15d2872eff920831b14ac`.<br>
@@ -64,6 +78,32 @@ host or observed Serve identity. The campaign injects no relay fault, so the aut
 on upstream's tests and the tracer recorded under the v18.5.1 baseline below, not on a lane.
 Desktop Safari and broader host/browser combinations remain unqualified. Every other release gate
 stays required.
+
+### Published-byte Studio/Pixel verification
+
+The smoke ran on the Studio's operator account, at the Studio's own tailnet origin, with the
+attached Pixel 10 Pro, from tooling at the tag commit `39e3d57`, detached in tmux,
+**19:03:40Z–19:07:17Z**:
+`bun run smoke:release -- --tag v0.7.4 --archive-sha256 80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3 --rebuild-omp`.
+`--rebuild-omp` replaced the account's Bun global stock OMP 18.4.12 with the release's pinned
+**18.5.1**, installed by its own `bun add --global --exact @oh-my-pi/pi-coding-agent@18.5.1`, binary
+SHA-256 `fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9`. The smoke therefore
+matches the engineering baseline the candidate qualified from source.
+
+Its result JSON recorded `sourceCommit: 39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` and
+`appAsset: /assets/app.5c4a35b3f50f.js`. The gateway upgraded from v0.7.3 (`installed: true`) with
+`configPreserved: true`, `readinessTokenPreserved: true`, and `doctorChecks: 18`. Tailscale Serve
+recorded `changed: false` and `unrelatedMappingsPreserved: true`. On the Pixel 10 Pro, the Android
+result recorded `viewReadOnly: true`, `controlWritable: true`, `capabilitySinksClean: true`,
+`samePageRecovery: true`, and `installedWebApk: true`. The `leaveInstalled` result recorded
+`gateway: true`, `mainlineOmp: true`, and `webApk: true`.
+
+Afterwards, `status` reported active, ready, and not diverged, with active and service versions
+`0.7.4-9a9fd8f2c4d0`. The retained runtime directories on the operator account are
+`0.7.2-0e6104d6ee0b`, `0.7.3-11c3cc5ce86f`, and `0.7.4-9a9fd8f2c4d0`. The smoke does not expand
+the exact candidate host/client matrix or turn the guest qualification into bare-metal
+qualification. Windows, cloud browsers, and background Push rest on their respective candidate
+lanes above.
 
 ## Engineering baseline v18.5.1 — canary evidence only
 
