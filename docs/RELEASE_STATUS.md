@@ -1,5 +1,24 @@
 # Release status
 
+## v0.7.4 preparation — not yet qualified or published
+
+**Prepared:** 2026-10-03. The candidate carries no gateway runtime fixes since v0.7.3. The OMP
+engineering baseline moves to v18.5.1 (#361; canary run 37140425389 below), the first release
+that retries a `collab.autoStart` launch whose relay is unreachable or times out
+(can1357/oh-my-pi#14112); the embedded client and its 18.4.2 wire pin remain unchanged.
+`scripts/upstream-pins.ts` now derives the upstream lock and Windows qualification pins.
+
+The planned campaign runs from the Mac Studio orchestrator account against the retained
+Virtualization.framework guest (ADR-033): macOS 27.0, arm64, `VirtualMac2,1`. Every physical
+Pixel lane, including core Android acceptance and background Push, plans to use the Pixel 10 Pro
+attached to the Studio. These are planned environments, not candidate qualification evidence;
+the campaign must record its measured guest OS and model and its exact device and browser builds.
+Development checks, canary results, and historical receipts do not qualify this candidate.
+
+Published v0.7.3 remains the predecessor and current stable. The planned candidate tag is
+`v0.7.4-prealpha.1`; no v0.7.4 qualification or publication is claimed, and the stable lock stays
+unchanged until approval.
+
 ## Engineering baseline v18.5.1 — canary evidence only
 
 On 2026-10-03, [canary run 37140425389](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)

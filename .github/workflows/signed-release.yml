@@ -225,10 +225,9 @@ jobs:
 
           ### Highlights since $QUALIFIED_PREVIOUS_TAG
 
-          - This release carries no gateway runtime fixes since v0.7.2. The changes are qualification tooling, the planned retained Mac guest, and the OMP engineering baseline.
-          - Mac persistence requires a changed guest boot identity, console login, recovered gateway readiness and doctor, and full readiness-token preservation (#349). Background-Push admission accepts any identified Pixel on Android 13+ (#350); published-byte smoke waits up to 30 seconds for the launched WebAPK task, still failing closed (#346).
-          - ADR-033 (#348) plans a retained Virtualization.framework Mac guest (macOS 27.0 build 26A428, arm64, VirtualMac2,1), driven by the new Mac Studio orchestrator. This planned environment is not qualification evidence and does not cover physical firmware, FileVault, or Secure Boot.
-          - The OMP engineering baseline moves to v18.4.12 (#351; canary run 37040958377). The embedded collaboration client and its 18.4.2 wire pin are unchanged; upstream Markdown-rendering changes are not imported. Mainline OMP >=18.1.20 remains required and supported.
+          - This release carries no gateway runtime fixes since v0.7.3. The changes are the OMP engineering baseline and upstream pin tooling.
+          - The OMP engineering baseline moves to v18.5.1 (#361; canary run 37140425389), the first release that retries a collab.autoStart launch whose relay is unreachable or times out (can1357/oh-my-pi#14112). Earlier OMP makes one attempt and leaves such a session unlisted until /collab, a session switch, or a restart. The embedded collaboration client and its 18.4.2 wire pin are unchanged. Mainline OMP >=18.1.20 remains required and supported.
+          - scripts/upstream-pins.ts derives the exact upstream lock and Windows qualification pins, hashing native tarballs only after they match registry integrity.
           - View, Ask, photo-composer, native MathML, and reconnect behavior remain intact.
 
           ### Qualified combinations
@@ -236,9 +235,9 @@ jobs:
           | role | combination |
           |---|---|
           | host | Debian 13 (trixie) x86-64 |
-          | host | planned: macOS 27.0 (26A428) arm64, Virtualization.framework guest (VirtualMac2,1, ADR-033); candidate qualification pending |
+          | host | macOS 27.0 (26A428) arm64, Virtualization.framework guest on the Mac Studio (VirtualMac2,1, ADR-033) |
           | host | Windows Server 2025 x86-64, started at interactive logon; Administrator lifecycle plus a fresh standard-user install |
-          | client | planned: Chrome on the physical Pixel (Android 13+), including background Web Push; exact device and versions require campaign evidence |
+          | client | Chrome on Android (Pixel 10 Pro), including background Web Push |
           | client | Safari on iPhone and iPad, real devices in TestingBot's cloud, in the browser; iPhone background alerts in the Home Screen app |
           | client | Chrome on a Galaxy phone, a real device in TestingBot's cloud, in the browser |
 
@@ -262,7 +261,7 @@ jobs:
 
           ### Rollback
 
-          Gateway rollback does not switch the separately running OMP process. The v0.7.2 predecessor embeds the same OMP 18.4.2 collaboration client; its engineering baseline is v18.4.8, while this release uses v18.4.12. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
+          Gateway rollback does not switch the separately running OMP process. The v0.7.3 predecessor embeds the same OMP 18.4.2 collaboration client; its engineering baseline is v18.4.12, while this release uses v18.5.1. rollback --to can select only the runtimes this release retained. Preserve configuration and readiness-token state; do not silently downgrade or restart OMP. Historical fork-era recovery remains a separate stopped-service procedure in docs/UPGRADE_ROLLBACK.md.
 
           - Source commit: $GITHUB_SHA
           - OMP source reference: $upstream_commit (tag $upstream_tag); mainline >=18.1.20 is required
@@ -277,10 +276,9 @@ jobs:
 
           ### Changes to test
 
-          - The candidate carries no gateway runtime fixes since v0.7.2. Requalify session-lifecycle and Push-triage scenarios on these exact bytes; historical receipts do not transfer.
-          - The planned Mac environment is the retained Virtualization.framework guest (macOS 27.0 build 26A428, arm64, VirtualMac2,1, ADR-033), driven by the new Mac Studio orchestrator. Prove a changed guest boot identity, console login, recovered gateway readiness and doctor, and full readiness-token preservation (#349); do not claim physical firmware, FileVault, or Secure Boot coverage.
-          - Exercise background-Push admission on an identified Pixel with Android 13+ (#350) and the bounded, fail-closed WebAPK task wait in published-byte smoke (#346).
-          - Qualify stock OMP v18.4.12 on the host lanes (#351; canary run 37040958377 is compatibility evidence only). The embedded collaboration client and its 18.4.2 wire pin remain unchanged; upstream Markdown-rendering changes are not imported.
+          - The candidate carries no gateway runtime fixes since v0.7.3. Requalify every lane, including the session-lifecycle and Push-triage scenarios, on these exact bytes; historical receipts do not transfer.
+          - Qualify stock OMP v18.5.1 on the host lanes (#361; canary run 37140425389 is compatibility evidence only), including its auto-start relay retry (can1357/oh-my-pi#14112). The embedded collaboration client and its 18.4.2 wire pin remain unchanged.
+          - Run the Mac lane on the retained Virtualization.framework guest (macOS 27.0 build 26A428, arm64, VirtualMac2,1, ADR-033) from the Mac Studio orchestrator, and every physical Pixel lane on the Pixel 10 Pro; do not claim physical firmware, FileVault, or Secure Boot coverage.
           - Existing View, Ask, photo-composer, native MathML, and reconnect boundaries remain intact.
           - Complete changes and source-level verification are recorded in CHANGELOG.md and docs/RELEASE_STATUS.md at this commit. Historical platform evidence does not transfer.
 
@@ -292,12 +290,12 @@ jobs:
 
           - Source commit: $GITHUB_SHA
           - Runtime: Bun 1.4.0; registry protocol 1; Push API 2.
-          - Planned qualification: Debian 13 x86-64; macOS 27.0 (26A428) arm64 in a Virtualization.framework guest (VirtualMac2,1, ADR-033); a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install); Chrome on the physical Pixel with Android 13+, including its background-Push lane; and real iPhone, iPad, and Galaxy devices in TestingBot's cloud. Every lane must pass against these exact signed bytes before stable promotion; the plan is not evidence.
+          - Planned qualification: Debian 13 x86-64; macOS 27.0 (26A428) arm64 in a Virtualization.framework guest (VirtualMac2,1, ADR-033); a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install); Chrome on the physical Pixel 10 Pro, including its background-Push lane; and real iPhone, iPad, and Galaxy devices in TestingBot's cloud. Every lane must pass against these exact signed bytes before stable promotion; the plan is not evidence.
           - The Chrome process-wide network wedge remains a disclosed environment limitation; Portal Tunnel and self-hosted/proxied relays remain outside the stable core claim.
 
           ### Rollback
 
-          The selected predecessor is v0.7.2; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
+          The selected predecessor is v0.7.3; pruning keeps it installed as the recorded rollback target. Gateway rollback does not switch or restart OMP. Historical fork-era recovery is documented separately in docs/UPGRADE_ROLLBACK.md.
 
           Before upgrading a fork-era gateway, use its matching uninstall command to stop and unregister it; retain its signed archive and private configuration for deliberate recovery. Supply the deployment's origin and allowlist on install and upgrade. Upgrades retain hostname, omitted port, identity-trust, registry settings, and authored OMP overrides; unchanged configuration bytes are not rewritten.
 
