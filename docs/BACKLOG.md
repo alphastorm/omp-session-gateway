@@ -8,8 +8,11 @@ live in the [release ledger](RELEASE_STATUS.md).
 
 ## Current
 
-- Requalify the specialized attention and lifecycle (branch/resume) scenarios in the v0.7.3
-  campaign. The v0.7.2 evidence remains bound to that release; development evidence does not qualify a release.
+- Qualify and publish v0.7.4: the OMP v18.5.1 engineering baseline, with its auto-start relay
+  retry, on the retained Virtualization.framework guest and the Pixel 10 Pro. Published v0.7.3
+  remains current stable; development evidence does not qualify a release.
+- Requalify the specialized attention and lifecycle (branch/resume) scenarios in the v0.7.4
+  campaign. The v0.7.3 evidence remains bound to that release.
   See [attention acceptance](ATTENTION_SPEC.md) and [lifecycle coverage](LIFECYCLE_BRANCH_RESUME.md).
 - Track upstream discovery/query compatibility with the daily executable
   [upstream OMP canary](../.github/workflows/upstream-canary.yml), starting at stock `v18.1.20`.

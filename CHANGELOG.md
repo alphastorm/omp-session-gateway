@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [v0.7.4] — 2026-10-03
+
+This release carries no gateway runtime fixes since v0.7.3. The OMP engineering baseline moves
+to v18.5.1, the first release that retries a `collab.autoStart` launch whose relay is
+unreachable or times out; the embedded collaboration client and its 18.4.2 wire pin remain
+unchanged. A new script derives the upstream lock and Windows qualification pins.
+
 ### Added
 
 - `bun scripts/upstream-pins.ts <version> [--write]` derives the exact tag, commit, tree, package
@@ -20,7 +27,7 @@ The format is based on Keep a Changelog and Semantic Versioning.
   `collab.autoStart` launch whose relay is unreachable or times out (can1357/oh-my-pi#14112, #343).
   The upstream canary passed all ten Linux stages and all seven supported Windows stages. The
   embedded client remains at v18.4.2. Published v0.7.3 qualification stays bound to OMP v18.4.12
-  (canary run 37140425389).
+  (#361; canary run 37140425389).
 
 ## [v0.7.3] — 2026-10-02
 
