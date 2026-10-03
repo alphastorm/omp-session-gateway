@@ -807,6 +807,31 @@ tracked in #343; upstream retry fix can1357/oh-my-pi#14112 remains open at this 
 
 ---
 
+**Engineering baseline update (2026-10-03):** Accept published mainline v18.5.1
+(`d0cc52397dc2a68d39cba49b0009b9e50ffd643e`, tree `f80f979c55f14c2e097b1d83e2f37ade2fa44ce4`)
+as the host engineering pin, with registry v1 and minimum host `18.1.20` unchanged. v18.5.1 is the
+first release carrying upstream retry fix
+[can1357/oh-my-pi#14112](https://github.com/can1357/oh-my-pi/pull/14112), merge
+`b1e84317b74f5171137fecec4e1c578128f3aa72`; v18.5.0 predates it. An automatic start whose relay is
+unreachable or times out now retries on the existing relaunch backoff instead of leaving the
+session unpublished until `/collab`, a session switch, or a restart (#343), and the recovered room
+still publishes generation 1. Relative to v18.4.12 it is the only change to the collab host and
+controller; `guest.ts` gives a CLI guest's replica its own session-ownership lease. The registry,
+collab settings, wire index, and `collab-web` are unchanged, so the embedded client keeps its
+v18.4.2 provenance and wire pin. The minimum host stays `18.1.20`: older hosts still satisfy the
+discovery/query contract and only lack the retry.
+
+[Canary run 37140425389](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
+passed all ten Linux and all seven supported Windows stages; the three Windows keystroke stages
+are intentional skips. A throwaway macOS tracer under Bun 1.4.2 refused each host's first relay
+connection and started a local relay only after the host showed `Collab auto-start failed`: stock
+18.5.1 published generation 1 with Control access 1,007 ms later, and stock 18.5.0 never published
+in the following 60 seconds. This is tested evidence, not signed-artifact or macOS qualification;
+published v0.7.3 remains qualified on v18.4.12. `scripts/upstream-pins.ts` now derives the lock and
+Windows pins; run against v18.4.12, it reproduced every pin #351 measured by hand.
+
+---
+
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability
 
 **Status:** Accepted

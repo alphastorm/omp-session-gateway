@@ -10,13 +10,13 @@ than 18.1.20 lack this registry and are unsupported by the current gateway. The 
 requires Bun 1.4.0, TUN-mode Tailscale Serve, an exact login allowlist, and the one-time
 `collab.autoStart` setting below; native integration does not mean a bundled gateway or public access.
 
-`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.4.12`, commit
-`7318a70cf4ed04133366884d2723f72d9d490a15`, tree
-`d804bc6bff03bb96057dd46f3bf6ae0479e7c649`. The minimum supported host version is distinct from
+`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.5.1`, commit
+`d0cc52397dc2a68d39cba49b0009b9e50ffd643e`, tree
+`f80f979c55f14c2e097b1d83e2f37ade2fa44ce4`. The minimum supported host version is distinct from
 that exact host/source baseline. The embedded browser client has its own preserved
 [source and wire pins](../packages/collab-client/README.md), currently `v18.4.2`. The host-only
-baseline update does not import upstream v18.4.12's `collab-web` Markdown-rendering changes;
-do not conflate the embedded client pins with the host minimum or engineering baseline.
+baseline update does not import the `collab-web` Markdown-rendering changes upstream shipped in
+v18.4.12; do not conflate the embedded client pins with the host minimum or engineering baseline.
 
 The current published stable and its exact qualified matrix are recorded in the
 [compatibility policy](COMPATIBILITY.md); per-candidate receipts, limits, and published-byte checks
@@ -33,7 +33,7 @@ Its source is `session.isStreaming`: true while running a turn, false while idle
 when omitted/null. It is not proof of successful completion or process exit. The parser validates
 this named extension. Other fields upstream adds under v1 are ignored rather than rejected and are
 never projected; a snapshot naming prompt/answer content is still refused (ADR-028).
-The minimum host version stayed unchanged when the engineering baseline later moved to v18.4.12.
+The minimum host version stayed unchanged when the engineering baseline later moved to v18.5.1.
 Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
 The source activity extension projects known `busy` into browser metadata and supports stop alerts
@@ -65,6 +65,14 @@ Start participating interactive sessions with plain `omp`. OMP owns automatic co
 startup after session initialization and publishes its own local discovery entry. The gateway
 discovers the host on its next poll, whether OMP or the gateway started first. Manual collaboration
 commands remain OMP’s responsibility and require no gateway integration hook.
+
+OMP publishes only after its relay opens the room. From 18.5.1, an automatic start whose relay is
+unreachable or times out retries at once and then backs off from 1 to 60 seconds, and the
+recovered room still publishes generation 1
+([can1357/oh-my-pi#14112](https://github.com/can1357/oh-my-pi/pull/14112)). A relay that refuses
+the room is not retried. Earlier releases make one attempt: if it fails, the session shows
+`Collab auto-start failed` and stays out of the session list until `/collab`, a session switch,
+or a restart.
 
 At cutover, restart a process launched from an older OMP under mainline; changing an executable
 on disk does not replace code already loaded into a running process. Enabling auto-start also
