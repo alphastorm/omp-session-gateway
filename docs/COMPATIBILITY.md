@@ -66,21 +66,23 @@ Earlier releases are unsupported because this local registry does not exist in t
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
-gateway change. The current checkout's engineering baseline is v18.4.12 (`UPSTREAM.lock.json`);
+gateway change. The current checkout's engineering baseline is v18.5.1 (`UPSTREAM.lock.json`);
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
 
-The v18.4.12 [upstream canary](https://github.com/alphastorm/omp-session-gateway/actions/runs/37040958377)
-passed all ten Linux stages and all seven supported Windows stages on 2026-10-02. Windows
+The v18.5.1 [upstream canary](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
+passed all ten Linux stages and all seven supported Windows stages on 2026-10-03. Windows
 intentionally skips `new-generation`, `fork`, and `branch-rewind`. This is compatibility
 evidence, not signed-artifact or macOS qualification. The embedded client retains v18.4.2.
+v18.5.1 is the first release that retries an automatic start whose relay is unreachable or times
+out ([operator settings](OMP_INTEGRATION.md#1-operator-settings)).
 
 **Published stable:** [v0.7.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3),
 GitHub Latest, promoted from signed candidate v0.7.3-prealpha.1. Its published-byte smoke passed
 on the fourth attempt on the Studio operator account, at the Studio's own tailnet origin, with
-the attached Pixel 10 Pro and Bun's global stock OMP **18.4.12**, matching the engineering baseline.
-Published v0.7.2 remains the predecessor. There are no gateway runtime fixes
-since v0.7.2; the engineering baseline is stock OMP v18.4.12 built from source. All thirteen lanes
+the attached Pixel 10 Pro and Bun's global stock OMP **18.4.12**, matching v0.7.3's engineering
+baseline. Published v0.7.2 remains the predecessor. There are no gateway runtime fixes since
+v0.7.2; v0.7.3's engineering baseline is stock OMP v18.4.12 built from source. All thirteen lanes
 passed in the resumed 2026-10-02 campaign, not all on their first attempt. The
 [release ledger](RELEASE_STATUS.md) records each lane, the attempt counts and failures, and exact
 source/archive bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md#v073-predecessor-compatibility)
@@ -375,8 +377,11 @@ remain unqualified for background alerts.
 For every proposed OMP update:
 
 1. Inspect the new release/tag and collaboration-related source changes.
-2. Update `UPSTREAM.lock.json` with the exact tag, commit, package versions, Bun version,
-   relevant paths, findings, and observation date.
+2. Run `bun scripts/upstream-pins.ts <version> --write` to derive the exact tag, commit, tree,
+   package versions, observation date, and integrity-verified Darwin arm64 and Windows x64
+   native pins into `UPSTREAM.lock.json` and `scripts/windows-qualification-pins.json`. It
+   refuses a Bun range the pin does not satisfy and any relevant path missing at the tag. Record
+   the findings in the lock notes.
 3. Check the supported mainline discovery/query contract and minimum host version; do not create a
    downstream OMP patch or fallback transport.
 4. Rebuild the pinned collab-web integration and verify its provenance and license notices.

@@ -6,6 +6,22 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `bun scripts/upstream-pins.ts <version> [--write]` derives the exact tag, commit, tree, package
+  versions, and Darwin arm64 and Windows x64 native pins for a published OMP release, hashing each
+  native tarball only after it matches registry integrity. It refuses a Bun range the pin does not
+  satisfy and any relevant path missing at the tag. That check found the lock still listing a
+  settings schema upstream deleted before v18.4.2; it now names `collab/settings.ts`.
+
+### Changed
+
+- Move the OMP engineering baseline to published v18.5.1, the first release that retries a
+  `collab.autoStart` launch whose relay is unreachable or times out (can1357/oh-my-pi#14112, #343).
+  The upstream canary passed all ten Linux stages and all seven supported Windows stages. The
+  embedded client remains at v18.4.2. Published v0.7.3 qualification stays bound to OMP v18.4.12
+  (canary run 37140425389).
+
 ## [v0.7.3] — 2026-10-02
 
 This release carries no gateway runtime fixes since v0.7.2. The OMP engineering baseline moves

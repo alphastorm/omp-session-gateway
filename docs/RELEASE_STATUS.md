@@ -1,5 +1,23 @@
 # Release status
 
+## Engineering baseline v18.5.1 — canary evidence only
+
+On 2026-10-03, [canary run 37140425389](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
+(gateway `main` at `1b6f0e6`) passed all ten Linux stages and all seven supported Windows stages
+against stock OMP v18.5.1, in 17,331 ms and 14,941 ms, both with `discoveryFileRemoved: false`.
+Windows intentionally skipped `new-generation`, `fork`, and `branch-rewind`. The source pin is
+`d0cc52397dc2a68d39cba49b0009b9e50ffd643e`, tree `f80f979c55f14c2e097b1d83e2f37ade2fa44ce4`.
+`scripts/upstream-pins.ts` measured the Darwin arm64 and Windows x64 native hashes from official
+npm tarballs after verifying registry integrity; run against v18.4.12, it reproduced every pin
+#351 measured by hand. The embedded client stays at v18.4.2.
+
+v18.5.1 is the first release with upstream retry fix can1357/oh-my-pi#14112, which removes the
+trigger #343 identified. A throwaway macOS 27 arm64 tracer under Bun 1.4.2 refused each host's
+first relay connection and started a local relay only after the host showed
+`Collab auto-start failed`: stock 18.5.1 published generation 1 with Control access 1,007 ms after
+the relay started, while stock 18.5.0 never published in the following 60 seconds. No candidate,
+campaign, or new platform qualification is claimed; the published matrix below is unchanged.
+
 ## Mainline v0.7.3 — published stable
 
 **Updated:** 2026-10-03. [v0.7.3](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.3)
