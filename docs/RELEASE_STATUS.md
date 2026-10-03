@@ -42,6 +42,13 @@ Studio passed new-generation, fork, and resume; those runs are tested evidence, 
 | Cleanup | zero gateway processes, zero listeners, zero live OMP hosts |
 | Windows cleanup | zero instances and firewalls remaining; tailnet node deleted and access vault removed |
 
+**Runtime equivalence gate:** passed. On the Studio's operator account with Bun 1.4.0, a clean
+`OMP_RELEASE_CHANNEL=stable bun run release:build` of approval tree
+`42e3b0ce1a256d66dc1c423c3b6d7f91d254a948` was compared with the candidate archive after its digest
+verified: `{"compared":46,"differing":[]}`. Only the existing workflow exclusions apply:
+release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+The ledger-only commit that records this result changes no archive member.
+
 **Assurance scope:** The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login.
 The guest exercises the macOS kernel, launchd, loginwindow, per-user LaunchAgent, native addon,
 filesystem, TUN interface, and guest reboot. Physical Android and cloud-device evidence is separate.
