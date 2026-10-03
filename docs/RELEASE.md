@@ -299,6 +299,12 @@ Bun/source pins and stock OMP `>= 18.1.20`; require readiness-token/config prese
 discovery and launch/revocation, physical Android recovery/isolation, and owned-fixture cleanup.
 Signed-candidate qualification and prior release smokes do not substitute for a published-byte run.
 
+The smoke host is now the Studio operator account, with the gateway at the Studio's own tailnet
+origin and the Pixel attached to the Studio. That account must be tailscaled's operator. The smoke
+is an upgrade smoke and requires an existing installed gateway and Tailscale Serve configuration;
+on a fresh host, install the published predecessor first. The smoke installs Bun's global stock
+OMP itself; no separate manual stock-OMP installation is required.
+
 Every release's published-byte result, including any failed first attempt, is recorded in the
 [release ledger](RELEASE_STATUS.md) with its source, digest, preservation, physical-client, and
 cleanup evidence.
