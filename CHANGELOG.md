@@ -13,6 +13,9 @@ The format is based on Keep a Changelog and Semantic Versioning.
   about 17 seconds. Parsed host snapshots already cap `cwd` at 256 code points, so the daemon never
   hit this; the exported `observedSessionFromSnapshot` no longer relies on that cap (CodeQL
   `js/polynomial-redos`, #365).
+- Serialize stable qualification and published-byte smoke across processes and checkouts on the
+  release account using a crash-released OS lock. Keep durable campaign ownership after a failure
+  so only that campaign can recover its receipts before another tag or smoke acquires the host.
 
 ## [v0.7.4] — 2026-10-03
 

@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { runWithRestoration } from "./restoration.ts";
+import { withReleaseHostLease } from "./release-host-lease.ts";
 import { spawn } from "node:child_process";
 import {
   chmod,
@@ -1120,6 +1121,14 @@ export async function runPostReleaseSmoke(options: PostReleaseSmokeOptions): Pro
     };
   }
 
+  return withReleaseHostLease(`smoke:${options.repository}:${options.tag}`, () =>
+    runOwnedPostReleaseSmoke(options, packageManifest));
+}
+
+async function runOwnedPostReleaseSmoke(
+  options: PostReleaseSmokeOptions,
+  packageManifest: PackageManifest,
+): Promise<Record<string, unknown>> {
   await assertRequiredTools();
   const staging = await mkdtemp(join(tmpdir(), "omp-gateway-post-release-"));
   await chmod(staging, 0o700);

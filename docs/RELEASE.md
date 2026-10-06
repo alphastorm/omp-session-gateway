@@ -203,7 +203,32 @@ Missing, shorter, or stale proof fails overall qualification before admission or
 not automatically rerun the relay lane. Recorded pending Mac cleanup still runs, while completed
 cleanup remains completed. A historical 60-second pass cannot satisfy this campaign.
 
-Qualification is a single-operator procedure: run exactly one orchestrator process for a tag. Receipt replacement is atomic but is not cross-process locked, and the Pixel lease is in-process only; concurrent invocations can dispatch two billed Debian runs, create two Windows VMs, and contend for the retained Mac and the Pixel.
+Qualification and published-byte smoke take one cross-process release-host lease before reading
+or replacing receipts, admission, dispatch, installation, or device effects. All campaigns must
+run under the same release account on the same host, using its local home filesystem. The fixed
+`~/.local/state/omp-session-gateway/release-host/lease.sqlite` is shared across tags, receipt
+directories, and checkouts; changing `OMP_STABLE_QUALIFICATION_DIR` cannot bypass exclusion.
+The existing in-process Pixel lease still orders lanes within the admitted campaign. Preflight
+and smoke `--plan` remain read-only and do not claim the lease.
+
+SQLite EXCLUSIVE locking retains an OS lock across the committed ownership record and all
+effects/cleanup. Each contended SQLite operation waits at most one second, then refuses, even
+for the same campaign. This acquisition wait is not a lease expiry. No timeout, PID
+probe, or lease age can steal a live lock. On process death the OS releases it, but the committed
+owner remains: rerun the exact qualification tag and receipt directory (or smoke repository/tag)
+to resume recovery. A different campaign is refused until the original command succeeds. A
+caught failure also retains ownership, including admission failures; correct the cause and rerun
+that command. This does not clean up orphaned child processes or remote resources by itself:
+inspect the existing receipt and recover its recorded resources before resuming after a crash,
+following the lane-specific recovery procedures.
+
+Never delete, rename, or replace the lease database to unlock a campaign: that can create two
+live lock inodes. If the original command cannot recover, a maintainer must stop every launcher
+and child, reconcile the recorded host/device/cloud effects, and clear the campaign row through
+an exclusive SQLite transaction, not by unlinking the file. Drain older unguarded scripts before
+deploying this guard. It is cooperative exclusion for this release account, not a distributed
+lease or a fence against other users, manual adb/SSH, or standalone development qualification
+commands; those still must not overlap a release campaign.
 
 If a persisted Debian dispatch UUID is not discoverable, do not start a second process or delete the receipt blindly. Search Actions for the exact `Stable qualification <uuid>` title and orchestrator commit. Resume when that run appears. Only after API evidence proves no matching run exists and every Mac-related lane has zero attempts may the operator archive the entire private qualification directory and restart; otherwise recover the recorded Mac cleanup state first. Automatic redispatch is intentionally refused because an accepted-but-delayed workflow cannot be distinguished safely from a rejected request.
 

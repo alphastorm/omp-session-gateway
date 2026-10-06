@@ -12,6 +12,7 @@ import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { isSupportedOmpVersion, parseOmpVersion } from "./upstream-canary.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
 import { pixelUnrestored } from "./restoration.ts";
+import { withReleaseHostLease } from "./release-host-lease.ts";
 import { createOmpStdinDriver, OmpLifecycleFailure, runOmpLifecycle, type OmpLifecycleEvidence, type OmpLifecycleHost, type OmpSessionWait } from "./omp-lifecycle-qualification.ts";
 
 const REPOSITORY = "alphastorm/omp-session-gateway";
@@ -1167,6 +1168,7 @@ export async function loadConfiguredMacTarget(options: StableQualificationOption
 }
 
 export interface StablePreflightRuntime {
+  readonly withReleaseLease: typeof withReleaseHostLease;
   readonly platform: string;
   readonly arch: string;
   readonly bunVersion: string;
@@ -1178,6 +1180,7 @@ export interface StablePreflightRuntime {
 }
 
 const defaultPreflightRuntime: StablePreflightRuntime = {
+  withReleaseLease: withReleaseHostLease,
   platform: process.platform,
   arch: process.arch,
   bunVersion: Bun.version,
@@ -1968,6 +1971,16 @@ export async function runStableQualification(
     throw new Error("stable qualification orchestration currently requires a Darwin-arm64 workstation");
   }
   const receiptPath = join(options.receiptRoot, "stable-qualification.json");
+  return runtime.withReleaseLease(`qualification:${options.tag}:${receiptPath}`, () =>
+    runOwnedStableQualification(options, runtime, lanes, receiptPath));
+}
+
+async function runOwnedStableQualification(
+  options: StableQualificationOptions,
+  runtime: StablePreflightRuntime,
+  lanes: StableQualificationLaneModules,
+  receiptPath: string,
+): Promise<Record<string, unknown>> {
   const orchestratorCommit = await prerequisite("cannot resolve the qualification source commit", () =>
     runtime.output(["git", "rev-parse", "HEAD"]),
   );
