@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Derive a session's folder label in linear time. The trailing-separator regex backtracked
+  quadratically when a long run of path separators did not end the `cwd`: 200,000 separators took
+  about 17 seconds. Parsed host snapshots already cap `cwd` at 256 code points, so the daemon never
+  hit this; the exported `observedSessionFromSnapshot` no longer relies on that cap (CodeQL
+  `js/polynomial-redos`, #365).
+
 ## [v0.7.4] — 2026-10-03
 
 This release carries no gateway runtime fixes since v0.7.3. The OMP engineering baseline moves

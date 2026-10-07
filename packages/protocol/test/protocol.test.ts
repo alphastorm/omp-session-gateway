@@ -283,6 +283,16 @@ describe("strict protocol validation", () => {
     expect(windows).toMatchObject({ cwdLabel: "repository", model: "provider/model", canControl: true });
   });
 
+  test("labels a cwd in linear time even when a caller skips the 256-code-point parse bound", () => {
+    // A trailing-separator regex backtracked quadratically on a long separator run that does not end
+    // the string: 200,000 separators took about 16 seconds.
+    const snapshot = { ...parseOmpHostSnapshot(hostSnapshot()), cwd: `${"/\\".repeat(100_000)}repository` };
+    const started = performance.now();
+    const observed = observedSessionFromSnapshot(snapshot);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(observed.cwdLabel).toBe("repository");
+  });
+
   test("wraps a link reply URL before it can be serialized or inspected", () => {
     const url = new URL("https://collab.example.test");
     url.hash = capability;
