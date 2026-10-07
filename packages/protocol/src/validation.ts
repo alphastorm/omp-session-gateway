@@ -354,9 +354,8 @@ export function parseOmpLinkReply(value: unknown): OmpRegistryReply<SecretCapabi
  */
 export function observedSessionFromSnapshot(snapshot: OmpHostSnapshot): ObservedSessionInput {
   const title = optionalLabel(snapshot.sessionName);
-  const cwdLabel = optionalLabel(
-    snapshot.cwd === undefined ? undefined : (snapshot.cwd.replace(/[/\\]+$/u, "").split(/[/\\]/u).pop() ?? undefined),
-  );
+  // Not a `[/\\]+$` trim: that regex backtracks quadratically on a long separator run mid-string.
+  const cwdLabel = optionalLabel(snapshot.cwd?.split(/[/\\]/u).filter((segment) => segment !== "").pop());
   const model = snapshot.model === undefined ? undefined : optionalLabel(`${snapshot.model.provider}/${snapshot.model.id}`);
   return {
     instanceId: snapshot.instanceId,
