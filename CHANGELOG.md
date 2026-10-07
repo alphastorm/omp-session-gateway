@@ -12,7 +12,7 @@ The format is based on Keep a Changelog and Semantic Versioning.
   quadratically when a long run of path separators did not end the `cwd`: 200,000 separators took
   about 17 seconds. Parsed host snapshots already cap `cwd` at 256 code points, so the daemon never
   hit this; the exported `observedSessionFromSnapshot` no longer relies on that cap (CodeQL
-  `js/polynomial-redos`).
+  `js/polynomial-redos`, #365).
 
 ## [v0.7.4] — 2026-10-03
 
