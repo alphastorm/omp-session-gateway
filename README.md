@@ -270,7 +270,7 @@ minimum OMP version does not qualify every host, browser, or future OMP release.
 | | Current contract |
 |---|---|
 | OMP prerequisite | Stock mainline `>= 18.1.20`; earlier releases lack the local registry |
-| Exact qualified OMP | `v18.5.1`, commit `d0cc52397dc2a68d39cba49b0009b9e50ffd643e`; Bun `1.4.0` |
+| Exact qualified OMP | `v18.8.3`, commit `3e3c488a58d294e3a10051da588628e2cfb9d35c`; Bun `1.4.0` |
 | OMP settings | `collab.autoStart` only: `off`, `view`, or `control` |
 | Remote path | Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled |
 | Supported platforms | Linux, macOS, and Windows hosts; Chromium-based browsers including Edge, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser. Each is tested in CI ([matrix](docs/COMPATIBILITY.md#platforms-and-browsers)) |
