@@ -156,7 +156,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
       schemaVersion: 1, sequence: 0, issue, version, candidate: nextCandidate(version, repo.tags), selectedMain: repo.main, date,
     }, links: [issue.url] });
   }
-  const failure = (detail: string) => decision("stop", "diagnostic-required", detail, { patch: { failedMain: repo.main } });
+  const failure = (detail: string) => decision("stop", "diagnostic-required", detail + (["qualifying", "smoking"].includes(state.phase) ? "; inspect and recover the exact owning release-host lease before further device work" : ""), { patch: { failedMain: repo.main } });
   if (state.phase === "stopped") return idle("stopped; founder/operator intervention required");
   if (state.phase === "diagnostic-required") {
     if (state.stableCommit !== undefined) return idle("diagnostic-required after approval/publication; preserve the immutable release and reconcile manually");
@@ -264,7 +264,7 @@ export async function tick(port: DriverPort, config: DriverConfig, plan = false)
   if (state === undefined || step.operation === "select") state = { ...step.patch, phase: "selected" } as DriverState;
   state.intent = step;
   await port.save(state);
-  const result = await port.perform(step, state);
+  const result = await port.perform(step, { ...state, ...step.patch });
   state = { ...state, ...step.patch, ...result, phase: step.phase, sequence: state.sequence + 1 };
   delete state.intent;
   const marker = `<!-- release-driver:${createHash("sha256").update(`${state.issue.number}:${state.issue.request}:${state.candidate}:${state.sequence}:${state.phase}`).digest("hex")} -->`;

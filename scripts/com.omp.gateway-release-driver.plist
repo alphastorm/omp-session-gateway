@@ -5,23 +5,25 @@
   <key>Label</key><string>com.omp.gateway-release-driver</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/gwops/.omp/lane-toolchain/bun-1.4.0/bin/bun</string>
-    <string>/Users/gwops/Development/omp-session-gateway/scripts/release-driver.ts</string>
+    <string>@HOME@/.omp/lane-toolchain/bun-1.4.0/bin/bun</string>
+    <string>@HOME@/Development/omp-session-gateway/scripts/release-driver.ts</string>
     <string>tick</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/gwops/Development/omp-session-gateway</string>
+  <key>WorkingDirectory</key><string>@HOME@/Development/omp-session-gateway</string>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
   <key>Umask</key><integer>63</integer>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>/Users/gwops/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PATH</key><string>@HOME@/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>OMP_RELEASE_BOT_LOGIN</key><string>alphastorm-release</string>
     <key>OMP_RELEASE_FOUNDER_LOGIN</key><string>alphastorm</string>
-    <key>OMP_RELEASE_GH_CONFIG_DIR</key><string>/Users/gwops/.config/gh-release-bot</string>
-    <key>OMP_RELEASE_SIGNING_KEY</key><string>/Users/gwops/.ssh/omp-gateway-release-signing</string>
-    <key>OMP_RELEASE_STATE_DIR</key><string>/Users/gwops/.local/state/omp-session-gateway/release-driver</string>
+    <key>OMP_RELEASE_GH_CONFIG_DIR</key><string>@HOME@/.config/gh-release-bot</string>
+    <key>OMP_RELEASE_SIGNING_KEY</key><string>@HOME@/.ssh/omp-gateway-release-signing</string>
+    <key>OMP_RELEASE_STATE_DIR</key><string>@HOME@/.local/state/omp-session-gateway/release-driver</string>
+    <key>OMP_STABLE_MAC_HOST</key><string>gwqual@mac.example.ts.net</string>
+    <key>OMP_STABLE_MAC_MODEL</key><string>VirtualMac2,1</string>
     <key>OMP_RELEASE_DRY_RUN</key><string>true</string>
   </dict>
   <!-- The driver keeps a bounded 256-KiB driver.log under its private state directory. -->

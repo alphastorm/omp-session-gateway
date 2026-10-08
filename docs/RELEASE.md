@@ -145,7 +145,7 @@ with committed release history; the fixture notes describe the retained public e
 ### Studio installation (run as gwops after integration)
 
 The bot account is a repository collaborator with write access. Its registered Studio SSH signing
-key is `/Users/gwops/.ssh/omp-gateway-release-signing`; the key's public half is
+key is `~/.ssh/omp-gateway-release-signing`; the key's public half is
 `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPnD0XsQMUDImQxiWVgU8IXM6XeMVxFgPvp9bOAl/5Gd`.
 The driver reads the authenticated bot's numeric GitHub id and derives its noreply tagger address
 (default account: `339384828+alphastorm-release@users.noreply.github.com`). All gh and HTTPS git
@@ -159,7 +159,7 @@ Pixel and WebAPK ready, cloud credentials in their private files, predecessor in
 Non-login SSH needs the explicit Homebrew PATH. Install only after old manual launchers and their
 children are drained; retain their receipts and the shared release-host lease.
 
-`ssh gwops@sf-studio.tailfb479a.ts.net`, then:
+SSH to the Studio as the operator (for example `ssh gwops@studio.example.ts.net`), then:
 
 ```sh
 export PATH="$HOME/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -174,7 +174,10 @@ GH_CONFIG_DIR="$HOME/.config/gh-release-bot" gh api user --jq .login
 bun scripts/release-driver.ts plan
 install -d -m 700 "$HOME/.local/state/omp-session-gateway/release-driver"
 touch "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
-install -m 600 scripts/com.omp.gateway-release-driver.plist "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+bun --eval 'const template = await Bun.file("scripts/com.omp.gateway-release-driver.plist").text(); await Bun.write(process.env.HOME + "/Library/LaunchAgents/com.omp.gateway-release-driver.plist", template.replaceAll("@HOME@", process.env.HOME));'
+chmod 600 "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+# Replace this documentation target with the retained guest's actual SSH target.
+/usr/libexec/PlistBuddy -c 'Set :EnvironmentVariables:OMP_STABLE_MAC_HOST gwqual@mac.example.ts.net' "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
 # The checked-in template is dry-run by default. Review the config and read-only plan first.
 plutil -lint "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
 launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"

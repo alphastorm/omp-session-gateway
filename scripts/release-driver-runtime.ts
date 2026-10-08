@@ -13,7 +13,6 @@ import { compareReleaseArchives } from "./release-runtime-compare.ts";
 import type { StableQualificationReceipt } from "./stable-qualification.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const BOT_PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPnD0XsQMUDImQxiWVgU8IXM6XeMVxFgPvp9bOAl/5Gd";
 interface RuntimeConfig extends DriverConfig {
   ghConfig: string;
   signingKey: string;
@@ -21,11 +20,12 @@ interface RuntimeConfig extends DriverConfig {
   dryRun: boolean;
 }
 export function driverConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+  if (env.OMP_RELEASE_DRY_RUN !== undefined && !["0", "1", "false", "true"].includes(env.OMP_RELEASE_DRY_RUN)) throw new Error("OMP_RELEASE_DRY_RUN must be 0, 1, false or true");
   const config = {
     bot: env.OMP_RELEASE_BOT_LOGIN ?? "alphastorm-release",
     founder: env.OMP_RELEASE_FOUNDER_LOGIN ?? "alphastorm",
     ghConfig: env.OMP_RELEASE_GH_CONFIG_DIR ?? join(homedir(), ".config/gh-release-bot"),
-    signingKey: env.OMP_RELEASE_SIGNING_KEY ?? "/Users/gwops/.ssh/omp-gateway-release-signing",
+    signingKey: env.OMP_RELEASE_SIGNING_KEY ?? join(homedir(), ".ssh/omp-gateway-release-signing"),
     stateDir: env.OMP_RELEASE_STATE_DIR ?? join(homedir(), ".local/state/omp-session-gateway/release-driver"),
     dryRun: env.OMP_RELEASE_DRY_RUN === "1" || env.OMP_RELEASE_DRY_RUN === "true",
   };
@@ -106,7 +106,10 @@ export class StudioDriver implements DriverPort {
     this.env.GIT_CONFIG_KEY_0 = "credential.helper"; this.env.GIT_CONFIG_VALUE_0 = "";
     this.env.GIT_CONFIG_KEY_1 = "credential.https://github.com.helper"; this.env.GIT_CONFIG_VALUE_1 = "!gh auth git-credential";
     this.env.GIT_CONFIG_KEY_2 = "gpg.ssh.allowedSignersFile"; this.env.GIT_CONFIG_VALUE_2 = join(this.config.stateDir, "allowed-signers");
-    await writeFile(join(this.config.stateDir, "allowed-signers"), `${this.email} ${BOT_PUBLIC_KEY}\n`, { mode: 0o600 });
+    const keyParts = (await command(["ssh-keygen", "-y", "-f", this.config.signingKey], ROOT, this.env)).out.split(/\s+/u);
+    const publicKey = `${keyParts[0]} ${keyParts[1]}`; // Never persist a key comment containing a host/account identifier.
+    if (!/^ssh-ed25519 [A-Za-z0-9+/=]+$/u.test(publicKey)) throw new Error("release signing key must be an unattended ed25519 SSH key");
+    await writeFile(join(this.config.stateDir, "allowed-signers"), `${this.email} ${publicKey}\n`, { mode: 0o600 });
   }
   async load(): Promise<DriverState | undefined> {
     const state = await jsonFile<DriverState>(join(this.config.stateDir, "state.json"));
@@ -328,7 +331,7 @@ export class StudioDriver implements DriverPort {
     await atomicJson(join(directory, "spec.json"), { kind, state, root: ROOT } satisfies JobSpec);
     const quote = (text: string) => `'${text.replaceAll("'", `'"'"'`)}'`;
     const launcher = `${quote(process.execPath)} ${quote(join(ROOT, "scripts/release-driver.ts"))} worker ${quote(join(directory, "spec.json"))} >${quote(join(directory, "out.log"))} 2>${quote(join(directory, "err.log"))}`;
-    const workerEnvironment = { PATH: this.env.PATH ?? "", OMP_RELEASE_BOT_LOGIN: this.config.bot, OMP_RELEASE_FOUNDER_LOGIN: this.config.founder, OMP_RELEASE_GH_CONFIG_DIR: this.config.ghConfig, OMP_RELEASE_SIGNING_KEY: this.config.signingKey, OMP_RELEASE_STATE_DIR: this.config.stateDir };
+    const workerEnvironment = { PATH: this.env.PATH ?? "", OMP_RELEASE_BOT_LOGIN: this.config.bot, OMP_RELEASE_FOUNDER_LOGIN: this.config.founder, OMP_RELEASE_GH_CONFIG_DIR: this.config.ghConfig, OMP_RELEASE_SIGNING_KEY: this.config.signingKey, OMP_RELEASE_STATE_DIR: this.config.stateDir, OMP_STABLE_MAC_HOST: this.env.OMP_STABLE_MAC_HOST ?? "", OMP_STABLE_MAC_MODEL: this.env.OMP_STABLE_MAC_MODEL ?? "VirtualMac2,1" };
     await command(["tmux", "new-session", "-d", "-s", this.session(kind, state), ...Object.entries(workerEnvironment).flatMap(([key, value]) => ["-e", `${key}=${value}`]), launcher], ROOT, this.env);
   }
   async perform(step: Decision, state: DriverState): Promise<Partial<DriverState>> {
@@ -392,7 +395,9 @@ export class StudioDriver implements DriverPort {
       await command([process.execPath, "install", "--frozen-lockfile"], checkout, this.env);
       if (spec.kind === "campaign") {
         await this.push(`refs/heads/${branch!}`, checkout);
-        const env = { ...this.env, OMP_STABLE_MAC_HOST: "gwqual@omp-gwqual-vm.tailfb479a.ts.net", OMP_STABLE_MAC_MODEL: "VirtualMac2,1", OMP_STABLE_OP_TOKEN_FILE: join(homedir(), ".local/state/omp-session-gateway/op-service-account.token") };
+        const macHost = this.env.OMP_STABLE_MAC_HOST;
+        if (!macHost || macHost.includes(".example.")) throw new Error("configure OMP_STABLE_MAC_HOST with the retained qualification target before arming");
+        const env = { ...this.env, OMP_STABLE_MAC_HOST: macHost, OMP_STABLE_MAC_MODEL: this.env.OMP_STABLE_MAC_MODEL ?? "VirtualMac2,1", OMP_STABLE_OP_TOKEN_FILE: join(homedir(), ".local/state/omp-session-gateway/op-service-account.token") };
         await command(["security", "unlock-keychain", "-p", "", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, env);
         await command([process.execPath, "run", "qualify:stable", "--", "--tag", state.candidate, "--preflight"], checkout, env);
         await command([process.execPath, "run", "qualify:stable", "--", "--tag", state.candidate], checkout, env);

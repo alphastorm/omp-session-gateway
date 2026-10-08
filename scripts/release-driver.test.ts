@@ -21,6 +21,7 @@ class FakeDriver implements DriverPort {
   state: DriverState | undefined;
   repo = snapshot();
   effects = new Map<string, Partial<DriverState>>();
+  prepareSources: string[] = [];
   comments = new Map<string, string>();
   saves = 0;
   failSave = 0;
@@ -43,8 +44,8 @@ class FakeDriver implements DriverPort {
     switch (step.operation) {
       case "update-order": this.repo.order!.behind = false; this.repo.order!.head = "d".repeat(40); break;
       case "ready-order": this.repo.order!.draft = false; break;
-      case "merge-order": this.repo.upstreamTag = "v18.8.3"; break;
-      case "open-prepare": this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402 }; break;
+      case "merge-order": this.repo.upstreamTag = "v18.8.3"; this.repo.main = "9".repeat(40); break;
+      case "open-prepare": this.prepareSources.push(current.selectedMain); this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402 }; break;
       case "merge-prepare": patch = { candidateCommit: "e".repeat(40) }; break;
       case "tag-candidate": this.repo.candidateWorkflow = "passed"; break;
       case "verify-candidate": patch = { candidateDigest: "f".repeat(64) }; break;
@@ -94,6 +95,7 @@ test("one tick advances at most one step across the complete happy path", async 
   expect(fake.state!.phase).toBe("closed");
   expect((await tick(fake, config)).operation).toBe("idle");
   expect(fake.performed).toEqual(expected);
+  expect(fake.prepareSources).toEqual(["9".repeat(40)]);
   for (const comment of fake.comments.values()) expect(comment.split("\n")[0]).toMatch(/^release-driver: [a-z-]+ — [^\n]+$/u);
 });
 
@@ -151,6 +153,7 @@ test.each(["qualifying", "approve-checking", "smoking"] as const)("%s failure st
   expect((await tick(fake, config)).operation).toBe("stop");
   expect(fake.state.phase).toBe("diagnostic-required");
   expect([...fake.comments.values()][0]).toContain("android (failed)");
+  if (phase !== "approve-checking") expect([...fake.comments.values()][0]!.split("\n")[0]).toContain("recover the exact owning release-host lease");
   expect((await tick(fake, config)).operation).toBe("idle");
 });
 
@@ -213,9 +216,56 @@ test("plan reads live inputs but writes no state, effects, comments, or bot cred
 });
 
 test("dedicated bot environment strips founder credential/identity and preserves no arbitrary qualification override", () => {
+  expect(() => driverConfig({ OMP_RELEASE_DRY_RUN: "yes" })).toThrow("OMP_RELEASE_DRY_RUN");
   const cfg = driverConfig({ OMP_RELEASE_BOT_LOGIN: "release-user", OMP_RELEASE_FOUNDER_LOGIN: "founder", OMP_RELEASE_GH_CONFIG_DIR: "/private/bot-gh", OMP_RELEASE_SIGNING_KEY: "/private/key", OMP_RELEASE_STATE_DIR: "/private/state" });
   const env = botEnvironment(cfg, { GH_TOKEN: "founder-value", GITHUB_TOKEN: "founder-value", GH_CONFIG_DIR: "/founder", GIT_AUTHOR_EMAIL: "founder@example.com", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.helper", GIT_CONFIG_VALUE_0: "founder-helper", OMP_STABLE_PREVIOUS_TAG: "v0.0.1", PATH: "/bin" });
   expect(env.GH_CONFIG_DIR).toBe("/private/bot-gh");
   for (const key of ["GH_TOKEN", "GITHUB_TOKEN", "GIT_AUTHOR_EMAIL", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "OMP_STABLE_PREVIOUS_TAG"]) expect(env[key]).toBeUndefined();
   expect(env.PATH).toBe("/bin");
+});
+test("runtime refuses a changed order scope at the last merge boundary, including rename history", async () => {
+  class RefusingRuntime extends StudioDriver {
+    override async readPr() { return order({ draft: false, files: [{ filename: "CHANGELOG.md", previous_filename: ".github/workflows/signed-release.yml" }] }); }
+  }
+  const runtime = new RefusingRuntime(driverConfig(), false);
+  await expect(runtime.merge(order({ draft: false }), true)).rejects.toThrow("scope changed");
+});
+
+test("runtime rechecks founder, merge commit and checked tree before a stable tag effect", async () => {
+  class RefusingRuntime extends StudioDriver {
+    override async readPr() { return pr({ merged: true, mergedBy: config.bot, mergeTree: "c".repeat(40), mergeCommit: "e".repeat(40) }); }
+  }
+  const runtime = new RefusingRuntime(driverConfig(), false);
+  const approved = { ...state("approved"), approvePr: 401, stableCommit: "e".repeat(40), approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
+  await expect(runtime.perform({ operation: "tag-stable", phase: "stable-tagged", detail: "publish" }, approved)).rejects.toThrow("founder approval binding changed");
+});
+
+test("runtime adopts an already-accepted pinned bot merge after a crash without another write", async () => {
+  const merged = pr({ merged: true, mergedBy: config.bot, mergeCommit: "e".repeat(40), state: "closed" });
+  class ReconciledRuntime extends StudioDriver { override async readPr() { return merged; } }
+  const runtime = new ReconciledRuntime(driverConfig(), false);
+  expect(await runtime.merge(pr(), false)).toEqual(merged);
+});
+
+test("runtime comment reconciliation ignores impersonated markers and adopts its own accepted comment", async () => {
+  class CommentsRuntime extends StudioDriver {
+    writes = 0;
+    readonly remote: { body: string; user: { login: string } }[] = [{ body: "marker", user: { login: "attacker" } }];
+    override async pages<T>(): Promise<T[]> { return this.remote as T[]; }
+    override async gh<T>(): Promise<T | undefined> {
+      this.writes++;
+      this.remote.push({ body: "marker", user: { login: config.bot } });
+      return undefined;
+    }
+  }
+  const runtime = new CommentsRuntime(driverConfig(), false);
+  await runtime.announce(400, "release-driver: selected — request", "marker");
+  await runtime.announce(400, "release-driver: selected — request", "marker");
+  expect(runtime.writes).toBe(1);
+});
+
+test("a diagnostic after publication never restarts an immutable stable version", () => {
+  const stopped = { ...state("diagnostic-required"), stableCommit: "e".repeat(40), failedMain: "a".repeat(40) };
+  const repo = snapshot({ main: "d".repeat(40), issues: [{ ...issue, request: "99:1" }] });
+  expect(nextStep(stopped, repo, config).detail).toContain("preserve the immutable release");
 });
