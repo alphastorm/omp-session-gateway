@@ -245,11 +245,15 @@ export interface DriverPort {
   load(): Promise<DriverState | undefined>;
   save(state: DriverState): Promise<void>;
   snapshot(state: DriverState | undefined): Promise<RepositorySnapshot>;
-  /** Must be replay-safe: inspect deterministic PR branch/tag/job identity before creating. */
+  /** Must be replay-safe: inspect deterministic PR branch/tag/job identity before creating.
+   *  Throws StaleIntentError only when it refused before any effect because a pinned input moved. */
   perform(step: Decision, state: DriverState): Promise<Partial<DriverState>>;
   /** Reconcile marker on the issue, accepting only comments authored by the configured bot. */
   announce(issue: number, body: string, marker: string): Promise<void>;
 }
+/** A saved intent's pinned input (a PR head, its checks) moved before the intent had any effect.
+ *  Replaying it can never succeed, so the tick drops it and the next tick plans afresh. */
+export class StaleIntentError extends Error {}
 /** At most one state transition. The caller holds the tick mutex; plan never calls save/perform. */
 export async function tick(port: DriverPort, config: DriverConfig, plan = false): Promise<Decision | Idle> {
   let state = await port.load();
@@ -265,7 +269,15 @@ export async function tick(port: DriverPort, config: DriverConfig, plan = false)
   if (state === undefined || step.operation === "select") state = { ...step.patch, phase: "selected" } as DriverState;
   state.intent = step;
   await port.save(state);
-  const result = await port.perform(step, { ...state, ...step.patch });
+  let result: Partial<DriverState>;
+  try {
+    result = await port.perform(step, { ...state, ...step.patch });
+  } catch (error) {
+    if (!(error instanceof StaleIntentError)) throw error;
+    delete state.intent;
+    await port.save(state);
+    return idle(`re-planning: ${step.operation} refused before any effect (${error.message})`);
+  }
   state = { ...state, ...step.patch, ...result, phase: step.phase, sequence: state.sequence + 1 };
   delete state.intent;
   const marker = `<!-- release-driver:${createHash("sha256").update(`${state.issue.number}:${state.issue.request}:${state.candidate}:${state.sequence}:${state.phase}`).digest("hex")} -->`;

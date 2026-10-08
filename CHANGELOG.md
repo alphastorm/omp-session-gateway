@@ -42,6 +42,10 @@ This release uses stock OMP v18.8.3 as its engineering baseline. The 5 changelog
   admission. v0.7.5's first campaign stopped at preflight with "the 1Password token is not a
   service account of my.1password.com" because the release host's `op` hung at exec; the
   admission now names the timeout, or `op`'s exit status and first error line.
+- Re-plan when the release driver's pinned merge finds its PR moved. During v0.7.5, #369's head
+  was replaced after the driver saved its merge intent, and every tick replayed the stale merge
+  until the state file was edited by hand. An intent refused before any effect is now dropped,
+  and the next tick plans from a fresh snapshot.
 
 ## [v0.7.4] — 2026-10-03
 

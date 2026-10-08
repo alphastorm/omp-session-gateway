@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { botEnvironment, driverConfig, StudioDriver } from "./release-driver-runtime.ts";
-import { compareVersions, isOrder, nextCandidate, nextStep, ORDER_SCOPE, outsideOrderScope, REPOSITORY, selectRequest, tick } from "./release-driver.ts";
+import { compareVersions, isOrder, nextCandidate, nextStep, ORDER_SCOPE, outsideOrderScope, REPOSITORY, selectRequest, StaleIntentError, tick } from "./release-driver.ts";
 import type { Decision, DriverPort, DriverState, Operation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 
 const config = { bot: "alphastorm-release", founder: "alphastorm" };
@@ -191,6 +191,43 @@ test("crash between provider write and state save reconciles the same effect wit
   expect((await tick(fake, config)).operation).toBe("open-prepare");
   expect(fake.performed.filter(operation => operation === "open-prepare")).toHaveLength(1);
   expect(fake.state.phase).toBe("prepare-open"); expect(fake.comments.size).toBe(1);
+});
+
+test("a pinned merge whose PR moved re-plans from a fresh snapshot instead of replaying its intent", async () => {
+  // v0.7.5: #369's head was replaced after the driver pinned it, and every tick replayed the stale merge.
+  class MovedHead extends FakeDriver {
+    override async perform(step: Decision, current: DriverState) {
+      if (step.operation === "merge-prepare" && step.pr?.head !== this.repo.prepare?.head) throw new StaleIntentError("PR head changed before pinned merge");
+      return super.perform(step, current);
+    }
+  }
+  const fake = new MovedHead();
+  fake.state = { ...state("prepare-open"), preparePr: 402 };
+  fake.repo.prepare = pr({ number: 402 });
+  fake.state.intent = nextStep(fake.state, fake.repo, config) as Decision;
+  expect(fake.state.intent.operation).toBe("merge-prepare");
+  fake.repo.prepare = pr({ number: 402, head: "d".repeat(40), checksPassed: false });
+  expect((await tick(fake, config)).operation).toBe("idle");
+  expect(fake.state.intent).toBeUndefined();
+  expect(fake.state.phase).toBe("prepare-open");
+  expect((await tick(fake, config)).detail).toContain("waiting for strict required PR checks");
+  fake.repo.prepare.checksPassed = true;
+  expect((await tick(fake, config)).operation).toBe("merge-prepare");
+  expect(fake.performed).toEqual(["merge-prepare"]);
+  expect(fake.state.phase).toBe("prepared");
+});
+
+test("runtime refuses a moved pinned merge as stale, but a merge at another head as a hard stop", async () => {
+  let current = pr({ head: "d".repeat(40) });
+  class MovedRuntime extends StudioDriver { override async readPr() { return current; } }
+  const runtime = new MovedRuntime(driverConfig(), false);
+  await expect(runtime.merge(pr(), false)).rejects.toThrow(StaleIntentError);
+  current = pr({ checksPassed: false });
+  await expect(runtime.merge(pr(), false)).rejects.toThrow(StaleIntentError);
+  current = pr({ head: "d".repeat(40), merged: true, mergedBy: config.bot, state: "closed" });
+  const foreign = await runtime.merge(pr(), false).catch((error: unknown) => error);
+  expect(foreign).not.toBeInstanceOf(StaleIntentError);
+  expect(String(foreign)).toContain("merged at a head other than the pinned one");
 });
 
 test("accepted progress comment followed by a crash never posts another comment", async () => {
