@@ -1,0 +1,130 @@
+name: Request OMP release
+
+on:
+  workflow_dispatch:
+    inputs:
+      omp_version:
+        description: Stock OMP npm version or dist-tag to request
+        required: true
+        default: latest
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-request
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      omp_version: ${{ steps.resolve.outputs.omp_version }}
+      lock_tag: ${{ steps.resolve.outputs.lock_tag }}
+    steps:
+      # Read only the dispatched ref's lock; do not install or execute repository/PR code here.
+      - name: Check out dispatched lock
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: UPSTREAM.lock.json
+          sparse-checkout-cone-mode: false
+      - name: Resolve published version and enforce baseline
+        id: resolve
+        env:
+          OMP_INPUT: ${{ inputs.omp_version }}
+        run: |
+          set -euo pipefail
+          npm view "@oh-my-pi/pi-coding-agent@$OMP_INPUT" version --json >"$RUNNER_TEMP/omp-version.json"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const strictVersion = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+          const version = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/omp-version.json`, "utf8"));
+          if (typeof version !== "string" || !strictVersion.test(version)) {
+            throw new Error("npm must resolve one strict X.Y.Z release version");
+          }
+          const lock = JSON.parse(fs.readFileSync("UPSTREAM.lock.json", "utf8"));
+          if (typeof lock.tag !== "string" || !lock.tag.startsWith("v") || !strictVersion.test(lock.tag.slice(1))) {
+            throw new Error("UPSTREAM.lock.json must name a strict vX.Y.Z baseline");
+          }
+          const requested = version.split(".").map(BigInt);
+          const baseline = lock.tag.slice(1).split(".").map(BigInt);
+          const different = requested.findIndex((part, index) => part !== baseline[index]);
+          if (different !== -1 && requested[different] < baseline[different]) {
+            throw new Error(`Requested v${version} is lower than lock baseline ${lock.tag}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `omp_version=${version}\nlock_tag=${lock.tag}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "## Release request resolution",
+            `- Exact stock OMP: v${version}`,
+            `- Dispatched lock baseline: ${lock.tag}`,
+            `- Request: ${different === -1 ? "fixes-only (equal to baseline)" : "upstream refresh"}`,
+            "",
+          ].join("\n"));
+          NODE
+
+  canary:
+    needs: resolve
+    # The reusable workflow also contains the schedule-only issue reporter. Its upstream-executing
+    # jobs explicitly restrict their own tokens to contents:read; no upstream code can write issues.
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/upstream-canary.yml
+    with:
+      omp_version: ${{ needs.resolve.outputs.omp_version }}
+
+  file:
+    name: Request OMP v${{ needs.resolve.outputs.omp_version }}
+    needs: [resolve, canary]
+    if: ${{ needs.canary.outputs.passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or reuse the tracking request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OMP_VERSION: ${{ needs.resolve.outputs.omp_version }}
+          LOCK_TAG: ${{ needs.resolve.outputs.lock_tag }}
+          REQUEST_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          # Revalidate the strings crossing into the issue-writing job.
+          strict_version='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+          if [[ ! "$OMP_VERSION" =~ ^${strict_version}$ || ! "$LOCK_TAG" =~ ^v${strict_version}$ ]]; then
+            printf 'invalid resolved request or lock baseline\n' >&2
+            exit 1
+          fi
+          title="Upstream tracking: v$OMP_VERSION"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh label create release-request --repo "$GITHUB_REPOSITORY" --color 0e8a16 --force >/dev/null
+          # Pagination avoids missing an older identical open request. Only bot-authored issues
+          # satisfy the Alpha Founder tracking contract; pull requests and human lookalikes do not.
+          matches=$(gh api --method GET --paginate "repos/$GITHUB_REPOSITORY/issues" -f state=open -f per_page=100 \
+            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .title == \"$title\") | [.number, any(.labels[]; .name == \"release-request\")] | @tsv")
+          if [[ -n "$matches" ]]; then
+            IFS=$'\t' read -r issue labeled <<<"${matches%%$'\n'*}"
+            if [[ "$labeled" != true ]]; then
+              gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --add-label release-request >/dev/null
+            fi
+            issue_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/issues/$issue"
+            result=reused
+          else
+            body=$(printf 'Requested by @%s after the exact-version canary passed.\n\nRun: %s\n\nLock baseline at the dispatched ref: %s.\n' "$REQUEST_ACTOR" "$run_url" "$LOCK_TAG")
+            issue_url=$(gh issue create --repo "$GITHUB_REPOSITORY" --label release-request --title "$title" --body "$body")
+            result=created
+          fi
+          # Reusing a request never posts a comment or rewrites its human note.
+          {
+            printf '## Release request\n'
+            printf -- '- Exact stock OMP: v%s\n' "$OMP_VERSION"
+            printf -- '- Lock baseline: %s\n' "$LOCK_TAG"
+            printf -- '- Canary: passed on Linux and Windows\n'
+            printf -- '- Tracking issue (%s): %s\n' "$result" "$issue_url"
+            printf -- '- Requested by: @%s\n' "$REQUEST_ACTOR"
+          } >>"$GITHUB_STEP_SUMMARY"
