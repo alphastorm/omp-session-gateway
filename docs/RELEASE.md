@@ -105,8 +105,11 @@ read-only gh session before bot credentials are installed. `tick` advances at mo
 select the highest trusted open request, land the exact Alpha Founder draft order, generate and
 merge prepare, sign/publish/verify the candidate, preflight and qualify, generate and locally check
 approve, wait for the founder, sign/publish/verify stable (including rebuilt-digest equality), smoke
-with `--rebuild-omp`, generate/merge record, and close fulfilled requests. Each state transition
-posts exactly one reconciled bot comment: `release-driver: <state> — <detail>`, followed by links.
+with `--force-reinstall --rebuild-omp`, generate/merge record, and close fulfilled requests. A
+retried smoke finds the stable gateway already active from the failed attempt, and the record
+accepts only smoke evidence of an install, so every driver smoke reinstalls the published bytes.
+Each state transition posts exactly one reconciled bot comment:
+`release-driver: <state> — <detail>`, followed by links.
 
 An order must be authored by `alpha-founder-source-alphastorm[bot]` with GitHub type `Bot`,
 from this repository's `alpha-founder/*` head into `main`, first observed as a draft. Only these

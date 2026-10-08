@@ -213,7 +213,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     if (job?.status === "failed" || job?.status === "absent") return failure(job.detail ?? `${state.phase} process disappeared; inspect private job logs; no retry`);
     if (job?.status !== "passed") return idle(`waiting for detached ${state.phase}`);
     if (state.phase === "qualifying") return decision("finish-campaign", "qualified", "all candidate qualification lanes passed");
-    if (state.phase === "smoking") return decision("finish-smoke", "smoked", "published-byte smoke passed with --rebuild-omp");
+    if (state.phase === "smoking") return decision("finish-smoke", "smoked", "published-byte smoke passed with --force-reinstall and --rebuild-omp");
     const pr = repo.approve;
     const invalid = refuse(pr, config, "approve");
     if (invalid !== undefined || pr!.head !== state.approvedHead || pr!.tree !== state.approvedTree) return decision("stop", "stopped", invalid ?? "approve PR changed during local checks");
@@ -239,7 +239,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
   }
   if (state.phase === "approved") return decision("tag-stable", "stable-tagged", `sign and push v${state.version} on the founder's approved merge`);
   if (state.phase === "stable-published") return decision("verify-stable", "stable-verified", `verify v${state.version}, GitHub Latest and rebuilt archive digest`);
-  if (state.phase === "stable-verified") return decision("start-smoke", "smoking", `detached published-byte smoke for v${state.version} with --rebuild-omp`);
+  if (state.phase === "stable-verified") return decision("start-smoke", "smoking", `detached published-byte smoke for v${state.version} with --force-reinstall and --rebuild-omp`);
   if (state.phase === "smoked") return decision("open-record", "record-open", `record v${state.version} publication and smoke evidence`);
   if (state.phase === "recorded") return decision("close", "closed", `v${state.version} recorded; close request and lower open requests`, { links: [`https://github.com/${REPOSITORY}/releases/tag/v${state.version}`] });
   return idle("waiting");
