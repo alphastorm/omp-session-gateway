@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readFile, readdir, rename, writeFile } from "node:f
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { REPOSITORY, REQUIRED_CHECKS, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
+import { REPOSITORY, REQUIRED_CHECKS, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
 import type { Decision, DriverConfig, DriverPort, DriverState, JobObservation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 import { assertReleaseTagState } from "./release-tag-state.ts";
 import { releaseAssetNames } from "./post-release-smoke.ts";
@@ -262,13 +262,16 @@ export class StudioDriver implements DriverPort {
   receipt(state: DriverState): string { return join(homedir(), ".local/share/omp-session-gateway/qualification", state.candidate, "stable-qualification.json"); }
   async merge(pr: PullRequest, order: boolean): Promise<PullRequest> {
     const current = await this.readPr(pr.number);
-    if (current.head !== pr.head || current.tree !== pr.tree) throw new Error("PR head changed before pinned merge");
+    if (current.head !== pr.head || current.tree !== pr.tree) {
+      if (current.merged) throw new Error("PR merged at a head other than the pinned one");
+      throw new StaleIntentError("PR head changed before pinned merge");
+    }
     if (order ? !isOrder(current) || outsideOrderScope(current).length > 0 : current.author !== this.config.bot || current.base !== "main" || current.headRepository !== REPOSITORY) throw new Error("PR identity/scope changed");
     if (current.merged) {
       if (current.mergedBy !== this.config.bot) throw new Error("driver-owned PR merged by another identity");
       return current;
     }
-    if (current.state !== "open" || current.draft || current.behind || !current.checksPassed) throw new Error("PR is not eligible for strict checked merge");
+    if (current.state !== "open" || current.draft || current.behind || !current.checksPassed) throw new StaleIntentError("PR is not eligible for strict checked merge");
     await command(["gh", "pr", "merge", String(pr.number), "--repo", REPOSITORY, "--squash", "--match-head-commit", pr.head], ROOT, this.env);
     const merged = await this.readPr(pr.number);
     if (!merged.merged || merged.mergedBy !== this.config.bot) throw new Error("pinned merge is not observable as the release bot");
@@ -349,7 +352,8 @@ export class StudioDriver implements DriverPort {
       }
       case "ready-order": {
         const pr = await this.readPr(step.pr!.number);
-        if (!isOrder(pr) || outsideOrderScope(pr).length > 0 || pr.head !== step.pr!.head || !pr.checksPassed) throw new Error("order changed before ready");
+        if (!isOrder(pr) || outsideOrderScope(pr).length > 0) throw new Error("order identity/scope changed before ready");
+        if (pr.head !== step.pr!.head || !pr.checksPassed) throw new StaleIntentError("order moved before ready");
         if (pr.draft) await command(["gh", "pr", "ready", String(pr.number), "--repo", REPOSITORY], ROOT, this.env);
         return {};
       }
