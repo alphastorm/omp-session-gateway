@@ -160,7 +160,10 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
   if (state.phase === "stopped") return idle("stopped; founder/operator intervention required");
   if (state.phase === "diagnostic-required") {
     if (state.stableCommit !== undefined) return idle("diagnostic-required after approval/publication; preserve the immutable release and reconcile manually");
-    const request = repo.issues.find(issue => issue.number === state.issue.number);
+    // An order PR's "Closes #N" closes the tracking issue when it merges, so a retry request for the
+    // same version opens a new one (v0.7.5: #369 closed #368; the retry opened #374).
+    const request = repo.issues.find(issue => issue.number === state.issue.number)
+      ?? selectRequest(repo.issues.filter(issue => requestVersion(issue) === requestVersion(state.issue)));
     if (request === undefined || request.request === state.issue.request || repo.main === state.failedMain) return idle("diagnostic-required; no retry without a new request and a main fix");
     if (repo.hostRecoveryRequired) return idle("diagnostic-required; recover the failed release-host lease before a new candidate");
     return decision("rerequest", "selected", "new request after a main fix; preserve failed receipt and use next prealpha", { patch: {

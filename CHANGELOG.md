@@ -46,6 +46,10 @@ This release uses stock OMP v18.8.3 as its engineering baseline. The 5 changelog
   was replaced after the driver saved its merge intent, and every tick replayed the stale merge
   until the state file was edited by hand. An intent refused before any effect is now dropped,
   and the next tick plans from a fresh snapshot.
+- Retry a failed release from a new request for the same OMP version. The order PR's "Closes #368"
+  closed the tracking issue when the order merged, so the retry request opened #374, and the driver,
+  which looked only for #368, waited indefinitely. It now takes the newest open request for the
+  same version when the original issue is closed.
 
 ## [v0.7.4] — 2026-10-03
 
