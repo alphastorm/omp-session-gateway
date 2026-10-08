@@ -8,10 +8,17 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ### Fixed
 
-- Run the release driver's detached jobs at standard priority. Its LaunchAgent ran as a
-  `Background` process, and every job it started inherited that throttling. v0.7.5's approve job
-  then took 97 seconds instead of 56 for `bun run check`, and five cross-process lease tests missed
-  bun's default 5-second limit twice, stopping the release after its campaign had passed.
+- Run the release driver's detached jobs at interactive priority, as an operator's SSH session
+  does. Its LaunchAgent ran as `Background`, then `Standard`, and every job it started inherited
+  launchd's limits: on the Studio, `Standard` lowered their base priority from 31 to 20 and
+  stretched a 10 ms sleep to 58–73 ms. v0.7.5's approve check failed three times on
+  cross-process lease tests that pass over SSH, stopping the release after its campaign had passed.
+- A busy release-host lease now refuses after one busy timeout instead of two. Bun's
+  `Database.exec` ignores a failed statement unless it is the last one, so a contender went on
+  past its busy `BEGIN IMMEDIATE` and waited again on its next statement. The repository check
+  now rejects multi-statement `exec` calls on `bun:sqlite`.
+- Publication and revocation waits now fail with their deadline message when a session-list read
+  is still pending at the deadline, instead of the read's own timeout.
 
 ## [v0.7.5] — 2026-10-08
 

@@ -12,9 +12,10 @@
   <key>WorkingDirectory</key><string>@HOME@/Development/omp-session-gateway</string>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
-  <!-- Standard, not Background: the driver's detached jobs inherit this process type, and
-       Background throttling made v0.7.5's approve check miss bun's 5-second test limit. -->
-  <key>ProcessType</key><string>Standard</string>
+  <!-- Interactive, like an operator's SSH session: the driver's detached jobs inherit this
+       process type. Under Background or Standard, launchd lowers their priority and stretches
+       short sleeps, and v0.7.5's approve check missed bun's 5-second test limit at both. -->
+  <key>ProcessType</key><string>Interactive</string>
   <key>Umask</key><integer>63</integer>
   <key>EnvironmentVariables</key>
   <dict>
