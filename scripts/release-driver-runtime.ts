@@ -247,6 +247,7 @@ export class StudioDriver implements DriverPort {
       if (kind === "record") args.push("--smoke", join(this.jobDirectory("smoke", state), "smoke.json"), "--status", join(this.jobDirectory("smoke", state), "status.json"), "--publication", join(this.config.stateDir, `${state.candidate}-publication.json`));
       // A committed local head is the crash checkpoint before a push; never regenerate its content.
       if (await this.git(["rev-parse", "HEAD"], directory) === source) {
+        await command([process.execPath, "install", "--frozen-lockfile"], directory, this.env);
         await command(args, directory, this.env);
         await this.git(["add", "--all"], directory);
         const changed = await this.git(["diff", "--cached", "--name-only"], directory);
