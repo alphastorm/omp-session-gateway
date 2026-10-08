@@ -138,7 +138,7 @@
           "product": "Chrome/154.0.8037.126",
           "revision": "@8eaafabb47f12210d524f648b78bce074fa3c83e",
           "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36",
-          "jsVersion": "15.4.80.20"
+          "jsVersion": "15.4.80.20", "_jsVersionNote": "identifier-leak-allow: measured public V8 software version, not a host address"
         },
         "unlockMs": 6697,
         "airplaneRecoveredMs": 3606,

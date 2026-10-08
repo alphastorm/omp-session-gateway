@@ -6,7 +6,7 @@ import { gunzipSync } from "node:zlib";
 type Tree = Record<string, string>;
 export function historicalTrees(): Record<string, Tree> {
   const fixture = JSON.parse(readFileSync(new URL("./history.json", import.meta.url), "utf8")) as { payload: string[] };
-  const { base, deltas } = JSON.parse(gunzipSync(Buffer.from(fixture.payload.join(""), "base64")).toString()) as {
+  const { base, deltas } = JSON.parse(gunzipSync(Buffer.from(fixture.payload.join(""), "hex")).toString()) as {
     base: Tree;
     deltas: Record<string, Record<string, { start: number; remove: number; insert: string }>>;
   };

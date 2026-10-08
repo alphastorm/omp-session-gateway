@@ -1,6 +1,7 @@
 {
   "source": "Studio schema-3 v0.7.4-prealpha.1 receipt",
   "changes": [
+    "/lanes/android/evidence/browserVersion/_jsVersionNote: added fixture-only review annotation; retained the exact public V8 software version",
     "/lanes/debian/evidence/dispatchId: omitted private identity/correlation identifier",
     "/lanes/ompPublication/evidence/instanceId: omitted private identity/correlation identifier",
     "/lanes/android/evidence/serial: omitted private identity/correlation identifier",
