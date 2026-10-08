@@ -87,6 +87,28 @@ function admissionLanes(refuse?: "windows" | "androidPush" | "deviceCloud"): Sta
   };
 }
 
+test("campaign exclusion precedes source/receipt reads and admission", async () => {
+  const root = await mkdtemp(join(tmpdir(), "stable-lease-boundary-"));
+  try {
+    const fixture = await preflightFixture(root);
+    let acquired = false;
+    const runtime: StablePreflightRuntime = {
+      ...fixture,
+      withReleaseLease: async (owner, _action) => {
+        expect(owner).toBe(`qualification:${TAG}:${join(root, "stable-qualification.json")}`);
+        acquired = true;
+        throw new Error("release host is busy");
+      },
+      output: async () => { throw new Error("must not read source or probe a host without the lease"); },
+    };
+    await expect(runStableQualification(["--tag", TAG], runtime, admissionLanes())).rejects.toThrow("release host is busy");
+    expect(acquired).toBe(true);
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 describe("stable qualification arguments", () => {
   test.each([undefined, "", "host.invalid", "root@host.invalid:22", "-oProxyCommand=x@host", "user@host;true", "user@bad..host", "user@host\n"])("requires a plain Mac SSH destination: %s", host => {
     expect(() => parseStableQualificationArgs(["--tag", TAG], { ...MAC_ENV, OMP_STABLE_MAC_HOST: host })).toThrow("OMP_STABLE_MAC_HOST");
@@ -460,6 +482,7 @@ test.skipIf(process.platform === "win32")("same-host resume cleans bound Mac eff
       try {
         await runStableQualification(["--tag", ${JSON.stringify(TAG)}], {
           platform: "darwin", arch: "arm64", bunVersion: Bun.version,
+          withReleaseLease: (_owner, action) => action(),
           environment: { ...${JSON.stringify(MAC_ENV)}, OMP_STABLE_QUALIFICATION_DIR: root, OMP_STABLE_RELAY_SECONDS: "1800" },
           executable: name => process.env.PATH + "/" + name,
           output: async command => {
@@ -502,6 +525,7 @@ type PreflightFailure = "absent" | "unauthorized" | "ambiguous" | "bun" | "execu
 async function preflightFixture(root: string, failure?: PreflightFailure): Promise<StablePreflightRuntime> {
   const pins = parseQualificationPins(await readFile(join(REPOSITORY_ROOT, "UPSTREAM.lock.json"), "utf8"));
   const runtime: StablePreflightRuntime = {
+    withReleaseLease: (_owner, action) => action(),
     adb: (serial, args) => runtime.output(["adb", ...(serial === undefined ? [] : ["-s", serial]), ...args]),
     platform: "darwin",
     arch: "arm64",

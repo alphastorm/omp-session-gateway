@@ -989,6 +989,16 @@ checks its in-memory terminal status instead. Specialized attention and lifecycl
 qualified matrix only from a passed campaign on an exact signed candidate. Development proofs
 are required before the campaign and remain tested evidence.
 
+**Amendment — 2026-10-06:** Stable qualification and published-byte smoke share a release-account
+host lease in a fixed local SQLite database. EXCLUSIVE locking mode keeps the OS lock across
+commits; a committed campaign identity survives a crash, while the OS lock cannot outlive its
+process. Only that same campaign may recover its existing receipts after a failure, and success
+clears ownership before closing the database. There is no PID or timeout-based live-holder
+takeover. The lease covers all effects and cleanup, independently of tag/receipt paths; the
+in-process Pixel queue remains responsible for lane ordering. This is not a distributed fence,
+and cannot terminate orphaned children or restore devices. One account/host, local storage,
+draining older scripts, and existing resource recovery remain operational prerequisites.
+
 ## ADR-032 — Qualify iPhone, iPad, and Android browsers on real cloud devices in every stable campaign
 
 **Status:** Accepted
