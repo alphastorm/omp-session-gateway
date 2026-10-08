@@ -420,7 +420,9 @@ export class StudioDriver implements DriverPort {
       } else {
         await command(["security", "unlock-keychain", "-p", "", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, this.env);
         await command(["security", "set-keychain-settings", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, this.env);
-        const smoke = await command([process.execPath, "run", "smoke:release", "--", "--tag", `v${state.version}`, "--archive-sha256", state.stableDigest!, "--rebuild-omp"], checkout, this.env);
+        // --force-reinstall: a retried smoke finds the release already active from the failed run,
+        // and the record requires smoke evidence that this run installed the published bytes.
+        const smoke = await command([process.execPath, "run", "smoke:release", "--", "--tag", `v${state.version}`, "--archive-sha256", state.stableDigest!, "--force-reinstall", "--rebuild-omp"], checkout, this.env);
         await atomicJson(join(directory, "smoke.json"), JSON.parse(smoke.out));
         const installation = join(homedir(), ".local/state/omp-session-gateway/installation");
         const active = (await jsonFile<{ versionDirectory?: string }>(join(installation, "current.json")))?.versionDirectory;

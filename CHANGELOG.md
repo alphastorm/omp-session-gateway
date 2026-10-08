@@ -19,6 +19,10 @@ The format is based on Keep a Changelog and Semantic Versioning.
   now rejects multi-statement `exec` calls on `bun:sqlite`.
 - Publication and revocation waits now fail with their deadline message when a session-list read
   is still pending at the deadline, instead of the read's own timeout.
+- A retried published-byte smoke can now be recorded. The release driver ran the smoke without
+  `--force-reinstall`, so a retry found v0.7.5 already active from the failed attempt, skipped the
+  install and reported `gateway.installed: false`, which the record generator rejects. The driver
+  now always reinstalls the published bytes.
 
 ## [v0.7.5] — 2026-10-08
 
