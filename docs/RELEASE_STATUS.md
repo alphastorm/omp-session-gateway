@@ -504,6 +504,415 @@ This smoke does not expand the candidate matrix or qualify bare-metal Mac, Windo
 <!-- release-generate:smoke:end -->
 <!-- release-generate:current:end -->
 
+## v0.7.4 original operator evidence — retained historical record
+
+The release generator migration preserves the original operator-authored excerpts below verbatim.
+They record v0.7.4 facts that cannot be reconstructed solely from the schema-3 candidate receipt,
+published-byte smoke JSON, publication metadata, and installed-status JSON: notably the later
+46-file runtime comparison, verification details, exact smoke interval and attempt count.
+All original versions, tags, dates, digests, URLs, lane counts and evidence links remain in these
+excerpts; no historical observation is silently promoted into a newly generated campaign.
+The source is the published v0.7.4 record and its claim surfaces as retained at `a550808`.
+Superseded “current” wording inside these excerpts applies only to that named release.
+
+<details>
+<summary>Original changed excerpt: docs/RELEASE_STATUS.md</summary>
+
+````markdown
+## Mainline v0.7.4 — published stable
+
+**Updated:** 2026-10-03. [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4)
+was published at **2026-10-03T19:02:03Z** and is GitHub Latest, with six assets. Signed release workflow
+[37146354037](https://github.com/alphastorm/omp-session-gateway/actions/runs/37146354037)
+(`signed-release.yml`) succeeded. The signed annotated tag `v0.7.4` points to the stable source below.
+The assets are `omp-session-gateway-0.7.4-bun.tar`, its `.sigstore.json`,
+`omp-session-gateway-0.7.4.spdx.json`, its `.sigstore.json`, `SHA256SUMS`, and
+`SHA256SUMS.sigstore.json`. On the Studio's operator account, the release attestation and all six
+assets verified, the checksums matched, and GitHub build attestations and Sigstore bundles each
+verified 3/3 for the archive, SBOM, and `SHA256SUMS`. A local
+`OMP_RELEASE_CHANNEL=stable bun run release:build` of the tag on that account reproduced the
+published archive digest byte-for-byte.
+
+**Stable source:** `39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` (merge of approve PR #363).<br>
+**Stable archive SHA-256:** `80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3`.
+
+The published-byte Studio/Pixel smoke passed on its **first attempt**; see below.
+
+**Candidate:** [v0.7.4-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4-prealpha.1).<br>
+**Source:** `dcfa0b32503ca83e71e15d2872eff920831b14ac`.<br>
+**Archive SHA-256:** `71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00`.<br>
+**Predecessor:** published `v0.7.3`. Rollback does not change OMP; see
+[upgrade and rollback](UPGRADE_ROLLBACK.md#v074-predecessor-compatibility).
+
+The candidate carries no gateway runtime fixes since v0.7.3; the apps/packages changes are release
+version bumps only. The OMP engineering baseline moves to stock OMP v18.5.1 (#361), built from
+source at `d0cc52397dc2a68d39cba49b0009b9e50ffd643e`. It is the first release that retries a
+`collab.autoStart` launch whose relay is unreachable or times out (can1357/oh-my-pi#14112). The
+embedded client and its v18.4.2 wire pin remain unchanged. The campaign ran from the Studio's
+operator account against the retained Virtualization.framework guest (VirtualMac2,1), not its
+physical host; every physical Pixel lane ran on the Pixel 10 Pro attached to the Studio.
+
+### Candidate evidence — 2026-10-03
+
+All thirteen lanes passed on their first attempt in one campaign, orchestrator
+`dcfa0b32503ca83e71e15d2872eff920831b14ac` (the candidate source), 17:59:22Z–18:50:09Z. Before it,
+the Studio preflight passed, and a development lifecycle run with stock OMP 18.5.1 from npm on the
+Studio passed new-generation, fork, and resume; those runs are tested evidence, not qualification.
+
+| Lane | Evidence |
+|---|---|
+| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; predecessor v0.7.3 verified the same way |
+| Debian | [37142569203](https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203) succeeded against the candidate archive, and its droplet and ephemeral SSH key teardown step succeeded. The receipt export records the successful run, not its OS/kernel versions or migration/recovery invariant count |
+| Mac | Virtualization.framework guest, VirtualMac2,1, macOS 27.0 arm64, hosted on the Mac Studio; orchestrated from the Studio's operator account; stock OMP v18.5.1 built from source with native addon `4e707d5c7a44`; doctor 18/18, rollback 23/23, changed guest reboot epoch, console login, and preserved readiness |
+| Windows | Windows build 26100, x86-64, on a disposable VM with 4 CPUs and 8,186 MiB reported memory. As Administrator, the candidate installed over published v0.7.3 with stock OMP v18.5.1 built from source. A real reboot passed 3 pre-login samples over 60,738 ms, with automatic start 63,509 ms after interactive logon. Doctor passed 15/18, with only the tagged node's identityAllowed, pwa, and sessionHealth false. The named pipe published at generation 1, View and Control returned 200, stale generations 409, all no-store. The Pixel accepted the user identity, with View read-only, Control writable, the prompt accepted, and the return to directory. Revocation, readiness rotation, history-selected rollback, restoration, and uninstall passed with configuration and readiness preserved. A fresh standard-account install, without Administrator membership or SeSecurityPrivilege, passed a real reboot with 3 pre-login samples over 46,381 ms, automatic start 32,076 ms after that account's logon, doctor 15/18, readiness rotation, and uninstall, preserving configuration and readiness |
+| OMP publication | stock OMP v18.5.1 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked. New-generation and fork transitions kept the instance, advanced generation by 1, rejected stale launches, and each allowed two live launches; fork used two synthetic messages. Resume created a new instance at generation 1 with the same label, two live launches, and two revocations; all launches were no-store |
+| Android | Pixel 10 Pro, Android 17 build CP3A.260905.009, Chrome 154.0.8037.126; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 6,697 ms, Airplane 3,606 ms, Doze 122 ms; all seven forbidden capability sinks detectable and clean |
+| Background Push | Pixel 10 Pro, Android 17, Chrome 154.0.8037.126, installed WebAPK, stock OMP 18.5.1 fixtures: Private, Session, and Preview lock-screen delivery in 1,653, 1,946, and 1,928 ms respectively, each a single notification with matching detail; tap to current Control, stop tap to View only after two known-busy polls, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery. Triage passed FIFO, hold/advance, held-notification close, pending retention, requeue, all-held, stale-hold release, undo/expiry, attention restoration, and show-all with zero mutations. Resolved, rearmed, replaced, expired, and replayed stale taps were scrubbed without a launch. Force-stop delivered_while_force_stopped and Doze delivered_after_doze_exit are observed variants, never delivery guarantees; ten forbidden sinks detectable and clean |
+| Push cleanup | device, browser, and fixture restored |
+| Device cloud | TestingBot real devices through tunnel 4.9: iPhone 17 Pro Max (iOS 26.6, Safari 26.6), iPad (9th generation, iPadOS 26.6, Safari 26.6), and Galaxy S25 (SM-S931B, Android 15.0.0, Chrome 149.0.7827.159). Each matched the candidate app asset, with View read-only, Control writable, prompt accepted, return to directory, and seven detectable clean sinks. Tunnel refusals were 19, 24, and 13 respectively. All three vendor records exposed no links or media. The iPhone Home Screen app enabled alerts; its subscription omitted expirationTime on web.push.apple.com. Delivery took 7,989 ms; the tap opened current Control with a scrubbed address, and alerts were disabled afterwards. This is not a lock-screen presentation claim |
+| Device-cloud cleanup | restored |
+| Relay | 1,800 seconds, 2026-10-03T18:12:19.444Z–18:42:19.460Z; two transitions, final phase live |
+| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts |
+| Windows cleanup | zero instances and firewalls remaining; tailnet node deleted and access vault removed |
+
+**Runtime equivalence gate:** passed. On the Studio's operator account with Bun 1.4.0, a clean
+`OMP_RELEASE_CHANNEL=stable bun run release:build` of approval tree
+`42e3b0ce1a256d66dc1c423c3b6d7f91d254a948` was compared with the candidate archive after its digest
+verified: `{"compared":46,"differing":[]}`. Only the existing workflow exclusions apply:
+release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
+The ledger-only commit that records this result changes no archive member.
+
+**Assurance scope:** The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login.
+The guest exercises the macOS kernel, launchd, loginwindow, per-user LaunchAgent, native addon,
+filesystem, TUN interface, and guest reboot. Physical Android and cloud-device evidence is separate.
+A fresh 1,800-second relay check replaces the eight-hour gate; eight-hour endurance and bounded
+memory growth are not claimed. Windows is limited to the recorded x86-64 build at interactive
+logon; upgrade, rollback, OMP, and Pixel journeys ran as Administrator, while the standard-account
+claim is fresh installation, reboot/logon start, doctor, rotation, and uninstall. The lifecycle
+and Push triage/stale-tap results cover the recorded scenarios, not arbitrary behavior on every
+platform. Force-stop and Doze are observed variants, not delivery guarantees. The iPhone receipt
+proves Home Screen delivery and a Control tap, not lock-screen presentation; lock, Airplane, Doze,
+force-stop, and cellular behavior stay Pixel-only. The export does not identify the cloud tunnel's
+host or observed Serve identity. The campaign injects no relay fault, so the auto-start retry rests
+on upstream's tests and the tracer recorded under the v18.5.1 baseline below, not on a lane.
+Desktop Safari and broader host/browser combinations remain unqualified. Every other release gate
+stays required.
+
+### Published-byte Studio/Pixel verification
+
+The smoke ran on the Studio's operator account, at the Studio's own tailnet origin, with the
+attached Pixel 10 Pro, from tooling at the tag commit `39e3d57`, detached in tmux,
+**19:03:40Z–19:07:17Z**:
+`bun run smoke:release -- --tag v0.7.4 --archive-sha256 80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3 --rebuild-omp`.
+`--rebuild-omp` replaced the account's Bun global stock OMP 18.4.12 with the release's pinned
+**18.5.1**, installed by its own `bun add --global --exact @oh-my-pi/pi-coding-agent@18.5.1`, binary
+SHA-256 `fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9`. The smoke therefore
+matches the engineering baseline the candidate qualified from source.
+
+Its result JSON recorded `sourceCommit: 39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` and
+`appAsset: /assets/app.5c4a35b3f50f.js`. The gateway upgraded from v0.7.3 (`installed: true`) with
+`configPreserved: true`, `readinessTokenPreserved: true`, and `doctorChecks: 18`. Tailscale Serve
+recorded `changed: false` and `unrelatedMappingsPreserved: true`. On the Pixel 10 Pro, the Android
+result recorded `viewReadOnly: true`, `controlWritable: true`, `capabilitySinksClean: true`,
+`samePageRecovery: true`, and `installedWebApk: true`. The `leaveInstalled` result recorded
+`gateway: true`, `mainlineOmp: true`, and `webApk: true`.
+
+Afterwards, `status` reported active, ready, and not diverged, with active and service versions
+`0.7.4-9a9fd8f2c4d0`. The retained runtime directories on the operator account are
+`0.7.2-0e6104d6ee0b`, `0.7.3-11c3cc5ce86f`, and `0.7.4-9a9fd8f2c4d0`. The smoke does not expand
+the exact candidate host/client matrix or turn the guest qualification into bare-metal
+qualification. Windows, cloud browsers, and background Push rest on their respective candidate
+lanes above.
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: docs/UPGRADE_ROLLBACK.md</summary>
+
+````markdown
+## v0.7.4 predecessor compatibility
+
+The selected predecessor is published v0.7.3. Gateway rollback does not change the separately
+running OMP process. Both versions embed the same OMP 18.4.2 collaboration client and wire pin;
+v0.7.4 moves the engineering baseline to stock OMP v18.5.1 without gateway runtime fixes.
+Rolling back to v0.7.3 therefore does not undo a gateway runtime fix or replace OMP with the
+predecessor's engineering baseline. After a v0.7.4 install, `rollback --to` can select only the
+runtimes pruning retained. The candidate passed 23/23 rollback invariants in the
+Virtualization.framework guest (VirtualMac2,1) and Windows history-selected predecessor restoration.
+Earlier predecessors retain the compatibility limits recorded below; none of their historical
+receipts qualifies this candidate.
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: docs/COMPATIBILITY.md</summary>
+
+````markdown
+| Surface | Status | Tested by | Qualified on hardware |
+|---|---|---|---|
+| Linux host | Supported | `portable-source (ubuntu-24.04)`, `implementation-checks`, `linux-arm64-source-checkout` (aarch64), daily `canary` against stock OMP | Debian lane passed; exact OS/kernel versions not enumerated in the current export |
+| macOS host | Supported | `portable-source (macos-latest)` | Virtualization.framework guest, macOS 27.0 arm64 (`VirtualMac2,1`), hosted on the Mac Studio; not bare-metal qualification |
+| Windows host | Supported | `portable-source (windows-latest)`, `windows-service-lifecycle`, daily `canary-windows` against stock OMP | Windows x86-64 build 26100, started at interactive logon, from an Administrator or a standard account |
+| Chrome and Chromium | Supported | `browser-core` desktop Chromium; `browser-notifications` full suite at Pixel sizes | Chrome on Android 17, Pixel 10 Pro (core and Push); Chrome on Android 15, a cloud Galaxy S25 |
+| Edge and other Chromium-based browsers | Supported through Chromium | `browser-core` desktop Chromium; the client has no Edge-specific code path | None |
+| Firefox | Supported | `browser-core` desktop Firefox | None |
+| Safari and WebKit | Supported | `browser-core` desktop WebKit | Safari on iOS and iPadOS 26.6, a cloud iPhone 17 Pro Max and iPad (9th generation) |
+| Android | Supported | `browser-notifications` at measured Pixel sizes | Pixel 10 Pro (core and Push), Android 17, Chrome; a cloud Galaxy S25, Android 15, Chrome |
+| iPhone and iPad | Tested as a browser | `browser-core` WebKit with iPhone-class emulation | iPhone 17 Pro Max, iOS 26.6, and iPad (9th generation), iPadOS 26.6, with Safari, on cloud devices (ADR-032) |
+
+**Supported** means every listed lane stays green (on each change, the canaries daily) and bug
+reports are accepted. **Qualified on hardware** names what a signed release passed on real
+machines, in [Current claim](#current-claim) and the [release ledger](RELEASE_STATUS.md), except
+the explicitly named retained macOS guest under ADR-033. Hosted
+runners and browser engines are not physical devices, so neither column stands in for the other;
+see the [status vocabulary](#status-vocabulary).
+
+- **Installing as a PWA.** Chromium browsers install from the browser menu on desktop and Android.
+  Safari installs with Add to Home Screen on iPhone and iPad, and Add to Dock on macOS. Desktop
+  Firefox has no web-app install; it works in a tab.
+- **Background alerts** (Web Push) are qualified in full only on the Pixel with Chrome on Android,
+  where force-stop and forced Doze outcomes are observed variants, never guaranteed delivery. iPhone
+  and iPad offer them only to a Home Screen app (iOS and iPadOS 16.4+); v0.6.0 and earlier cannot
+  enable them there because WebKit omits a null `expirationTime` from the subscription (#274); the
+  fix ships in v0.6.1. Playwright's WebKit has no push service, so the compatibility lane runs
+  desktop WebKit without service workers and does not test WebKit push. From v0.6.2, a cloud iPhone
+  also qualifies enabling alerts in the Home Screen app, delivery with the app in the background,
+  and the tap into Control, but not lock-screen presentation (ADR-032).
+- **Browser versions.** The client uses CSS `color-mix()`, `:has()`, and dynamic viewport units, so
+  browsers older than roughly Chrome and Edge 111, Firefox 121, and Safari 16.2 render incorrectly.
+- **Windows** starts the gateway at interactive logon, not at unattended boot.
+
+## v0.5.0 compatibility correction
+
+Published v0.4.2 rejects the additive `busy` field emitted by OMP 18.2.9 and can hide live sessions
+(#219). The v0.5.0 parser fix accepts validated booleans and preserves absent/null as unknown.
+Mixed current/legacy host discovery and View/Control are covered by real local IPC regression tests.
+This does not advance the pinned baseline, native/client versions, or exact qualification matrix.
+
+v0.5.0 stop alerts use the presence of valid activity metadata, not an OMP version guess.
+Older hosts keep ordinary directory/ask behavior with unknown activity. Push state and v2
+attention/clear remain compatible; older workers cannot interpret stops until activation and
+the browser may substitute a generic background-update notification. Open or refresh the PWA
+after upgrading before relying on stop alerts.
+This does not qualify physical background delivery or imply successful task completion.
+
+## Current claim
+
+The current Mac qualification is the Virtualization.framework guest (VirtualMac2,1), not its
+physical host (ADR-033). Historical v0.7.2 Mac17,14 evidence remains unchanged in the release ledger.
+The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login.
+
+Stock mainline OMP `>= 18.1.20` is the supported host prerequisite for the current checkout.
+Earlier releases are unsupported because this local registry does not exist in them.
+[PR #11908](https://github.com/can1357/oh-my-pi/pull/11908), merge `4999b98bd5`, ships in
+[v18.1.20](https://github.com/can1357/oh-my-pi/releases/tag/v18.1.20). Set `collab.autoStart`
+only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
+From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
+reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
+gateway change. The current checkout's engineering baseline is v18.5.1 (`UPSTREAM.lock.json`);
+the qualified matrix below records the exact qualification of the release named next and changes
+only when a candidate built from a newer baseline qualifies.
+
+The v18.5.1 [upstream canary](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
+passed all ten Linux stages and all seven supported Windows stages on 2026-10-03. Windows
+intentionally skips `new-generation`, `fork`, and `branch-rewind`. This is compatibility
+evidence, not signed-artifact or macOS qualification. The embedded client retains v18.4.2.
+v18.5.1 is the first release that retries an automatic start whose relay is unreachable or times
+out ([operator settings](OMP_INTEGRATION.md#1-operator-settings)).
+
+**Published stable:** [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4),
+GitHub Latest, promoted from signed candidate v0.7.4-prealpha.1. Its published-byte smoke passed
+on the first attempt on the Studio operator account, at the Studio's own tailnet origin, with the
+attached Pixel 10 Pro and Bun's global stock OMP **18.5.1**, matching v0.7.4's engineering
+baseline. Published v0.7.3 remains the predecessor. There are no gateway runtime fixes since
+v0.7.3; v0.7.4's engineering baseline is stock OMP v18.5.1 built from source. All thirteen lanes
+passed on their first attempt in the 2026-10-03 campaign, orchestrated from the Studio's operator
+account. The [release ledger](RELEASE_STATUS.md) records each lane and exact source/archive
+bindings; [upgrade and rollback](UPGRADE_ROLLBACK.md#v074-predecessor-compatibility) covers
+v0.7.4 → v0.7.3. Physical Android acceptance and background Push both ran on the Pixel 10 Pro.
+The separate published-byte smoke does not expand that matrix.
+
+The qualified scope includes the retained-Mac new-generation/fork/resume transitions and Pixel
+Push triage/stale-tap scenarios recorded in this campaign, not arbitrary attention or lifecycle
+behavior on every platform. Development runs remain tested evidence only. See
+[attention acceptance](ATTENTION_SPEC.md) and
+[lifecycle coverage and pending Windows CI](LIFECYCLE_BRANCH_RESUME.md).
+
+| Surface | Current contract | Qualification |
+|---|---|---|
+| Mainline OMP host | `>= 18.1.20`; discovery/query v1 | Exact `18.5.1` publication, View/Control, new-generation/fork/resume transitions, stale-generation rejection, and revocation passed |
+| Exact qualified source | `v18.5.1`, `d0cc52397dc2a68d39cba49b0009b9e50ffd643e` | Stock OMP v18.5.1 built from source; fresh signed-candidate evidence, no fork-era transfer |
+| Gateway build/runtime | Bun `1.4.0` | Signed artifact; promotion runtime comparison required before merge, with its result in the approval PR |
+| Debian host | Debian lane | [37142569203](https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203) succeeded; the export does not enumerate OS/kernel versions or migration/recovery invariant counts |
+| Mac host | Virtualization.framework guest, VirtualMac2,1, macOS 27.0 arm64, hosted on the Mac Studio; orchestrated from the Studio's operator account | Doctor 18/18, rollback 23/23, guest reboot and readiness preservation |
+| Windows host | Windows x86-64, build `26100`, started at interactive logon, from an Administrator or a standard (non-elevated) account | Upgrade from v0.7.3, real reboot and automatic logon start, doctor, named-pipe publication, Pixel View/Control, rotation, history-selected rollback, and uninstall passed; a fresh standard-account install without `SeSecurityPrivilege` passed reboot, automatic logon start, doctor, rotation, and uninstall |
+| Physical client | Pixel 10 Pro, Android 17 build `CP3A.260905.009`, Chrome `154.0.8037.126` | View/Control, same-page lock/Airplane/Doze recovery, seven detectable clean capability sinks |
+| Background Web Push | Pixel 10 Pro, Android 17, Chrome `154.0.8037.126`, installed WebAPK | Lock-screen delivery at each detail level, current Control/View taps, stale-generation refusal, authoritative clear, triage, stale taps, permission revocation, and network changes passed; force-stop and Doze recorded as observed variants |
+| Cloud browsers | iPhone 17 Pro Max, iOS 26.6, Safari 26.6; iPad (9th generation), iPadOS 26.6, Safari 26.6; Galaxy S25 (`SM-S931B`), Android 15.0.0, Chrome `149.0.7827.159`; TestingBot real devices | View/Control on the candidate's app bundle and seven detectable clean capability sinks on each; no vendor test record exposed links or media. Tunnel host and observed Serve identity are not recorded in the export |
+| iPhone background alerts | The iPhone Home Screen app above | Alerts enabled, delivery in 7,989 ms through `web.push.apple.com`, and tap into current Control with a scrubbed address; not a lock-screen claim |
+| Remote access | TUN-mode Tailscale Serve, exact allowlist, Funnel disabled | Windows receipt records TUN mode, Funnel off, loopback-only exposure, and Pixel identity acceptance |
+| Default OMP relay | Fresh 1,800-second check, two transitions, final phase live | Eight-hour endurance not rerun or claimed |
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: site/llms.txt</summary>
+
+````text
+# OMP Session Gateway
+
+> Native integration with stock Oh My Pi (OMP) >=18.1.20. No OMP fork, custom build,
+> gateway-specific OMP plugin, or publisher credential. Stable v0.7.4 is published as immutable GitHub Latest. Keep using OMP in the terminal; the separate gateway discovers collaboration-enabled
+> sessions and opens OMP's own encrypted View/Control client in any modern browser, installable as a PWA where the platform supports it. One-time
+> setup requires collab.autoStart, Bun 1.4.0, gateway installation, and TUN-mode Tailscale Serve
+> with Funnel disabled. No per-session QR scan or link copy. Community project; not affiliated
+> with or endorsed by the Oh My Pi maintainers.
+
+## Supported platforms
+
+- Supported and tested in CI on every change (the stock-OMP canaries run daily): Linux, macOS, and Windows gateway hosts; Chrome and Chromium, Edge through Chromium, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser, emulated in CI. Supported is not qualified: qualification is the exact hardware matrix below. Lanes: portable-source (Ubuntu, macOS, Windows), browser-core (Chromium, Firefox, WebKit, iPhone-class WebKit), browser-notifications (Pixel sizes), windows-service-lifecycle, canary and canary-windows.
+
+## Current qualification boundary
+
+- Stable v0.7.4 (source 39e3d57232f4b3e09ffe9d8a61b409ee0f01762b, archive SHA-256 80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3) was published 2026-10-03T19:02:03Z by signed-release.yml run 37146354037 and is GitHub Latest. Its signed annotated tag, archive attestation verification, and byte-for-byte local stable-build reproduction are recorded in the release ledger. It was promoted from signed candidate v0.7.4-prealpha.1 (source dcfa0b32503ca83e71e15d2872eff920831b14ac, archive SHA-256 71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00). Published v0.7.3 remains the predecessor. There are no gateway runtime fixes since v0.7.3; the engineering baseline moves to stock OMP v18.5.1, the first release that retries a collab.autoStart launch whose relay is unreachable or times out. All thirteen lanes passed on their first attempt in one campaign, 2026-10-03 17:59:22Z–18:50:09Z, orchestrator dcfa0b32503ca83e71e15d2872eff920831b14ac, run from the Studio's operator account. No claim for arbitrary builds from main.
+- Exact OMP v18.5.1 source: d0cc52397dc2a68d39cba49b0009b9e50ffd643e. Set only collab.autoStart (off/view/control); start participating sessions with plain omp. The gateway reads OMP discovery and queries each host; OMP does not register with the gateway. The embedded client retains its v18.4.2 provenance and wire pin.
+- Debian lane: run 37142569203 succeeded against the candidate archive. The export does not enumerate OS/kernel versions or migration/recovery invariant counts.
+- Virtualization.framework guest, VirtualMac2,1, macOS 27.0 arm64, hosted on the Mac Studio; orchestrated from the Studio's operator account; native addon 4e707d5c7a44, doctor 18/18, rollback 23/23, guest reboot and readiness preservation. The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login. Historical v0.7.2 Mac17,14 evidence remains unchanged in the release ledger.
+- Windows build 26100, x86-64, on a disposable VM with 4 CPUs and 8,186 MiB reported memory. As Administrator, the candidate installed over published v0.7.3 with stock OMP v18.5.1 built from source. A real reboot passed 3 pre-login samples over 60,738 ms, with automatic start 63,509 ms after interactive logon. Doctor passed 15/18, with only the tagged node's identityAllowed, pwa, and sessionHealth false. The named pipe published at generation 1, View and Control returned 200, stale generations 409, all no-store. The Pixel accepted the user identity, with View read-only, Control writable, the prompt accepted, and the return to directory. Revocation, readiness rotation, history-selected rollback, restoration, and uninstall passed with configuration and readiness preserved. A fresh standard-account install, without Administrator membership or SeSecurityPrivilege, passed a real reboot with 3 pre-login samples over 46,381 ms, automatic start 32,076 ms after that account's logon, doctor 15/18, readiness rotation, and uninstall, preserving configuration and readiness. Windows cleanup measured zero instances and firewalls; the tailnet node and access vault were removed. The claim is interactive logon, not boot; standard-account upgrade and rollback are not qualified.
+- OMP publication: stock OMP v18.5.1 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked. New-generation and fork transitions kept the instance, advanced generation by 1, rejected stale launches, and each allowed two live launches; fork used two synthetic messages. Resume created a new instance at generation 1 with the same label, two live launches, and two revocations; all launches were no-store.
+- Physical Android acceptance and background Push both on the Pixel 10 Pro. Core Android: Pixel 10 Pro, Android 17 build CP3A.260905.009, Chrome 154.0.8037.126; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 6,697 ms, Airplane 3,606 ms, Doze 122 ms; all seven forbidden capability sinks detectable and clean.
+- Background Web Push: Pixel 10 Pro, Android 17, Chrome 154.0.8037.126, installed WebAPK: Private, Session, and Preview lock-screen delivery in 1,653, 1,946, and 1,928 ms respectively, each a single notification with matching detail; tap to current Control, stop tap to View only after two known-busy polls, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery. Triage passed FIFO, hold/advance, held-notification close, pending retention, requeue, all-held, stale-hold release, undo/expiry, attention restoration, and show-all with zero mutations. Resolved, rearmed, replaced, expired, and replayed stale taps were scrubbed without a launch. Force-stop delivered_while_force_stopped and Doze delivered_after_doze_exit are observed variants, never delivery guarantees; ten forbidden sinks detectable and clean. Device, browser, and fixture restored.
+- TestingBot real devices through tunnel 4.9: iPhone 17 Pro Max (iOS 26.6, Safari 26.6), iPad (9th generation, iPadOS 26.6, Safari 26.6), and Galaxy S25 (SM-S931B, Android 15.0.0, Chrome 149.0.7827.159). Each matched the candidate app asset, with View read-only, Control writable, prompt accepted, return to directory, and seven detectable clean sinks. Tunnel refusals were 19, 24, and 13 respectively. All three vendor records exposed no links or media. The iPhone Home Screen app enabled alerts; its subscription omitted expirationTime on web.push.apple.com. Delivery took 7,989 ms; the tap opened current Control with a scrubbed address, and alerts were disabled afterwards. This is not a lock-screen presentation claim. Cloud cleanup restored. The export does not identify the tunnel host or observed Serve identity. Lock, Airplane, Doze, force-stop, and cellular behavior stay Pixel-only.
+- Tailscale Serve over tailnet HTTPS only, TUN mode required, Funnel disabled. Fresh relay check: 1,800 seconds, 2026-10-03T18:12:19.444Z–18:42:19.460Z; two transitions, final phase live. This replaces the eight-hour gate; eight-hour endurance and bounded memory growth are not claimed. Final cleanup measured zero gateway processes, zero listeners, and zero live OMP hosts.
+- Attention and lifecycle qualification is limited to the recorded guest new-generation/fork/resume and Pixel triage/stale-tap scenarios, not arbitrary behavior on every platform. Other Windows builds, desktop Safari, and new media qualification remain outside this exact claim. Android radio changes can still wedge Chrome; the proven same-page recoveries do not remove that limit.
+- v0.7.3 is the migration/rollback predecessor. Both versions embed the same OMP 18.4.2 collaboration client and wire pin; there are no gateway runtime fixes to undo. Gateway rollback does not switch OMP. Retained-runtime selection and earlier predecessor limits are recorded in the upgrade/rollback document.
+- In v0.5.0 and earlier, the first visit after a gateway upgrade can navigate a pending launch or an open View/Control page back to the directory: the service worker cannot see that a page is in use because Chromium reports each page's creation URL. The v0.5.1 fix never navigates from the worker.
+- v0.7.4 published-byte Studio/Pixel smoke: Passed on the first attempt, 19:03:40Z–19:07:17Z, tooling at the tag commit 39e3d57, on the Studio operator account at the Studio's own tailnet origin with the attached Pixel 10 Pro. The gateway upgraded from v0.7.3 (installed: true) with configPreserved: true, readinessTokenPreserved: true, doctorChecks: 18; tailscaleServe changed: false, unrelatedMappingsPreserved: true. --rebuild-omp installed Bun's global stock OMP 18.5.1, binary SHA-256 fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9, matching the candidate engineering baseline. Asset /assets/app.5c4a35b3f50f.js; View read-only, Control writable, capability sinks clean, same-page recovery and installed WebAPK passed. Gateway, mainline OMP, and WebAPK were left installed. Status: active, ready, not diverged; active/service version 0.7.4-9a9fd8f2c4d0. Retained runtimes: 0.7.2-0e6104d6ee0b, 0.7.3-11c3cc5ce86f, and 0.7.4-9a9fd8f2c4d0. The smoke does not expand candidate qualification.
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: site/status/index.html</summary>
+
+````html
+<meta name="description" content="Published stable v0.7.4, stock OMP v18.5.1. Exact Debian/macOS guest/Windows/Pixel evidence and support boundaries.">
+<link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/status/">
+<link rel="stylesheet" href="../site.css">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="OMP Session Gateway status — current qualified release and support boundary">
+<meta property="og:description" content="Published stable v0.7.4, stock OMP v18.5.1. Exact qualification, provenance, and support boundaries are recorded in the release ledger.">
+<meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/status/">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<header class="site">
+  <img src="../logo.svg" alt="" aria-hidden="true">
+  <a class="brand" href="../">OMP Session Gateway</a>
+  <nav>
+      <a href="../">Overview</a>
+      <a href="../compare/">Compare</a>
+      <a href="../status/" aria-current="page">Status</a>
+      <a href="../security/">Security</a>
+  </nav>
+</header>
+<main>
+<p class="eyebrow">Native OMP integration · release status</p>
+<h1>Stable v0.7.4</h1>
+<p class="lede"><strong>Works with stock OMP 18.1.20+.</strong> No OMP fork, custom build, or
+gateway-specific OMP plugin. The gateway remains a separate private directory and launch broker;
+setup still requires <code>collab.autoStart</code>, Bun 1.4.0, and Tailscale Serve.
+<strong>v0.7.4</strong> was promoted from <code>v0.7.4-prealpha.1</code>;
+stable publication and the separate published-byte Studio/Pixel smoke passed. Qualification applies to the exact combinations below; supported platform families
+are tested in CI (first row). Neither covers every later OMP version or an arbitrary build from <code>main</code>.</p>
+<table>
+<tr><th>Claim</th><th>Current</th></tr>
+<tr><td>Supported platforms (CI-tested)</td><td>Linux, macOS, and Windows hosts; Chrome and Chromium, Edge through Chromium, Firefox, Safari/WebKit, and Android; iPhone and iPad as a WebKit browser, emulated in CI. Tested on every change by <code>portable-source</code>, <code>browser-core</code>, <code>browser-notifications</code> and <code>windows-service-lifecycle</code>, and daily by the stock-OMP canaries on Linux and Windows. Supported is not qualified; see the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md#platforms-and-browsers">platform matrix</a>.</td></tr>
+<tr><td>Stable publication</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4">Stable v0.7.4</a> (source 39e3d57232f4b3e09ffe9d8a61b409ee0f01762b, archive SHA-256 80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3) was published 2026-10-03T19:02:03Z by signed-release.yml <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/37146354037">run 37146354037</a> and is GitHub Latest. Its signed annotated tag, archive attestation verification, and byte-for-byte local stable-build reproduction are recorded in the release ledger. Published v0.7.3 remains the predecessor. There are no gateway runtime fixes since v0.7.3; the engineering baseline moves to stock OMP v18.5.1. Exact source, digest, and all thirteen lanes are recorded in the <a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a>.</td></tr>
+<tr><td>Signed qualification candidate</td><td><a href="https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4-prealpha.1">v0.7.4-prealpha.1</a>; source <code>dcfa0b32503c</code>, archive <code>71399ede…043b00</code>. Signed tag, checksums, three GitHub attestations and three Sigstore bundles passed; published v0.7.3 verified the same way.</td></tr>
+<tr><td>OMP prerequisite / exact qualified baseline</td><td>Stock mainline <code>&gt;= 18.1.20</code>; stock OMP v18.5.1 built from source, <a href="https://github.com/can1357/oh-my-pi/commit/d0cc52397dc2a68d39cba49b0009b9e50ffd643e"><code>d0cc52397dc2</code></a>, Bun <code>1.4.0</code>. No gateway-specific OMP build or publisher credential; embedded client and wire pin remain v18.4.2.</td></tr>
+<tr><td>Qualified Linux host</td><td>The Debian lane passed against the candidate archive: <a href="https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203">run 37142569203</a>. The receipt export does not enumerate OS/kernel versions or migration/recovery invariant counts.</td></tr>
+<tr><td>Qualified Mac host</td><td>Virtualization.framework guest, VirtualMac2,1, macOS 27.0 arm64, hosted on the Mac Studio; orchestrated from the Studio's operator account; native addon <code>4e707d5c7a44</code>; doctor 18/18, rollback 23/23, guest reboot and readiness preservation. Historical v0.7.2 Mac17,14 evidence remains unchanged in the release ledger.</td></tr>
+<tr><td>Qualified Windows host</td><td>Windows build 26100, x86-64, on a disposable VM with 4 CPUs and 8,186 MiB reported memory. As Administrator, the candidate installed over published v0.7.3 with stock OMP v18.5.1 built from source. A real reboot passed 3 pre-login samples over 60,738 ms, with automatic start 63,509 ms after interactive logon. Doctor passed 15/18, with only the tagged node's identityAllowed, pwa, and sessionHealth false. The named pipe published at generation 1, View and Control returned 200, stale generations 409, all no-store. The Pixel accepted the user identity, with View read-only, Control writable, the prompt accepted, and the return to directory. Revocation, readiness rotation, history-selected rollback, restoration, and uninstall passed with configuration and readiness preserved. A fresh standard-account install, without Administrator membership or SeSecurityPrivilege, passed a real reboot with 3 pre-login samples over 46,381 ms, automatic start 32,076 ms after that account's logon, doctor 15/18, readiness rotation, and uninstall, preserving configuration and readiness. The VM and firewall were destroyed, its tailnet node and access vault removed. The claim is interactive logon, not boot.</td></tr>
+<tr><td>Qualified core client</td><td>Pixel 10 Pro, Android 17 build CP3A.260905.009, Chrome 154.0.8037.126; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 6,697 ms, Airplane 3,606 ms, Doze 122 ms; all seven forbidden capability sinks detectable and clean. Physical Android acceptance and background Push both ran on the Pixel 10 Pro.</td></tr>
+<tr><td>Qualified background Web Push</td><td>Pixel 10 Pro, Android 17, Chrome 154.0.8037.126, installed WebAPK: Private, Session, and Preview lock-screen delivery in 1,653, 1,946, and 1,928 ms respectively, each a single notification with matching detail; tap to current Control, stop tap to View only after two known-busy polls, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery. Triage passed FIFO, hold/advance, held-notification close, pending retention, requeue, all-held, stale-hold release, undo/expiry, attention restoration, and show-all with zero mutations. Resolved, rearmed, replaced, expired, and replayed stale taps were scrubbed without a launch. Force-stop delivered_while_force_stopped and Doze delivered_after_doze_exit are observed variants, never delivery guarantees; ten forbidden sinks detectable and clean. Device, browser, and fixture restored.</td></tr>
+<tr><td>Qualified cloud browsers</td><td>TestingBot real devices through tunnel 4.9: iPhone 17 Pro Max (iOS 26.6, Safari 26.6), iPad (9th generation, iPadOS 26.6, Safari 26.6), and Galaxy S25 (SM-S931B, Android 15.0.0, Chrome 149.0.7827.159). Each matched the candidate app asset, with View read-only, Control writable, prompt accepted, return to directory, and seven detectable clean sinks. Tunnel refusals were 19, 24, and 13 respectively. All three vendor records exposed no links or media. Cloud cleanup restored.</td></tr>
+<tr><td>Qualified iPhone background alerts</td><td>The iPhone Home Screen app enabled alerts; its subscription omitted expirationTime on web.push.apple.com. Delivery took 7,989 ms; the tap opened current Control with a scrubbed address, and alerts were disabled afterwards. This is not a lock-screen presentation claim.</td></tr>
+<tr><td>Remote path</td><td>Tailscale Serve over tailnet HTTPS, TUN-mode client, Funnel disabled. The Windows receipt records TUN mode, Funnel off, loopback-only exposure and Pixel identity acceptance.</td></tr>
+<tr><td>Fresh relay check</td><td>1,800 seconds, 2026-10-03T18:12:19.444Z–18:42:19.460Z; two transitions, final phase live</td></tr>
+<tr><td>OMP publication and revocation</td><td>stock OMP v18.5.1 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked. New-generation and fork transitions kept the instance, advanced generation by 1, rejected stale launches, and each allowed two live launches; fork used two synthetic messages. Resume created a new instance at generation 1 with the same label, two live launches, and two revocations; all launches were no-store.</td></tr>
+<tr><td>Migration/rollback predecessor</td><td>Published <code>v0.7.3</code>, mainline. Guest Mac rollback passed 23/23 invariants; Windows history-selected predecessor restoration passed. Both versions embed the same OMP 18.4.2 client and wire pin; there are no gateway runtime fixes to undo. Gateway rollback does not switch OMP.</td></tr>
+<tr><td>Published-byte local/Pixel smoke</td><td>Passed on the first attempt, 19:03:40Z–19:07:17Z, tooling at the tag commit 39e3d57, on the Studio operator account at the Studio's own tailnet origin with the attached Pixel 10 Pro. The gateway upgraded from v0.7.3 (installed: true) with configPreserved: true, readinessTokenPreserved: true, doctorChecks: 18; tailscaleServe changed: false, unrelatedMappingsPreserved: true. --rebuild-omp installed Bun's global stock OMP 18.5.1, binary SHA-256 fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9, matching the candidate engineering baseline. Asset /assets/app.5c4a35b3f50f.js; View read-only, Control writable, capability sinks clean, same-page recovery and installed WebAPK passed. Gateway, mainline OMP, and WebAPK were left installed. Status: active, ready, not diverged; active/service version 0.7.4-9a9fd8f2c4d0. Retained runtimes: 0.7.2-0e6104d6ee0b, 0.7.3-11c3cc5ce86f, and 0.7.4-9a9fd8f2c4d0. The smoke does not expand candidate qualification.</td></tr>
+</table>
+<h2>Known limits — part of the claim</h2>
+<ul>
+<li><strong>The Mac row is a guest, not bare-metal qualification.</strong> The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login.</li>
+<li><strong>TUN mode is mandatory.</strong> With userspace-networking <code>tailscaled</code> every tailnet peer arrives as a loopback peer, and the gateway fails closed rather than believing an identity header.</li>
+<li><strong>Never enable Tailscale Funnel.</strong> There is no supported public-Internet path.</li>
+<li><strong>Android radio transitions</strong> can wedge Chrome's process-wide network stack while Android stays healthy; the PWA retries and, after 45 s of visible failure, opens force-stop/reopen help.</li>
+<li><strong>Relay assurance is 30 minutes, not eight hours.</strong> The founder explicitly replaced the eight-hour gate with this fresh check, as for v0.4.1 and v0.4.0. Eight-hour endurance was not rerun or claimed; residual prolonged-operation risk is accepted. No bounded-memory-growth claim is made.</li>
+<li><strong>Attention and lifecycle scope</strong> is limited to the recorded retained-Mac new-generation/fork/resume and Pixel triage/stale-tap scenarios, not arbitrary behavior on every platform. New media qualification remains outside this claim. Background Web Push is qualified in full only on the Pixel, with force-stop and Doze as observed variants, never delivery guarantees.</li>
+<li><strong>Cloud devices are qualified in the browser.</strong> The export does not identify the tunnel host or observed Serve identity. The iPhone receipt proves Home Screen alert delivery and a Control tap, not lock-screen presentation; lock, Airplane, Doze, force-stop and cellular behavior stay Pixel-only.</li>
+<li><strong>Windows is qualified at the recorded x86-64 build, started at interactive logon, not at boot.</strong> A fresh standard-account install passed, but its upgrade and rollback are not qualified; the lane runs those journeys as Administrator. Other Windows versions remain supported and CI-tested, not qualified by this receipt.</li>
+<li><strong>In v0.5.0 and earlier, an update can close a page in use:</strong> on the first visit after a gateway upgrade, the new service worker's activation can navigate a pending launch or an open View/Control page back to the directory, because Chromium reports each page's creation URL. The first post-release View/Control smoke failures, including v0.4.0's return to the directory after View, match this navigation. The v0.5.1 fix never navigates from the worker; see the release ledger.</li>
+<li><strong>Untrusted local accounts</strong> are out of scope: a direct loopback caller can forge non-cryptographic identity headers on a shared shell host.</li>
+<li><strong>Portal Tunnel and self-hosted or proxied relays</strong> are unsupported; the gateway keeps OMP's existing end-to-end-encrypted relay.</li>
+</ul>
+<p>Machine-readable truth:
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json">stable release lock</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json">upstream lock</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md">compatibility matrix</a> ·
+<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md">release ledger</a> (authoritative where they disagree)</p>
+<p class="verified">The <code>v0.7.4-prealpha.1</code> campaign on 2026-10-03, 17:59:22Z–18:50:09Z, ran from the Studio's operator account and passed all thirteen lanes on their first attempt. Final cleanup measured zero gateway processes, zero listeners, and zero live OMP hosts; Windows resources were removed, and Push and cloud cleanup passed. A clean stable-channel build of the approval tree matched all <strong>46 non-metadata candidate files</strong>. Stable publication succeeded; the separate published-byte smoke passed on its first attempt on the Studio.</p>
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: docs/ANDROID.md</summary>
+
+````markdown
+The v0.7.4 campaign qualified these phases only for its recorded candidate and devices. Each
+later candidate must pass them again on its exact signed bytes; historical evidence does not
+transfer. The candidate acceptance checklist is in
+[ATTENTION_SPEC.md](ATTENTION_SPEC.md#specialized-triage-and-delayed-tap-acceptance--qualification-pending).
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: docs/ATTENTION_SPEC.md</summary>
+
+````markdown
+and before `force_stop_verified`. The v0.7.4 campaign qualified them for its recorded candidate
+and devices; each later candidate must pass them again on its exact signed bytes.
+On 2026-10-01, a development run of the whole lane passed every phase,
+these two included, with no re-arm, and restored the phone. It ran against the installed v0.7.1
+gateway with stock OMP 18.4.8 fixtures on the Pixel 10 Pro, Android 17, Chrome `154.0.8037.57`.
+That development run is tested evidence ([ANDROID.md](ANDROID.md#physical-background-push-lane)).
+The boxes below stay unchecked because every candidate requalifies these phases; the v0.7.4
+qualification is recorded in the ledger.
+````
+
+</details>
+
+<details>
+<summary>Original changed excerpt: docs/LIFECYCLE_BRANCH_RESUME.md</summary>
+
+````markdown
+the v0.7.4 qualification stays bound to its recorded candidate and hosts. Each later campaign
+must pass these transitions again on its exact signed candidate before its matrix is qualified.
+See the [status vocabulary](COMPATIBILITY.md#status-vocabulary) and
+[release ledger](RELEASE_STATUS.md).
+````
+
+</details>
+
 ## Engineering baseline v18.5.1 — canary evidence only
 
 On 2026-10-03, [canary run 37140425389](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
