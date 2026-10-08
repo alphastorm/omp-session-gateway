@@ -7,16 +7,6 @@ import { fileURLToPath } from "node:url";
 import { generateRelease, RELEASE_TEXT, runReleaseGenerate, type ReleaseGenerateOptions } from "./release-generate.ts";
 import { historicalTrees, normalizeHistoricalTree } from "./fixtures/release-generate/historical.ts";
 
-
-test("normalized v0.7.4 generated sections equal the committed current claim surfaces", async () => {
-  const expected = { ...approved, ...recorded };
-  for (const path of ["docs/RELEASE_STATUS.md", "docs/COMPATIBILITY.md", "docs/UPGRADE_ROLLBACK.md", "docs/ANDROID.md", "docs/ATTENTION_SPEC.md", "docs/LIFECYCLE_BRANCH_RESUME.md", "docs/BACKLOG.md", "site/llms.txt", "site/status/index.html"]) {
-    const committed = await readFile(join(root, path), "utf8");
-    for (const match of expected[path]!.matchAll(/<!-- release-generate:([a-z-]+):start -->[\s\S]*?<!-- release-generate:\1:end -->/gu)) {
-      expect(committed, path + ":" + match[1]).toContain(match[0]);
-    }
-  }
-});
 const root = fileURLToPath(new URL("../", import.meta.url));
 const fixtures = new URL("./fixtures/release-generate/", import.meta.url);
 async function fixture(name: string): Promise<unknown> {

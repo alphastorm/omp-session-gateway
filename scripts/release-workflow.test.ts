@@ -92,7 +92,12 @@ async function emitCandidateNote(
   const root = await mkdtemp(join(tmpdir(), "omp-release-notes-"));
   try {
     await mkdir(join(root, "scripts"));
-    await writeFile(join(root, "scripts/release-text.json"), await readFile(new URL("./release-text.json", import.meta.url), "utf8"));
+    // A fixed release text: this exercises the workflow's rendering, not the current release's prose,
+    // which every prepare rewrites.
+    await writeFile(
+      join(root, "scripts/release-text.json"),
+      await readFile(new URL("./fixtures/release-generate/v0.7.4.release-text.json", import.meta.url), "utf8"),
+    );
     const child = Bun.spawn([
       "bash",
       "-c",
