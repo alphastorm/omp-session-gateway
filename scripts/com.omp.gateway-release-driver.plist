@@ -12,7 +12,9 @@
   <key>WorkingDirectory</key><string>@HOME@/Development/omp-session-gateway</string>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
-  <key>ProcessType</key><string>Background</string>
+  <!-- Standard, not Background: the driver's detached jobs inherit this process type, and
+       Background throttling made v0.7.5's approve check miss bun's 5-second test limit. -->
+  <key>ProcessType</key><string>Standard</string>
   <key>Umask</key><integer>63</integer>
   <key>EnvironmentVariables</key>
   <dict>

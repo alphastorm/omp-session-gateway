@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Run the release driver's detached jobs at standard priority. Its LaunchAgent ran as a
+  `Background` process, and every job it started inherited that throttling. v0.7.5's approve job
+  then took 97 seconds instead of 56 for `bun run check`, and five cross-process lease tests missed
+  bun's default 5-second limit twice, stopping the release after its campaign had passed.
+
 ## [v0.7.5] — 2026-10-08
 
 This release uses stock OMP v18.8.3 as its engineering baseline. The 8 changelog entries below record the changes since v0.7.4. Historical receipts do not qualify these bytes.
