@@ -141,7 +141,8 @@ async function materialize(tree: Record<string, string>): Promise<string> {
   return directory;
 }
 
-test("workflow data extraction renders exactly the old v0.7.4 stable, candidate and provenance notes", async () => {
+// The release workflow's shell runs on Linux runners; Windows bash cannot execute the extracted script.
+test.skipIf(process.platform === "win32")("workflow data extraction renders exactly the old v0.7.4 stable, candidate and provenance notes", async () => {
   const old = originals.dcfa0b3![".github/workflows/signed-release.yml"]!;
   const changed = await readFile(join(root, ".github/workflows/signed-release.yml"), "utf8");
   const directory = await materialize({ [RELEASE_TEXT]: releaseText });
