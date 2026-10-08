@@ -1545,10 +1545,22 @@ async function stopSubprocess(process: ManagedProcess | undefined): Promise<void
   }
 }
 
+/** A list read still pending at its caller's deadline fails as that deadline, not as a transport error. */
+async function readSessionList(origin: string, deadline: number): Promise<Response | undefined> {
+  const remaining = Math.ceil(deadline - performance.now());
+  try {
+    return await fetch(`${origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, remaining))) });
+  } catch (error) {
+    if (remaining <= 5_000 && error instanceof Error && error.name === "TimeoutError") return undefined;
+    throw error;
+  }
+}
+
 export async function waitForPublishedSession(origin: string, label: string, options: OmpSessionWait = {}): Promise<Record<string, unknown>> {
   const deadline = performance.now() + (options.timeoutMs ?? 90_000);
   while (performance.now() < deadline) {
-    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, Math.ceil(deadline - performance.now())))) });
+    const response = await readSessionList(origin, deadline);
+    if (response === undefined) break;
     if (response.ok) {
       const payload: unknown = await response.json();
       if (!isRecord(payload) || !Array.isArray(payload.sessions)) throw new Error("session list is invalid");
@@ -1607,7 +1619,8 @@ export async function verifyLaunchContracts(origin: string, session: Record<stri
 export async function waitForRevocation(origin: string, label: string, timeoutMs = 45_000): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
-    const response = await fetch(`${origin}/api/v1/sessions`, { cache: "no-store", signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, Math.ceil(deadline - performance.now())))) });
+    const response = await readSessionList(origin, deadline);
+    if (response === undefined) break;
     // A refused read is retried like publication; only a valid no-store list can prove revocation.
     if (response.ok) {
       const payload: unknown = await response.json();
