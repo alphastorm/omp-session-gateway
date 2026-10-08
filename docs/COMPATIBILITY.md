@@ -87,7 +87,7 @@ v18.5.1 is the first release that retries an automatic start whose relay is unre
 out ([operator settings](OMP_INTEGRATION.md#1-operator-settings)).
 
 <!-- release-generate:release:start -->
-v0.7.5 is qualified for stable promotion; publication is pending. [Release v0.7.5](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.5). Signed candidate v0.7.5-prealpha.2; source 98b101ed8b2459cf6d635a7390ed6f10faae75ed; archive SHA-256 06e76965c559b6bdf1b96539c65083dda6a03f5db08957ac4e445dc454a71a53. Published v0.7.4 remains the predecessor. Stock OMP v18.8.3 (3e3c488a58d294e3a10051da588628e2cfb9d35c), Bun 1.4.0. All thirteen lanes passed; attempt counts and measured evidence are in the [release ledger](RELEASE_STATUS.md). Stable publication and published-byte smoke are pending.
+Stable v0.7.5 is published as immutable GitHub Latest. [Release v0.7.5](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.5). Signed candidate v0.7.5-prealpha.2; source 98b101ed8b2459cf6d635a7390ed6f10faae75ed; archive SHA-256 06e76965c559b6bdf1b96539c65083dda6a03f5db08957ac4e445dc454a71a53. Published v0.7.4 remains the predecessor. Stock OMP v18.8.3 (3e3c488a58d294e3a10051da588628e2cfb9d35c), Bun 1.4.0. All thirteen lanes passed; attempt counts and measured evidence are in the [release ledger](RELEASE_STATUS.md). The separate published-byte smoke passed; it does not expand the candidate matrix.
 <!-- release-generate:release:end -->
 
 The qualified scope includes the retained-Mac new-generation/fork/resume transitions and Pixel

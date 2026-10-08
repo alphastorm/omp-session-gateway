@@ -504,5 +504,13 @@
       "Android": "Pixel 8 Pro, Android 17, Chrome 154.0.8037.126; Galaxy S26 (16.0.0, chrome 145.0.7632.159)",
       "iPhone and iPad": "iPhone 17 Pro Max (26.6, safari 26.6); iPad (9th generation) (26.6, safari 26.6)"
     }
+  },
+  "publication": {
+    "tag": "v0.7.5",
+    "sourceCommit": "89eafb4da642c62dcaa5a4e6d6d9dc9f9f635431",
+    "archiveSha256": "171dec1a9902c934c99060b250f209cf627ce194d07da1412b35ad419c3ec57c",
+    "runUrl": "https://github.com/alphastorm/omp-session-gateway/actions/runs/37810219313",
+    "releaseUrl": "https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.5",
+    "publishedAt": "2026-10-08T16:38:49Z"
   }
 }
