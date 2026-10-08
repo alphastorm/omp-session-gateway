@@ -457,8 +457,11 @@ check. The host owner must coordinate workload starts to avoid a race after that
 With no `OMP_STABLE_MAC_SUDO_PASSWORD_FILE`, the orchestrator passes an empty
 `OMP_MAC_SUDO_PW` and the shell uses `sudo -n`. Narrow passwordless sudo must permit the
 lane's exact commands: `true`, Tailscale `status --json`, `set --operator=<SSH account>`,
-`cert --cert-file /tmp/omp-qual.crt --key-file /tmp/omp-qual.key <tailnet DNS name>`,
-and `shutdown -r now`. Tailscale Serve and cleanup run as the Tailscale operator without sudo.
+`cert --cert-file <home>/omp-qual.crt --key-file <home>/omp-qual.key <tailnet DNS name>`
+(the SSH account's home, never world-writable `/tmp`), and `shutdown -r now`. The lane runs
+`/usr/local/bin/tailscale` when that root-owned copy exists and falls back to PATH otherwise, so
+the grant can name a path no non-root account can rewrite. Tailscale Serve and cleanup run as
+the Tailscale operator without sudo.
 For a password-requiring host, set `OMP_STABLE_MAC_SUDO_PASSWORD_FILE` to a current-user-owned
 regular file with no group/other permissions (for example mode 0600); symlinks are refused.
 The file contains one nonempty password line, with an optional final newline. Its contents never
