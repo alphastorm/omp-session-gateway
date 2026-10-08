@@ -38,6 +38,10 @@ This release uses stock OMP v18.8.3 as its engineering baseline. The 5 changelog
 - Serialize stable qualification and published-byte smoke across processes and checkouts on the
   release account using a crash-released OS lock. Keep durable campaign ownership after a failure
   so only that campaign can recover its receipts before another tag or smoke acquires the host.
+- Report a 1Password CLI that fails or never exits as itself in the real-device cloud lane's
+  admission. v0.7.5's first campaign stopped at preflight with "the 1Password token is not a
+  service account of my.1password.com" because the release host's `op` hung at exec; the
+  admission now names the timeout, or `op`'s exit status and first error line.
 
 ## [v0.7.4] — 2026-10-03
 

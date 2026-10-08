@@ -58,13 +58,20 @@ export interface TestRecord {
 export interface OpResult {
   readonly exitCode: number;
   readonly stdout: string;
+  /** Why op did not succeed: a timeout, or its exit status and first stderr line. */
+  readonly failure?: string;
 }
 export type OpRunner = (argv: readonly string[], environment: Readonly<Record<string, string>>) => Promise<OpResult>;
 
-async function runOp(argv: readonly string[], environment: Readonly<Record<string, string>>): Promise<OpResult> {
-  const child = Bun.spawn([...argv], { env: { ...environment }, stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: 30_000 });
-  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-  return { exitCode, stdout };
+/** The real `op` child; `timeoutMs` is a test seam. */
+export async function runOp(argv: readonly string[], environment: Readonly<Record<string, string>>, timeoutMs = 30_000): Promise<OpResult> {
+  const child = Bun.spawn([...argv], { env: { ...environment }, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  if (exitCode === 0) return { exitCode, stdout };
+  // v0.7.5's first campaign: the release host's op hung at exec, and the timeout read as a wrong account.
+  if (child.signalCode !== null) return { exitCode, stdout, failure: `did not exit within ${timeoutMs / 1000} s` };
+  const detail = stderr.trim().split("\n")[0]!.slice(0, 200);
+  return { exitCode, stdout, failure: `exited ${exitCode}${detail === "" ? "" : `: ${detail}`}` };
 }
 
 /** The service-account token file: `OMP_STABLE_OP_TOKEN_FILE`, else alpha-founder's retained-host token. */
@@ -92,9 +99,10 @@ export async function readTestingBotCredentials(tokenFile: string, op: OpRunner 
   const environment = { HOME: homedir(), PATH: process.env.PATH ?? "/usr/bin:/bin", OP_SERVICE_ACCOUNT_TOKEN: token };
 
   const whoami = await op(["op", "whoami", "--format", "json"], environment);
+  if (whoami.exitCode !== 0) throw new Error(`op whoami ${whoami.failure ?? `exited ${whoami.exitCode}`}; the 1Password service account could not be checked`);
   let identity: unknown;
   try {
-    identity = whoami.exitCode === 0 ? JSON.parse(whoami.stdout) : undefined;
+    identity = JSON.parse(whoami.stdout);
   } catch {
     identity = undefined;
   }
@@ -106,8 +114,9 @@ export async function readTestingBotCredentials(tokenFile: string, op: OpRunner 
   }
   const read = async (reference: string): Promise<string> => {
     const result = await op(["op", "read", reference], environment);
+    if (result.exitCode !== 0) throw new Error(`the TestingBot credential could not be read from 1Password: op read ${result.failure ?? `exited ${result.exitCode}`}`);
     const value = result.stdout.trim();
-    if (result.exitCode !== 0 || !/^[\x21-\x7e]{8,256}$/u.test(value)) throw new Error("the TestingBot credential could not be read from 1Password");
+    if (!/^[\x21-\x7e]{8,256}$/u.test(value)) throw new Error("the TestingBot credential could not be read from 1Password");
     return value;
   };
   return { key: await read(KEY_REFERENCE), secret: await read(SECRET_REFERENCE) };
