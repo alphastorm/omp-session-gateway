@@ -458,7 +458,8 @@ async function drive(args: string[]): Promise<unknown> {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   const lock = new Database(lockPath);
   try {
-    lock.exec("PRAGMA busy_timeout=1000; BEGIN IMMEDIATE");
+    lock.exec("PRAGMA busy_timeout=1000");
+    lock.exec("BEGIN IMMEDIATE");
     await driver.authenticate();
     return await tick(driver, config);
   } finally { lock.close(); }

@@ -936,6 +936,22 @@ describe("lifecycle HTTP observations", () => {
       await expect(waitForRevocation(server.url.origin, "synthetic-label", 10)).rejects.toThrow("did not revoke before the deadline");
     } finally { server.stop(true); }
   });
+
+  test.each([
+    ["publication", (origin: string) => waitForPublishedSession(origin, "synthetic-label", { timeoutMs: 20 }), "did not publish before the deadline"],
+    ["revocation", (origin: string) => waitForRevocation(origin, "synthetic-label", 20), "did not revoke before the deadline"],
+  ] as const)("a %s read still pending at the deadline fails as that deadline", async (_kind, wait, message) => {
+    // The list answers only after the wait has failed, so the read is always pending at the deadline.
+    let release = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async () => {
+      await held;
+      return Response.json({ sessions: [] }, { headers: { "cache-control": "no-store" } });
+    } });
+    try {
+      await expect(wait(server.url.origin)).rejects.toThrow(message);
+    } finally { release(); server.stop(true); }
+  });
 });
 
 describe("shared OMP qualification pin", () => {

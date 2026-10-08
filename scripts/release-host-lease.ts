@@ -38,8 +38,11 @@ export async function withReleaseHostLease<T>(
   try {
     try {
       // Reserve the writer before enabling retained exclusive locking. Starting
-      // two EXCLUSIVE-mode readers first can deadlock their lock upgrades.
-      database.exec("PRAGMA busy_timeout = 1000; BEGIN IMMEDIATE; PRAGMA locking_mode = EXCLUSIVE");
+      // two EXCLUSIVE-mode readers first can deadlock their lock upgrades. One
+      // statement per exec: Bun ignores a busy BEGIN followed by more statements.
+      database.exec("PRAGMA busy_timeout = 1000");
+      database.exec("BEGIN IMMEDIATE");
+      database.exec("PRAGMA locking_mode = EXCLUSIVE");
       database.exec("CREATE TABLE IF NOT EXISTS campaign (id INTEGER PRIMARY KEY CHECK (id = 1), owner TEXT NOT NULL)");
       const previous = database.query<{ owner: string }, []>("SELECT owner FROM campaign WHERE id = 1").get();
       if (previous !== null && previous.owner !== owner) {
@@ -54,7 +57,9 @@ export async function withReleaseHostLease<T>(
       throw error;
     }
     const result = await action();
-    database.exec("BEGIN EXCLUSIVE; DELETE FROM campaign; COMMIT");
+    database.exec("BEGIN EXCLUSIVE");
+    database.exec("DELETE FROM campaign");
+    database.exec("COMMIT");
     return result;
   } finally {
     // A thrown action retains the committed owner, not a live OS lock. Only that

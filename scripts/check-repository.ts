@@ -250,6 +250,14 @@ async function main(): Promise<void> {
     for (const old of forbiddenLegacy) {
       if (text.includes(old)) errors.push(`${rel}: contains legacy identifier ${JSON.stringify(old)}`);
     }
+    // Bun's Database.exec runs each statement of a multi-statement string, but ignores a runtime
+    // failure of every statement except the last. The release-host lease once ignored its busy
+    // BEGIN IMMEDIATE that way, then waited out its busy timeout a second time on the next statement.
+    if (/\.tsx?$/u.test(rel) && /from\s+["']bun:sqlite["']/u.test(text)) {
+      for (const match of text.matchAll(/\.(?:exec|run)\(\s*(?:"[^"]*;\s*[^"\s][^"]*"|'[^']*;\s*[^'\s][^']*'|`[^`]*;\s*[^`\s][^`]*`)/gu)) {
+        errors.push(`${rel}:${text.slice(0, match.index).split("\n").length}: runs several SQLite statements in one exec; Bun ignores the failure of all but the last`);
+      }
+    }
     // A file URL's pathname is "/D:/..." on Windows, which no filesystem API can open.
     if (/\.tsx?$/u.test(rel) && /import\.meta\.url\)\.pathname\b/u.test(text)) {
       errors.push(`${rel}: uses a file URL's pathname as a filesystem path; use fileURLToPath`);
