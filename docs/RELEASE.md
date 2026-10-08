@@ -41,8 +41,8 @@ the installed gateway and drives the Pixel).
 1. **Prepare the candidate.** One `chore(release): prepare X.Y.Z` PR bumps the version in the five
    `package.json` files, `PRODUCT_VERSION` in `apps/gateway/src/diagnostics.ts` and
    `scripts/build-release.ts`, and `GATEWAY_VERSION` in `apps/gateway/src/installation.ts`; cuts the
-   `CHANGELOG.md` section; updates the highlights and rollback text in
-   `.github/workflows/signed-release.yml`; and notes the preparation in the release ledger. After it
+   `CHANGELOG.md` section; generates the highlights and rollback text in
+   `scripts/release-text.json` (read by `.github/workflows/signed-release.yml`); and notes the preparation in the release ledger. After it
    merges, push a signed annotated `vX.Y.Z-prealpha.1` tag on the merge commit and
    [verify the published candidate](#verify-a-published-build).
 2. **Qualify it.** Run `bun run qualify:stable --tag vX.Y.Z-prealpha.1 --preflight`, which checks
@@ -81,7 +81,167 @@ place of the eight-hour gate. The orchestrator defaults to 1,800 seconds and rej
 checks; `OMP_STABLE_RELAY_SECONDS` may select 1,800–3,600 seconds. Eight-hour endurance is not
 rerun or claimed, and no historical eight-hour receipt transfers.
 
+## Unattended release driver
+
+The opt-in Studio driver makes every automated repository write as `alphastorm-release`.
+The founder starts a request and merges one generated approve PR; there is no scheduled release
+request, Slack authority, button, or token. Slack may relay only the first line of a release-bot
+progress comment. The manual procedure above remains available, but must never overlap a driver
+campaign or smoke.
+
+### Request, authority and gates
+
+Dispatch `.github/workflows/release-request.yml` on `main` with `omp_version` (default `latest`).
+It resolves the exact stock npm version, refuses a version below `UPSTREAM.lock.json`, and calls
+the existing Linux/Windows canary. A red canary retains its existing canary-issue reporting and
+opens no tracking issue. A green run opens or reuses `Upstream tracking: vX.Y.Z` with the
+`release-request` label, using `GITHUB_TOKEN` in a job that never checks out or executes PR code.
+Equality with the lock is a fixes-only request: it is still filed and Alpha Founder does not start
+an order. The issue body is for humans; the driver never parses it. A successful request job's
+`Request OMP vX.Y.Z` name and Actions run/attempt identify explicit re-requests without issue edits.
+
+`bun scripts/release-driver.ts plan` is read-only, including local state. It can use the existing
+read-only gh session before bot credentials are installed. `tick` advances at most one step:
+select the highest trusted open request, land the exact Alpha Founder draft order, generate and
+merge prepare, sign/publish/verify the candidate, preflight and qualify, generate and locally check
+approve, wait for the founder, sign/publish/verify stable (including rebuilt-digest equality), smoke
+with `--rebuild-omp`, generate/merge record, and close fulfilled requests. Each state transition
+posts exactly one reconciled bot comment: `release-driver: <state> — <detail>`, followed by links.
+
+An order must be authored by `alpha-founder-source-alphastorm[bot]` with GitHub type `Bot`,
+from this repository's `alpha-founder/*` head into `main`, first observed as a draft. Only these
+paths, in this order, belong to the binding's ORDER_SCOPE:
+
+1. `CHANGELOG.md`
+2. `UPSTREAM.lock.json`
+3. `docs/COMPATIBILITY.md`
+4. `docs/DECISIONS.md`
+5. `docs/OMP_INTEGRATION.md`
+6. `docs/RELEASE_STATUS.md`
+7. `scripts/windows-qualification-pins.json`
+
+Both the current and previous filenames of a rename must be in scope. An out-of-scope order gets
+`held` and is never landed automatically. Multiple matching orders are ambiguous and wait.
+Every required GitHub Actions check must pass on the exact head: `implementation-checks`,
+`windows-service-lifecycle`, `browser-notifications`, `portable-source (ubuntu-24.04)`,
+`portable-source (macos-latest)`, `portable-source (windows-latest)`, and `browser-core`.
+Behind branches are updated before rechecking; merges are squash merges with `--match-head-commit`.
+No driver push targets `main`. Strict branch protection and signed-commit requirements remain in
+force; GitHub supplies the signed squash merge. Auto-merge stays disabled.
+
+The approve PR is different: only the configured founder may merge it. The locally checked head
+and tree are durably pinned; a changed head, a different merged tree, closure without merging, or
+a merge by another login stops the driver. Before asking for approval, the Studio runs the stable
+build, candidate runtime comparison, release-policy gate, smoke plan and `bun run check` from the
+exact approve head. Stable signing rechecks the founder/tree binding again.
+
+Prepare, approve and record use `scripts/release-generate.ts` with an explicit persisted
+`--date YYYY-MM-DD`; package/workspace versions and source constants are mechanical edits.
+Release prose lives in `scripts/release-text.json`, not in the workflow. The existing
+`site-coherence.test.ts` and `release-policy.ts` remain gates, not bypassable renderer assertions.
+The golden v0.7.4 fixtures use a sanitized real candidate receipt and compare generated surfaces
+with committed release history; the fixture notes describe the retained public evidence.
+
+### Studio installation (run as gwops after integration)
+
+The bot account is a repository collaborator with write access. Its registered Studio SSH signing
+key is `/Users/gwops/.ssh/omp-gateway-release-signing`; the key's public half is
+`ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPnD0XsQMUDImQxiWVgU8IXM6XeMVxFgPvp9bOAl/5Gd`.
+The driver reads the authenticated bot's numeric GitHub id and derives its noreply tagger address
+(default account: `339384828+alphastorm-release@users.noreply.github.com`). All gh and HTTPS git
+writes use `~/.config/gh-release-bot`; ambient founder tokens and git identities are discarded.
+Neither a token nor a private key belongs in the plist or repository.
+
+Prerequisites remain those of the full campaign/smoke above: retained guest running and reachable,
+Pixel and WebAPK ready, cloud credentials in their private files, predecessor installed, current
+`gh`/`cosign`/`tmux`/`adb`, and pinned Bun. The driver unlocks the empty-password
+`~/Library/Keychains/omp-qualification.keychain-db` before campaign Pixel work and before smoke.
+Non-login SSH needs the explicit Homebrew PATH. Install only after old manual launchers and their
+children are drained; retain their receipts and the shared release-host lease.
+
+`ssh gwops@sf-studio.tailfb479a.ts.net`, then:
+
+```sh
+export PATH="$HOME/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+cd "$HOME/Development/omp-session-gateway"
+git fetch origin main
+git switch main
+git merge --ff-only origin/main
+bun install --frozen-lockfile
+GH_CONFIG_DIR="$HOME/.config/gh-release-bot" gh auth status
+# Must print alphastorm-release; do not copy the founder's gh configuration.
+GH_CONFIG_DIR="$HOME/.config/gh-release-bot" gh api user --jq .login
+bun scripts/release-driver.ts plan
+install -d -m 700 "$HOME/.local/state/omp-session-gateway/release-driver"
+touch "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
+install -m 600 scripts/com.omp.gateway-release-driver.plist "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+# The checked-in template is dry-run by default. Review the config and read-only plan first.
+plutil -lint "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+# To arm after review, unload, change the explicit switch, and reload:
+launchctl bootout "gui/$(id -u)/com.omp.gateway-release-driver"
+/usr/libexec/PlistBuddy -c 'Set :EnvironmentVariables:OMP_RELEASE_DRY_RUN false' "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+rm "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+```
+
+The template runs every 300 seconds and at load under the logged-in gwops user. It sends launchd
+stdout/stderr to `/dev/null`; the driver keeps a bounded 256-KiB private `driver.log` and per-job
+exit/diagnostic files. The account's existing gateway and VM LaunchAgents are not modified.
+Configuration is `OMP_RELEASE_BOT_LOGIN`, `OMP_RELEASE_FOUNDER_LOGIN`,
+`OMP_RELEASE_GH_CONFIG_DIR`, `OMP_RELEASE_SIGNING_KEY`, `OMP_RELEASE_STATE_DIR` (absolute
+paths), and `OMP_RELEASE_DRY_RUN=1|true`. Defaults match the paths above.
+
+### Durable jobs, failures and kill switch
+
+State lives under `~/.local/state/omp-session-gateway/release-driver/`: atomic/fsynced
+`state.json` contains the write intent, pinned PR/tag identities and comment outbox. A SQLite
+mutex excludes overlapping ticks. Deterministic release branches, tags, comment markers and tmux
+job ids reconcile a provider write accepted just before a process crash. Plan does not create any
+of these. Bot-owned worktrees under `work/` leave the operator checkout's working tree alone.
+The candidate campaign uses a dedicated published `release-driver/*-campaign` branch pinned to
+the prepare merge, so unrelated movement of main cannot silently change the orchestrator source.
+
+Campaign, approve checks and smoke run detached in named tmux sessions with a start claim, JSON
+result and exit file under `jobs/`. Campaign receipts remain at
+`~/.local/share/omp-session-gateway/qualification/<candidate>/stable-qualification.json`.
+Qualification and smoke use their existing shared release-host lease (including its durable failed
+owner); the driver never deletes, replaces or steals it. A failed/missing long job enters
+`diagnostic-required`, reports non-passed lanes, and is not retried. An explicit new green request
+after a fix on main selects the next prealpha only after the previous lease is recovered. Follow
+[Release gates](#release-gates) for cleanup/recovery of that exact old campaign first; a new request
+is not permission to abandon cloud/device resources. Failed receipts stay unchanged. Public
+verification failures also leave the write intent for diagnosis; immutable tags are never moved.
+
+To stop new work immediately:
+
+```sh
+touch "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
+launchctl bootout "gui/$(id -u)/com.omp.gateway-release-driver"
+```
+
+This does not kill an already-running campaign or smoke, because killing it can interrupt cleanup.
+Inspect `jobs/*/spec.json`, each exact tmux session, exit/result files and the qualification receipt;
+drain or recover the owning job before rearming. Never remove `state.json`, the job start claim,
+or either SQLite file to force a retry. Revoke the bot credential to stop repository writes if the
+operator account is compromised; Slack has no credential or authority to pause/resume a release.
+
+### Alpha Founder checks-pod boundary
+
+`bun run check:order` validates ORDER_SCOPE's pins/schema and existing repository/coherence/ledger
+gates on Linux, with no devices and no network after `bun install`. The pod needs a writable
+workspace but may keep the remaining root read-only, with about 4 GiB RAM and TCP 443 egress only
+for dependency installation and an intentional upstream pin refresh. `scripts/upstream-pins.ts`
+uses one GitHub commit lookup plus one GitHub contents lookup per `relevantPaths` entry; those
+API reads work unauthenticated within GitHub's public rate limit or use `GH_TOKEN`/`GITHUB_TOKEN`
+when supplied. Two source package manifests come from `raw.githubusercontent.com`, and six npm
+registry reads cover coding-agent/wire metadata and two native-platform metadata/tarball pairs.
+Only GitHub API requests receive that token. Native tarball integrity and payload hashes are
+verified locally with `tar`; npm credentials, devices, a Docker daemon and a writable home root
+are not prerequisites for the order check itself.
+
 ## v0.3.0 qualification and promotion
+
 
 **Fork-era record:** this section preserves the named v0.3.0 campaign, its commands, and its
 patched OMP evidence. It is not a command to republish that immutable version or a mainline result.
