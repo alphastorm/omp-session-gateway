@@ -31,16 +31,22 @@ const releaseText = await readFile(new URL("v0.7.4.release-text.json", fixtures)
 const prepareOptions: ReleaseGenerateOptions = { command: "prepare", version: "0.7.4", date: "2026-10-03" };
 const approveOptions: ReleaseGenerateOptions = { command: "approve", version: "v0.7.4", date: "2026-10-03", candidateTag: "v0.7.4-prealpha.1", receipt };
 const recordOptions: ReleaseGenerateOptions = { command: "record", version: "v0.7.4", date: "2026-10-03", smoke, status, publication };
-const prepareBefore = { ...normalizeHistoricalTree(originals["dcfa0b3^"]!, { emptyLedger: true }), [RELEASE_TEXT]: releaseText };
+const prepareBefore: Record<string, string> = { ...normalizeHistoricalTree(originals["dcfa0b3^"]!, { emptyLedger: true }), [RELEASE_TEXT]: releaseText };
 const prepared = generateRelease(prepareBefore, prepareOptions);
-const approveBefore = { ...normalizeHistoricalTree(originals["39e3d57^"]!), [RELEASE_TEXT]: prepared[RELEASE_TEXT]! };
+const approveBefore: Record<string, string> = { ...normalizeHistoricalTree(originals["39e3d57^"]!), [RELEASE_TEXT]: prepared[RELEASE_TEXT]! };
 const approved = generateRelease(approveBefore, approveOptions);
 // The parent has handwritten approval prose. Normalize those same surfaces to the generated
 // approval form; all other parent bytes (including backlog tasks and dated history) stay intact.
-const recordBefore = { ...normalizeHistoricalTree(originals["9c0d790^"]!), ...approved };
+const recordBefore: Record<string, string> = { ...normalizeHistoricalTree(originals["9c0d790^"]!), ...approved };
 const recorded = generateRelease(recordBefore, recordOptions);
 const cases = { prepare: { before: prepareBefore, options: prepareOptions, result: prepared }, approve: { before: approveBefore, options: approveOptions, result: approved }, record: { before: recordBefore, options: recordOptions, result: recorded } };
 const goldens = await fixture("golden.json") as Record<string, Record<string, string>>;
+
+test("the visible historical archive preserves every replaced v0.7.4 operator fact and link", async () => {
+  const changes = await fixture("v0.7.4.prose-changes.json") as { before: string }[];
+  const ledger = (await readFile(join(root, "docs/RELEASE_STATUS.md"), "utf8")).replace(/\s+/gu, " ");
+  for (const change of changes) if (change.before !== "") expect(ledger).toContain(change.before.replace(/\s+/gu, " "));
+});
 
 for (const [name, scenario] of Object.entries(cases)) {
   test(`${name}: real v0.7.4 parent produces every full-file golden byte hash`, () => {
@@ -70,7 +76,7 @@ test("approve reproduces the committed stable lock, not synthetic digests or app
   expect(approved["STABLE_RELEASE.lock.json"]).toBe(originals["39e3d57"]!["STABLE_RELEASE.lock.json"]);
 });
 test("record removes exactly the completed backlog tasks, preserving other work", () => {
-  expect(recorded["docs/BACKLOG.md"]!.replace(/<!-- release-generate:release-task:start -->\n\n<!-- release-generate:release-task:end -->\n/u, "")).toBe(originals["9c0d790"]!["docs/BACKLOG.md"]);
+  expect(recorded["docs/BACKLOG.md"]!.replace(/<!-- release-generate:release-task:start -->\n\n<!-- release-generate:release-task:end -->\n/u, "")).toBe(originals["9c0d790"]!["docs/BACKLOG.md"]!);
 });
 test("fresh attempts preserve the existing cut and incorporate new Unreleased fixes", () => {
   const tree = { ...prepareBefore, ...prepared };
@@ -117,10 +123,10 @@ describe("fail closed without producing partial edits", () => {
   });
   test("private identities and arbitrary strings never reach the published projection", () => {
     const privateReceipt = structuredClone(receipt) as { lanes: { macos: { evidence: Record<string, unknown> }; windows: { evidence: { result: Record<string, unknown> } } } };
-    privateReceipt.lanes.macos.evidence.privatePath = "/Users/private-account/secret";
+    privateReceipt.lanes.macos.evidence.privatePath = "/Users/alice/secret";
     privateReceipt.lanes.windows.evidence.result.privateNote = "token-do-not-publish";
     const bytes = JSON.stringify(generateRelease(approveBefore, { ...approveOptions, receipt: privateReceipt }));
-    expect(bytes).not.toContain("private-account");
+    expect(bytes).not.toContain("/Users/alice/secret");
     expect(bytes).not.toContain("token-do-not-publish");
     expect(bytes).not.toContain("tailfb479a");
   });

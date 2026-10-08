@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -91,6 +91,8 @@ async function emitCandidateNote(
 ): Promise<{ code: number; note: string; stderr: string }> {
   const root = await mkdtemp(join(tmpdir(), "omp-release-notes-"));
   try {
+    await mkdir(join(root, "scripts"));
+    await writeFile(join(root, "scripts/release-text.json"), await readFile(new URL("./release-text.json", import.meta.url), "utf8"));
     const child = Bun.spawn([
       "bash",
       "-c",
@@ -104,6 +106,7 @@ bun() { return 0; }
 jq() {
   if [ "$2" = ".commit" ]; then printf "%s\n" "${"a".repeat(40)}";
   elif [ "$2" = ".tag" ]; then printf "%s\n" "v18.1.14";
+  elif [ "$3" = "scripts/release-text.json" ]; then command jq "$@";
   else return 92; fi
 }
 ${runStep("Create complete draft release")}

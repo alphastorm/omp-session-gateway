@@ -400,10 +400,11 @@ export class StudioDriver implements DriverPort {
         if (!macHost || macHost.includes(".example.")) throw new Error("configure OMP_STABLE_MAC_HOST with the retained qualification target before arming");
         const env = { ...this.env, OMP_STABLE_MAC_HOST: macHost, OMP_STABLE_MAC_MODEL: this.env.OMP_STABLE_MAC_MODEL ?? "VirtualMac2,1", OMP_STABLE_OP_TOKEN_FILE: join(homedir(), ".local/state/omp-session-gateway/op-service-account.token") };
         await command(["security", "unlock-keychain", "-p", "", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, env);
+        await command(["security", "set-keychain-settings", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, env);
         await command([process.execPath, "run", "qualify:stable", "--", "--tag", state.candidate, "--preflight"], checkout, env);
         await command([process.execPath, "run", "qualify:stable", "--", "--tag", state.candidate], checkout, env);
         const receipt = await jsonFile<StableQualificationReceipt>(this.receipt(state));
-        if (receipt?.status !== "passed" || receipt.schemaVersion !== 3 || receipt.tag !== state.candidate || receipt.candidate?.sourceCommit !== state.candidateCommit || receipt.candidate.archiveSha256 !== state.candidateDigest || Object.values(receipt.lanes).some(lane => lane.status !== "passed")) throw new Error("qualification receipt is not fully passed and candidate-bound");
+        if (receipt?.status !== "passed" || receipt.schemaVersion !== 3 || receipt.tag !== state.candidate || receipt.candidate?.sourceCommit !== state.candidateCommit || receipt.candidate?.archiveSha256 !== state.candidateDigest || Object.values(receipt.lanes).some(lane => lane.status !== "passed")) throw new Error("qualification receipt is not fully passed and candidate-bound");
       } else if (spec.kind === "approve") {
         await command([process.execPath, "run", "release:build"], checkout, { ...this.env, OMP_RELEASE_CHANNEL: "stable" });
         const names = releaseAssetNames(state.version);
@@ -414,6 +415,7 @@ export class StudioDriver implements DriverPort {
         await command([process.execPath, "run", "check"], checkout, this.env);
       } else {
         await command(["security", "unlock-keychain", "-p", "", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, this.env);
+        await command(["security", "set-keychain-settings", join(homedir(), "Library/Keychains/omp-qualification.keychain-db")], checkout, this.env);
         const smoke = await command([process.execPath, "run", "smoke:release", "--", "--tag", `v${state.version}`, "--archive-sha256", state.stableDigest!, "--rebuild-omp"], checkout, this.env);
         await atomicJson(join(directory, "smoke.json"), JSON.parse(smoke.out));
         const installation = join(homedir(), ".local/state/omp-session-gateway/installation");

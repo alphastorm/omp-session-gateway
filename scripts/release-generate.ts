@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { assertStableReleaseQualification } from "./release-policy.ts";
+import { assertStableReleaseQualification, releaseVersion } from "./release-policy.ts";
 import { externalCleanupCurrent, validateStableQualificationReceipt } from "./stable-qualification.ts";
 
 const REPO = "https://github.com/alphastorm/omp-session-gateway";
@@ -166,13 +166,13 @@ function qualification(receiptValue: unknown, candidateTag: string, tag: string,
   const baseline = text(upstream.tag, "upstream tag", /^v\d+\.\d+\.\d+$/u);
   const commit = text(upstream.commit, "upstream commit", SHA);
   const bun = text(upstream.bunVersion, "Bun", VERSION);
-  equal(windowsOmp.version, baseline.slice(1), "qualified OMP version");
+  equal(windowsOmp.version, releaseVersion(baseline), "qualified OMP version");
   equal(windowsOmp.sourceCommit, commit, "qualified OMP commit");
   equal(windows.bunVersion, bun, "qualified Bun");
   equal(mac.archiveSha256, archive, "Mac archive");
   const push = object(e("androidPush").result, "Push result");
   requireTrue(push.passed, "Push result");
-  equal(push.ompVersion, baseline.slice(1), "Push OMP");
+  equal(push.ompVersion, releaseVersion(baseline), "Push OMP");
   const platform = object(push.platform, "Push platform");
   const cloud = object(e("deviceCloud").result, "cloud result");
   requireTrue(cloud.passed, "cloud result");
@@ -211,13 +211,13 @@ function qualification(receiptValue: unknown, candidateTag: string, tag: string,
     windowsCleanup: "Zero instances and firewalls; tailnet node deleted and access vault removed.",
   };
   const lock = {
-    $schema: "./schemas/stable-release.schema.json", schemaVersion: 1, version: tag.slice(1), releaseTag: tag, previousTag,
+    $schema: "./schemas/stable-release.schema.json", schemaVersion: 1, version: releaseVersion(tag), releaseTag: tag, previousTag,
     status: "qualified", candidateTag, candidateSourceCommit: source, candidateArchiveSha256: archive,
     runtimeByteComparison: "passed", evidence: Object.fromEntries(EVIDENCE.map(key => [key, "passed"])), approvedAt: completedAt,
   };
   // This is the promotion lock, not proof of a build run: the driver MUST compare runtime bytes
   // after generating it, before offering the approve PR for merge (same as the manual procedure).
-  assertStableReleaseQualification(lock, tag, tag.slice(1));
+  assertStableReleaseQualification(lock, tag, releaseVersion(tag));
   return {
     lock, baseline, commit, bun, startedAt, completedAt, orchestratorCommit: orchestrator,
     lanes: LANES.map(name => ({ name, attempts: receipt.lanes[name].attempts, startedAt: receipt.lanes[name].startedAt!, completedAt: receipt.lanes[name].completedAt!, summary: summaries[name], measurements: measurements(e(name).result ?? e(name)) })),
@@ -256,7 +256,7 @@ export function generateRelease(tree: ReleaseTree, options: ReleaseGenerateOptio
   const out: Record<string, string> = {};
   const change = (path: string, name: string, value: string) => { out[path] = replaceMarker(out[path] ?? get(path), name, value); };
   if (!/^\d{4}-\d\d-\d\d$/u.test(options.date) || new Date(`${options.date}T00:00:00Z`).toISOString().slice(0, 10) !== options.date) throw new Error("--date must be an explicit calendar date YYYY-MM-DD");
-  const version = options.command === "prepare" ? options.version : options.version.slice(1);
+  const version = options.command === "prepare" ? options.version : releaseVersion(options.version);
   if (!VERSION.test(version) || (options.command !== "prepare" && options.version !== `v${version}`)) throw new Error("prepare takes X.Y.Z; approve/record take vX.Y.Z");
   const tag = `v${version}`;
   const upstream = object(JSON.parse(get("UPSTREAM.lock.json")), "upstream lock");
@@ -269,8 +269,8 @@ export function generateRelease(tree: ReleaseTree, options: ReleaseGenerateOptio
     const candidateTag = options.candidateTag ?? `${tag}-prealpha.1`;
     if (!new RegExp(`^${escapePattern(tag)}-prealpha\\.[1-9][0-9]*$`, "u").test(candidateTag)) throw new Error("candidate tag does not match prepared version");
     const previous = text(stable.releaseTag, "published stable", /^v\d+\.\d+\.\d+$/u);
-    if (!alreadyPrepared && packageVersion !== previous.slice(1)) throw new Error("package and published stable versions disagree");
-    const oldParts = previous.slice(1).split(".").map(Number), parts = version.split(".").map(Number);
+    if (!alreadyPrepared && packageVersion !== releaseVersion(previous)) throw new Error("package and published stable versions disagree");
+    const oldParts = releaseVersion(previous).split(".").map(Number), parts = version.split(".").map(Number);
     const firstDifference = parts.findIndex((part, i) => part !== oldParts[i]);
     if (firstDifference < 0 || parts[firstDifference]! < oldParts[firstDifference]!) throw new Error("prepared version must advance published stable");
     for (const path of PACKAGES) {
@@ -366,7 +366,7 @@ export function generateRelease(tree: ReleaseTree, options: ReleaseGenerateOptio
       for (const key of keys) requireTrue(value[key], `${section}.${key}`);
     }
     number(object(smoke.gateway, "gateway").doctorChecks, "doctor checks");
-    const omp = object(smoke.omp, "smoke OMP"); equal(omp.version, q.baseline.slice(1), "smoke OMP version");
+    const omp = object(smoke.omp, "smoke OMP"); equal(omp.version, releaseVersion(q.baseline), "smoke OMP version");
     text(omp.binarySha256, "smoke OMP binary", DIGEST);
     text(smoke.appAsset, "smoke app asset", /^\/assets\/app\.[a-z0-9]+\.js$/u);
     equal(status.service, "omp-session-gateway", "status service");

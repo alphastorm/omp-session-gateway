@@ -15,7 +15,7 @@ export interface TrackingIssue {
   number: number;
   title: string;
   author: string;
-  /** Creation time or the newest release-request workflow comment id; never issue body text. */
+  /** Creation time or the newest successful release-request workflow run/attempt; never issue body text. */
   request: string;
   url: string;
 }
@@ -31,9 +31,9 @@ export interface PullRequest {
   draft: boolean;
   state: "open" | "closed";
   merged: boolean;
-  mergedBy?: string;
-  mergeCommit?: string;
-  mergeTree?: string;
+  mergedBy?: string | undefined;
+  mergeCommit?: string | undefined;
+  mergeTree?: string | undefined;
   behind: boolean;
   checksPassed: boolean;
   files: { filename: string; previous_filename?: string }[];
@@ -58,19 +58,19 @@ export interface DriverState {
   candidate: string;
   selectedMain: string;
   date: string;
-  preparePr?: number;
-  orderPr?: number;
-  candidateCommit?: string;
-  candidateDigest?: string;
-  approvePr?: number;
-  approvedHead?: string;
-  approvedTree?: string;
-  stableCommit?: string;
-  stableDigest?: string;
-  publicationRun?: string;
-  recordPr?: number;
-  failedMain?: string;
-  updatedHead?: string;
+  preparePr?: number | undefined;
+  orderPr?: number | undefined;
+  candidateCommit?: string | undefined;
+  candidateDigest?: string | undefined;
+  approvePr?: number | undefined;
+  approvedHead?: string | undefined;
+  approvedTree?: string | undefined;
+  stableCommit?: string | undefined;
+  stableDigest?: string | undefined;
+  publicationRun?: string | undefined;
+  recordPr?: number | undefined;
+  failedMain?: string | undefined;
+  updatedHead?: string | undefined;
   /** Saved before any effect. Its operation must reconcile existing provider state on replay. */
   intent?: Decision;
   /** Transactional outbox: committed state is exposed only after this comment is reconciled. */
@@ -192,9 +192,9 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     const prepare = state.phase === "prepare-open", pr = prepare ? repo.prepare : repo.record;
     const invalid = refuse(pr, config, prepare ? "prepare" : "record");
     if (invalid !== undefined) return decision("stop", "stopped", invalid);
-    if (!pr!.merged && pr!.behind && pr!.checksPassed && state.updatedHead !== pr!.head) return decision("update-release-pr", state.phase, "update release PR before strict checked merge", { pr, patch: { updatedHead: pr!.head } });
+    if (!pr!.merged && pr!.behind && pr!.checksPassed && state.updatedHead !== pr!.head) return decision("update-release-pr", state.phase, "update release PR before strict checked merge", { pr: pr!, patch: { updatedHead: pr!.head } });
     if (!pr!.merged && (pr!.behind || !pr!.checksPassed)) return idle("waiting for strict required PR checks against current main");
-    return decision(prepare ? "merge-prepare" : "merge-record", prepare ? "prepared" : "recorded", `merge ${prepare ? "prepare" : "record"} PR with pinned head`, { pr });
+    return decision(prepare ? "merge-prepare" : "merge-record", prepare ? "prepared" : "recorded", `merge ${prepare ? "prepare" : "record"} PR with pinned head`, { pr: pr! });
   }
   if (state.phase === "prepared") return decision("tag-candidate", "candidate-tagged", `sign and push ${state.candidate}`);
   if (state.phase === "candidate-tagged" || state.phase === "stable-tagged") {
@@ -221,7 +221,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     const pr = repo.approve;
     const invalid = refuse(pr, config, "approve");
     if (invalid !== undefined || pr!.merged) return decision("stop", "stopped", invalid ?? "approve PR merged before Studio checks");
-    return decision("start-approve-checks", "approve-checking", "run stable build, runtime comparison, policy, smoke plan and full local checks", { pr, patch: { approvedHead: pr!.head, approvedTree: pr!.tree } });
+    return decision("start-approve-checks", "approve-checking", "run stable build, runtime comparison, policy, smoke plan and full local checks", { pr: pr!, patch: { approvedHead: pr!.head, approvedTree: pr!.tree } });
   }
   if (state.phase === "approval-required") {
     const pr = repo.approve;
@@ -231,6 +231,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     if (!pr!.merged) return idle("approval-required; waiting for founder merge");
     if (pr!.mergedBy !== config.founder) return decision("stop", "stopped", "approve PR merged by a non-founder");
     if (pr!.mergeTree !== state.approvedTree) return decision("stop", "stopped", "approve merge tree differs from checked head tree");
+    if (pr!.mergeCommit === undefined) return decision("stop", "stopped", "approve merge commit is missing");
     return decision("accept-approval", "approved", "founder merged the exact checked approval tree", { patch: { stableCommit: pr!.mergeCommit }, links: [pr!.url] });
   }
   if (state.phase === "approved") return decision("tag-stable", "stable-tagged", `sign and push v${state.version} on the founder's approved merge`);
