@@ -1,0 +1,27 @@
+{
+  "source": "Studio schema-3 v0.7.4-prealpha.1 receipt",
+  "changes": [
+    "/lanes/android/evidence/browserVersion/_jsVersionNote: added fixture-only review annotation; retained the exact public V8 software version",
+    "/lanes/debian/evidence/dispatchId: omitted private identity/correlation identifier",
+    "/lanes/ompPublication/evidence/instanceId: omitted private identity/correlation identifier",
+    "/lanes/android/evidence/serial: omitted private identity/correlation identifier",
+    "/lanes/androidPush/evidence/progress/epoch: replaced campaign UUID consistently",
+    "/lanes/androidPush/evidence/progress/binding: omitted private identity/correlation identifier",
+    "/lanes/androidPush/evidence/progress/notificationTopicDigest: omitted private identity/correlation identifier",
+    "/lanes/androidPush/evidence/progress/secondaryNotificationTopicDigest: omitted private identity/correlation identifier",
+    "/lanes/androidPush/evidence/result/epoch: replaced campaign UUID consistently",
+    "/lanes/androidPush/evidence/result/binding: omitted private identity/correlation identifier",
+    "/lanes/androidPush/evidence/result/cleanup/epoch: replaced campaign UUID consistently",
+    "/lanes/androidPushCleanup/evidence/epoch: replaced campaign UUID consistently",
+    "/lanes/deviceCloud/evidence/progress/epoch: replaced campaign UUID consistently",
+    "/lanes/deviceCloud/evidence/progress/binding: omitted private identity/correlation identifier",
+    "/lanes/deviceCloud/evidence/progress/sessions: omitted private identity/correlation identifier",
+    "/lanes/deviceCloudCleanup/evidence/epoch: replaced campaign UUID consistently",
+    "/lanes/windows/evidence/progress/epoch: replaced campaign UUID consistently",
+    "/lanes/windows/evidence/progress/binding: omitted private identity/correlation identifier",
+    "/lanes/windows/evidence/result/epoch: replaced campaign UUID consistently",
+    "/lanes/windowsCleanup/evidence/epoch: replaced campaign UUID consistently",
+    "/macHost: omitted private identity/correlation identifier"
+  ],
+  "retained": "Public source commits, archive/native/output digests, public GitHub run URLs, measured device/browser versions, numeric/boolean outcomes. No host paths, IPs, droplet IDs or credential values were present after omitted fields; the receipt never contained token/password values."
+}

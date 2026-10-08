@@ -10,6 +10,16 @@ on:
         required: true
         default: latest
         type: string
+  workflow_call:
+    inputs:
+      omp_version:
+        description: Exact stock OMP npm version to exercise
+        required: true
+        type: string
+    outputs:
+      passed:
+        description: Linux and Windows passed for the exact requested OMP version
+        value: ${{ jobs.result.outputs.passed }}
   pull_request:
     paths:
       - scripts/upstream-canary.ts
@@ -31,9 +41,12 @@ jobs:
   canary:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     outputs:
       omp_version: ${{ steps.summary.outputs.omp_version }}
       failed_stage: ${{ steps.summary.outputs.failed_stage }}
+      passed: ${{ steps.summary.outcome == 'success' && steps.summary.outputs.failed_stage == '' && steps.summary.outputs.omp_version == inputs.omp_version }}
     env:
       OMP_VERSION: ${{ inputs.omp_version || 'latest' }}
     steps:
@@ -115,9 +128,12 @@ jobs:
   canary-windows:
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     outputs:
       omp_version: ${{ steps.summary.outputs.omp_version }}
       failed_stage: ${{ steps.summary.outputs.failed_stage }}
+      passed: ${{ steps.summary.outcome == 'success' && steps.summary.outputs.failed_stage == '' && steps.summary.outputs.omp_version == inputs.omp_version }}
     env:
       OMP_VERSION: ${{ inputs.omp_version || 'latest' }}
     defaults:
@@ -188,6 +204,21 @@ jobs:
             await appendFile(process.env.GITHUB_OUTPUT, `omp_version=${summary.ompVersion}\nfailed_stage=${summary.failedStage ?? ""}\n`);
             process.stdout.write(`${JSON.stringify(summary)}\n`);
           '
+
+  result:
+    if: ${{ always() }}
+    needs: [canary, canary-windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      passed: ${{ steps.result.outputs.passed }}
+    steps:
+      - name: Expose exact-version canary result
+        id: result
+        env:
+          PASSED: ${{ needs.canary.result == 'success' && needs.canary-windows.result == 'success' && needs.canary.outputs.passed == 'true' && needs.canary-windows.outputs.passed == 'true' }}
+        run: printf 'passed=%s\n' "$PASSED" >>"$GITHUB_OUTPUT"
 
   report-failure:
     # The code that installs/runs upstream never receives an issue-writing token; PRs cannot enter here.

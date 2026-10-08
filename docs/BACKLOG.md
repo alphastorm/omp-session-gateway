@@ -1,5 +1,9 @@
 # Backlog
 
+
+<!-- release-generate:release-task:start -->
+
+<!-- release-generate:release-task:end -->
 GitHub issues are the active work queue. [Release status](RELEASE_STATUS.md) records qualification;
 [the changelog](../CHANGELOG.md) records shipped work. This file keeps only open product direction.
 

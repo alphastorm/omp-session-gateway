@@ -5,10 +5,9 @@
 The gateway consumes stock OMP `>= 18.1.20` with `collab.autoStart` alone. It reads OMP-owned
 discovery, polls metadata, and resolves an exact generation/role only at launch, without storing
 capabilities or writing discovery files. The executable lanes below cover lifecycle transitions;
-the v0.7.4 qualification stays bound to its recorded candidate and hosts. Each later campaign
-must pass these transitions again on its exact signed candidate before its matrix is qualified.
-See the [status vocabulary](COMPATIBILITY.md#status-vocabulary) and
-[release ledger](RELEASE_STATUS.md).
+<!-- release-generate:campaign:start -->
+The v0.7.4 campaign qualified these scenarios only for its recorded candidate and devices. Each later candidate must pass them again on its exact signed bytes; historical evidence does not transfer. See the [release ledger](RELEASE_STATUS.md).
+<!-- release-generate:campaign:end -->
 
 ### Stock OMP semantics
 

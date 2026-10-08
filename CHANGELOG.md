@@ -6,6 +6,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in release requests gated by the existing stock OMP canary, and a resumable Studio release
+  driver whose automated writes use the release bot. The founder alone merges the generated
+  approve PR; exact-head checks, signed tags, candidate qualification, runtime equality, published
+  provenance, rebuilt digests and installed-byte smoke remain mandatory.
+- Deterministic prepare/approve/record generation with v0.7.4 golden evidence, workflow-independent
+  release text, and a device-free offline `check:order` lane for Alpha Founder patches.
+
 ### Fixed
 
 - Derive a session's folder label in linear time. The trailing-separator regex backtracked

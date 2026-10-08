@@ -1182,3 +1182,33 @@ availability. The retained guest consumes host memory and disk and must not be r
 two owners. Qualification now distinguishes physical and virtual Mac environments explicitly, while
 ADR-030's supported platform families and evidence vocabulary otherwise remain unchanged. The new
 target remains unqualified until a full signed-candidate campaign passes on it.
+
+## ADR-034 — Request-started releases with one founder promotion decision
+
+**Status:** Accepted — 2026-10-07
+
+**Decision:** A green manually dispatched stock-OMP canary opens or reuses the exact bot-authored
+tracking issue. Its title, not its body, selects the upstream version. Alpha Founder supplies a
+draft source PR restricted to the seven ORDER_SCOPE paths; the Studio release driver lands it
+only with the complete required-check set and a pinned squash merge. Equal-baseline requests
+are fixes-only releases and need no source order.
+
+The release machine account signs tags and makes all automated writes with an isolated gh config.
+Deterministic generators own release-specific text and version edits; workflows are no longer
+per-release editing surfaces. The driver qualifies the signed candidate and checks the generated
+approve tree locally. Only a merge by the founder with that exact tree permits stable signing.
+Published-byte verification, rebuilt-digest equality, smoke with rebuilt stock OMP, and a recorded
+PR complete the release. Slack receives read-only status, never a write token or approval control.
+
+**Recovery:** Atomic state, a comment outbox and deterministic external identities reconcile
+crashes without repeating accepted PR/tag/comment writes. Detached long steps retain the existing
+release-host lease. A failed campaign stops without retry; a new green request after a main fix
+uses the next prealpha only after the old owner is recovered. No automatic rollback, tag rewrite,
+default-branch push, lease stealing or discarded failed receipt is permitted.
+
+**Consequences:** One founder approve-PR merge replaces repetitive manual release mechanics, not
+qualification gates. The bot, Studio account and integrated main code remain trusted release
+authorities; required checks and founder/tree equality constrain unintended promotion. The driver
+is cooperative single-host automation, not protection from a compromised operator or GitHub admin.
+See [Unattended release driver](RELEASE.md#unattended-release-driver) for installation and the
+kill switch.
