@@ -1,13 +1,466 @@
 # Release status
 
 <!-- release-generate:current:start -->
-## v0.7.5 preparation — not yet qualified or published
+## Mainline v0.7.5 — qualified; stable publication pending
 
-**Prepared:** 2026-10-08. This release uses stock OMP v18.8.3 as its engineering baseline. The 8 changelog entries below record the changes since v0.7.4. Historical receipts do not qualify these bytes.
+<!-- release-generate:publication:start -->
+**Updated:** 2026-10-08. v0.7.5 is qualified for stable promotion; publication is pending. Published v0.7.4 remains GitHub Latest.
+<!-- release-generate:publication:end -->
 
-- Planned qualification: Debian 13 x86-64; macOS 27.0 (26A428) arm64 in a Virtualization.framework guest (VirtualMac2,1, ADR-033); a disposable Windows Server 2025 host (the Administrator lifecycle and a fresh standard-user install); Chrome on the physical Pixel 10 Pro, including its background-Push lane; and real iPhone, iPad, and Galaxy devices in TestingBot's cloud. Every lane must pass against these exact signed bytes before stable promotion; the plan is not evidence.
+**Candidate:** [v0.7.5-prealpha.2](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.5-prealpha.2).<br>
+**Source:** `98b101ed8b2459cf6d635a7390ed6f10faae75ed`.<br>
+**Archive SHA-256:** `06e76965c559b6bdf1b96539c65083dda6a03f5db08957ac4e445dc454a71a53`.<br>
+**Predecessor:** published `v0.7.4`.
 
-Published v0.7.4 remains the predecessor and current stable. The planned candidate tag is `v0.7.5-prealpha.2`; no qualification or publication is claimed. The stable lock stays unchanged until approval.
+This release uses stock OMP v18.8.3 as its engineering baseline. The 8 changelog entries below record the changes since v0.7.4. Historical receipts do not qualify these bytes.
+
+### Candidate evidence
+
+Schema 3 campaign 2026-10-08T07:27:12.176Z–2026-10-08T10:40:17.842Z; orchestrator `98b101ed8b2459cf6d635a7390ed6f10faae75ed`.
+
+| Lane | Attempts | Evidence |
+|---|---|---|
+| artifacts | 2 | Signed tag, checksums, GitHub attestations 3/3 and Sigstore bundles 3/3; v0.7.4 verified the same way. |
+| debian | 1 | Run 37743587268 succeeded (https://github.com/alphastorm/omp-session-gateway/actions/runs/37743587268); OS/kernel versions and migration counts are not exported. |
+| macos | 1 | VirtualMac2,1, macOS 27.0 arm64; doctor 18/18, rollback 23/23; native addon efce5da3bd67933b98288068fc9768acc02c5cdd0af0a897418f6d99a31fded9. |
+| ompPublication | 2 | Stock OMP v18.8.3; generation 1; publication, View/Control, new-generation/fork/resume and revocation. |
+| android | 1 | Pixel 8 Pro, Android 17 build CP3A.261005.005, Chrome 154.0.8037.126; same-page unlock 7138 ms, Airplane 4036 ms, Doze 137 ms; 7/7 detectable; clean. |
+| androidPush | 1 | Android 17, Chrome 154.0.8037.126, installed WebAPK; force-stop delivered_while_force_stopped, Doze delivered_after_doze_exit; outcomes are observed variants, not delivery guarantees. |
+| androidPushCleanup | 1 | Device, browser and fixture restored. |
+| deviceCloud | 2 | TestingBot real devices, tunnel 4.9: iPhone 17 Pro Max (26.6, safari 26.6); iPad (9th generation) (26.6, safari 26.6); Galaxy S26 (16.0.0, chrome 145.0.7632.159). Home Screen alerts do not qualify lock-screen presentation. |
+| deviceCloudCleanup | 2 | Restored. |
+| relay | 1 | 1800 seconds, 2026-10-08T07:40:25.015Z–2026-10-08T08:10:25.030Z; 2 transitions, final phase live. Eight-hour endurance is not claimed. |
+| cleanup | 2 | Zero gateway processes, listeners and live OMP hosts. |
+| windows | 1 | Windows x86-64 build 26100; 4 CPUs, 8186 MiB; Administrator upgrade/rollback from v0.7.4 and fresh standard-account lifecycle; interactive logon, not unattended boot. |
+| windowsCleanup | 1 | Zero instances and firewalls; tailnet node deleted and access vault removed. |
+
+<details>
+<summary>Public measured results (booleans and numbers; private identities omitted)</summary>
+
+```json
+{
+  "artifacts": {
+    "startedAt": "2026-10-08T10:32:34.382Z",
+    "completedAt": "2026-10-08T10:33:03.746Z",
+    "measurements": {
+      "signedTag": true,
+      "predecessor": {
+        "signedTag": true
+      }
+    }
+  },
+  "debian": {
+    "startedAt": "2026-10-08T07:27:54.783Z",
+    "completedAt": "2026-10-08T07:37:34.751Z",
+    "measurements": {
+      "runId": 37743587268
+    }
+  },
+  "macos": {
+    "startedAt": "2026-10-08T07:37:34.755Z",
+    "completedAt": "2026-10-08T07:40:13.835Z",
+    "measurements": {
+      "guestRebootChanged": true,
+      "consoleLogin": true,
+      "readinessPreserved": true
+    }
+  },
+  "ompPublication": {
+    "startedAt": "2026-10-08T10:34:20.789Z",
+    "completedAt": "2026-10-08T10:40:11.529Z",
+    "measurements": {
+      "generation": 1,
+      "published": true,
+      "lifecycle": {
+        "newGeneration": {
+          "sameInstance": true,
+          "generationDelta": 1,
+          "staleRejected": true,
+          "liveLaunches": 2,
+          "noStore": true
+        },
+        "fork": {
+          "sameInstance": true,
+          "generationDelta": 1,
+          "syntheticMessages": 2,
+          "staleRejected": true,
+          "liveLaunches": 2,
+          "noStore": true
+        },
+        "resumed": {
+          "newInstance": true,
+          "generation": 1,
+          "sameLabel": true,
+          "liveLaunches": 2,
+          "noStore": true,
+          "revocations": 2
+        }
+      },
+      "revoked": true
+    }
+  },
+  "android": {
+    "startedAt": "2026-10-08T07:40:23.612Z",
+    "completedAt": "2026-10-08T07:43:27.525Z",
+    "measurements": {
+      "unlockMs": 7138,
+      "airplaneRecoveredMs": 4036,
+      "dozeRecoveredMs": 137,
+      "collaboration": {
+        "viewReadOnly": true,
+        "controlWritable": true,
+        "promptAccepted": true,
+        "returnedToDirectory": true
+      }
+    }
+  },
+  "androidPush": {
+    "startedAt": "2026-10-08T07:40:23.612Z",
+    "completedAt": "2026-10-08T08:15:53.339Z",
+    "measurements": {
+      "passed": true,
+      "platform": {
+        "webApk": true,
+        "dndOff": true
+      },
+      "phases": {
+        "subscription_ready": {
+          "enabled": true,
+          "dndOff": true,
+          "phaseElapsedMs": 13026
+        },
+        "private_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 1342,
+          "dndOff": true,
+          "phaseElapsedMs": 47047
+        },
+        "session_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 1378,
+          "dndOff": true,
+          "phaseElapsedMs": 49861
+        },
+        "preview_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 2246,
+          "dndOff": true,
+          "phaseElapsedMs": 60769
+        },
+        "attention_tap_verified": {
+          "control": true,
+          "revalidated": true,
+          "scrubbed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 49914
+        },
+        "activity_stop_verified": {
+          "knownBusyPolls": 2,
+          "viewOnly": true,
+          "dndOff": true,
+          "phaseElapsedMs": 58000
+        },
+        "stale_generation_verified": {
+          "sameInstance": true,
+          "generationIncrement": 1,
+          "launches": 0,
+          "scrubbed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 65814
+        },
+        "clear_verified": {
+          "authoritativeClear": true,
+          "freshRequestRetained": true,
+          "dndOff": true,
+          "phaseElapsedMs": 76639
+        },
+        "triage_verified": {
+          "fifo": true,
+          "holdAdvanced": true,
+          "heldNotificationClosed": true,
+          "pendingRetained": true,
+          "requeued": true,
+          "allHeld": true,
+          "staleHoldReleased": true,
+          "undoRestored": true,
+          "undoExpired": true,
+          "attentionRestored": true,
+          "shownAll": true,
+          "mutations": 0,
+          "dndOff": true,
+          "phaseElapsedMs": 138512
+        },
+        "stale_taps_verified": {
+          "resolved": true,
+          "rearmed": true,
+          "replaced": true,
+          "expired": true,
+          "launches": 0,
+          "scrubbed": true,
+          "replayed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 236604
+        },
+        "force_stop_verified": {
+          "freshDelivery": true,
+          "dndOff": true,
+          "phaseElapsedMs": 94140
+        },
+        "permission_verified": {
+          "suppressed": true,
+          "freshDelivery": true,
+          "dndOff": true,
+          "phaseElapsedMs": 110165
+        },
+        "lock_resume_verified": {
+          "lockedDelivery": true,
+          "resumed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 30088
+        },
+        "network_verified": {
+          "wifiDelivery": true,
+          "cellularDelivery": true,
+          "airplaneSuppressed": true,
+          "recovered": true,
+          "dndOff": true,
+          "phaseElapsedMs": 159698
+        },
+        "doze_verified": {
+          "dndOff": true,
+          "phaseElapsedMs": 89371
+        },
+        "forbidden_sinks_verified": {
+          "detectable": true,
+          "clean": true,
+          "sinks": 10,
+          "findings": 0,
+          "gatewayLogsDiscarded": true,
+          "dndOff": true,
+          "phaseElapsedMs": 13199
+        },
+        "evidence_complete": {
+          "passed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 153
+        }
+      },
+      "cleanup": {
+        "restored": true,
+        "deviceRestored": true,
+        "browserRestored": true,
+        "fixtureStopped": true
+      }
+    }
+  },
+  "androidPushCleanup": {
+    "startedAt": "2026-10-08T08:15:53.343Z",
+    "completedAt": "2026-10-08T08:15:54.268Z",
+    "measurements": {
+      "restored": true
+    }
+  },
+  "deviceCloud": {
+    "startedAt": "2026-10-08T10:34:31.298Z",
+    "completedAt": "2026-10-08T10:39:26.944Z",
+    "measurements": {
+      "passed": true,
+      "targets": {
+        "iphone": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "homeScreenApp": true,
+          "alertsEnabled": true,
+          "subscriptionOmitsExpirationTime": true,
+          "deliveredMs": 6945,
+          "tapOpenedControl": true,
+          "tapUrlScrubbed": true,
+          "alertsDisabled": true,
+          "tunnelRefusals": 18,
+          "elapsedMs": 95919
+        },
+        "ipad": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "tunnelRefusals": 30,
+          "elapsedMs": 37019
+        },
+        "android": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "tunnelRefusals": 38,
+          "elapsedMs": 32170
+        }
+      },
+      "audit": {
+        "records": 3,
+        "recordsExposingLinks": 0,
+        "recordsWithMedia": 0
+      }
+    }
+  },
+  "deviceCloudCleanup": {
+    "startedAt": "2026-10-08T10:39:26.945Z",
+    "completedAt": "2026-10-08T10:39:29.013Z",
+    "measurements": {
+      "restored": true
+    }
+  },
+  "relay": {
+    "startedAt": "2026-10-08T07:40:23.613Z",
+    "completedAt": "2026-10-08T08:10:25.040Z",
+    "measurements": {
+      "durationSeconds": 1800,
+      "transitions": 2
+    }
+  },
+  "cleanup": {
+    "startedAt": "2026-10-08T10:40:11.534Z",
+    "completedAt": "2026-10-08T10:40:17.839Z",
+    "measurements": {
+      "gatewayProcesses": 0,
+      "gatewayListeners": 0,
+      "liveOmpHosts": 0
+    }
+  },
+  "windows": {
+    "startedAt": "2026-10-08T07:27:54.783Z",
+    "completedAt": "2026-10-08T08:21:44.193Z",
+    "measurements": {
+      "timings": {
+        "firewall_created": 822,
+        "instance_created": 674,
+        "transport_ready": 420908,
+        "toolchain_staged": 538112,
+        "predecessor_installed": 23343,
+        "candidate_upgraded": 48094,
+        "reboot_requested": 24429,
+        "prelogin_verified": 148083,
+        "postlogin_ready": 54044,
+        "doctor_passed": 13612,
+        "omp_published": 30023,
+        "pixel_verified": 1589569,
+        "omp_revoked": 15951,
+        "readiness_rotated": 10485,
+        "predecessor_restored": 13547,
+        "candidate_restored": 14276,
+        "candidate_uninstalled": 8311,
+        "standard_user_prepared": 9582,
+        "standard_tailnet_released": 6496,
+        "standard_tailnet_joined": 4011,
+        "standard_interactive_ready": 15257,
+        "standard_candidate_installed": 21558,
+        "standard_reboot_requested": 22438,
+        "standard_prelogin_verified": 137843,
+        "standard_postlogin_ready": 24325,
+        "standard_doctor_passed": 10578,
+        "standard_readiness_rotated": 11033,
+        "standard_candidate_uninstalled": 10711,
+        "evidence_complete": 0
+      },
+      "observations": {
+        "windowsBuild": 26100,
+        "cpus": 4,
+        "memoryMiB": 8186,
+        "transportStabilitySamples": 3,
+        "transportStabilityDurationMs": 69739,
+        "taggedNode": true,
+        "tunMode": true,
+        "funnelOff": true,
+        "loopbackOnly": true,
+        "configPreserved": true,
+        "readinessPreserved": true,
+        "restored": true,
+        "doctorChecks": 18,
+        "doctorTrue": 15,
+        "doctorIdentityAllowed": false,
+        "doctorPwa": false,
+        "doctorSessionHealth": false,
+        "doctorSecurityHeaders": true,
+        "logonTrigger": true,
+        "interactivePrincipal": true,
+        "logonTriggerScoped": true,
+        "preloginSamples": 3,
+        "preloginDurationMs": 59030,
+        "automaticStartMs": 54044,
+        "namedPipe": true,
+        "generation": 1,
+        "viewStatus": 200,
+        "controlStatus": 200,
+        "staleViewStatus": 409,
+        "staleControlStatus": 409,
+        "noStore": true,
+        "pixelIdentityAccepted": true,
+        "viewReadOnly": true,
+        "controlWritable": true,
+        "promptAccepted": true,
+        "returnedToDirectory": true,
+        "revoked": true,
+        "readinessChanged": true,
+        "historySelected": true,
+        "uninstalled": true,
+        "standardUserNonAdmin": true,
+        "standardUserNoSecurityPrivilege": true,
+        "standardPreloginSamples": 3,
+        "standardPreloginDurationMs": 51876,
+        "standardAutomaticStartMs": 24325,
+        "standardDoctorChecks": 18,
+        "standardDoctorTrue": 15,
+        "standardReadinessChanged": true,
+        "standardUninstalled": true,
+        "standardConfigPreserved": true,
+        "standardReadinessPreserved": true
+      },
+      "doctor": {
+        "true": 15,
+        "total": 18
+      }
+    }
+  },
+  "windowsCleanup": {
+    "startedAt": "2026-10-08T08:21:44.194Z",
+    "completedAt": "2026-10-08T08:22:12.121Z",
+    "measurements": {
+      "instancesRemaining": 0,
+      "firewallsRemaining": 0,
+      "tailnetDeleted": true,
+      "vaultRemoved": true
+    }
+  }
+}
+```
+
+</details>
+
+**Runtime equivalence gate:** the approval driver must compare a clean stable-channel build with the qualified candidate before merging. The receipt does not prove that later build comparison. Only release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json and schemas/stable-release.schema.json may differ.
+
+<!-- release-generate:smoke:start -->
+Published-byte smoke is pending stable publication.
+<!-- release-generate:smoke:end -->
 <!-- release-generate:current:end -->
 
 ## Mainline v0.7.4 — published stable
