@@ -504,6 +504,17 @@ This smoke does not expand the candidate matrix or qualify bare-metal Mac, Windo
 <!-- release-generate:smoke:end -->
 <!-- release-generate:current:end -->
 
+## Engineering baseline v18.8.3 — source pins only
+
+On 2026-10-08 (#368), `scripts/upstream-pins.ts` derived the stock OMP v18.8.3 source pin
+`3e3c488a58d294e3a10051da588628e2cfb9d35c`, tree `307c09c826aff7f0818c7aa19722c504646a49fd`, and
+the Darwin arm64 and Windows x64 native hashes from official npm tarballs after verifying
+registry integrity. Source review from v18.5.1 found registry v1, discovery, the relay protocol,
+and `collab.autoStart` unchanged; can1357/oh-my-pi#14714 skips frame mirroring without a guest,
+and from 18.8.1 a generated `sessionName` may carry a title-card prefix. The embedded client stays
+at v18.4.2. No canary, candidate, campaign, or platform qualification is claimed; the published
+matrix above is unchanged.
+
 ## v0.7.4 original operator evidence — retained historical record
 
 The release generator migration preserves the original operator-authored excerpts below, with line wrapping only.

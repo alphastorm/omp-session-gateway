@@ -15,6 +15,15 @@ The format is based on Keep a Changelog and Semantic Versioning.
 - Deterministic prepare/approve/record generation with v0.7.4 golden evidence, workflow-independent
   release text, and a device-free offline `check:order` lane for Alpha Founder patches.
 
+### Changed
+
+- Move the OMP engineering baseline to published v18.8.3 (#368), with pins derived by
+  `scripts/upstream-pins.ts`. Registry v1, discovery, the relay protocol, and `collab.autoStart`
+  are unchanged; upstream stops mirroring frames while no guest is joined
+  (can1357/oh-my-pi#14714), and from 18.8.1 a generated session name may begin with a title-card
+  icon and code. The embedded client remains at v18.4.2. No qualification is claimed; published
+  v0.7.4 stays bound to OMP v18.5.1.
+
 ### Fixed
 
 - Derive a session's folder label in linear time. The trailing-separator regex backtracked

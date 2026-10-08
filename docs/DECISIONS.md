@@ -832,6 +832,32 @@ Windows pins; run against v18.4.12, it reproduced every pin #351 measured by han
 
 ---
 
+**Engineering baseline update (2026-10-08):** Accept published mainline v18.8.3
+(`3e3c488a58d294e3a10051da588628e2cfb9d35c`, tree `307c09c826aff7f0818c7aa19722c504646a49fd`)
+as the host engineering pin (#368), with registry v1 and minimum host `18.1.20` unchanged.
+`scripts/upstream-pins.ts` derived every pin. Relative to v18.5.1, `registry.ts`,
+`collab/settings.ts`, `docs/collab.md`, the collaboration slash commands, and
+`packages/wire/src/index.ts` are unchanged, so discovery files and their socket paths, registry
+v1, and `collab.autoStart` behavior are unchanged.
+[can1357/oh-my-pi#14714](https://github.com/can1357/oh-my-pi/pull/14714), merge
+`418bc4aa7f67cb58deb3d143153656fa23b0e7ba`, mirrors event, entry, bus, state, and agents frames
+only while a guest is joined and serializes each replicated payload once; the frame fields, the
+packed relay envelope, the welcome snapshot, and registry publication are unchanged, so the relay
+protocol is unchanged. [#14715](https://github.com/can1357/oh-my-pi/pull/14715) and
+`f085ca82927e1c3a35b13b7b5e6a928abbfa568b` touch only the CLI guest.
+[#14728](https://github.com/can1357/oh-my-pi/pull/14728) and
+[#14667](https://github.com/can1357/oh-my-pi/pull/14667) change `collab-web` rendering, which the
+embedded client does not import; it keeps its v18.4.2 provenance and wire pin, and
+`@oh-my-pi/collab-web` stays 16.3.6. `@oh-my-pi/pi-wire` 18.8.3 changes only `tsp.ts`. From 18.8.1
+(`355b5d9685529d337875d7d387ef53b1f32e7a72`), a generated session title is written in the card form
+`<icon> <CODE>: <title>`, so `sessionName` may begin with an emoji or Nerd Fonts glyph; the field
+remains a string inside the gateway's 256-code-point label bound and needs no gateway change.
+
+This is source review only: no canary, candidate, or qualification is claimed for v18.8.3, and
+published v0.7.4 remains qualified on v18.5.1.
+
+---
+
 ## ADR-029 — Resume a backgrounded session by relaunching it, never by retaining its capability
 
 **Status:** Accepted
