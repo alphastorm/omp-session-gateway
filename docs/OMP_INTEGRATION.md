@@ -10,13 +10,14 @@ than 18.1.20 lack this registry and are unsupported by the current gateway. The 
 requires Bun 1.4.0, TUN-mode Tailscale Serve, an exact login allowlist, and the one-time
 `collab.autoStart` setting below; native integration does not mean a bundled gateway or public access.
 
-`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.5.1`, commit
-`d0cc52397dc2a68d39cba49b0009b9e50ffd643e`, tree
-`f80f979c55f14c2e097b1d83e2f37ade2fa44ce4`. The minimum supported host version is distinct from
+`UPSTREAM.lock.json` records the exact engineering source baseline: `v18.8.3`, commit
+`3e3c488a58d294e3a10051da588628e2cfb9d35c`, tree
+`307c09c826aff7f0818c7aa19722c504646a49fd`. The minimum supported host version is distinct from
 that exact host/source baseline. The embedded browser client has its own preserved
 [source and wire pins](../packages/collab-client/README.md), currently `v18.4.2`. The host-only
 baseline update does not import the `collab-web` Markdown-rendering changes upstream shipped in
-v18.4.12; do not conflate the embedded client pins with the host minimum or engineering baseline.
+v18.4.12 or the render-coalescing changes it shipped in v18.8.0
+([can1357/oh-my-pi#14728](https://github.com/can1357/oh-my-pi/pull/14728)); do not conflate the embedded client pins with the host minimum or engineering baseline.
 
 The current published stable and its exact qualified matrix are recorded in the
 [compatibility policy](COMPATIBILITY.md); per-candidate receipts, limits, and published-byte checks
@@ -33,7 +34,7 @@ Its source is `session.isStreaming`: true while running a turn, false while idle
 when omitted/null. It is not proof of successful completion or process exit. The parser validates
 this named extension. Other fields upstream adds under v1 are ignored rather than rejected and are
 never projected; a snapshot naming prompt/answer content is still refused (ADR-028).
-The minimum host version stayed unchanged when the engineering baseline later moved to v18.5.1.
+The minimum host version stayed unchanged when the engineering baseline later moved to v18.8.3.
 Mixed-version IPC tests do not qualify a new physical platform or full OMP version.
 
 The source activity extension projects known `busy` into browser metadata and supports stop alerts
@@ -118,6 +119,10 @@ alone is unsafe because PIDs are reused. The gateway maps `sessionName`, `cwd`, 
 metadata to bounded browser labels, with basename-only paths by default. `inputRequired` is a
 boolean, not a prompt or answer. The gateway derives its own opaque attention identity and receipt
 time for browser routing; mainline OMP does not supply previews or option counts.
+From 18.8.1, OMP writes a generated session title in the card form `<icon> <CODE>: <title>`
+(upstream `355b5d9685529d337875d7d387ef53b1f32e7a72`), so an auto-titled session's `sessionName`
+label may begin with an emoji or Nerd Fonts glyph and a short capitalized code. The field stays a
+string within the gateway's label bound.
 
 ## 4. Per-launch capability broker
 

@@ -68,9 +68,16 @@ Earlier releases are unsupported because this local registry does not exist in t
 only and start participating sessions with plain `omp`; no gateway-specific OMP build is required.
 From v0.5.2 the gateway ignores fields OMP adds under registry v1 and validates only the fields it
 reads (ADR-028); a registry version bump or a changed type for a field it reads still needs a
-gateway change. The current checkout's engineering baseline is v18.5.1 (`UPSTREAM.lock.json`);
+gateway change. The current checkout's engineering baseline is v18.8.3 (`UPSTREAM.lock.json`);
 the qualified matrix below records the exact qualification of the release named next and changes
 only when a candidate built from a newer baseline qualifies.
+
+v18.8.3 (`3e3c488a58d294e3a10051da588628e2cfb9d35c`) keeps registry v1, the discovery and
+query contract, the relay protocol, and `collab.autoStart` behavior unchanged. Upstream
+[can1357/oh-my-pi#14714](https://github.com/can1357/oh-my-pi/pull/14714) stops mirroring frames
+while no guest is joined, and from 18.8.1 a generated `sessionName` may carry a title-card prefix
+([OMP integration](OMP_INTEGRATION.md#3-polling-and-lifecycle)). No canary, candidate, or
+qualification is claimed for v18.8.3; the matrix below stays bound to v18.5.1.
 
 The v18.5.1 [upstream canary](https://github.com/alphastorm/omp-session-gateway/actions/runs/37140425389)
 passed all ten Linux stages and all seven supported Windows stages on 2026-10-03. Windows

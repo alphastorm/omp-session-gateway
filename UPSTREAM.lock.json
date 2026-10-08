@@ -1,14 +1,14 @@
 {
   "$schema": "./schemas/upstream-lock.schema.json",
   "status": "pinned-main",
-  "observedAt": "2026-10-03",
+  "observedAt": "2026-10-08",
   "repository": "https://github.com/can1357/oh-my-pi",
-  "tag": "v18.5.1",
-  "commit": "d0cc52397dc2a68d39cba49b0009b9e50ffd643e",
-  "packageVersion": "18.5.1",
+  "tag": "v18.8.3",
+  "commit": "3e3c488a58d294e3a10051da588628e2cfb9d35c",
+  "packageVersion": "18.8.3",
   "packageVersions": {
-    "@oh-my-pi/pi-coding-agent": "18.5.1",
-    "@oh-my-pi/pi-wire": "18.5.1",
+    "@oh-my-pi/pi-coding-agent": "18.8.3",
+    "@oh-my-pi/pi-wire": "18.8.3",
     "@oh-my-pi/collab-web": "16.3.6"
   },
   "bunVersion": "1.4.0",
@@ -30,6 +30,7 @@
     "packages/collab-web/src/lib/client.ts"
   ],
   "notes": [
+    "Baseline moved to published mainline OMP v18.8.3 on 2026-10-08 (issue #368). Relative to v18.5.1, the relevant paths change in: upstream PR #14714 (418bc4aa7f67cb58deb3d143153656fa23b0e7ba, v18.8.0), which mirrors events, entries, bus, state, and agents frames only while a guest is joined and serializes each replicated payload once, with welcome and snapshot-chunk frame fields, the packed relay envelope, and the registry publication path unchanged; PR #14715 (0b52c2ce96d75a7998dc2fbc4b6c24cbb04a0922) and f085ca82927e1c3a35b13b7b5e6a928abbfa568b, which change only the CLI guest's event dispatch and keep a switched replica's model; PR #14728 (2c2e93373c18ffadc2e1bcd6240cc5534716b4e5) and PR #14667 (91fef9247f8fcd1bb7f3b68123102ce9b6fc1888), collab-web render and Markdown performance changes the embedded client does not import; 75d643ed41ebbfd0c0fb760c7a959365c27384a0 and 355b5d9685529d337875d7d387ef53b1f32e7a72 (v18.8.1), which write generated session titles in the card form `<icon> <CODE>: <title>`, so an auto-titled host's registry sessionName may now start with an emoji or Nerd Fonts glyph and a code of up to six capitals, still a string well under the gateway's 256-code-point label bound; and TUI, model-kind, extension-docs, and version-bump commits in modes/types.ts, extension-ui-controller.ts, docs/extensions.md, and package.json that the gateway does not read. registry.ts, settings.ts, docs/collab.md, the slash commands, and packages/wire/src/index.ts are unchanged, so registry v1, discovery files and their socket paths, the relay protocol, and collab.autoStart behavior are unchanged; @oh-my-pi/pi-wire moves to 18.8.3 with changes confined to tsp.ts, and @oh-my-pi/collab-web stays 16.3.6. scripts/upstream-pins.ts derived the tag, commit, tree, package versions, and both native pins. No canary, candidate, or qualification is claimed for this engineering baseline; the minimum supported host stays 18.1.20, and published v0.7.4 qualification remains bound to v18.5.1.",
     "Baseline moved to published mainline OMP v18.5.1 on 2026-10-03. It is the first release carrying upstream PR #14112 (merge b1e84317b74f5171137fecec4e1c578128f3aa72; v18.5.0 predates it): a collab.autoStart launch whose relay is unreachable or times out now retries on the existing relaunch backoff, and the recovered room still publishes generation 1. Relative to v18.4.12, #14112 is the only change to the collab host and controller; guest.ts gives a CLI guest's replica its own session-ownership lease. registry.ts, settings.ts, packages/wire/src/index.ts, and packages/collab-web are unchanged, so registry v1 and the relay protocol are unchanged. Canary run 37140425389 passed all ten Linux stages and all seven supported Windows stages, with three intentional Windows keystroke-stage skips. The minimum supported host stays 18.1.20; published v0.7.3 qualification remains bound to v18.4.12, not this engineering baseline.",
     "Additive compatibility, 2026-09-23: accept optional busy activity from upstream PR #12844, merge 1eb2f51bb4d1a4324e46cdfad5c259be9b8ccee9, reported in published OMP 18.2.9. Missing/null is unknown.",
     "Upstream PR #11908 merged the collaboration controller and host registry, first shipped in v18.1.20; previously published gateway releases retain their fork-era pins and qualification, which do not qualify this mainline integration.",
@@ -38,9 +39,9 @@
     "The embedded client keeps its collab-web provenance and npm pi-wire pin at v18.4.2. Upstream collab-web at v18.5.1 differs from v18.4.2 only in its changelog and the transcript/math.ts Markdown performance changes first shipped in v18.4.12; this host-only baseline update does not import them. Client provenance and local modifications remain recorded independently in packages/collab-client/upstream/UPSTREAM.json.",
     "scripts/upstream-pins.ts derived the tag, commit, tree, package versions, and both native pins. The Darwin arm64 native hashes identify the official 18.5.1 npm tarball and its pi_natives.darwin-arm64.node payload; the tarball matched the registry sha512 integrity and sha1 shasum before hashing. These measured source-build inputs are not a qualification result. The script requires every relevant path to exist at the tag: collab settings live in packages/coding-agent/src/collab/settings.ts, and the earlier packages/coding-agent/src/config/settings-schema.ts entry named a file upstream deleted before v18.4.2."
   ],
-  "tree": "f80f979c55f14c2e097b1d83e2f37ade2fa44ce4",
+  "tree": "307c09c826aff7f0818c7aa19722c504646a49fd",
   "darwinArm64Native": {
-    "tarballSha256": "98e999644b826fd192c00d0185d5fce7ea31642d848923242bd54c72f8682c98",
-    "binarySha256": "4e707d5c7a44bf15a2e61afb6856e0a5ec3a86e11364e68714e99bde1745e6d1"
+    "tarballSha256": "67bc93ce1ede3097de4b42c07b5f0a3bc8fbc707d941a27368debb81c1d60455",
+    "binarySha256": "efce5da3bd67933b98288068fc9768acc02c5cdd0af0a897418f6d99a31fded9"
   }
 }
