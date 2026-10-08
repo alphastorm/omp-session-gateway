@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { connect, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   pageEvaluationScript,
   readTestingBotCredentials,
+  runOp,
   startAllowlistProxy,
   startTunnel,
   stopTunnel,
@@ -94,6 +95,32 @@ describe("TestingBot credentials through the 1Password service account", () => {
     const { calls, op } = opFixture(whoami);
     await expect(readTestingBotCredentials(tokenFile, op)).rejects.toThrow("not a service account of my.1password.com");
     expect(calls.map(call => call.argv[1])).toEqual(["whoami"]);
+  });
+
+  describe("an op that fails is reported as op failing, not as a wrong account", () => {
+    let originalPath: string | undefined;
+    async function fakeOp(body: string): Promise<void> {
+      const bin = join(root, "bin");
+      await mkdir(bin, { recursive: true });
+      await writeFile(join(bin, "op"), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      process.env.PATH = `${bin}:${originalPath}`;
+    }
+    beforeEach(() => { originalPath = process.env.PATH; });
+    afterEach(() => { process.env.PATH = originalPath; });
+
+    test("an op that exits non-zero names its status and first stderr line", async () => {
+      await fakeOp('echo "[ERROR] synthetic: invalid service account token" >&2\nexit 1');
+      const failure = await readTestingBotCredentials(tokenFile).catch((error: unknown) => String(error));
+      expect(failure).toContain("op whoami exited 1: [ERROR] synthetic: invalid service account token");
+      expect(failure).not.toContain("not a service account");
+    });
+
+    test("an op that never exits is reported as a timeout", async () => {
+      await fakeOp("exec sleep 10");
+      const failure = await readTestingBotCredentials(tokenFile, (argv, environment) => runOp(argv, environment, 200)).catch((error: unknown) => String(error));
+      expect(failure).toContain("op whoami did not exit within 0.2 s");
+      expect(failure).not.toContain("not a service account");
+    });
   });
 });
 
