@@ -1,109 +1,508 @@
 # Release status
 
+<!-- release-generate:current:start -->
 ## Mainline v0.7.4 — published stable
 
-**Updated:** 2026-10-03. [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4)
-was published at **2026-10-03T19:02:03Z** and is GitHub Latest, with six assets. Signed release workflow
-[37146354037](https://github.com/alphastorm/omp-session-gateway/actions/runs/37146354037)
-(`signed-release.yml`) succeeded. The signed annotated tag `v0.7.4` points to the stable source below.
-The assets are `omp-session-gateway-0.7.4-bun.tar`, its `.sigstore.json`,
-`omp-session-gateway-0.7.4.spdx.json`, its `.sigstore.json`, `SHA256SUMS`, and
-`SHA256SUMS.sigstore.json`. On the Studio's operator account, the release attestation and all six
-assets verified, the checksums matched, and GitHub build attestations and Sigstore bundles each
-verified 3/3 for the archive, SBOM, and `SHA256SUMS`. A local
-`OMP_RELEASE_CHANNEL=stable bun run release:build` of the tag on that account reproduced the
-published archive digest byte-for-byte.
+<!-- release-generate:publication:start -->
+**Updated:** 2026-10-03. [v0.7.4](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4) was published at **2026-10-03T19:02:03Z** and is GitHub Latest. [Signed release workflow](https://github.com/alphastorm/omp-session-gateway/actions/runs/37146354037).
 
-**Stable source:** `39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` (merge of approve PR #363).<br>
+**Stable source:** `39e3d57232f4b3e09ffe9d8a61b409ee0f01762b`.<br>
 **Stable archive SHA-256:** `80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3`.
-
-The published-byte Studio/Pixel smoke passed on its **first attempt**; see below.
+<!-- release-generate:publication:end -->
 
 **Candidate:** [v0.7.4-prealpha.1](https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4-prealpha.1).<br>
 **Source:** `dcfa0b32503ca83e71e15d2872eff920831b14ac`.<br>
 **Archive SHA-256:** `71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00`.<br>
-**Predecessor:** published `v0.7.3`. Rollback does not change OMP; see
-[upgrade and rollback](UPGRADE_ROLLBACK.md#v074-predecessor-compatibility).
+**Predecessor:** published `v0.7.3`.
 
-The candidate carries no gateway runtime fixes since v0.7.3; the apps/packages changes are release
-version bumps only. The OMP engineering baseline moves to stock OMP v18.5.1 (#361), built from
-source at `d0cc52397dc2a68d39cba49b0009b9e50ffd643e`. It is the first release that retries a
-`collab.autoStart` launch whose relay is unreachable or times out (can1357/oh-my-pi#14112). The
-embedded client and its v18.4.2 wire pin remain unchanged. The campaign ran from the Studio's
-operator account against the retained Virtualization.framework guest (VirtualMac2,1), not its
-physical host; every physical Pixel lane ran on the Pixel 10 Pro attached to the Studio.
+This release uses stock OMP v18.5.1 as its engineering baseline. The 2 changelog entries below record the changes since v0.7.3. Historical receipts do not qualify these bytes.
 
-### Candidate evidence — 2026-10-03
+### Candidate evidence
 
-All thirteen lanes passed on their first attempt in one campaign, orchestrator
-`dcfa0b32503ca83e71e15d2872eff920831b14ac` (the candidate source), 17:59:22Z–18:50:09Z. Before it,
-the Studio preflight passed, and a development lifecycle run with stock OMP 18.5.1 from npm on the
-Studio passed new-generation, fork, and resume; those runs are tested evidence, not qualification.
+Schema 3 campaign 2026-10-03T17:59:22.873Z–2026-10-03T18:50:09.671Z; orchestrator `dcfa0b32503ca83e71e15d2872eff920831b14ac`.
 
-| Lane | Evidence |
-|---|---|
-| Artifacts | signed tag, checksums, GitHub attestations 3/3, Sigstore bundles 3/3; predecessor v0.7.3 verified the same way |
-| Debian | [37142569203](https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203) succeeded against the candidate archive, and its droplet and ephemeral SSH key teardown step succeeded. The receipt export records the successful run, not its OS/kernel versions or migration/recovery invariant count |
-| Mac | Virtualization.framework guest, VirtualMac2,1, macOS 27.0 arm64, hosted on the Mac Studio; orchestrated from the Studio's operator account; stock OMP v18.5.1 built from source with native addon `4e707d5c7a44`; doctor 18/18, rollback 23/23, changed guest reboot epoch, console login, and preserved readiness |
-| Windows | Windows build 26100, x86-64, on a disposable VM with 4 CPUs and 8,186 MiB reported memory. As Administrator, the candidate installed over published v0.7.3 with stock OMP v18.5.1 built from source. A real reboot passed 3 pre-login samples over 60,738 ms, with automatic start 63,509 ms after interactive logon. Doctor passed 15/18, with only the tagged node's identityAllowed, pwa, and sessionHealth false. The named pipe published at generation 1, View and Control returned 200, stale generations 409, all no-store. The Pixel accepted the user identity, with View read-only, Control writable, the prompt accepted, and the return to directory. Revocation, readiness rotation, history-selected rollback, restoration, and uninstall passed with configuration and readiness preserved. A fresh standard-account install, without Administrator membership or SeSecurityPrivilege, passed a real reboot with 3 pre-login samples over 46,381 ms, automatic start 32,076 ms after that account's logon, doctor 15/18, readiness rotation, and uninstall, preserving configuration and readiness |
-| OMP publication | stock OMP v18.5.1 host, generation 1; View and Control returned 200 with capability present and no-store; host published and revoked. New-generation and fork transitions kept the instance, advanced generation by 1, rejected stale launches, and each allowed two live launches; fork used two synthetic messages. Resume created a new instance at generation 1 with the same label, two live launches, and two revocations; all launches were no-store |
-| Android | Pixel 10 Pro, Android 17 build CP3A.260905.009, Chrome 154.0.8037.126; View read-only, Control writable, prompt accepted, return to directory; same-page unlock 6,697 ms, Airplane 3,606 ms, Doze 122 ms; all seven forbidden capability sinks detectable and clean |
-| Background Push | Pixel 10 Pro, Android 17, Chrome 154.0.8037.126, installed WebAPK, stock OMP 18.5.1 fixtures: Private, Session, and Preview lock-screen delivery in 1,653, 1,946, and 1,928 ms respectively, each a single notification with matching detail; tap to current Control, stop tap to View only after two known-busy polls, stale-generation scrub without a launch, authoritative clear with a fresh request retained, permission revocation, lock/resume, Wi-Fi and cellular delivery, Airplane suppression and recovery. Triage passed FIFO, hold/advance, held-notification close, pending retention, requeue, all-held, stale-hold release, undo/expiry, attention restoration, and show-all with zero mutations. Resolved, rearmed, replaced, expired, and replayed stale taps were scrubbed without a launch. Force-stop delivered_while_force_stopped and Doze delivered_after_doze_exit are observed variants, never delivery guarantees; ten forbidden sinks detectable and clean |
-| Push cleanup | device, browser, and fixture restored |
-| Device cloud | TestingBot real devices through tunnel 4.9: iPhone 17 Pro Max (iOS 26.6, Safari 26.6), iPad (9th generation, iPadOS 26.6, Safari 26.6), and Galaxy S25 (SM-S931B, Android 15.0.0, Chrome 149.0.7827.159). Each matched the candidate app asset, with View read-only, Control writable, prompt accepted, return to directory, and seven detectable clean sinks. Tunnel refusals were 19, 24, and 13 respectively. All three vendor records exposed no links or media. The iPhone Home Screen app enabled alerts; its subscription omitted expirationTime on web.push.apple.com. Delivery took 7,989 ms; the tap opened current Control with a scrubbed address, and alerts were disabled afterwards. This is not a lock-screen presentation claim |
-| Device-cloud cleanup | restored |
-| Relay | 1,800 seconds, 2026-10-03T18:12:19.444Z–18:42:19.460Z; two transitions, final phase live |
-| Cleanup | zero gateway processes, zero listeners, zero live OMP hosts |
-| Windows cleanup | zero instances and firewalls remaining; tailnet node deleted and access vault removed |
+| Lane | Attempts | Evidence |
+|---|---|---|
+| artifacts | 1 | Signed tag, checksums, GitHub attestations 3/3 and Sigstore bundles 3/3; v0.7.3 verified the same way. |
+| debian | 1 | Run 37142569203 succeeded (https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203); OS/kernel versions and migration counts are not exported. |
+| macos | 1 | VirtualMac2,1, macOS 27.0 arm64; doctor 18/18, rollback 23/23; native addon 4e707d5c7a44bf15a2e61afb6856e0a5ec3a86e11364e68714e99bde1745e6d1. |
+| ompPublication | 1 | Stock OMP v18.5.1; generation 1; publication, View/Control, new-generation/fork/resume and revocation. |
+| android | 1 | Pixel 10 Pro, Android 17 build CP3A.260905.009, Chrome 154.0.8037.126; same-page unlock 6697 ms, Airplane 3606 ms, Doze 122 ms; 7/7 detectable; clean. |
+| androidPush | 1 | Android 17, Chrome 154.0.8037.126, installed WebAPK; force-stop delivered_while_force_stopped, Doze delivered_after_doze_exit; outcomes are observed variants, not delivery guarantees. |
+| androidPushCleanup | 1 | Device, browser and fixture restored. |
+| deviceCloud | 1 | TestingBot real devices, tunnel 4.9: iPhone 17 Pro Max (26.6, safari 26.6); iPad (9th generation) (26.6, safari 26.6); Galaxy S25 (15.0.0, chrome 149.0.7827.159). Home Screen alerts do not qualify lock-screen presentation. |
+| deviceCloudCleanup | 1 | Restored. |
+| relay | 1 | 1800 seconds, 2026-10-03T18:12:19.444Z–2026-10-03T18:42:19.460Z; 2 transitions, final phase live. Eight-hour endurance is not claimed. |
+| cleanup | 1 | Zero gateway processes, listeners and live OMP hosts. |
+| windows | 1 | Windows x86-64 build 26100; 4 CPUs, 8186 MiB; Administrator upgrade/rollback from v0.7.3 and fresh standard-account lifecycle; interactive logon, not unattended boot. |
+| windowsCleanup | 1 | Zero instances and firewalls; tailnet node deleted and access vault removed. |
 
-**Runtime equivalence gate:** passed. On the Studio's operator account with Bun 1.4.0, a clean
-`OMP_RELEASE_CHANNEL=stable bun run release:build` of approval tree
-`42e3b0ce1a256d66dc1c423c3b6d7f91d254a948` was compared with the candidate archive after its digest
-verified: `{"compared":46,"differing":[]}`. Only the existing workflow exclusions apply:
-release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json, and schemas/stable-release.schema.json.
-The ledger-only commit that records this result changes no archive member.
+<details>
+<summary>Public measured results (booleans and numbers; private identities omitted)</summary>
 
-**Assurance scope:** The guest does not exercise physical firmware, FileVault unlock, Secure Boot, power loss, physical sleep/wake, or physical device drivers (ADR-033); guest reboot and console-login recovery do not qualify a bare-metal Mac or startup before login.
-The guest exercises the macOS kernel, launchd, loginwindow, per-user LaunchAgent, native addon,
-filesystem, TUN interface, and guest reboot. Physical Android and cloud-device evidence is separate.
-A fresh 1,800-second relay check replaces the eight-hour gate; eight-hour endurance and bounded
-memory growth are not claimed. Windows is limited to the recorded x86-64 build at interactive
-logon; upgrade, rollback, OMP, and Pixel journeys ran as Administrator, while the standard-account
-claim is fresh installation, reboot/logon start, doctor, rotation, and uninstall. The lifecycle
-and Push triage/stale-tap results cover the recorded scenarios, not arbitrary behavior on every
-platform. Force-stop and Doze are observed variants, not delivery guarantees. The iPhone receipt
-proves Home Screen delivery and a Control tap, not lock-screen presentation; lock, Airplane, Doze,
-force-stop, and cellular behavior stay Pixel-only. The export does not identify the cloud tunnel's
-host or observed Serve identity. The campaign injects no relay fault, so the auto-start retry rests
-on upstream's tests and the tracer recorded under the v18.5.1 baseline below, not on a lane.
-Desktop Safari and broader host/browser combinations remain unqualified. Every other release gate
-stays required.
+```json
+{
+  "artifacts": {
+    "startedAt": "2026-10-03T17:59:33.165Z",
+    "completedAt": "2026-10-03T18:00:04.207Z",
+    "measurements": {
+      "signedTag": true,
+      "predecessor": {
+        "signedTag": true
+      }
+    }
+  },
+  "debian": {
+    "startedAt": "2026-10-03T18:00:04.209Z",
+    "completedAt": "2026-10-03T18:09:48.751Z",
+    "measurements": {
+      "runId": 37142569203
+    }
+  },
+  "macos": {
+    "startedAt": "2026-10-03T18:09:48.754Z",
+    "completedAt": "2026-10-03T18:12:09.590Z",
+    "measurements": {
+      "guestRebootChanged": true,
+      "consoleLogin": true,
+      "readinessPreserved": true
+    }
+  },
+  "ompPublication": {
+    "startedAt": "2026-10-03T18:12:09.790Z",
+    "completedAt": "2026-10-03T18:44:29.017Z",
+    "measurements": {
+      "generation": 1,
+      "published": true,
+      "lifecycle": {
+        "newGeneration": {
+          "sameInstance": true,
+          "generationDelta": 1,
+          "staleRejected": true,
+          "liveLaunches": 2,
+          "noStore": true
+        },
+        "fork": {
+          "sameInstance": true,
+          "generationDelta": 1,
+          "syntheticMessages": 2,
+          "staleRejected": true,
+          "liveLaunches": 2,
+          "noStore": true
+        },
+        "resumed": {
+          "newInstance": true,
+          "generation": 1,
+          "sameLabel": true,
+          "liveLaunches": 2,
+          "noStore": true,
+          "revocations": 2
+        }
+      },
+      "revoked": true
+    }
+  },
+  "android": {
+    "startedAt": "2026-10-03T18:12:18.161Z",
+    "completedAt": "2026-10-03T18:15:23.494Z",
+    "measurements": {
+      "unlockMs": 6697,
+      "airplaneRecoveredMs": 3606,
+      "dozeRecoveredMs": 122,
+      "collaboration": {
+        "viewReadOnly": true,
+        "controlWritable": true,
+        "promptAccepted": true,
+        "returnedToDirectory": true
+      }
+    }
+  },
+  "androidPush": {
+    "startedAt": "2026-10-03T18:12:18.161Z",
+    "completedAt": "2026-10-03T18:43:39.846Z",
+    "measurements": {
+      "passed": true,
+      "platform": {
+        "webApk": true,
+        "dndOff": true
+      },
+      "phases": {
+        "subscription_ready": {
+          "enabled": true,
+          "dndOff": true,
+          "phaseElapsedMs": 20043
+        },
+        "private_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 1653,
+          "dndOff": true,
+          "phaseElapsedMs": 56643
+        },
+        "session_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 1946,
+          "dndOff": true,
+          "phaseElapsedMs": 61499
+        },
+        "preview_verified": {
+          "delivered": true,
+          "locked": true,
+          "singleNotification": true,
+          "detailMatched": true,
+          "elapsedMs": 1928,
+          "dndOff": true,
+          "phaseElapsedMs": 58937
+        },
+        "attention_tap_verified": {
+          "control": true,
+          "revalidated": true,
+          "scrubbed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 50530
+        },
+        "activity_stop_verified": {
+          "knownBusyPolls": 2,
+          "viewOnly": true,
+          "dndOff": true,
+          "phaseElapsedMs": 61059
+        },
+        "stale_generation_verified": {
+          "sameInstance": true,
+          "generationIncrement": 1,
+          "launches": 0,
+          "scrubbed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 65264
+        },
+        "clear_verified": {
+          "authoritativeClear": true,
+          "freshRequestRetained": true,
+          "dndOff": true,
+          "phaseElapsedMs": 73192
+        },
+        "triage_verified": {
+          "fifo": true,
+          "holdAdvanced": true,
+          "heldNotificationClosed": true,
+          "pendingRetained": true,
+          "requeued": true,
+          "allHeld": true,
+          "staleHoldReleased": true,
+          "undoRestored": true,
+          "undoExpired": true,
+          "attentionRestored": true,
+          "shownAll": true,
+          "mutations": 0,
+          "dndOff": true,
+          "phaseElapsedMs": 149141
+        },
+        "stale_taps_verified": {
+          "resolved": true,
+          "rearmed": true,
+          "replaced": true,
+          "expired": true,
+          "launches": 0,
+          "scrubbed": true,
+          "replayed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 242482
+        },
+        "force_stop_verified": {
+          "freshDelivery": true,
+          "dndOff": true,
+          "phaseElapsedMs": 108589
+        },
+        "permission_verified": {
+          "suppressed": true,
+          "freshDelivery": true,
+          "dndOff": true,
+          "phaseElapsedMs": 130055
+        },
+        "lock_resume_verified": {
+          "lockedDelivery": true,
+          "resumed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 29597
+        },
+        "network_verified": {
+          "wifiDelivery": true,
+          "cellularDelivery": true,
+          "airplaneSuppressed": true,
+          "recovered": true,
+          "dndOff": true,
+          "phaseElapsedMs": 180546
+        },
+        "doze_verified": {
+          "dndOff": true,
+          "phaseElapsedMs": 98785
+        },
+        "forbidden_sinks_verified": {
+          "detectable": true,
+          "clean": true,
+          "sinks": 10,
+          "findings": 0,
+          "gatewayLogsDiscarded": true,
+          "dndOff": true,
+          "phaseElapsedMs": 14429
+        },
+        "evidence_complete": {
+          "passed": true,
+          "dndOff": true,
+          "phaseElapsedMs": 256
+        }
+      },
+      "cleanup": {
+        "restored": true,
+        "deviceRestored": true,
+        "browserRestored": true,
+        "fixtureStopped": true
+      }
+    }
+  },
+  "androidPushCleanup": {
+    "startedAt": "2026-10-03T18:43:39.848Z",
+    "completedAt": "2026-10-03T18:43:40.641Z",
+    "measurements": {
+      "restored": true
+    }
+  },
+  "deviceCloud": {
+    "startedAt": "2026-10-03T18:12:18.161Z",
+    "completedAt": "2026-10-03T18:19:49.311Z",
+    "measurements": {
+      "passed": true,
+      "targets": {
+        "iphone": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "homeScreenApp": true,
+          "alertsEnabled": true,
+          "subscriptionOmitsExpirationTime": true,
+          "deliveredMs": 7989,
+          "tapOpenedControl": true,
+          "tapUrlScrubbed": true,
+          "alertsDisabled": true,
+          "tunnelRefusals": 19,
+          "elapsedMs": 92063
+        },
+        "ipad": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "tunnelRefusals": 24,
+          "elapsedMs": 35573
+        },
+        "android": {
+          "appAssetMatched": true,
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true,
+          "sinksDetectable": 7,
+          "sinkFindings": 0,
+          "tunnelRefusals": 13,
+          "elapsedMs": 30458
+        }
+      },
+      "audit": {
+        "records": 3,
+        "recordsExposingLinks": 0,
+        "recordsWithMedia": 0
+      }
+    }
+  },
+  "deviceCloudCleanup": {
+    "startedAt": "2026-10-03T18:19:49.312Z",
+    "completedAt": "2026-10-03T18:19:50.909Z",
+    "measurements": {
+      "restored": true
+    }
+  },
+  "relay": {
+    "startedAt": "2026-10-03T18:12:18.161Z",
+    "completedAt": "2026-10-03T18:42:19.468Z",
+    "measurements": {
+      "durationSeconds": 1800,
+      "transitions": 2
+    }
+  },
+  "cleanup": {
+    "startedAt": "2026-10-03T18:44:29.022Z",
+    "completedAt": "2026-10-03T18:44:34.875Z",
+    "measurements": {
+      "gatewayProcesses": 0,
+      "gatewayListeners": 0,
+      "liveOmpHosts": 0
+    }
+  },
+  "windows": {
+    "startedAt": "2026-10-03T18:00:04.209Z",
+    "completedAt": "2026-10-03T18:49:39.298Z",
+    "measurements": {
+      "timings": {
+        "firewall_created": 3094,
+        "instance_created": 4995,
+        "transport_ready": 426479,
+        "toolchain_staged": 527891,
+        "predecessor_installed": 31624,
+        "candidate_upgraded": 60724,
+        "reboot_requested": 25516,
+        "prelogin_verified": 152474,
+        "postlogin_ready": 63509,
+        "doctor_passed": 15723,
+        "omp_published": 35582,
+        "pixel_verified": 1251658,
+        "omp_revoked": 10970,
+        "readiness_rotated": 9890,
+        "predecessor_restored": 12365,
+        "candidate_restored": 12545,
+        "candidate_uninstalled": 7435,
+        "standard_user_prepared": 9109,
+        "standard_tailnet_released": 6357,
+        "standard_tailnet_joined": 3672,
+        "standard_interactive_ready": 13718,
+        "standard_candidate_installed": 18656,
+        "standard_reboot_requested": 22926,
+        "standard_prelogin_verified": 157914,
+        "standard_postlogin_ready": 32076,
+        "standard_doctor_passed": 9065,
+        "standard_readiness_rotated": 9903,
+        "standard_candidate_uninstalled": 9330,
+        "evidence_complete": 0
+      },
+      "observations": {
+        "windowsBuild": 26100,
+        "cpus": 4,
+        "memoryMiB": 8186,
+        "transportStabilitySamples": 3,
+        "transportStabilityDurationMs": 72517,
+        "taggedNode": true,
+        "tunMode": true,
+        "funnelOff": true,
+        "loopbackOnly": true,
+        "configPreserved": true,
+        "readinessPreserved": true,
+        "restored": true,
+        "doctorChecks": 18,
+        "doctorTrue": 15,
+        "doctorIdentityAllowed": false,
+        "doctorPwa": false,
+        "doctorSessionHealth": false,
+        "doctorSecurityHeaders": true,
+        "logonTrigger": true,
+        "interactivePrincipal": true,
+        "logonTriggerScoped": true,
+        "preloginSamples": 3,
+        "preloginDurationMs": 60738,
+        "automaticStartMs": 63509,
+        "namedPipe": true,
+        "generation": 1,
+        "viewStatus": 200,
+        "controlStatus": 200,
+        "staleViewStatus": 409,
+        "staleControlStatus": 409,
+        "noStore": true,
+        "pixelIdentityAccepted": true,
+        "viewReadOnly": true,
+        "controlWritable": true,
+        "promptAccepted": true,
+        "returnedToDirectory": true,
+        "revoked": true,
+        "readinessChanged": true,
+        "historySelected": true,
+        "uninstalled": true,
+        "standardUserNonAdmin": true,
+        "standardUserNoSecurityPrivilege": true,
+        "standardPreloginSamples": 3,
+        "standardPreloginDurationMs": 46381,
+        "standardAutomaticStartMs": 32076,
+        "standardDoctorChecks": 18,
+        "standardDoctorTrue": 15,
+        "standardReadinessChanged": true,
+        "standardUninstalled": true,
+        "standardConfigPreserved": true,
+        "standardReadinessPreserved": true
+      },
+      "doctor": {
+        "true": 15,
+        "total": 18
+      }
+    }
+  },
+  "windowsCleanup": {
+    "startedAt": "2026-10-03T18:49:39.299Z",
+    "completedAt": "2026-10-03T18:50:09.668Z",
+    "measurements": {
+      "instancesRemaining": 0,
+      "firewallsRemaining": 0,
+      "tailnetDeleted": true,
+      "vaultRemoved": true
+    }
+  }
+}
+```
 
+</details>
+
+**Runtime equivalence gate:** the approval driver must compare a clean stable-channel build with the qualified candidate before merging. The receipt does not prove that later build comparison. Only release-info.json, SBOM.spdx.json, STABLE_RELEASE.lock.json and schemas/stable-release.schema.json may differ.
+
+<!-- release-generate:smoke:start -->
 ### Published-byte Studio/Pixel verification
 
-The smoke ran on the Studio's operator account, at the Studio's own tailnet origin, with the
-attached Pixel 10 Pro, from tooling at the tag commit `39e3d57`, detached in tmux,
-**19:03:40Z–19:07:17Z**:
-`bun run smoke:release -- --tag v0.7.4 --archive-sha256 80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3 --rebuild-omp`.
-`--rebuild-omp` replaced the account's Bun global stock OMP 18.4.12 with the release's pinned
-**18.5.1**, installed by its own `bun add --global --exact @oh-my-pi/pi-coding-agent@18.5.1`, binary
-SHA-256 `fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9`. The smoke therefore
-matches the engineering baseline the candidate qualified from source.
+Recorded 2026-10-03. Published-byte smoke passed against the stable source and digest above. Stock OMP 18.5.1, binary SHA-256 `fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9`; app asset `/assets/app.5c4a35b3f50f.js`.
 
-Its result JSON recorded `sourceCommit: 39e3d57232f4b3e09ffe9d8a61b409ee0f01762b` and
-`appAsset: /assets/app.5c4a35b3f50f.js`. The gateway upgraded from v0.7.3 (`installed: true`) with
-`configPreserved: true`, `readinessTokenPreserved: true`, and `doctorChecks: 18`. Tailscale Serve
-recorded `changed: false` and `unrelatedMappingsPreserved: true`. On the Pixel 10 Pro, the Android
-result recorded `viewReadOnly: true`, `controlWritable: true`, `capabilitySinksClean: true`,
-`samePageRecovery: true`, and `installedWebApk: true`. The `leaveInstalled` result recorded
-`gateway: true`, `mainlineOmp: true`, and `webApk: true`.
+```json
+{
+  "gateway": {
+    "installed": true,
+    "configPreserved": true,
+    "doctorChecks": 18
+  },
+  "tailscaleServe": {
+    "changed": false,
+    "unrelatedMappingsPreserved": true
+  },
+  "android": {
+    "viewReadOnly": true,
+    "controlWritable": true,
+    "capabilitySinksClean": true,
+    "samePageRecovery": true,
+    "installedWebApk": true
+  },
+  "leaveInstalled": {
+    "gateway": true,
+    "mainlineOmp": true,
+    "webApk": true
+  },
+  "status": {
+    "installed": true,
+    "active": true,
+    "ready": true,
+    "diverged": false,
+    "activeVersion": "0.7.4-9a9fd8f2c4d0",
+    "serviceVersion": "0.7.4-9a9fd8f2c4d0"
+  }
+}
+```
 
-Afterwards, `status` reported active, ready, and not diverged, with active and service versions
-`0.7.4-9a9fd8f2c4d0`. The retained runtime directories on the operator account are
-`0.7.2-0e6104d6ee0b`, `0.7.3-11c3cc5ce86f`, and `0.7.4-9a9fd8f2c4d0`. The smoke does not expand
-the exact candidate host/client matrix or turn the guest qualification into bare-metal
-qualification. Windows, cloud browsers, and background Push rest on their respective candidate
-lanes above.
+This smoke does not expand the candidate matrix or qualify bare-metal Mac, Windows, cloud browsers or background Push beyond their candidate lanes.
+<!-- release-generate:smoke:end -->
+<!-- release-generate:current:end -->
 
 ## Engineering baseline v18.5.1 — canary evidence only
 

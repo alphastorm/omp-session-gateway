@@ -1,0 +1,33 @@
+{
+  "tag": "v0.7.4",
+  "sourceCommit": "39e3d57232f4b3e09ffe9d8a61b409ee0f01762b",
+  "archiveSha256": "80525ced892fee94b902cc2c486cb2e6b9943121d78910b61adf14faef10efe3",
+  "appAsset": "/assets/app.5c4a35b3f50f.js",
+  "gateway": {
+    "installed": true,
+    "configPreserved": true,
+    "readinessTokenPreserved": true,
+    "doctorChecks": 18
+  },
+  "tailscaleServe": {
+    "changed": false,
+    "unrelatedMappingsPreserved": true
+  },
+  "omp": {
+    "version": "18.5.1",
+    "installed": true,
+    "binarySha256": "fc62b280c50923f779e9af14e0ba12d24cbf3db6b2757106a8ad127b3a3274a9"
+  },
+  "android": {
+    "viewReadOnly": true,
+    "controlWritable": true,
+    "capabilitySinksClean": true,
+    "samePageRecovery": true,
+    "installedWebApk": true
+  },
+  "leaveInstalled": {
+    "gateway": true,
+    "mainlineOmp": true,
+    "webApk": true
+  }
+}

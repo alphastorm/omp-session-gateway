@@ -1,0 +1,41 @@
+{
+  "prepare": {
+    "package.json": "b253c72fdb35bdbbb30cdf734c6e724fa74d5dd24612cae6b134d1904fedb153",
+    "apps/gateway/package.json": "968bf9a3bbb6ab01eef40876fb89d365407d5a2f849e526646a118d7740f85d7",
+    "apps/web/package.json": "d7b74f19b9b2c19fccb3dfe07a8b563f4b5b7c18ac2e36d55b4dd23dda044d74",
+    "packages/collab-client/package.json": "6de6beae093f892ebe9ada41316ae325558ae28db30a3578564ffe058a8cafc4",
+    "packages/protocol/package.json": "1757ff4d9ee377dc50c1842412d3ee8868af7befc53bfc972b2bf683b682c2dc",
+    "apps/gateway/src/diagnostics.ts": "908ec8206bbc6d13980c12b96d6e1be226c1fda879d93628df861e404933942c",
+    "scripts/build-release.ts": "c17562e1b4ff51534919d0dc28771e7224ce25b2d6459e1b3ec5b066f4528eaa",
+    "apps/gateway/src/installation.ts": "70e9906b4e6795ea4d8850029c8b58938c14b42979630ab196c04145c36c9b8b",
+    "bun.lock": "8ef698dc3db3112760b80926012d8f687ec9e76a007e98b5ca146e35fc4216c4",
+    "CHANGELOG.md": "0fd4d5684ba9ccf01024d6bc5ba6ae0c39cbba51e29f9d2e6f096e30d79b0ea1",
+    "scripts/release-text.json": "f6af0e1b93b368e841e293b83bd44dbd3e9afbb85407028ee59708e19887335d",
+    "docs/RELEASE_STATUS.md": "940d7a6591648459858de6e68ce7afee1c8142287e548803f60a028c496e195b",
+    "docs/ANDROID.md": "a4865cec51f1351585e181ed63e56a8c3912b206c2abb3f636fec478f5ae5544",
+    "docs/ATTENTION_SPEC.md": "e7a5184da4c2a1c2e88bebecb61b9f792c4807b967a82881d00f0ef77755d0a7",
+    "docs/LIFECYCLE_BRANCH_RESUME.md": "193268d3432c5310e2c17aa4913092e910fbda12a28b78f59126f6c071677bf7",
+    "docs/BACKLOG.md": "4e3a1293d9e07abcb896b0fa47b902a94134901056e084cf68f54d5badab357a"
+  },
+  "approve": {
+    "STABLE_RELEASE.lock.json": "ea6596fa7ec3c8ab6804d1ad70965c8abf7cd3be6b0d9494673ba9b346713bfd",
+    "docs/RELEASE_STATUS.md": "345d3e503b9e54ea4e0a4415aa8b8a8c1699418cf44cd1f348e0f580dfeddc71",
+    "docs/UPGRADE_ROLLBACK.md": "a46fa8e0dce8d677be732d987ddd36d05d7bf8e574f6ddb5a54a76cc84a7d7e3",
+    "README.md": "7d08ce0e4fc476bd72cf9e2fb7fd9b67bbdfd4ac1b8a466ac375d5006c89264f",
+    "docs/COMPATIBILITY.md": "252e20a0b557bf11baf372e3994ce02d698f9c48582085a622d7219f919aca4d",
+    "site/llms.txt": "dadd5e324580311d95e1acdc8ecfbafe7fdabfee4de284d850844b496c0016ba",
+    "site/status/index.html": "d8717034c7626e8c63b67d747b6667e45e28e5a6cbd39eba0d5673d5b0408a91",
+    "scripts/release-text.json": "64f4f363f145b14388550958f781cb513e9ceda38af0a607cee6310868d95de8"
+  },
+  "record": {
+    "docs/RELEASE_STATUS.md": "5bbb199b72cb4f7fb179cef3c941aa22a763b4f83805dc4b80483bdd17ea5e0d",
+    "docs/ANDROID.md": "1976d39b237e9f14309f4094c10a8e6516423265f58e2ad2bec30b88ccadd41b",
+    "docs/ATTENTION_SPEC.md": "903b5030f834f8770ec3fe7e20b1dad369261a9cfd08673e18ca19323e8f01b1",
+    "docs/LIFECYCLE_BRANCH_RESUME.md": "af96ec186f09bcee9fedee62055f1ff4c93aad9e3c8a1a2a06b0a227066f4c94",
+    "docs/BACKLOG.md": "dc02da70ce5f0c10a4084e8da7e606724268c6699ec99b06f92bded934a972e5",
+    "docs/COMPATIBILITY.md": "24ea212c91abcc2280b9db396e536a3454b90924ae98b2002ccf3b576584d8d5",
+    "site/llms.txt": "2c58a377bda7dcb1b6ef099a616d42c36b8b07d2df7c7a4aa415e614f205bdd3",
+    "site/status/index.html": "d7792a95fe1fda1292a4adfa836f6eef1a99dddfe59945da0dd0015d339959b2",
+    "scripts/release-text.json": "9f85f0b670b40891baa1efa56ba9ddc664f86d839260c91c2c0781b260349c03"
+  }
+}

@@ -1,0 +1,903 @@
+{
+  "schemaVersion": 3,
+  "tag": "v0.7.4-prealpha.1",
+  "previousTag": "v0.7.3",
+  "status": "passed",
+  "orchestratorCommit": "dcfa0b32503ca83e71e15d2872eff920831b14ac",
+  "startedAt": "2026-10-03T17:59:22.873Z",
+  "updatedAt": "2026-10-03T18:50:09.671Z",
+  "lanes": {
+    "artifacts": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T17:59:33.165Z",
+      "evidence": {
+        "sourceCommit": "dcfa0b32503ca83e71e15d2872eff920831b14ac",
+        "archiveSha256": "71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00",
+        "releaseUrl": "https://github.com/alphastorm/omp-session-gateway/releases/tag/v0.7.4-prealpha.1",
+        "signedTag": true,
+        "checksums": "passed",
+        "githubAttestations": "3/3",
+        "sigstoreBundles": "3/3",
+        "predecessor": {
+          "tag": "v0.7.3",
+          "sourceCommit": "5589ae1ac1ebe687e25886ef30ee1683cb0b2502",
+          "archiveSha256": "aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1",
+          "signedTag": true,
+          "checksums": "passed",
+          "githubAttestations": "3/3",
+          "sigstoreBundles": "3/3"
+        }
+      },
+      "completedAt": "2026-10-03T18:00:04.207Z"
+    },
+    "debian": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:00:04.209Z",
+      "evidence": {
+        "dispatchRequestedAt": "2026-10-03T18:00:05.825Z",
+        "runId": 37142569203,
+        "url": "https://github.com/alphastorm/omp-session-gateway/actions/runs/37142569203",
+        "headSha": "dcfa0b32503ca83e71e15d2872eff920831b14ac",
+        "conclusion": "success"
+      },
+      "completedAt": "2026-10-03T18:09:48.751Z"
+    },
+    "macos": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:09:48.754Z",
+      "completedAt": "2026-10-03T18:12:09.590Z",
+      "evidence": {
+        "hardware": "VirtualMac2,1",
+        "doctor": "18/18",
+        "rollbackInvariants": "23/23",
+        "os": "macOS 27.0 arm64",
+        "guestRebootChanged": true,
+        "consoleLogin": true,
+        "readinessPreserved": true,
+        "archiveSha256": "71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00",
+        "nativeAddonSha256": "4e707d5c7a44bf15a2e61afb6856e0a5ec3a86e11364e68714e99bde1745e6d1",
+        "outputSha256": "a1909ffc29c9a3d26ae21d933abb66f970afe32174377909bb3c1fc82c5ae20e"
+      }
+    },
+    "ompPublication": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:12:09.790Z",
+      "evidence": {
+        "generation": 1,
+        "modes": [
+          {
+            "mode": "view",
+            "status": 200,
+            "keys": [
+              "capability",
+              "generation",
+              "mode"
+            ],
+            "valuePresent": true,
+            "noStore": true
+          },
+          {
+            "mode": "control",
+            "status": 200,
+            "keys": [
+              "capability",
+              "generation",
+              "mode"
+            ],
+            "valuePresent": true,
+            "noStore": true
+          }
+        ],
+        "published": true,
+        "lifecycle": {
+          "newGeneration": {
+            "sameInstance": true,
+            "generationDelta": 1,
+            "staleRejected": true,
+            "liveLaunches": 2,
+            "noStore": true
+          },
+          "fork": {
+            "sameInstance": true,
+            "generationDelta": 1,
+            "syntheticMessages": 2,
+            "staleRejected": true,
+            "liveLaunches": 2,
+            "noStore": true
+          },
+          "resumed": {
+            "newInstance": true,
+            "generation": 1,
+            "sameLabel": true,
+            "liveLaunches": 2,
+            "noStore": true,
+            "revocations": 2
+          }
+        },
+        "revoked": true
+      },
+      "completedAt": "2026-10-03T18:44:29.017Z"
+    },
+    "android": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:12:18.161Z",
+      "completedAt": "2026-10-03T18:15:23.494Z",
+      "evidence": {
+        "model": "Pixel 10 Pro",
+        "androidRelease": "17",
+        "buildId": "CP3A.260905.009",
+        "packageName": "com.android.chrome",
+        "androidPackageVersion": "154.0.8037.126",
+        "browserVersion": {
+          "protocolVersion": "1.3",
+          "product": "Chrome/154.0.8037.126",
+          "revision": "@8eaafabb47f12210d524f648b78bce074fa3c83e",
+          "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36",
+          "jsVersion": "15.4.80.20"
+        },
+        "unlockMs": 6697,
+        "airplaneRecoveredMs": 3606,
+        "dozeRecoveredMs": 122,
+        "acceptanceOutputSha256": "dcc8771fced24ce3da2e3b3d9e53a0e55c0ae12c0d9746e6d48fe31419402726",
+        "collaboration": {
+          "packageName": "com.android.chrome",
+          "androidPackageVersion": "154.0.8037.126",
+          "appAsset": "/assets/app.5c4a35b3f50f.js",
+          "viewReadOnly": true,
+          "controlWritable": true,
+          "promptAccepted": true,
+          "returnedToDirectory": true
+        },
+        "leakSweepOutputSha256": "b22c1d6d7e9ad193846500aa2efd76b6aac3fb6f664bd997f0f824e1dd09200c",
+        "forbiddenSinkSweep": "7/7 detectable; clean"
+      }
+    },
+    "androidPush": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:12:18.161Z",
+      "evidence": {
+        "progress": {
+          "lane": "androidPush",
+          "epoch": "00000000-0000-4000-8000-000000000001",
+          "phase": "restored",
+          "cleanupRequired": false,
+          "device": {
+            "wifi": true,
+            "mobile": true,
+            "airplane": false,
+            "forcedDoze": false,
+            "batteryOverride": false,
+            "awake": true,
+            "locked": false,
+            "webApkTask": false,
+            "chromeNotificationsAllowed": true,
+            "webApkNotificationsAllowed": true
+          },
+          "browser": {
+            "subscribed": true,
+            "permission": "granted",
+            "detail": "session"
+          },
+          "results": {
+            "subscription_ready": {
+              "enabled": true,
+              "dndOff": true,
+              "phaseElapsedMs": 20043
+            },
+            "private_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1653,
+              "dndOff": true,
+              "phaseElapsedMs": 56643
+            },
+            "session_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1946,
+              "dndOff": true,
+              "phaseElapsedMs": 61499
+            },
+            "preview_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1928,
+              "dndOff": true,
+              "phaseElapsedMs": 58937
+            },
+            "attention_tap_verified": {
+              "control": true,
+              "revalidated": true,
+              "scrubbed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 50530
+            },
+            "activity_stop_verified": {
+              "knownBusyPolls": 2,
+              "viewOnly": true,
+              "dndOff": true,
+              "phaseElapsedMs": 61059
+            },
+            "stale_generation_verified": {
+              "sameInstance": true,
+              "generationIncrement": 1,
+              "launches": 0,
+              "scrubbed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 65264
+            },
+            "clear_verified": {
+              "authoritativeClear": true,
+              "freshRequestRetained": true,
+              "dndOff": true,
+              "phaseElapsedMs": 73192
+            },
+            "triage_verified": {
+              "fifo": true,
+              "holdAdvanced": true,
+              "heldNotificationClosed": true,
+              "pendingRetained": true,
+              "requeued": true,
+              "allHeld": true,
+              "staleHoldReleased": true,
+              "undoRestored": true,
+              "undoExpired": true,
+              "attentionRestored": true,
+              "shownAll": true,
+              "mutations": 0,
+              "dndOff": true,
+              "phaseElapsedMs": 149141
+            },
+            "stale_taps_verified": {
+              "resolved": true,
+              "rearmed": true,
+              "replaced": true,
+              "expired": true,
+              "launches": 0,
+              "scrubbed": true,
+              "replayed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 242482
+            },
+            "force_stop_verified": {
+              "variant": "delivered_while_force_stopped",
+              "freshDelivery": true,
+              "dndOff": true,
+              "phaseElapsedMs": 108589
+            },
+            "permission_verified": {
+              "suppressed": true,
+              "freshDelivery": true,
+              "dndOff": true,
+              "phaseElapsedMs": 130055
+            },
+            "lock_resume_verified": {
+              "lockedDelivery": true,
+              "resumed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 29597
+            },
+            "network_verified": {
+              "wifiDelivery": true,
+              "cellularDelivery": true,
+              "airplaneSuppressed": true,
+              "recovered": true,
+              "dndOff": true,
+              "phaseElapsedMs": 180546
+            },
+            "doze_verified": {
+              "variant": "delivered_after_doze_exit",
+              "dndOff": true,
+              "phaseElapsedMs": 98785
+            },
+            "forbidden_sinks_verified": {
+              "detectable": true,
+              "clean": true,
+              "sinks": 10,
+              "findings": 0,
+              "gatewayLogsDiscarded": true,
+              "dndOff": true,
+              "phaseElapsedMs": 14429
+            },
+            "evidence_complete": {
+              "passed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 256
+            }
+          }
+        },
+        "result": {
+          "epoch": "00000000-0000-4000-8000-000000000001",
+          "passed": true,
+          "platform": {
+            "android": "17",
+            "browser": "154.0.8037.126",
+            "webApk": true,
+            "dndOff": true
+          },
+          "ompVersion": "18.5.1",
+          "bunVersion": "1.4.0",
+          "phases": {
+            "subscription_ready": {
+              "enabled": true,
+              "dndOff": true,
+              "phaseElapsedMs": 20043
+            },
+            "private_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1653,
+              "dndOff": true,
+              "phaseElapsedMs": 56643
+            },
+            "session_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1946,
+              "dndOff": true,
+              "phaseElapsedMs": 61499
+            },
+            "preview_verified": {
+              "delivered": true,
+              "locked": true,
+              "singleNotification": true,
+              "detailMatched": true,
+              "elapsedMs": 1928,
+              "dndOff": true,
+              "phaseElapsedMs": 58937
+            },
+            "attention_tap_verified": {
+              "control": true,
+              "revalidated": true,
+              "scrubbed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 50530
+            },
+            "activity_stop_verified": {
+              "knownBusyPolls": 2,
+              "viewOnly": true,
+              "dndOff": true,
+              "phaseElapsedMs": 61059
+            },
+            "stale_generation_verified": {
+              "sameInstance": true,
+              "generationIncrement": 1,
+              "launches": 0,
+              "scrubbed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 65264
+            },
+            "clear_verified": {
+              "authoritativeClear": true,
+              "freshRequestRetained": true,
+              "dndOff": true,
+              "phaseElapsedMs": 73192
+            },
+            "triage_verified": {
+              "fifo": true,
+              "holdAdvanced": true,
+              "heldNotificationClosed": true,
+              "pendingRetained": true,
+              "requeued": true,
+              "allHeld": true,
+              "staleHoldReleased": true,
+              "undoRestored": true,
+              "undoExpired": true,
+              "attentionRestored": true,
+              "shownAll": true,
+              "mutations": 0,
+              "dndOff": true,
+              "phaseElapsedMs": 149141
+            },
+            "stale_taps_verified": {
+              "resolved": true,
+              "rearmed": true,
+              "replaced": true,
+              "expired": true,
+              "launches": 0,
+              "scrubbed": true,
+              "replayed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 242482
+            },
+            "force_stop_verified": {
+              "variant": "delivered_while_force_stopped",
+              "freshDelivery": true,
+              "dndOff": true,
+              "phaseElapsedMs": 108589
+            },
+            "permission_verified": {
+              "suppressed": true,
+              "freshDelivery": true,
+              "dndOff": true,
+              "phaseElapsedMs": 130055
+            },
+            "lock_resume_verified": {
+              "lockedDelivery": true,
+              "resumed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 29597
+            },
+            "network_verified": {
+              "wifiDelivery": true,
+              "cellularDelivery": true,
+              "airplaneSuppressed": true,
+              "recovered": true,
+              "dndOff": true,
+              "phaseElapsedMs": 180546
+            },
+            "doze_verified": {
+              "variant": "delivered_after_doze_exit",
+              "dndOff": true,
+              "phaseElapsedMs": 98785
+            },
+            "forbidden_sinks_verified": {
+              "detectable": true,
+              "clean": true,
+              "sinks": 10,
+              "findings": 0,
+              "gatewayLogsDiscarded": true,
+              "dndOff": true,
+              "phaseElapsedMs": 14429
+            },
+            "evidence_complete": {
+              "passed": true,
+              "dndOff": true,
+              "phaseElapsedMs": 256
+            }
+          },
+          "cleanup": {
+            "epoch": "00000000-0000-4000-8000-000000000001",
+            "restored": true,
+            "deviceRestored": true,
+            "browserRestored": true,
+            "fixtureStopped": true
+          }
+        }
+      },
+      "completedAt": "2026-10-03T18:43:39.846Z"
+    },
+    "androidPushCleanup": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:43:39.848Z",
+      "completedAt": "2026-10-03T18:43:40.641Z",
+      "evidence": {
+        "epoch": "00000000-0000-4000-8000-000000000001",
+        "restored": true
+      }
+    },
+    "deviceCloud": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:12:18.161Z",
+      "evidence": {
+        "progress": {
+          "lane": "deviceCloud",
+          "epoch": "00000000-0000-4000-8000-000000000002",
+          "phase": "restored",
+          "cleanupRequired": false,
+          "results": {
+            "iphone": {
+              "device": "iPhone 17 Pro Max",
+              "os": "26.6",
+              "browser": "safari",
+              "browserVersion": "26.6",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "homeScreenApp": true,
+              "alertsEnabled": true,
+              "subscriptionOmitsExpirationTime": true,
+              "pushServiceHost": "web.push.apple.com",
+              "deliveredMs": 7989,
+              "tapOpenedControl": true,
+              "tapUrlScrubbed": true,
+              "alertsDisabled": true,
+              "tunnelRefusals": 19,
+              "elapsedMs": 92063
+            },
+            "ipad": {
+              "device": "iPad (9th generation)",
+              "os": "26.6",
+              "browser": "safari",
+              "browserVersion": "26.6",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "tunnelRefusals": 24,
+              "elapsedMs": 35573
+            },
+            "android": {
+              "device": "Galaxy S25",
+              "model": "SM-S931B",
+              "os": "15.0.0",
+              "browser": "chrome",
+              "browserVersion": "149.0.7827.159",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "tunnelRefusals": 13,
+              "elapsedMs": 30458
+            },
+            "audit": {
+              "records": 3,
+              "recordsExposingLinks": 0,
+              "recordsWithMedia": 0
+            }
+          }
+        },
+        "result": {
+          "passed": true,
+          "vendor": "TestingBot",
+          "tunnelVersion": "4.9",
+          "targets": {
+            "iphone": {
+              "device": "iPhone 17 Pro Max",
+              "os": "26.6",
+              "browser": "safari",
+              "browserVersion": "26.6",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "homeScreenApp": true,
+              "alertsEnabled": true,
+              "subscriptionOmitsExpirationTime": true,
+              "pushServiceHost": "web.push.apple.com",
+              "deliveredMs": 7989,
+              "tapOpenedControl": true,
+              "tapUrlScrubbed": true,
+              "alertsDisabled": true,
+              "tunnelRefusals": 19,
+              "elapsedMs": 92063
+            },
+            "ipad": {
+              "device": "iPad (9th generation)",
+              "os": "26.6",
+              "browser": "safari",
+              "browserVersion": "26.6",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "tunnelRefusals": 24,
+              "elapsedMs": 35573
+            },
+            "android": {
+              "device": "Galaxy S25",
+              "model": "SM-S931B",
+              "os": "15.0.0",
+              "browser": "chrome",
+              "browserVersion": "149.0.7827.159",
+              "appAssetMatched": true,
+              "viewReadOnly": true,
+              "controlWritable": true,
+              "promptAccepted": true,
+              "returnedToDirectory": true,
+              "sinksDetectable": 7,
+              "sinkFindings": 0,
+              "tunnelRefusals": 13,
+              "elapsedMs": 30458
+            }
+          },
+          "audit": {
+            "records": 3,
+            "recordsExposingLinks": 0,
+            "recordsWithMedia": 0
+          }
+        }
+      },
+      "completedAt": "2026-10-03T18:19:49.311Z"
+    },
+    "deviceCloudCleanup": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:19:49.312Z",
+      "completedAt": "2026-10-03T18:19:50.909Z",
+      "evidence": {
+        "epoch": "00000000-0000-4000-8000-000000000002",
+        "restored": true
+      }
+    },
+    "relay": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:12:18.161Z",
+      "completedAt": "2026-10-03T18:42:19.468Z",
+      "evidence": {
+        "startedAt": "2026-10-03T18:12:19.444Z",
+        "completedAt": "2026-10-03T18:42:19.460Z",
+        "durationSeconds": 1800,
+        "transitions": 2,
+        "finalPhase": "live"
+      }
+    },
+    "cleanup": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:44:29.022Z",
+      "completedAt": "2026-10-03T18:44:34.875Z",
+      "evidence": {
+        "gatewayProcesses": 0,
+        "gatewayListeners": 0,
+        "liveOmpHosts": 0,
+        "outputSha256": "3a4a06d58e01b66cd6ccc233a7adcf475cad64417edc6d211c703db4ca1f1275"
+      }
+    },
+    "windows": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:00:04.209Z",
+      "evidence": {
+        "progress": {
+          "schemaVersion": 1,
+          "lane": "windows",
+          "epoch": "00000000-0000-4000-8000-000000000003",
+          "phase": "evidence_complete",
+          "settled": true,
+          "cleanupRequired": false,
+          "startedAt": 1791050434029,
+          "timings": {
+            "firewall_created": 3094,
+            "instance_created": 4995,
+            "transport_ready": 426479,
+            "toolchain_staged": 527891,
+            "predecessor_installed": 31624,
+            "candidate_upgraded": 60724,
+            "reboot_requested": 25516,
+            "prelogin_verified": 152474,
+            "postlogin_ready": 63509,
+            "doctor_passed": 15723,
+            "omp_published": 35582,
+            "pixel_verified": 1251658,
+            "omp_revoked": 10970,
+            "readiness_rotated": 9890,
+            "predecessor_restored": 12365,
+            "candidate_restored": 12545,
+            "candidate_uninstalled": 7435,
+            "standard_user_prepared": 9109,
+            "standard_tailnet_released": 6357,
+            "standard_tailnet_joined": 3672,
+            "standard_interactive_ready": 13718,
+            "standard_candidate_installed": 18656,
+            "standard_reboot_requested": 22926,
+            "standard_prelogin_verified": 157914,
+            "standard_postlogin_ready": 32076,
+            "standard_doctor_passed": 9065,
+            "standard_readiness_rotated": 9903,
+            "standard_candidate_uninstalled": 9330,
+            "evidence_complete": 0
+          },
+          "facts": {
+            "windowsBuild": 26100,
+            "cpus": 4,
+            "memoryMiB": 8186,
+            "transportStabilitySamples": 3,
+            "transportStabilityDurationMs": 72517,
+            "taggedNode": true,
+            "tunMode": true,
+            "funnelOff": true,
+            "loopbackOnly": true,
+            "configPreserved": true,
+            "readinessPreserved": true,
+            "restored": true,
+            "doctorChecks": 18,
+            "doctorTrue": 15,
+            "doctorIdentityAllowed": false,
+            "doctorPwa": false,
+            "doctorSessionHealth": false,
+            "doctorSecurityHeaders": true,
+            "logonTrigger": true,
+            "interactivePrincipal": true,
+            "logonTriggerScoped": true,
+            "preloginSamples": 3,
+            "preloginDurationMs": 60738,
+            "automaticStartMs": 63509,
+            "namedPipe": true,
+            "generation": 1,
+            "viewStatus": 200,
+            "controlStatus": 200,
+            "staleViewStatus": 409,
+            "staleControlStatus": 409,
+            "noStore": true,
+            "pixelIdentityAccepted": true,
+            "viewReadOnly": true,
+            "controlWritable": true,
+            "promptAccepted": true,
+            "returnedToDirectory": true,
+            "revoked": true,
+            "readinessChanged": true,
+            "historySelected": true,
+            "uninstalled": true,
+            "standardUserNonAdmin": true,
+            "standardUserNoSecurityPrivilege": true,
+            "standardPreloginSamples": 3,
+            "standardPreloginDurationMs": 46381,
+            "standardAutomaticStartMs": 32076,
+            "standardDoctorChecks": 18,
+            "standardDoctorTrue": 15,
+            "standardReadinessChanged": true,
+            "standardUninstalled": true,
+            "standardConfigPreserved": true,
+            "standardReadinessPreserved": true
+          }
+        },
+        "result": {
+          "epoch": "00000000-0000-4000-8000-000000000003",
+          "candidate": {
+            "tag": "v0.7.4-prealpha.1",
+            "sourceCommit": "dcfa0b32503ca83e71e15d2872eff920831b14ac",
+            "archiveSha256": "71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00"
+          },
+          "predecessor": {
+            "tag": "v0.7.3",
+            "sourceCommit": "5589ae1ac1ebe687e25886ef30ee1683cb0b2502",
+            "archiveSha256": "aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1"
+          },
+          "omp": {
+            "version": "18.5.1",
+            "sourceCommit": "d0cc52397dc2a68d39cba49b0009b9e50ffd643e",
+            "sourceTree": "f80f979c55f14c2e097b1d83e2f37ade2fa44ce4",
+            "nativeFile": "pi_natives.win32-x64-baseline.node",
+            "nativeTarballSha256": "6909769d0562051ff9487fb3eeced93a574fa60bcc6fd6fed5010f3b87940a11",
+            "nativeBinarySha256": "da25c30ca4fc93d84db2fc80c7956b163907fecc4b02dd9f51190c805d759b11"
+          },
+          "bunVersion": "1.4.0",
+          "timings": {
+            "firewall_created": 3094,
+            "instance_created": 4995,
+            "transport_ready": 426479,
+            "toolchain_staged": 527891,
+            "predecessor_installed": 31624,
+            "candidate_upgraded": 60724,
+            "reboot_requested": 25516,
+            "prelogin_verified": 152474,
+            "postlogin_ready": 63509,
+            "doctor_passed": 15723,
+            "omp_published": 35582,
+            "pixel_verified": 1251658,
+            "omp_revoked": 10970,
+            "readiness_rotated": 9890,
+            "predecessor_restored": 12365,
+            "candidate_restored": 12545,
+            "candidate_uninstalled": 7435,
+            "standard_user_prepared": 9109,
+            "standard_tailnet_released": 6357,
+            "standard_tailnet_joined": 3672,
+            "standard_interactive_ready": 13718,
+            "standard_candidate_installed": 18656,
+            "standard_reboot_requested": 22926,
+            "standard_prelogin_verified": 157914,
+            "standard_postlogin_ready": 32076,
+            "standard_doctor_passed": 9065,
+            "standard_readiness_rotated": 9903,
+            "standard_candidate_uninstalled": 9330,
+            "evidence_complete": 0
+          },
+          "observations": {
+            "windowsBuild": 26100,
+            "cpus": 4,
+            "memoryMiB": 8186,
+            "transportStabilitySamples": 3,
+            "transportStabilityDurationMs": 72517,
+            "taggedNode": true,
+            "tunMode": true,
+            "funnelOff": true,
+            "loopbackOnly": true,
+            "configPreserved": true,
+            "readinessPreserved": true,
+            "restored": true,
+            "doctorChecks": 18,
+            "doctorTrue": 15,
+            "doctorIdentityAllowed": false,
+            "doctorPwa": false,
+            "doctorSessionHealth": false,
+            "doctorSecurityHeaders": true,
+            "logonTrigger": true,
+            "interactivePrincipal": true,
+            "logonTriggerScoped": true,
+            "preloginSamples": 3,
+            "preloginDurationMs": 60738,
+            "automaticStartMs": 63509,
+            "namedPipe": true,
+            "generation": 1,
+            "viewStatus": 200,
+            "controlStatus": 200,
+            "staleViewStatus": 409,
+            "staleControlStatus": 409,
+            "noStore": true,
+            "pixelIdentityAccepted": true,
+            "viewReadOnly": true,
+            "controlWritable": true,
+            "promptAccepted": true,
+            "returnedToDirectory": true,
+            "revoked": true,
+            "readinessChanged": true,
+            "historySelected": true,
+            "uninstalled": true,
+            "standardUserNonAdmin": true,
+            "standardUserNoSecurityPrivilege": true,
+            "standardPreloginSamples": 3,
+            "standardPreloginDurationMs": 46381,
+            "standardAutomaticStartMs": 32076,
+            "standardDoctorChecks": 18,
+            "standardDoctorTrue": 15,
+            "standardReadinessChanged": true,
+            "standardUninstalled": true,
+            "standardConfigPreserved": true,
+            "standardReadinessPreserved": true
+          },
+          "doctor": {
+            "true": 15,
+            "total": 18,
+            "falseChecks": [
+              "identityAllowed",
+              "pwa",
+              "sessionHealth"
+            ]
+          }
+        }
+      },
+      "completedAt": "2026-10-03T18:49:39.298Z"
+    },
+    "windowsCleanup": {
+      "status": "passed",
+      "attempts": 1,
+      "startedAt": "2026-10-03T18:49:39.299Z",
+      "completedAt": "2026-10-03T18:50:09.668Z",
+      "evidence": {
+        "epoch": "00000000-0000-4000-8000-000000000003",
+        "instancesRemaining": 0,
+        "firewallsRemaining": 0,
+        "tailnetDeleted": true,
+        "vaultRemoved": true
+      }
+    }
+  },
+  "candidate": {
+    "tag": "v0.7.4-prealpha.1",
+    "sourceCommit": "dcfa0b32503ca83e71e15d2872eff920831b14ac",
+    "archiveSha256": "71399ede57f4dce15bdcc7f25be9030c8dbf58d69f7a56eab790caefba043b00"
+  },
+  "predecessor": {
+    "tag": "v0.7.3",
+    "sourceCommit": "5589ae1ac1ebe687e25886ef30ee1683cb0b2502",
+    "archiveSha256": "aa993a13a0f3d9fb479fd75f4733b25fed8fd20cb631bdce2599507a3d6f4cf1"
+  },
+  "completedAt": "2026-10-03T18:50:09.671Z"
+}

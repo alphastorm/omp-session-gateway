@@ -1,0 +1,9 @@
+{
+  "receipt": "Studio qualification/v0.7.4-prealpha.1/stable-qualification.json, schema 3; redactions enumerated separately.",
+  "smoke": "Studio qualification/v0.7.4.smoke.out.json; unchanged bytes except JSON serialization.",
+  "publication": "Publication timestamp, run URL, tag, source commit and archive digest transcribed from git show 9c0d790:docs/RELEASE_STATUS.md.",
+  "status": "Minimal status input reconstructed from active/ready/not-diverged and matching active/service runtime observations recorded in 9c0d790:docs/RELEASE_STATUS.md; unrecorded authMode omitted.",
+  "history": "Original git show <ref>:<path> trees. Base dcfa0b3^ plus exact character-offset deltas; gzip/base64 is lossless storage, not generated expectations.",
+  "golden": "SHA-256 of every complete generated output file after explicit historical marker/prose normalization. Manual prepare version files and approve stable lock separately compared byte-for-byte; all normalized current claim sections separately compared to committed docs.",
+  "normalization": "v0.7.4.prose-changes.json lists the exact before/after sentences and marker edits. CHANGELOG generated summary replaces the no-runtime-fixes narrative, preserves original unreleased entries without inserting the later #361 citation; docs/RELEASE.md belongs to the release driver and is intentionally unchanged here."
+}

@@ -1,0 +1,9 @@
+{
+  "service": "omp-session-gateway",
+  "installed": true,
+  "active": true,
+  "ready": true,
+  "activeVersion": "0.7.4-9a9fd8f2c4d0",
+  "serviceVersion": "0.7.4-9a9fd8f2c4d0",
+  "diverged": false
+}
