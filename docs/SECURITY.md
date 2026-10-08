@@ -58,7 +58,8 @@ Required default:
 - tailnet grants restrict HTTPS access to the intended user/device posture;
 - the application independently allowlists exact login names;
 - missing identity fails closed;
-- Tailscale Funnel and public reverse tunnels are not configured;
+- no Tailscale Funnel or public reverse tunnel reaches the gateway: Funnel stays off for its Serve
+  authority and for every Serve handler that proxies or forwards to its backend port;
 - plain LAN HTTP is unsupported.
 
 Keep the backend on localhost because another remotely reachable path would let callers inject

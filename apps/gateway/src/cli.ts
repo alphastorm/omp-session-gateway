@@ -367,7 +367,7 @@ async function runInstall(arguments_: ParsedArguments): Promise<void> {
     console.log(
       `Configure Tailscale Serve: tailscale serve --bg --https=${publicOriginHttpsPort(config.http.publicOrigin)} ${loopbackHttpOrigin(config.http.hostname, config.http.port)}`,
     );
-    console.log("Do not enable Tailscale Funnel.");
+    console.log("Do not enable Tailscale Funnel for the gateway.");
   } catch (error) {
     const rollbackErrors: unknown[] = [];
     let restoredConfig: Awaited<ReturnType<typeof loadGatewayConfig>> | undefined;
@@ -565,7 +565,7 @@ async function runServeGuidance(): Promise<void> {
     `tailscale serve --bg --https=${publicOriginHttpsPort(config.http.publicOrigin)} ${loopbackHttpOrigin(config.http.hostname, config.http.port)}`,
   );
   console.log(`Allowlisted logins: ${config.auth.allowedLogins.length}. Keep tailnet grants restricted to the intended user/device.`);
-  console.log("Tailscale Funnel is unsupported and must remain disabled.");
+  console.log("Tailscale Funnel is unsupported for the gateway and must remain disabled for it.");
 }
 
 function printHelp(): void {

@@ -67,8 +67,8 @@ authenticated readiness before activating the runtime. It prints Serve guidance;
 configure Tailscale, validate tailnet policy, install OMP, or change OMP settings.
 
 **Apply the printed private Serve command and the [tailnet policy](#6-tailnet-access-policy)
-before running `doctor`.** Inspect `tailscale serve status` and keep Funnel disabled. Then, from
-the same extraction root:
+before running `doctor`.** Inspect `tailscale serve status` and keep Funnel disabled for the
+gateway. Then, from the same extraction root:
 
 ```sh
 bun apps/gateway/src/cli.js status
@@ -208,10 +208,13 @@ tailscale serve --bg --https=443 http://127.0.0.1:4317
 An origin such as `https://host.tailnet.ts.net:8443` produces `--https=8443`; `doctor` requires the
 exact configured external host and port plus the exact loopback target. Check `tailscale serve
 --help` on the installed version, apply the printed private Serve mapping, and inspect `tailscale
-serve status`. Never execute `tailscale funnel` or enable public exposure.
+serve status`. Never run `tailscale funnel` for the gateway or expose it publicly in any other way.
 
 The gateway remains loopback-only after Serve is configured. `doctor` fails for a mismatched Serve
-host, external port, loopback proxy, non-loopback listener, or active Funnel mapping.
+host, external port, loopback proxy, non-loopback listener, or a Funnel that reaches the gateway:
+one enabled for its Serve authority, or one whose handler proxies or forwards to its backend port,
+including in a foreground `tailscale funnel` session. A Funnel that publishes another service on
+the same node does not fail `doctor`.
 
 Tailscale Serve removes spoofed incoming identity headers before adding trusted tailnet identity
 headers. The backend still requires the exact expected header and application allowlist. Direct
@@ -438,7 +441,7 @@ Do not rely on a separate biometric or credential-enrollment gate for revocation
 - loopback-only listener;
 - private readiness-token permissions and OMP discovery readability;
 - Tailscale connectivity and Serve mapping;
-- absence of Funnel exposure;
+- absence of a Funnel that reaches the gateway;
 - trusted identity header flow through Serve;
 - allowed-login match;
 - PWA, manifest, CSP, and service-worker availability;
@@ -452,7 +455,8 @@ independent tailnet-policy audit or proof that an unauthorized device is denied.
 [tailnet access checks](#6-tailnet-access-policy). It also does not establish a signed-artifact or
 native-platform qualification: qualification must exercise the real host/query/launch path
 against the exact gateway candidate.
-Even in development mode, `doctor` fails unless it can query Tailscale and prove Funnel is disabled.
+Even in development mode, `doctor` fails unless it can query Tailscale and prove that no Funnel
+reaches the gateway.
 
 `doctor --bundle` writes a deterministic `omp-gateway-diagnostics.tar` (or the path supplied with `--output`) and refuses to overwrite an existing file. Its manifest lists every included field. The archive excludes capabilities, tokens, authorization/identity headers, transcripts, prompts, tool output, full paths, browser storage, raw logs, tailnet DNS names, and account identities.
 

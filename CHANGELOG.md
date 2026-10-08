@@ -6,8 +6,19 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- `doctor`'s `funnelDisabled` check now fails only for a Funnel that reaches the gateway: one
+  enabled for its Serve authority, or one whose handler proxies or forwards to its backend port. A
+  Funnel that publishes another service on the same node no longer fails it. Before, any Funnel
+  on the node failed `doctor`, and with it the published-byte smoke: v0.7.5's smoke on the Studio
+  had to pause two Funnels that serve an unrelated application.
+
 ### Fixed
 
+- `doctor` now also checks foreground `tailscale funnel` sessions (run without `--bg`), which
+  tailscaled merges with the persistent Serve configuration. It read only the persistent
+  `AllowFunnel`, so a foreground Funnel on the gateway's own authority passed.
 - Run the release driver's detached jobs at interactive priority, as an operator's SSH session
   does. Its LaunchAgent ran as `Background`, then `Standard`, and every job it started inherited
   launchd's limits: on the Studio, `Standard` lowered their base priority from 31 to 20 and

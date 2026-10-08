@@ -29,11 +29,8 @@ function property(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
 }
 
-function hasMeaningfulValue(value: unknown): boolean {
-  if (value === null || value === undefined || value === false || value === "" || value === 0) return false;
-  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
-  if (typeof value === "object") return Object.values(value).some(hasMeaningfulValue);
-  return true;
+function objectEntries(value: unknown): [string, unknown][] {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? Object.entries(value) : [];
 }
 
 async function commandJson(command: readonly string[]): Promise<unknown> {
@@ -113,11 +110,15 @@ function normalizedServeAuthority(value: string): string | undefined {
   }
 }
 
+function publicOriginAuthority(config: GatewayConfig): string {
+  const origin = new URL(config.http.publicOrigin);
+  return `${origin.hostname.toLowerCase().replace(/\.$/u, "")}:${origin.port === "" ? "443" : origin.port}`;
+}
+
 export function serveConfigurationMatches(value: unknown, config: GatewayConfig): boolean {
   const web = property(value, "Web");
   if (typeof web !== "object" || web === null || Array.isArray(web)) return false;
-  const publicOrigin = new URL(config.http.publicOrigin);
-  const expectedAuthority = `${publicOrigin.hostname.toLowerCase().replace(/\.$/u, "")}:${publicOrigin.port === "" ? "443" : publicOrigin.port}`;
+  const expectedAuthority = publicOriginAuthority(config);
   const expectedProxy = loopbackHttpOrigin(config.http.hostname, config.http.port);
   for (const [hostAndPort, server] of Object.entries(web)) {
     if (normalizedServeAuthority(hostAndPort) !== expectedAuthority) continue;
@@ -130,8 +131,72 @@ export function serveConfigurationMatches(value: unknown, config: GatewayConfig)
   return false;
 }
 
-export function funnelConfigurationDisabled(value: unknown): boolean {
-  return !hasMeaningfulValue(property(value, "AllowFunnel"));
+/**
+ * The TCP port a Serve proxy or TCP-forward target connects to, expanded as tailscaled expands it:
+ * a bare port means `127.0.0.1`, and a target without a scheme means `http://`. `null` for a Unix
+ * socket, which cannot reach the gateway's TCP listener; `undefined` when unparsable.
+ */
+function serveTargetPort(target: string): number | null | undefined {
+  if (target.startsWith("unix:")) return null;
+  if (/^\d+$/u.test(target)) return Number(target);
+  const insecure = "https+insecure://";
+  const url = target.startsWith(insecure)
+    ? `https://${target.slice(insecure.length)}`
+    : target.startsWith("http://") || target.startsWith("https://")
+      ? target
+      : `http://${target}`;
+  try {
+    const parsed = new URL(url);
+    if (parsed.port !== "") return Number(parsed.port);
+    return parsed.protocol === "https:" ? 443 : 80;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether a Serve target can reach the gateway's backend port; an unparsable target can. */
+function targetReachesPort(target: unknown, port: number): boolean {
+  if (typeof target !== "string") return true;
+  const targetPort = serveTargetPort(target);
+  return targetPort === undefined || targetPort === port;
+}
+
+function authorityReachesPort(scope: unknown, authority: string, port: number): boolean {
+  const tcpPort = authority.slice(authority.lastIndexOf(":") + 1);
+  const forward = property(property(property(scope, "TCP"), tcpPort), "TCPForward");
+  if (forward !== undefined && targetReachesPort(forward, port)) return true;
+  return objectEntries(property(scope, "Web")).some(
+    ([hostPort, server]) =>
+      normalizedServeAuthority(hostPort) === authority &&
+      objectEntries(property(server, "Handlers")).some(([, handler]) => {
+        const proxy = property(handler, "Proxy");
+        return proxy !== undefined && targetReachesPort(proxy, port);
+      }),
+  );
+}
+
+/**
+ * Funnel publishes a Serve authority to the Internet, so none may reach the gateway: Funnel may be
+ * enabled neither for the gateway's own Serve authority nor for an authority whose handler proxies
+ * or forwards to the gateway's backend port. tailscaled merges foreground `tailscale funnel`
+ * sessions with the persistent configuration, so every scope is checked against every other. A
+ * Funnel that publishes another local service passes; an entry that cannot be parsed fails.
+ */
+export function funnelConfigurationDisabled(value: unknown, config: GatewayConfig): boolean {
+  const gatewayAuthority = publicOriginAuthority(config);
+  const scopes = [value, ...objectEntries(property(value, "Foreground")).map(([, session]) => session)];
+  for (const scope of scopes) {
+    const allowFunnel = property(scope, "AllowFunnel");
+    if (allowFunnel === undefined || allowFunnel === null) continue;
+    if (typeof allowFunnel !== "object" || Array.isArray(allowFunnel)) return false;
+    for (const [hostPort, enabled] of Object.entries(allowFunnel)) {
+      if (enabled === false) continue;
+      const authority = normalizedServeAuthority(hostPort);
+      if (authority === undefined || authority === gatewayAuthority) return false;
+      if (scopes.some(source => authorityReachesPort(source, authority, config.http.port))) return false;
+    }
+  }
+  return true;
 }
 
 export function tailscaleSelfIp(value: unknown): string | undefined {
@@ -391,7 +456,7 @@ export async function runDoctorChecks(
   }
   checks.relay = await relayReachable();
   const funnel = await commandJson(["tailscale", "funnel", "status", "--json"]);
-  checks.funnelDisabled = funnel !== undefined && funnelConfigurationDisabled(funnel);
+  checks.funnelDisabled = funnel !== undefined && funnelConfigurationDisabled(funnel, config);
 
   if (config.auth.mode === "dev-localhost") {
     checks.tailscaleConnected = true;
