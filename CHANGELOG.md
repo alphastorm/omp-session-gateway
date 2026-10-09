@@ -6,6 +6,13 @@ The format is based on Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Request a gateway release weekly on Mondays at 15:17 UTC after the exact-version stock OMP
+  canary. Scheduled requests skip when the lock already equals or exceeds npm `latest` or any
+  trusted open tracking request exists, including a re-check before filing. Manual dispatch and
+  fixes-only requests are unchanged.
+
 ### Fixed
 
 - Run the release driver's detached jobs at interactive priority, as an operator's SSH session

@@ -84,14 +84,25 @@ rerun or claimed, and no historical eight-hour receipt transfers.
 ## Unattended release driver
 
 The opt-in Studio driver makes every automated repository write as `alphastorm-release`.
-The founder starts a request and merges one generated approve PR; there is no scheduled release
-request, Slack authority, button, or token. Slack may relay only the first line of a release-bot
-progress comment. The manual procedure above remains available, but must never overlap a driver
+The weekly workflow or a manual dispatch starts a request, and the founder merges one generated
+approve PR; there is no Slack authority, button, or token. Slack may relay only the first line of a
+release-bot progress comment. The manual procedure above remains available, but must never overlap a driver
 campaign or smoke.
 
 ### Request, authority and gates
 
-Dispatch `.github/workflows/release-request.yml` on `main` with `omp_version` (default `latest`).
+`.github/workflows/release-request.yml` requests a release weekly on Mondays at 15:17 UTC
+(`17 15 * * 1`), resolving npm `latest` to one exact stock OMP version. A scheduled run succeeds
+without requesting anything when `UPSTREAM.lock.json` already equals or exceeds that version,
+or any open, non-PR issue authored by `github-actions[bot]` has the exact title
+`Upstream tracking: vX.Y.Z` (numeric version only). The reason appears in the step summary, and
+the canary and filing jobs do not run. After a green canary, a separate issue-read-only job checks
+for any such open request again before the filing job; if a request arrived in the meantime,
+it skips the filing job with a summary instead. The filing job stays skipped, not successful,
+so the driver cannot count the skip as an explicit re-request. Scheduled runs never request
+fixes-only releases. A newly filed weekly issue is consumed normally.
+
+Manual requests are unchanged: dispatch the workflow on `main` with `omp_version` (default `latest`).
 It resolves the exact stock npm version, refuses a version below `UPSTREAM.lock.json`, and calls
 the existing Linux/Windows canary. A red canary retains its existing canary-issue reporting and
 opens no tracking issue. A green run opens or reuses `Upstream tracking: vX.Y.Z` with the

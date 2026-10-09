@@ -1236,5 +1236,14 @@ default-branch push, lease stealing or discarded failed receipt is permitted.
 qualification gates. The bot, Studio account and integrated main code remain trusted release
 authorities; required checks and founder/tree equality constrain unintended promotion. The driver
 is cooperative single-host automation, not protection from a compromised operator or GitHub admin.
+
+**Amendment — 2026-10-09:** Request upstream refreshes weekly on Mondays at 15:17 UTC, resolving
+npm `latest` to an exact version. Scheduled runs skip successfully when the lock already equals
+or exceeds that version or any open, non-PR, bot-authored `Upstream tracking: vX.Y.Z` issue exists,
+and re-check that open-request guard immediately before filing after the canary. Manual dispatch
+and equal-baseline fixes-only requests are unchanged. A separate issue-read-only post-canary gate
+skips the unchanged filing job on a late duplicate, so the driver cannot renew that request. Issue-write jobs
+still execute no repository or upstream code; the existing promotion and qualification gates remain.
+
 See [Unattended release driver](RELEASE.md#unattended-release-driver) for installation and the
 kill switch.
