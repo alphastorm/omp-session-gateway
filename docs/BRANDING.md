@@ -104,7 +104,7 @@ Paths below are relative to the repository root.
 | `apps/web/src/icon-maskable-512.png` | manifest icon, `purpose: maskable` |
 | `apps/web/src/apple-touch-icon-180.png` | apple-touch-icon |
 | `apps/web/src/index.html`, `apps/web/src/app.ts`, `apps/web/src/styles.css`, `apps/web/src/manifest.webmanifest` | maintained PWA shell, behavior, styles, and manifest; see [web app notes](../apps/web/README.md) |
-| `site/` | canonical public site (`alphastorm.github.io/omp-session-gateway`), system font stacks only; `pages.yml` stages the mark, favicon, `og.png`, and product-flow capture from their canonical sources at deploy time, so `site/` never carries copies |
+| `site/` | canonical public site (`carrythroughsystems.github.io/omp-session-gateway`), system font stacks only; `pages.yml` stages the mark, favicon, `og.png`, and product-flow capture from their canonical sources at deploy time, so `site/` never carries copies |
 
 Manifest snippet:
 

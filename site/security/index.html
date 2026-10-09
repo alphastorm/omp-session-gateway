@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#060809">
 <title>OMP Session Gateway security — private by design, fail-closed by default</title>
 <meta name="description" content="Release-blocking security invariants of OMP Session Gateway: loopback-only listeners, allowlisted tailnet identity, memory-only View/Control capabilities, metadata-only APIs, and no transcript storage.">
-<link rel="canonical" href="https://alphastorm.github.io/omp-session-gateway/security/">
+<link rel="canonical" href="https://carrythroughsystems.github.io/omp-session-gateway/security/">
 <link rel="stylesheet" href="../site.css">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="OMP Session Gateway security — private by design, fail-closed by default">
 <meta property="og:description" content="Loopback-only listeners, allowlisted tailnet identity, memory-only View/Control capabilities, metadata-only APIs, and no transcript storage.">
-<meta property="og:image" content="https://alphastorm.github.io/omp-session-gateway/og.png">
+<meta property="og:image" content="https://carrythroughsystems.github.io/omp-session-gateway/og.png">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://alphastorm.github.io/omp-session-gateway/security/">
+<meta property="og:url" content="https://carrythroughsystems.github.io/omp-session-gateway/security/">
 <meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
@@ -50,9 +50,9 @@ separate installation, and native integration does not relax the boundaries belo
 proxied relays. Every release runs distinctive-synthetic-secret leak scans across logs, storage, caches, URLs, and
 CI artifacts before it is qualified.</p>
 <p>The full threat model, boundaries, and acceptance gates:
-<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/docs/SECURITY.md">docs/SECURITY.md</a> ·
+<a href="https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/SECURITY.md">docs/SECURITY.md</a> ·
 report a vulnerability privately via the
-<a href="https://github.com/alphastorm/omp-session-gateway/blob/main/SECURITY.md">security policy</a>.</p>
+<a href="https://github.com/carrythroughsystems/omp-session-gateway/blob/main/SECURITY.md">security policy</a>.</p>
 <p>Device lock and prompt tailnet revocation matter: a still-authorized unlocked phone can request
 Control. Passkey verification is proposed, not implemented. The accepted protection against
 upgrades interrupting a pending launch also has an unresolved implementation gap; see
@@ -64,7 +64,7 @@ browsers in CI does not change this security boundary.</p>
 </main>
 <footer>
   Community project; not affiliated with or endorsed by the Oh My Pi maintainers.
-  Evidence lives in the <a href="https://github.com/alphastorm/omp-session-gateway">repository</a>:
+  Evidence lives in the <a href="https://github.com/carrythroughsystems/omp-session-gateway">repository</a>:
   every claim on this site is bound to a versioned release ledger entry.
 </footer>
 </body>

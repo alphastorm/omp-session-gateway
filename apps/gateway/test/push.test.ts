@@ -523,7 +523,7 @@ describe("Web Push service", () => {
       { endpoint: "https://fcm.googleapis.com/fcm/send/synthetic-device-0001", keys: previousKeys },
       null,
       webPushOptions({
-        subject: "https://github.com/alphastorm/omp-session-gateway",
+        subject: "https://github.com/carrythroughsystems/omp-session-gateway",
         publicKey: vapid.publicKey,
         privateKey: vapid.privateKey,
         ttlSeconds: 300,

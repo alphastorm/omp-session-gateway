@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { runDriver } from "./release-driver-runtime.ts";
 
-export const REPOSITORY = "alphastorm/omp-session-gateway";
+export const REPOSITORY = "carrythroughsystems/omp-session-gateway";
 export const ORDER_SCOPE = [
   "CHANGELOG.md", "UPSTREAM.lock.json", "docs/COMPATIBILITY.md", "docs/DECISIONS.md",
   "docs/OMP_INTEGRATION.md", "docs/RELEASE_STATUS.md", "scripts/windows-qualification-pins.json",

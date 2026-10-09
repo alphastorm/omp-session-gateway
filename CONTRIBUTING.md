@@ -16,7 +16,7 @@ A source checkout is for development and is not signed-artifact qualification.
 
 ## Development workflow
 
-1. Open or select a focused [GitHub issue](https://github.com/alphastorm/omp-session-gateway/issues).
+1. Open or select a focused [GitHub issue](https://github.com/carrythroughsystems/omp-session-gateway/issues).
 2. Create a branch from `main`.
 3. Keep the change small enough to review and test.
 4. Add or update relevant behavioral, failure-mode, and secret-non-persistence tests; text-only

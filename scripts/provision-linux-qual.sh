@@ -89,7 +89,22 @@ assert all(isinstance(value, str) and re.fullmatch(pattern, value) for value, pa
 print(*values)
 PY
 )
-readonly REPO_SLUG="alphastorm/omp-session-gateway"
+readonly REPO_SLUG="carrythroughsystems/omp-session-gateway"
+
+# Published under alphastorm through v0.7.5 (2026-10-08T16:38:49Z), captured 2026-10-09.
+# Exact published tags only: future tags cannot reuse the former owner identity.
+release_signing_repositories() {
+  local repository="$1" tag="$2"
+  case "$repository" in
+    carrythroughsystems/omp-session-gateway|alphastorm/omp-session-gateway)
+      printf '%s\n' carrythroughsystems/omp-session-gateway ;;
+    *) printf '%s\n' "$repository"; return 0 ;;
+  esac
+  case "$tag" in
+    v0.7.5|v0.7.5-prealpha.2|v0.7.5-prealpha.1|v0.7.4|v0.7.4-prealpha.1|v0.7.3|v0.7.3-prealpha.1|v0.7.2|v0.7.2-prealpha.2|v0.7.2-prealpha.1|v0.7.1|v0.7.1-prealpha.1|v0.7.0|v0.7.0-prealpha.1|v0.6.3|v0.6.3-prealpha.2|v0.6.3-prealpha.1|v0.6.2|v0.6.2-prealpha.1|v0.6.1|v0.6.1-prealpha.1|v0.6.0|v0.6.0-prealpha.4|v0.6.0-prealpha.3|v0.6.0-prealpha.2|v0.6.0-prealpha.1|v0.5.3|v0.5.3-prealpha.1|v0.5.2|v0.5.2-prealpha.1|v0.5.1|v0.5.1-prealpha.1|v0.5.0|v0.5.0-prealpha.1|v0.4.2|v0.4.2-prealpha.1|v0.4.1|v0.4.1-prealpha.3|v0.4.1-prealpha.2|v0.4.1-prealpha.1|v0.4.0|v0.4.0-prealpha.1|v0.3.0|v0.3.0-prealpha.3|v0.3.0-prealpha.2|v0.3.0-prealpha.1|v0.2.1|v0.2.1-prealpha.2|v0.2.0|v0.2.0-prealpha.1|v0.1.0-prealpha.25|v0.1.0-prealpha.24|v0.1.0|v0.1.0-prealpha.23|v0.1.0-prealpha.22|v0.1.0-prealpha.21|v0.1.0-beta.1|v0.1.0-prealpha.20|v0.1.0-prealpha.19|v0.1.0-prealpha.18|v0.1.0-alpha.1|v0.1.0-alpha|provenance-test-v0.1.0.11|v0.1.0-prealpha.17|v0.1.0-prealpha.13|v0.1.0-prealpha.12|v0.1.0-prealpha.11|v0.1.0-prealpha.9|v0.1.0-prealpha.10|v0.1.0-prealpha.8|v0.1.0-prealpha.7|v0.1.0-prealpha.6|v0.1.0-prealpha.5|v0.1.0-prealpha.4|v0.1.0-prealpha.3|v0.1.0-prealpha.2|v0.1.0-prealpha.1|provenance-test-v0.1.0.10|provenance-test-v0.1.0.9|provenance-test-v0.1.0.8|provenance-test-v0.1.0.7|provenance-test-v0.1.0.6|provenance-test-v0.1.0.5)
+      printf '%s\n' alphastorm/omp-session-gateway ;;
+  esac
+}
 readonly TAILNET_TAG="${OMP_QUAL_TAG:-tag:omp-session-gateway}"
 readonly DROPLET_NAME="${OMP_QUAL_NAME:-omp-gateway-qual}"
 readonly DROPLET_REGION="${OMP_QUAL_REGION:-sfo3}"
@@ -960,6 +975,7 @@ REMOTE
 
   remote_user \
     ARCHIVE="$archive" SBOM="$sbom" TAG="$tag" REPO_SLUG="$REPO_SLUG" \
+    SIGNING_REPOSITORIES="$(release_signing_repositories "$REPO_SLUG" "$tag")" \
     GH_CLI_VERSION="$GH_CLI_VERSION" COSIGN_VERSION="$COSIGN_VERSION" BUN_VERSION="$BUN_VERSION" \
     ATTESTATION_MODE="$attestation_mode" SUPPLIED_GH_TOKEN="${GH_TOKEN:-}" <<'REMOTE'
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
@@ -982,28 +998,29 @@ show "gh binary sha256" "$(sha256sum ~/tools/gh | awk '{print $1}')"
 show "sha256sum --check" "$(sha256sum --check SHA256SUMS | tr '\n' ' ')"
 show "archive digest on droplet" "$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 
-identity="https://github.com/${REPO_SLUG}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
-show "expected certificate identity" "$identity"
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
-  ~/tools/cosign verify-blob \
-    --bundle "${artifact}.sigstore.json" \
-    --certificate-identity "$identity" \
-    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-    "$artifact" >/dev/null 2>&1
+  verified=0
+  for signer in $SIGNING_REPOSITORIES; do
+    identity="https://github.com/${signer}/.github/workflows/signed-release.yml@refs/tags/${TAG}"
+    ~/tools/cosign verify-blob \
+      --bundle "${artifact}.sigstore.json" \
+      --certificate-identity "$identity" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+      "$artifact" >/dev/null 2>&1 || continue
+    attestation_args=()
+    if [ "$ATTESTATION_MODE" != "online" ]; then
+      attestation_args=(--bundle "${artifact}.attestation.jsonl")
+    fi
+    if GH_TOKEN="$SUPPLIED_GH_TOKEN" ~/tools/gh attestation verify "$artifact" --repo "$signer" \
+      "${attestation_args[@]}" \
+      --signer-workflow "${signer}/.github/workflows/signed-release.yml" \
+      --source-ref "refs/tags/${TAG}" >/dev/null; then
+      verified=1
+      break
+    fi
+  done
+  [ "$verified" -eq 1 ] || { echo "release signature verification failed for $artifact at $TAG" >&2; exit 1; }
   show "cosign verify-blob" "$artifact verified"
-done
-
-for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS; do
-  if [ "$ATTESTATION_MODE" = "online" ]; then
-    GH_TOKEN="$SUPPLIED_GH_TOKEN" ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
-      --source-ref "refs/tags/${TAG}" >/dev/null
-  else
-    ~/tools/gh attestation verify "$artifact" --repo "$REPO_SLUG" \
-      --bundle "${artifact}.attestation.jsonl" \
-      --signer-workflow "${REPO_SLUG}/.github/workflows/signed-release.yml" \
-      --source-ref "refs/tags/${TAG}" >/dev/null
-  fi
   show "gh attestation verify" "$artifact verified ($ATTESTATION_MODE)"
 done
 
@@ -1569,6 +1586,7 @@ REMOTE
 
   remote_user \
     ARCHIVE="$archive" SBOM="$sbom" PREV_TAG="$previous_tag" REPO_SLUG="$REPO_SLUG" \
+    SIGNING_REPOSITORIES="$(release_signing_repositories "$REPO_SLUG" "$previous_tag")" \
     DNS_NAME="$dns_name" ALLOWED_LOGIN="$SYNTHETIC_DENIED_LOGIN" GATEWAY_PORT="$GATEWAY_PORT" <<'REMOTE'
 set -euo pipefail
 show() { printf '   %-38s %s\n' "$1:" "$2"; }
@@ -1579,13 +1597,15 @@ bun=~/.bun/bin/bun
 cd ~/candidate-prev
 sha256sum --check SHA256SUMS >/dev/null
 verified=0
-for workflow in signed-release.yml release.yml; do
-  identity="https://github.com/${REPO_SLUG}/.github/workflows/${workflow}@refs/tags/${PREV_TAG}"
-  if ~/tools/cosign verify-blob --bundle "${ARCHIVE}.sigstore.json" --certificate-identity "$identity" \
-    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$ARCHIVE" >/dev/null 2>&1; then
-    verified=1
-    break
-  fi
+for signer in $SIGNING_REPOSITORIES; do
+  for workflow in signed-release.yml release.yml; do
+    identity="https://github.com/${signer}/.github/workflows/${workflow}@refs/tags/${PREV_TAG}"
+    if ~/tools/cosign verify-blob --bundle "${ARCHIVE}.sigstore.json" --certificate-identity "$identity" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$ARCHIVE" >/dev/null 2>&1; then
+      verified=1
+      break 2
+    fi
+  done
 done
 [ "$verified" -eq 1 ] || { echo "predecessor Sigstore verification failed for $PREV_TAG" >&2; exit 1; }
 show "predecessor verified" "checksum and signature for $PREV_TAG"

@@ -129,7 +129,7 @@ test("SPDX namespace, lock digest, and creation time bind reproducibly to releas
     packages: Array<{ name: string; versionInfo: string; licenseDeclared: string; sourceInfo?: string }>;
   };
   expect(document.documentNamespace).toBe(
-    `https://github.com/alphastorm/omp-session-gateway/sbom/${PRODUCT_VERSION}/${"a".repeat(40)}`,
+    `https://github.com/carrythroughsystems/omp-session-gateway/sbom/${PRODUCT_VERSION}/${"a".repeat(40)}`,
   );
   expect(document.creationInfo.created).toBe(deterministicSource.created);
   expect(document.packages.map(pkg => `${pkg.name}@${pkg.versionInfo}`)).toEqual([

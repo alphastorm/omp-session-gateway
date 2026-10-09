@@ -21,10 +21,10 @@ no QR scans, copied links, or per-session setup.
 
 <sub>Synthetic product demo—not release-qualification evidence. <a href="docs/media/README.md">Capture provenance</a>.</sub>
 
-**[Website](https://alphastorm.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
+**[Website](https://carrythroughsystems.github.io/omp-session-gateway/)** · **[Build and run](#build-and-run)** ·
 **[How it works](#how-it-works)** · **[Security model](docs/SECURITY.md)** ·
 **[Compatibility](docs/COMPATIBILITY.md)** ·
-**[Latest stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest)**
+**[Latest stable release](https://github.com/carrythroughsystems/omp-session-gateway/releases/latest)**
 
 [![CI][ci-badge]][ci]
 [![Coverage][coverage-badge]][coverage]
@@ -32,17 +32,17 @@ no QR scans, copied links, or per-session setup.
 [![OMP baseline][omp-badge]][omp-lock]
 [![License][license-badge]][license]
 
-[ci]: https://github.com/alphastorm/omp-session-gateway/actions/workflows/ci.yml
-[ci-badge]: https://img.shields.io/github/actions/workflow/status/alphastorm/omp-session-gateway/ci.yml?branch=main&label=CI&labelColor=0B0E11
-[coverage]: https://codecov.io/gh/alphastorm/omp-session-gateway
-[coverage-badge]: https://img.shields.io/codecov/c/github/alphastorm/omp-session-gateway?label=coverage&color=1C232B&labelColor=0B0E11
-[releases]: https://github.com/alphastorm/omp-session-gateway/releases
-[release-badge]: https://img.shields.io/github/v/release/alphastorm/omp-session-gateway?include_prereleases&filter=v*&label=release&color=C99B45&labelColor=0B0E11
+[ci]: https://github.com/carrythroughsystems/omp-session-gateway/actions/workflows/ci.yml
+[ci-badge]: https://img.shields.io/github/actions/workflow/status/carrythroughsystems/omp-session-gateway/ci.yml?branch=main&label=CI&labelColor=0B0E11
+[coverage]: https://codecov.io/gh/carrythroughsystems/omp-session-gateway
+[coverage-badge]: https://img.shields.io/codecov/c/github/carrythroughsystems/omp-session-gateway?label=coverage&color=1C232B&labelColor=0B0E11
+[releases]: https://github.com/carrythroughsystems/omp-session-gateway/releases
+[release-badge]: https://img.shields.io/github/v/release/carrythroughsystems/omp-session-gateway?include_prereleases&filter=v*&label=release&color=C99B45&labelColor=0B0E11
 
 [omp-lock]: UPSTREAM.lock.json
-[omp-badge]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Falphastorm%2Fomp-session-gateway%2Fmain%2FUPSTREAM.lock.json&query=%24.tag&label=OMP%20baseline&color=1C232B&labelColor=0B0E11
+[omp-badge]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcarrythroughsystems%2Fomp-session-gateway%2Fmain%2FUPSTREAM.lock.json&query=%24.tag&label=OMP%20baseline&color=1C232B&labelColor=0B0E11
 [license]: LICENSE
-[license-badge]: https://img.shields.io/github/license/alphastorm/omp-session-gateway?color=1C232B&labelColor=0B0E11
+[license-badge]: https://img.shields.io/github/license/carrythroughsystems/omp-session-gateway?color=1C232B&labelColor=0B0E11
 
 <sub><strong>Private by design:</strong> loopback-only gateway · allowlisted tailnet identity · memory-only capabilities · no transcript storage</sub>
 
@@ -92,7 +92,7 @@ This is a community project and is not affiliated with or endorsed by the Oh My 
 
 ## Build and run
 
-Start with the [latest stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest),
+Start with the [latest stable release](https://github.com/carrythroughsystems/omp-session-gateway/releases/latest),
 **Bun 1.4.0**, and stock **OMP 18.1.20 or later**. Read the
 [exact supported combinations and limits](docs/COMPATIBILITY.md) before installing.
 The gateway and phone need Tailscale on the same tailnet; the gateway host must use the TUN-mode
@@ -261,7 +261,7 @@ never redacts.</sub>
 
 ## Compatibility and release status
 
-The [latest stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest) was
+The [latest stable release](https://github.com/carrythroughsystems/omp-session-gateway/releases/latest) was
 promoted from a qualified signed candidate with identical runtime bytes. Support covers the
 platform families in [Works with](#works-with), each tested in CI; qualification is limited to the
 exact hardware combinations in the [compatibility policy](docs/COMPATIBILITY.md#current-claim). The
@@ -426,7 +426,7 @@ Then use plain `omp`; no per-session link copying. The minimum OMP version is an
 contract, not qualification of every later version. See [exact support and limits](docs/COMPATIBILITY.md).
 
 Primary READMEs and package metadata checked **2026-09-14**; this is not a hands-on interoperability
-or security assessment. The [source-linked comparison](https://alphastorm.github.io/omp-session-gateway/compare/)
+or security assessment. The [source-linked comparison](https://carrythroughsystems.github.io/omp-session-gateway/compare/)
 and [upstream discussion](https://github.com/can1357/oh-my-pi/discussions/6460) provide context.
 
 ## Repository layout

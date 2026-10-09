@@ -15,7 +15,7 @@
 and queries each host. No fork, custom OMP build, gateway-specific OMP plugin, or shared
 publication credential is needed. Install the separate gateway service once.
 
-**Install the [latest stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest).**
+**Install the [latest stable release](https://github.com/carrythroughsystems/omp-session-gateway/releases/latest).**
 Its qualification, publication, and published-byte checks are recorded in the
 [release ledger](RELEASE_STATUS.md) and its changes in the [changelog](../CHANGELOG.md); use the
 [compatibility policy](COMPATIBILITY.md) for its support limits. Published `v0.3.0` and `v0.2.1`
@@ -32,7 +32,11 @@ For v1 header-based authorization, the Android source must be a user-authenticat
 
 Use the published Bun-runtime archive, not a source checkout or candidate tag, for normal
 installation. Follow [Verify a published build](RELEASE.md#verify-a-published-build) before
-extracting or executing it.
+extracting or executing it. For recovery or rollback to a release published before the repository
+transfer, keep its original `alphastorm/omp-session-gateway` signing identity even though downloads
+come from `carrythroughsystems/omp-session-gateway`. The verification runbook selects it only for
+the closed historical tag set captured on 2026-10-09 (through v0.7.5); later tags require the new
+owner. Never substitute the download URL for the certificate or attestation source identity.
 
 **Upgrading from a fork-era gateway?** Complete the matching-old-CLI stopped-service step below
 first. Do not run the new installer over an active fork-era service.

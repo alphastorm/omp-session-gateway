@@ -97,7 +97,7 @@ jobs:
       OMP_QUAL_NAME: omp-gateway-qual
       # The script hardcodes this slug for asset downloads, so the preflight must check the same repo
       # rather than `github.repository`; on a fork those two are not the same place.
-      REPO_SLUG: alphastorm/omp-session-gateway
+      REPO_SLUG: carrythroughsystems/omp-session-gateway
       TAILNET_TAG: tag:omp-session-gateway
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

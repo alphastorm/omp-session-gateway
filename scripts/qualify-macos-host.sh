@@ -121,7 +121,22 @@ readonly PREVIOUS_TAG="${OMP_MAC_PREVIOUS_TAG:-}"
 readonly LOGIN="${OMP_MAC_LOGIN:-}"
 readonly EXPECTED_ARCHIVE_SHA256="${OMP_MAC_ARCHIVE_SHA256:-}"
 readonly SESSION_LABEL="${OMP_MAC_SESSION_LABEL:-omp-stable-pixel-qualification}"
-readonly REPO_SLUG="${OMP_MAC_REPO:-alphastorm/omp-session-gateway}"
+readonly REPO_SLUG="${OMP_MAC_REPO:-carrythroughsystems/omp-session-gateway}"
+
+# Published under alphastorm through v0.7.5 (2026-10-08T16:38:49Z), captured 2026-10-09.
+# Exact published tags only: future tags cannot reuse the former owner identity.
+release_signing_repositories() {
+  local repository="$1" tag="$2"
+  case "$repository" in
+    carrythroughsystems/omp-session-gateway|alphastorm/omp-session-gateway)
+      printf '%s\n' carrythroughsystems/omp-session-gateway ;;
+    *) printf '%s\n' "$repository"; return 0 ;;
+  esac
+  case "$tag" in
+    v0.7.5|v0.7.5-prealpha.2|v0.7.5-prealpha.1|v0.7.4|v0.7.4-prealpha.1|v0.7.3|v0.7.3-prealpha.1|v0.7.2|v0.7.2-prealpha.2|v0.7.2-prealpha.1|v0.7.1|v0.7.1-prealpha.1|v0.7.0|v0.7.0-prealpha.1|v0.6.3|v0.6.3-prealpha.2|v0.6.3-prealpha.1|v0.6.2|v0.6.2-prealpha.1|v0.6.1|v0.6.1-prealpha.1|v0.6.0|v0.6.0-prealpha.4|v0.6.0-prealpha.3|v0.6.0-prealpha.2|v0.6.0-prealpha.1|v0.5.3|v0.5.3-prealpha.1|v0.5.2|v0.5.2-prealpha.1|v0.5.1|v0.5.1-prealpha.1|v0.5.0|v0.5.0-prealpha.1|v0.4.2|v0.4.2-prealpha.1|v0.4.1|v0.4.1-prealpha.3|v0.4.1-prealpha.2|v0.4.1-prealpha.1|v0.4.0|v0.4.0-prealpha.1|v0.3.0|v0.3.0-prealpha.3|v0.3.0-prealpha.2|v0.3.0-prealpha.1|v0.2.1|v0.2.1-prealpha.2|v0.2.0|v0.2.0-prealpha.1|v0.1.0-prealpha.25|v0.1.0-prealpha.24|v0.1.0|v0.1.0-prealpha.23|v0.1.0-prealpha.22|v0.1.0-prealpha.21|v0.1.0-beta.1|v0.1.0-prealpha.20|v0.1.0-prealpha.19|v0.1.0-prealpha.18|v0.1.0-alpha.1|v0.1.0-alpha|provenance-test-v0.1.0.11|v0.1.0-prealpha.17|v0.1.0-prealpha.13|v0.1.0-prealpha.12|v0.1.0-prealpha.11|v0.1.0-prealpha.9|v0.1.0-prealpha.10|v0.1.0-prealpha.8|v0.1.0-prealpha.7|v0.1.0-prealpha.6|v0.1.0-prealpha.5|v0.1.0-prealpha.4|v0.1.0-prealpha.3|v0.1.0-prealpha.2|v0.1.0-prealpha.1|provenance-test-v0.1.0.10|provenance-test-v0.1.0.9|provenance-test-v0.1.0.8|provenance-test-v0.1.0.7|provenance-test-v0.1.0.6|provenance-test-v0.1.0.5)
+      printf '%s\n' alphastorm/omp-session-gateway ;;
+  esac
+}
 readonly GATEWAY_PORT="${OMP_MAC_PORT:-4317}"
 readonly RECORD_DIR="${OMP_MAC_RECORD_DIR:-$HOME/.local/share/omp-session-gateway/test}"
 readonly OMP_SOURCE_COMMIT="$OMP_PIN_SOURCE_COMMIT"
@@ -304,7 +319,7 @@ REMOTE
 
 lane_artifact() {
   step "Lane 1: signed candidate artifact"
-  local dir="$RECORD_DIR/$TAG/artifact" archive actual_archive_sha256 asset identity signer_workflow
+  local dir="$RECORD_DIR/$TAG/artifact" archive actual_archive_sha256 asset identity signer_workflow signer verified
   rm -rf "$dir"
   mkdir -p "$dir"
   ( cd "$dir" && gh release download "$TAG" --repo "$REPO_SLUG" ) ||
@@ -327,20 +342,22 @@ lane_artifact() {
   actual_archive_sha256="$(verified_archive_sha256 "$dir/$archive")"
   measure "archive sha256" "$actual_archive_sha256"
 
-  signer_workflow="$REPO_SLUG/.github/workflows/signed-release.yml"
   for asset in "$archive" SHA256SUMS; do
-    gh attestation verify "$dir/$asset" --repo "$REPO_SLUG" \
-      --signer-workflow "$signer_workflow" --source-ref "refs/tags/$TAG" >/dev/null 2>&1 ||
-      die "exact GitHub attestation verification failed for $asset at $TAG."
+    verified=0
+    for signer in $(release_signing_repositories "$REPO_SLUG" "$TAG"); do
+      signer_workflow="$signer/.github/workflows/signed-release.yml"
+      identity="https://github.com/$signer_workflow@refs/tags/$TAG"
+      if cosign verify-blob --bundle "$dir/$asset.sigstore.json" --certificate-identity "$identity" \
+        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$dir/$asset" >/dev/null 2>&1 &&
+        gh attestation verify "$dir/$asset" --repo "$signer" \
+          --signer-workflow "$signer_workflow" --source-ref "refs/tags/$TAG" >/dev/null 2>&1; then
+        verified=1
+        break
+      fi
+    done
+    [ "$verified" -eq 1 ] || die "exact release signature verification failed for $asset at $TAG."
   done
   measure "github attestations" "verified against signed-release.yml and refs/tags/$TAG"
-
-  identity="https://github.com/$REPO_SLUG/.github/workflows/signed-release.yml@refs/tags/$TAG"
-  for asset in "$archive" SHA256SUMS; do
-    cosign verify-blob --bundle "$dir/$asset.sigstore.json" --certificate-identity "$identity" \
-      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$dir/$asset" >/dev/null 2>&1 ||
-      die "cosign verify-blob failed for $asset at $TAG."
-  done
   measure "cosign bundles" "2/2 verified against the exact tag identity"
 
   scp "${SSH_OPTS[@]}" -q "$dir/$archive" "$HOST:/tmp/$archive" || die "could not copy the archive to the host."
@@ -571,14 +588,16 @@ REMOTE
 }
 
 verify_rollback_bundle() {
-  local tag="$1" dir="$2" asset="$3" workflow
-  for workflow in signed-release.yml release.yml; do
-    if cosign verify-blob --bundle "$dir/$asset.sigstore.json" \
-      --certificate-identity "https://github.com/$REPO_SLUG/.github/workflows/$workflow@refs/tags/$tag" \
-      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-      "$dir/$asset" >/dev/null 2>&1; then
-      return 0
-    fi
+  local tag="$1" dir="$2" asset="$3" workflow signer
+  for signer in $(release_signing_repositories "$REPO_SLUG" "$tag"); do
+    for workflow in signed-release.yml release.yml; do
+      if cosign verify-blob --bundle "$dir/$asset.sigstore.json" \
+        --certificate-identity "https://github.com/$signer/.github/workflows/$workflow@refs/tags/$tag" \
+        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+        "$dir/$asset" >/dev/null 2>&1; then
+        return 0
+      fi
+    done
   done
   return 1
 }

@@ -49,7 +49,22 @@
 #   OMP_ROLLBACK_COSIGN may name the staged verifier executable without changing PATH.
 set -euo pipefail
 
-REPO="alphastorm/omp-session-gateway"
+REPO="carrythroughsystems/omp-session-gateway"
+
+# Published under alphastorm through v0.7.5 (2026-10-08T16:38:49Z), captured 2026-10-09.
+# Exact published tags only: future tags cannot reuse the former owner identity.
+release_signing_repositories() {
+  local repository="$1" tag="$2"
+  case "$repository" in
+    carrythroughsystems/omp-session-gateway|alphastorm/omp-session-gateway)
+      printf '%s\n' carrythroughsystems/omp-session-gateway ;;
+    *) printf '%s\n' "$repository"; return 0 ;;
+  esac
+  case "$tag" in
+    v0.7.5|v0.7.5-prealpha.2|v0.7.5-prealpha.1|v0.7.4|v0.7.4-prealpha.1|v0.7.3|v0.7.3-prealpha.1|v0.7.2|v0.7.2-prealpha.2|v0.7.2-prealpha.1|v0.7.1|v0.7.1-prealpha.1|v0.7.0|v0.7.0-prealpha.1|v0.6.3|v0.6.3-prealpha.2|v0.6.3-prealpha.1|v0.6.2|v0.6.2-prealpha.1|v0.6.1|v0.6.1-prealpha.1|v0.6.0|v0.6.0-prealpha.4|v0.6.0-prealpha.3|v0.6.0-prealpha.2|v0.6.0-prealpha.1|v0.5.3|v0.5.3-prealpha.1|v0.5.2|v0.5.2-prealpha.1|v0.5.1|v0.5.1-prealpha.1|v0.5.0|v0.5.0-prealpha.1|v0.4.2|v0.4.2-prealpha.1|v0.4.1|v0.4.1-prealpha.3|v0.4.1-prealpha.2|v0.4.1-prealpha.1|v0.4.0|v0.4.0-prealpha.1|v0.3.0|v0.3.0-prealpha.3|v0.3.0-prealpha.2|v0.3.0-prealpha.1|v0.2.1|v0.2.1-prealpha.2|v0.2.0|v0.2.0-prealpha.1|v0.1.0-prealpha.25|v0.1.0-prealpha.24|v0.1.0|v0.1.0-prealpha.23|v0.1.0-prealpha.22|v0.1.0-prealpha.21|v0.1.0-beta.1|v0.1.0-prealpha.20|v0.1.0-prealpha.19|v0.1.0-prealpha.18|v0.1.0-alpha.1|v0.1.0-alpha|provenance-test-v0.1.0.11|v0.1.0-prealpha.17|v0.1.0-prealpha.13|v0.1.0-prealpha.12|v0.1.0-prealpha.11|v0.1.0-prealpha.9|v0.1.0-prealpha.10|v0.1.0-prealpha.8|v0.1.0-prealpha.7|v0.1.0-prealpha.6|v0.1.0-prealpha.5|v0.1.0-prealpha.4|v0.1.0-prealpha.3|v0.1.0-prealpha.2|v0.1.0-prealpha.1|provenance-test-v0.1.0.10|provenance-test-v0.1.0.9|provenance-test-v0.1.0.8|provenance-test-v0.1.0.7|provenance-test-v0.1.0.6|provenance-test-v0.1.0.5)
+      printf '%s\n' alphastorm/omp-session-gateway ;;
+  esac
+}
 # No defaults: a fallback predecessor silently qualifies rollback against a superseded stable.
 # Both are required by the `run` verb; see `main`.
 OLD_TAG="${OMP_ROLLBACK_OLD_TAG:-}"
@@ -396,7 +411,7 @@ archive_root_for() {
 }
 
 fetch_tag() { # tag destination
-  local tag="$1" dest="$2" source asset workflow verified archive
+  local tag="$1" dest="$2" source asset workflow verified archive signer
   archive="$(archive_for "$tag")"
   mkdir -p "$dest"
   (
@@ -414,15 +429,17 @@ fetch_tag() { # tag destination
     shasum -a 256 -c SHA256SUMS --ignore-missing >/dev/null
     for asset in "$archive" SHA256SUMS; do
       verified=0
-      for workflow in signed-release.yml release.yml; do
-        if "$COSIGN" verify-blob \
-          --bundle "$asset.sigstore.json" \
-          --certificate-identity "https://github.com/$REPO/.github/workflows/$workflow@refs/tags/$tag" \
-          --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-          "$asset" >/dev/null 2>&1; then
-          verified=1
-          break
-        fi
+      for signer in $(release_signing_repositories "$REPO" "$tag"); do
+        for workflow in signed-release.yml release.yml; do
+          if "$COSIGN" verify-blob \
+            --bundle "$asset.sigstore.json" \
+            --certificate-identity "https://github.com/$signer/.github/workflows/$workflow@refs/tags/$tag" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$asset" >/dev/null 2>&1; then
+            verified=1
+            break 2
+          fi
+        done
       done
       [ "$verified" -eq 1 ] || { printf 'cosign verify-blob failed for %s at %s\n' "$asset" "$tag" >&2; exit 1; }
     done

@@ -7,4 +7,4 @@ Allow: /
 User-agent: *
 Allow: /
 
-Sitemap: https://alphastorm.github.io/omp-session-gateway/sitemap.xml
+Sitemap: https://carrythroughsystems.github.io/omp-session-gateway/sitemap.xml
