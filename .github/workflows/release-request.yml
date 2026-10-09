@@ -1,6 +1,8 @@
 name: Request OMP release
 
 on:
+  schedule:
+    - cron: "17 15 * * 1"
   workflow_dispatch:
     inputs:
       omp_version:
@@ -21,12 +23,14 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      issues: read
     outputs:
       omp_version: ${{ steps.resolve.outputs.omp_version }}
       lock_tag: ${{ steps.resolve.outputs.lock_tag }}
+      should_request: ${{ steps.resolve.outputs.should_request }}
     steps:
-      # Read only the dispatched ref's lock; do not install or execute repository/PR code here.
-      - name: Check out dispatched lock
+      # Read only the request ref's lock; do not install or execute repository/PR code here.
+      - name: Check out request lock
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -35,12 +39,15 @@ jobs:
       - name: Resolve published version and enforce baseline
         id: resolve
         env:
-          OMP_INPUT: ${{ inputs.omp_version }}
+          OMP_INPUT: ${{ github.event_name == 'schedule' && 'latest' || inputs.omp_version }}
+          REQUEST_EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           npm view "@oh-my-pi/pi-coding-agent@$OMP_INPUT" version --json >"$RUNNER_TEMP/omp-version.json"
           node <<'NODE'
           const fs = require("node:fs");
+          const { execFileSync } = require("node:child_process");
           const strictVersion = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
           const version = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/omp-version.json`, "utf8"));
           if (typeof version !== "string" || !strictVersion.test(version)) {
@@ -53,21 +60,37 @@ jobs:
           const requested = version.split(".").map(BigInt);
           const baseline = lock.tag.slice(1).split(".").map(BigInt);
           const different = requested.findIndex((part, index) => part !== baseline[index]);
-          if (different !== -1 && requested[different] < baseline[different]) {
+          const belowBaseline = different !== -1 && requested[different] < baseline[different];
+          const scheduled = process.env.REQUEST_EVENT === "schedule";
+          if (!scheduled && belowBaseline) {
             throw new Error(`Requested v${version} is lower than lock baseline ${lock.tag}`);
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `omp_version=${version}\nlock_tag=${lock.tag}\n`);
+          let skipReason;
+          if (scheduled && (different === -1 || belowBaseline)) {
+            skipReason = `lock baseline ${lock.tag} already equals or exceeds latest v${version}`;
+          } else if (scheduled) {
+            const openRequests = execFileSync("gh", [
+              "api", "--method", "GET", "--paginate", `repos/${process.env.GITHUB_REPOSITORY}/issues`,
+              "-f", "state=open", "-f", "per_page=100",
+              "--jq", '.[] | select(.pull_request == null and .user.login == "github-actions[bot]" and (.title | test("^Upstream tracking: v[0-9]+[.][0-9]+[.][0-9]+$"))) | .number',
+            ], { encoding: "utf8" }).trim();
+            if (openRequests !== "") skipReason = `open bot-authored tracking request #${openRequests.split("\n")[0]} already exists`;
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `omp_version=${version}\nlock_tag=${lock.tag}\nshould_request=${skipReason === undefined}\n`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
             "## Release request resolution",
             `- Exact stock OMP: v${version}`,
             `- Dispatched lock baseline: ${lock.tag}`,
-            `- Request: ${different === -1 ? "fixes-only (equal to baseline)" : "upstream refresh"}`,
+            skipReason === undefined
+              ? `- Request: ${different === -1 ? "fixes-only (equal to baseline)" : "upstream refresh"}`
+              : `- Scheduled release request skipped: ${skipReason}.`,
             "",
           ].join("\n"));
           NODE
 
   canary:
     needs: resolve
+    if: ${{ needs.resolve.outputs.should_request == 'true' }}
     # The reusable workflow also contains the schedule-only issue reporter. Its upstream-executing
     # jobs explicitly restrict their own tokens to contents:read; no upstream code can write issues.
     permissions:
@@ -77,10 +100,41 @@ jobs:
     with:
       omp_version: ${{ needs.resolve.outputs.omp_version }}
 
-  file:
-    name: Request OMP v${{ needs.resolve.outputs.omp_version }}
+  recheck:
+    name: Re-check open release requests
     needs: [resolve, canary]
-    if: ${{ needs.canary.outputs.passed == 'true' }}
+    if: ${{ needs.resolve.outputs.should_request == 'true' && needs.canary.outputs.passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: read
+    outputs:
+      should_file: ${{ steps.recheck.outputs.should_file }}
+    steps:
+      - name: Re-check before filing a scheduled request
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          should_file=true
+          if [[ "$REQUEST_EVENT" == schedule ]]; then
+            # A manual request may have arrived while the exact-version canary was running.
+            open_requests=$(gh api --method GET --paginate "repos/$GITHUB_REPOSITORY/issues" -f state=open -f per_page=100 \
+              --jq '.[] | select(.pull_request == null and .user.login == "github-actions[bot]" and (.title | test("^Upstream tracking: v[0-9]+[.][0-9]+[.][0-9]+$"))) | .number')
+            if [[ -n "$open_requests" ]]; then
+              should_file=false
+              printf -- '- Scheduled release request skipped: open bot-authored tracking request #%s already exists after the canary.\n' "${open_requests%%$'\n'*}" >>"$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          printf 'should_file=%s\n' "$should_file" >>"$GITHUB_OUTPUT"
+
+  file:
+    # A late scheduled skip must skip this job, not succeed and renew the driver's request identity.
+    name: Request OMP v${{ needs.resolve.outputs.omp_version }}
+    needs: [resolve, canary, recheck]
+    if: ${{ needs.resolve.outputs.should_request == 'true' && needs.canary.outputs.passed == 'true' && needs.recheck.outputs.should_file == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

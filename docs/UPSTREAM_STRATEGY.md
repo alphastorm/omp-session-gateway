@@ -33,6 +33,11 @@ stores capabilities. The private readiness token belongs only to gateway/CLI rea
 ## Compatibility discipline
 
 - Record exact engineering source and package pins in `UPSTREAM.lock.json`.
+- Request an upstream refresh weekly on Mondays at 15:17 UTC through the exact-version canary.
+  Scheduled requests resolve npm `latest`, skip successfully when the lock already equals or
+  exceeds it or any trusted open tracking request exists, and re-check for an open request before
+  filing. Manual dispatch, including fixes-only requests, is unchanged; see
+  [Request, authority and gates](RELEASE.md#request-authority-and-gates).
 - Validate discovery, both query operations, every error code, and generation/access races.
 - Preserve the liveness distinction: only `ENOENT`/`ECONNREFUSED` proves a queried host dead.
 - Exercise start, stop, switch, branch, resume, and gateway restart against the real mainline host.
