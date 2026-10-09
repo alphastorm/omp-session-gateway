@@ -4,12 +4,12 @@ import { compareVersions, isOrder, nextCandidate, nextStep, ORDER_SCOPE, outside
 import type { Decision, DriverPort, DriverState, Operation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 
 const config = { bot: "alphastorm-release", founder: "alphastorm" };
-const issue: TrackingIssue = { number: 400, title: "Upstream tracking: v18.8.3", author: "github-actions[bot]", request: "42:1", url: "https://github.com/alphastorm/omp-session-gateway/issues/400" };
+const issue: TrackingIssue = { number: 400, title: "Upstream tracking: v18.8.3", author: "github-actions[bot]", request: "42:1", url: "https://github.com/carrythroughsystems/omp-session-gateway/issues/400" };
 function state(phase: DriverState["phase"] = "selected"): DriverState {
   return { schemaVersion: 1, sequence: 1, phase, issue: { ...issue }, version: "0.7.5", candidate: "v0.7.5-prealpha.1", selectedMain: "a".repeat(40), date: "2026-10-07" };
 }
 function pr(overrides: Partial<PullRequest> = {}): PullRequest {
-  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, behind: false, checksPassed: true, files: [], url: "https://github.com/alphastorm/omp-session-gateway/pull/401", ...overrides };
+  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, behind: false, checksPassed: true, files: [], url: "https://github.com/carrythroughsystems/omp-session-gateway/pull/401", ...overrides };
 }
 function order(overrides: Partial<PullRequest> = {}): PullRequest {
   return pr({ author: "alpha-founder-source-alphastorm[bot]", authorType: "Bot", headRef: "alpha-founder/order-400", draft: true, files: ORDER_SCOPE.map(filename => ({ filename })), ...overrides });
@@ -171,7 +171,7 @@ test("diagnostic rerequest requires a new green dispatch, main fix, and recovere
 test("a retry request on a new tracking issue for the same version re-selects the failed release", () => {
   // v0.7.5: order #369's "Closes #368" closed the request when it merged; the retry request opened #374.
   const failed = { ...state("diagnostic-required"), failedMain: "a".repeat(40), candidateCommit: "b".repeat(40) };
-  const retry = { ...issue, number: 405, request: "43:1", url: "https://github.com/alphastorm/omp-session-gateway/issues/405" };
+  const retry = { ...issue, number: 405, request: "43:1", url: "https://github.com/carrythroughsystems/omp-session-gateway/issues/405" };
   const repo = snapshot({ main: "d".repeat(40), tags: ["v0.7.5-prealpha.1"], issues: [retry] });
   const step = nextStep(failed, repo, config);
   expect(step.operation).toBe("rerequest");
@@ -227,6 +227,20 @@ test("a pinned merge whose PR moved re-plans from a fresh snapshot instead of re
   expect((await tick(fake, config)).operation).toBe("merge-prepare");
   expect(fake.performed).toEqual(["merge-prepare"]);
   expect(fake.state.phase).toBe("prepared");
+});
+
+test("runtime finds an existing release PR under the organization owner", async () => {
+  const existing = pr();
+  class TransferredRuntime extends StudioDriver {
+    override async pages<T>(path: string): Promise<T[]> {
+      expect(path).toBe("pulls?state=all&base=main&head=carrythroughsystems:release-driver%2F400%2Fv0.7.5-prealpha.1-approve&per_page=100");
+      return [{ number: existing.number }] as T[];
+    }
+    override async readPr() { return existing; }
+  }
+  expect(REPOSITORY).toBe("carrythroughsystems/omp-session-gateway");
+  const runtime = new TransferredRuntime(driverConfig(), false);
+  expect(await runtime.openPr("approve", state())).toEqual(existing);
 });
 
 test("runtime refuses a moved pinned merge as stale, but a merge at another head as a hard stop", async () => {

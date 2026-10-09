@@ -554,7 +554,7 @@ async function preflightFixture(root: string, failure?: PreflightFailure): Promi
         return "123456";
       }
       if (invocation === "gh auth token") return failure === "github" ? "" : "private-credential";
-      if (invocation === "gh api repos/alphastorm/omp-session-gateway") return JSON.stringify({ permissions: { push: true } });
+      if (invocation === "gh api repos/carrythroughsystems/omp-session-gateway") return JSON.stringify({ permissions: { push: true } });
       if (command[0] === "gh" && command[1] === "release" && command[2] === "view") {
         return JSON.stringify({ tagName: command[3], isDraft: false, isPrerelease: command[3] === TAG });
       }

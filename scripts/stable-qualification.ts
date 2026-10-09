@@ -8,6 +8,7 @@ import { PRODUCT_VERSION as VERSION } from "./build-release.ts";
 import { runAdb, parseAndroidPackageVersion, readAndroidQualificationPin, requireAndroidDevicePreconditions, requireSingleDevice, resolveAndroidBrowserTarget } from "./android-device.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { releaseVersion } from "./release-policy.ts";
+import { verifyReleaseSignatures } from "./post-release-smoke.ts";
 import { fixtureModelError, OMP_FIXTURE_MODEL } from "./omp-fixture.ts";
 import { isSupportedOmpVersion, parseOmpVersion } from "./upstream-canary.ts";
 import { defaultLaneModules } from "./stable-lanes.ts";
@@ -15,10 +16,10 @@ import { pixelUnrestored } from "./restoration.ts";
 import { withReleaseHostLease } from "./release-host-lease.ts";
 import { createOmpStdinDriver, OmpLifecycleFailure, runOmpLifecycle, type OmpLifecycleEvidence, type OmpLifecycleHost, type OmpSessionWait } from "./omp-lifecycle-qualification.ts";
 
-const REPOSITORY = "alphastorm/omp-session-gateway";
+const REPOSITORY = "carrythroughsystems/omp-session-gateway";
 const ESCAPED_VERSION = VERSION.replaceAll(".", "\\.");
 const CANDIDATE_TAG_PATTERN = new RegExp(`^v${ESCAPED_VERSION}-prealpha\\.[1-9][0-9]*$`, "u");
-const SIGNED_WORKFLOW = "signed-release.yml";
+
 const DEBIAN_WORKFLOW = "droplet-qualification.yml";
 const DEBIAN_RUN_TITLE_PREFIX = "Stable qualification";
 const DEFAULT_MAC_LOGIN = "alphastorm@github";
@@ -832,24 +833,10 @@ export async function verifyRelease(
   );
   await runCommand(["shasum", "-a", "256", "-c", "SHA256SUMS"], { cwd: assetDirectory });
 
-  const signerWorkflow = `${REPOSITORY}/.github/workflows/${SIGNED_WORKFLOW}`;
-  const certificateIdentity = `https://github.com/${REPOSITORY}/.github/workflows/${SIGNED_WORKFLOW}@refs/tags/${tag}`;
   for (const asset of attestedAssetNames(version)) {
-    await runCommand(
-      ["gh", "attestation", "verify", join(assetDirectory, asset), "--repo", REPOSITORY, "--signer-workflow", signerWorkflow, "--source-ref", `refs/tags/${tag}`],
-      { timeoutMs: 300_000 },
+    await verifyReleaseSignatures(join(assetDirectory, asset), REPOSITORY, tag, argv =>
+      runCommand(argv, { timeoutMs: 300_000 }),
     );
-    await runCommand([
-      "cosign",
-      "verify-blob",
-      "--bundle",
-      join(assetDirectory, `${asset}.sigstore.json`),
-      "--certificate-identity",
-      certificateIdentity,
-      "--certificate-oidc-issuer",
-      "https://token.actions.githubusercontent.com",
-      join(assetDirectory, asset),
-    ]);
   }
   const archiveSha256 = sha256(await readFile(releaseArchivePath(assetDirectory, tag)));
   const release = JSON.parse(

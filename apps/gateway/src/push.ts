@@ -36,7 +36,7 @@ const IDENTITY_PATTERN = /^[^\0\r\n]{1,320}$/u;
  * exist, which a reserved `.invalid` name guaranteed; FCM never checks it, so the qualified
  * Android path hid the defect (#173). The repository is the one address every install shares.
  */
-const VAPID_SUBJECT = "https://github.com/alphastorm/omp-session-gateway";
+const VAPID_SUBJECT = "https://github.com/carrythroughsystems/omp-session-gateway";
 
 interface VapidKeyPair {
   readonly publicKey: string;

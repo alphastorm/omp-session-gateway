@@ -182,7 +182,8 @@ independent verifications run **on the droplet**, not on the workstation:
 1. `sha256sum --check SHA256SUMS`, with the measured archive digest printed;
 2. `cosign verify-blob` against each published `.sigstore.json` bundle, pinned to the exact
    certificate identity https://github.com/<repo>/.github/workflows/signed-release.yml@refs/tags/<tag>
-   and the GitHub Actions OIDC issuer;
+   and the GitHub Actions OIDC issuer. The signer repository is selected from the new owner and,
+   only for the closed pre-transfer tag set captured on 2026-10-09, the original owner;
 3. `gh attestation verify` for the archive, SBOM, and `SHA256SUMS`, pinned to `--signer-workflow` and
    `--source-ref refs/tags/<tag>`.
 

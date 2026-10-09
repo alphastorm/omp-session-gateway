@@ -283,7 +283,7 @@ The encrypted payload is exactly one of the following attention/clear envelopes,
 back to `session`. Presentation fields are built at send time and never persisted in gateway push
 state. Send with high urgency, a five-minute TTL, and no `Topic` header, because FCM throttles
 collapsible messages ([delivery](ATTENTION_SPEC.md#notification-lifecycle)). The
-VAPID `sub` claim is the repository URL, `https://github.com/alphastorm/omp-session-gateway`: a
+VAPID `sub` claim is the repository URL, `https://github.com/carrythroughsystems/omp-session-gateway`: a
 contact the push service can reach, which Apple enforces by rejecting the JWT otherwise. The
 service worker uses one notification tag per instance, updates it silently, closes it on `clear`,
 and sets or clears the app badge from `pendingAskCount`.

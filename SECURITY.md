@@ -7,7 +7,7 @@ OMP Session Gateway v0.4.0 is the current qualified stable release and works wit
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately through this repository's [GitHub Security Advisories](https://github.com/alphastorm/omp-session-gateway/security/advisories/new). Do not open a public issue containing:
+Please report suspected vulnerabilities privately through this repository's [GitHub Security Advisories](https://github.com/carrythroughsystems/omp-session-gateway/security/advisories/new). Do not open a public issue containing:
 
 - collaboration links or URL fragments;
 - OMP discovery/query tokens, gateway readiness tokens, or legacy publisher tokens;
@@ -38,7 +38,7 @@ The detailed threat model, trust boundaries, and release gates are in [`docs/SEC
 
 ## Supported versions
 
-Use the [current stable release](https://github.com/alphastorm/omp-session-gateway/releases/latest).
+Use the [current stable release](https://github.com/carrythroughsystems/omp-session-gateway/releases/latest).
 The [compatibility policy](docs/COMPATIBILITY.md) defines the exact supported host/client/deployment
 matrix; the [release ledger](docs/RELEASE_STATUS.md) records its evidence and known limitations.
 The minimum OMP version is not qualification of every later version or platform.

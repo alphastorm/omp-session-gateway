@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { REPOSITORY, REQUIRED_CHECKS, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
 import type { Decision, DriverConfig, DriverPort, DriverState, JobObservation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 import { assertReleaseTagState } from "./release-tag-state.ts";
-import { releaseAssetNames } from "./post-release-smoke.ts";
+import { releaseAssetNames, verifyReleaseSignatures } from "./post-release-smoke.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { compareReleaseArchives } from "./release-runtime-compare.ts";
 import type { StableQualificationReceipt } from "./stable-qualification.ts";
@@ -230,7 +230,7 @@ export class StudioDriver implements DriverPort {
   }
   async openPr(kind: "prepare" | "approve" | "record", state: DriverState): Promise<PullRequest> {
     const branch = `release-driver/${state.issue.number}/${state.candidate}-${kind}`;
-    const existing = await this.pages<ApiPr>(`pulls?state=all&base=main&head=alphastorm:${encodeURIComponent(branch)}&per_page=100`);
+    const existing = await this.pages<ApiPr>(`pulls?state=all&base=main&head=carrythroughsystems:${encodeURIComponent(branch)}&per_page=100`);
     if (existing.length > 1) throw new Error("multiple PRs use the deterministic release branch");
     if (existing.length === 1) {
       const pr = await this.readPr(existing[0]!.number);
@@ -304,8 +304,7 @@ export class StudioDriver implements DriverPort {
     for (const asset of names.all) await command(["gh", "release", "verify-asset", tag, join(directory, asset), "--repo", REPOSITORY], ROOT, this.env);
     await command(["shasum", "-a", "256", "-c", "SHA256SUMS"], directory, this.env);
     for (const asset of names.attested) {
-      await command(["gh", "attestation", "verify", join(directory, asset), "--repo", REPOSITORY, "--signer-workflow", `${REPOSITORY}/.github/workflows/signed-release.yml`, "--source-ref", `refs/tags/${tag}`], ROOT, this.env);
-      await command(["cosign", "verify-blob", "--bundle", join(directory, `${asset}.sigstore.json`), "--certificate-identity", `https://github.com/${REPOSITORY}/.github/workflows/signed-release.yml@refs/tags/${tag}`, "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", join(directory, asset)], ROOT, this.env);
+      await verifyReleaseSignatures(join(directory, asset), REPOSITORY, tag, argv => command(argv, ROOT, this.env));
     }
     const digest = createHash("sha256").update(await readFile(join(directory, names.archive))).digest("hex");
     const release = (await this.api<{ draft: boolean; prerelease: boolean; published_at: string; html_url: string; assets: { name: string; digest: string }[] }>(`releases/tags/${tag}`))!;

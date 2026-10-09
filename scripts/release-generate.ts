@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { assertStableReleaseQualification, releaseVersion } from "./release-policy.ts";
 import { externalCleanupCurrent, validateStableQualificationReceipt } from "./stable-qualification.ts";
 
-const REPO = "https://github.com/alphastorm/omp-session-gateway";
+const REPO = "https://github.com/carrythroughsystems/omp-session-gateway";
 const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SHA = /^[0-9a-f]{40}$/u;
 const DIGEST = /^[0-9a-f]{64}$/u;
@@ -359,7 +359,7 @@ export function generateRelease(tree: ReleaseTree, options: ReleaseGenerateOptio
       text(publication[key], `published ${key}`, pattern); equal(smoke[key], publication[key], `smoke ${key}`);
     }
     equal(publication.releaseUrl, `${REPO}/releases/tag/${tag}`, "published release URL");
-    text(publication.runUrl, "release run URL", /^https:\/\/github\.com\/alphastorm\/omp-session-gateway\/actions\/runs\/[0-9]+$/u);
+    text(publication.runUrl, "release run URL", /^https:\/\/github\.com\/carrythroughsystems\/omp-session-gateway\/actions\/runs\/[0-9]+$/u);
     timestamp(publication.publishedAt, "publication timestamp");
     for (const [section, keys] of Object.entries({ gateway: ["installed", "configPreserved", "readinessTokenPreserved"], tailscaleServe: ["unrelatedMappingsPreserved"], android: ["viewReadOnly", "controlWritable", "capabilitySinksClean", "samePageRecovery", "installedWebApk"], leaveInstalled: ["gateway", "mainlineOmp", "webApk"] })) {
       const value = object(smoke[section], `smoke ${section}`);

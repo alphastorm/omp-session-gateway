@@ -25,8 +25,72 @@ import {
   parsePostReleaseSmokeArgs,
   preflightPostReleaseAndroid,
   releaseAssetNames,
+  releaseSigningRepositories,
+  verifyReleaseSignatures,
   unrelatedServeSnapshot,
 } from "./post-release-smoke.ts";
+
+
+test.each([
+  ["alphastorm", "v0.7.5", true],
+  ["carrythroughsystems", "v0.7.6", true],
+  ["alphastorm", "v0.7.6", false],
+  ["alphastorm", "v0.7.5-prealpha.3", false],
+  ["foreign", "v0.7.5", false],
+])("release signing policy pins %s certificate at %s", async (owner, tag, accepted) => {
+  const signer = owner + "/omp-session-gateway";
+  const workflow = signer + "/.github/workflows/signed-release.yml";
+  const certificate = { identity: "https://github.com/" + workflow + "@refs/tags/" + tag, issuer: "https://token.actions.githubusercontent.com" };
+  const verified: string[] = [];
+  const run = async (argv: string[]) => {
+    const value = (flag: string) => argv[argv.indexOf(flag) + 1];
+    if (argv[0] === "cosign") {
+      expect(value("--bundle")).toBe("archive.tar.sigstore.json");
+      if (value("--certificate-identity") !== certificate.identity || value("--certificate-oidc-issuer") !== certificate.issuer) throw new Error("certificate refused");
+    } else {
+      expect(argv.slice(0, 4)).toEqual(["gh", "attestation", "verify", "archive.tar"]);
+      if (value("--repo") !== signer || value("--signer-workflow") !== workflow || value("--source-ref") !== "refs/tags/" + tag) throw new Error("provenance refused");
+    }
+    verified.push(argv[0]!);
+  };
+  if (accepted) {
+    await verifyReleaseSignatures("archive.tar", "carrythroughsystems/omp-session-gateway", tag, run);
+    expect(verified).toEqual(["cosign", "gh"]);
+  } else {
+    await expect(verifyReleaseSignatures("archive.tar", "carrythroughsystems/omp-session-gateway", tag, run)).rejects.toThrow();
+    expect(verified).toEqual([]);
+  }
+});
+
+test.each(["workflow", "ref", "issuer", "attestation"])("release verification refuses mismatched %s", async mismatch => {
+  await expect(verifyReleaseSignatures("archive.tar", "carrythroughsystems/omp-session-gateway", "v0.7.5", async argv => {
+    const value = (flag: string) => argv[argv.indexOf(flag) + 1];
+    const signer = "alphastorm/omp-session-gateway";
+    const workflow = signer + "/.github/workflows/" + (mismatch === "workflow" ? "other.yml" : "signed-release.yml");
+    const ref = mismatch === "ref" ? "refs/heads/main" : "refs/tags/v0.7.5";
+    const issuer = mismatch === "issuer" ? "https://untrusted.invalid" : "https://token.actions.githubusercontent.com";
+    if (argv[0] === "cosign") {
+      if (value("--certificate-identity") !== "https://github.com/" + workflow + "@" + ref || value("--certificate-oidc-issuer") !== issuer) throw new Error("certificate refused");
+    } else if (mismatch === "attestation") throw new Error("provenance refused");
+  })).rejects.toThrow();
+});
+
+test.skipIf(process.platform === "win32").each(["qualify-rollback.sh", "qualify-macos-host.sh", "provision-linux-qual.sh"])("%s uses the same closed historical signing policy", async script => {
+  const source = await Bun.file(new URL(script, import.meta.url)).text();
+  const policy = source.match(/release_signing_repositories\(\) \{[\s\S]*?\n\}/u)?.[0];
+  expect(policy).toBeDefined();
+  const historical = policy!.match(/case "\$tag" in\n\s+([^\n]+)\)/u)![1]!.split("|");
+  expect(historical).toHaveLength(83);
+  for (const tag of historical) expect(releaseSigningRepositories("carrythroughsystems/omp-session-gateway", tag)).toHaveLength(2);
+  for (const repository of ["carrythroughsystems/omp-session-gateway", "alphastorm/omp-session-gateway", "other/gateway"]) {
+    for (const tag of ["v0.1.0-alpha.1", "v0.7.5", "v0.7.6", "v0.7.5-prealpha.3", "v0.7.4-prealpha.99"]) {
+      const child = Bun.spawn(["bash", "-c", policy + '\nrelease_signing_repositories "$1" "$2"', "test", repository, tag], { stdout: "pipe", stderr: "pipe" });
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stderr).toBe(0);
+      expect(stdout.trim().split("\n")).toEqual(releaseSigningRepositories(repository, tag));
+    }
+  }
+});
 
 const SOURCE_COMMIT = "07ba8be884c268375890d50b1a6af51f22bdb16a";
 const ARCHIVE_SHA256 = "a".repeat(64);
@@ -141,7 +205,7 @@ describe("post-release smoke arguments", () => {
   test("defaults to the package's bare stable tag and accepts bounded rerun controls", () => {
     expect(parsePostReleaseSmokeArgs([], "0.1.0")).toEqual({
       tag: "v0.1.0",
-      repository: "alphastorm/omp-session-gateway",
+      repository: "carrythroughsystems/omp-session-gateway",
       forceReinstall: false,
       rebuildOmp: false,
       planOnly: false,
@@ -152,7 +216,7 @@ describe("post-release smoke arguments", () => {
           "--tag",
           "v0.1.0",
           "--repo",
-          "alphastorm/omp-session-gateway",
+          "carrythroughsystems/omp-session-gateway",
           "--archive-sha256",
           ARCHIVE_SHA256,
           "--force-reinstall",
@@ -163,7 +227,7 @@ describe("post-release smoke arguments", () => {
       ),
     ).toEqual({
       tag: "v0.1.0",
-      repository: "alphastorm/omp-session-gateway",
+      repository: "carrythroughsystems/omp-session-gateway",
       expectedArchiveSha256: ARCHIVE_SHA256,
       forceReinstall: true,
       rebuildOmp: true,

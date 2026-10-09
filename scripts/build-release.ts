@@ -510,7 +510,7 @@ export function createSpdxSbom(
       dataLicense: "CC0-1.0",
       SPDXID: "SPDXRef-DOCUMENT",
       name: `omp-session-gateway-${PRODUCT_VERSION}`,
-      documentNamespace: `https://github.com/alphastorm/omp-session-gateway/sbom/${PRODUCT_VERSION}/${source.commit}`,
+      documentNamespace: `https://github.com/carrythroughsystems/omp-session-gateway/sbom/${PRODUCT_VERSION}/${source.commit}`,
       creationInfo: {
         created: source.created,
         creators: ["Tool: omp-session-gateway deterministic release builder"],

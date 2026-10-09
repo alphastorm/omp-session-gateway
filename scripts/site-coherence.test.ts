@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const rootPath = fileURLToPath(new URL("../", import.meta.url));
 const sitePath = join(rootPath, "site");
-const siteOrigin = "https://alphastorm.github.io/omp-session-gateway/";
+const siteOrigin = "https://carrythroughsystems.github.io/omp-session-gateway/";
 
 /**
  * Assets the Pages workflow copies into `site/` at deploy time so the site never carries a
@@ -48,9 +48,9 @@ async function claimSurfaces(datedRecords: Record<string, true>): Promise<string
 // archives through several stable releases. Install and download surfaces therefore name no
 // release: links resolve GitHub Latest, and commands derive the version from the download.
 test("install and download surfaces link to the latest release and pin no version", async () => {
-  const latest = "https://github.com/alphastorm/omp-session-gateway/releases/latest";
+  const latest = "https://github.com/carrythroughsystems/omp-session-gateway/releases/latest";
   const gettingStarted = await section("README.md", "## Build and run");
-  const firstRelease = gettingStarted.match(/\]\((https:\/\/github\.com\/alphastorm\/omp-session-gateway\/releases\/[^)]+)\)/u)?.[1];
+  const firstRelease = gettingStarted.match(/\]\((https:\/\/github\.com\/carrythroughsystems\/omp-session-gateway\/releases\/[^)]+)\)/u)?.[1];
   expect(firstRelease, "the installation guide must start with the latest stable release").toBe(latest);
 
   const downloads: string[] = [];

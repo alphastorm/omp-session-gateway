@@ -156,6 +156,65 @@ Release prose lives in `scripts/release-text.json`, not in the workflow. The exi
 The golden v0.7.4 fixtures use a sanitized real candidate receipt and compare generated surfaces
 with committed release history; the fixture notes describe the retained public evidence.
 
+### Repository transfer window (Studio driver)
+
+The installed LaunchAgent is `~/Library/LaunchAgents/com.omp.gateway-release-driver.plist`,
+working in `~/Development/omp-session-gateway` as `gwops`. It invokes pinned Bun 1.4.0 with
+`scripts/release-driver.ts tick` every 300 seconds. The repository is the code constant
+`REPOSITORY`, not a plist argument or a gh host setting. The installed checkout does not follow
+main automatically. Its last inspected commit was `d70791bf490e4e38ca743b4738b856784b8ebc4b`.
+
+1. **Before transfer**, allow any campaign/job to finish; do not cut over between prepare and
+   approval. As `gwops` on the Studio, disable admission, inspect the state and shared lease,
+   and unload the timer only after all work is drained:
+
+   ```sh
+   export PATH="$HOME/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+   state="$HOME/.local/state/omp-session-gateway/release-driver"
+   touch "$state/disabled"
+   jq '{phase,candidate,intent,job}' "$state/state.json"
+   sqlite3 "$HOME/.local/state/omp-session-gateway/release-host/lease.sqlite" 'select * from campaign;'
+   tmux list-sessions
+   launchctl print "gui/$(id -u)/com.omp.gateway-release-driver"
+   # Proceed only when no driver tick/job or campaign lease is active.
+   launchctl bootout "gui/$(id -u)/com.omp.gateway-release-driver"
+   ```
+
+2. Transfer the repository in GitHub Settings → General → Transfer ownership to
+   `carrythroughsystems`. Preserve the bot's write access and the App installation's access.
+   Land the prepared organization-reference PR on the new repository **through all seven strict
+   required checks**; admins cannot bypass this protection. Keep the Studio disabled until that
+   PR merges. Redeploy the Pages workflow at the new owner; the old Pages URL does not redirect.
+
+3. **After the PR merges**, advance the installed checkout and check the bot's new repository
+   permissions. The plist, signing key, gh host `github.com` and user identities
+   `alphastorm-release`, `alphastorm` and `alpha-founder-source-alphastorm[bot]` do not change:
+
+   ```sh
+   cd "$HOME/Development/omp-session-gateway"
+   git remote set-url origin https://github.com/carrythroughsystems/omp-session-gateway
+   git fetch origin main
+   git switch main
+   git merge --ff-only origin/main
+   bun install --frozen-lockfile
+   bun test scripts/release-driver.test.ts scripts/post-release-smoke.test.ts
+   export GH_CONFIG_DIR="$HOME/.config/gh-release-bot"
+   unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+   gh api user --jq .login
+   gh api repos/carrythroughsystems/omp-session-gateway --jq '{full_name,permissions}'
+   bun scripts/release-driver.ts plan
+   # Require alphastorm-release, permissions.push=true, and an expected read-only plan.
+   launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
+   rm "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
+   launchctl kickstart "gui/$(id -u)/com.omp.gateway-release-driver"
+   ```
+
+Do not rely on old-name API redirects during the gap. Even redirected GET responses carry the
+new `head.repo.full_name`, so the old driver's exact repository comparisons no longer recognize
+orders/owned PRs. It also addresses comments, PR creation/merges and pushes with the old name;
+write redirect behavior is not a cutover guarantee. No state/receipt rewriting is needed for a
+drained driver: historical URLs are evidence, not dispatch targets.
+
 ### Studio installation (run as gwops after integration)
 
 The bot account is a repository collaborator with write access. Its registered Studio SSH signing
@@ -706,7 +765,7 @@ enabled and required before tagging. A maintainer can confirm it without using a
 secret:
 
 ```sh
-gh api repos/alphastorm/omp-session-gateway/immutable-releases --jq .enabled
+gh api repos/carrythroughsystems/omp-session-gateway/immutable-releases --jq .enabled
 ```
 
 It must print `true`. GitHub applies a 24-hour grace period after publication before
@@ -730,9 +789,16 @@ Install current GitHub CLI and Cosign releases, choose the tag, and download int
 directory:
 
 ```sh
-REPO=alphastorm/omp-session-gateway
+REPO=carrythroughsystems/omp-session-gateway
 TAG="$(gh release view --repo "$REPO" --json tagName --jq .tagName)"
 WORKFLOW=signed-release.yml
+# Historical signing identity snapshot, captured 2026-10-09; newest: v0.7.5,
+# published 2026-10-08T16:38:49Z. Never infer the signer from a redirected URL.
+SIGNING_REPO="$REPO"
+case "$TAG" in
+  v0.7.5|v0.7.5-prealpha.2|v0.7.5-prealpha.1|v0.7.4|v0.7.4-prealpha.1|v0.7.3|v0.7.3-prealpha.1|v0.7.2|v0.7.2-prealpha.2|v0.7.2-prealpha.1|v0.7.1|v0.7.1-prealpha.1|v0.7.0|v0.7.0-prealpha.1|v0.6.3|v0.6.3-prealpha.2|v0.6.3-prealpha.1|v0.6.2|v0.6.2-prealpha.1|v0.6.1|v0.6.1-prealpha.1|v0.6.0|v0.6.0-prealpha.4|v0.6.0-prealpha.3|v0.6.0-prealpha.2|v0.6.0-prealpha.1|v0.5.3|v0.5.3-prealpha.1|v0.5.2|v0.5.2-prealpha.1|v0.5.1|v0.5.1-prealpha.1|v0.5.0|v0.5.0-prealpha.1|v0.4.2|v0.4.2-prealpha.1|v0.4.1|v0.4.1-prealpha.3|v0.4.1-prealpha.2|v0.4.1-prealpha.1|v0.4.0|v0.4.0-prealpha.1|v0.3.0|v0.3.0-prealpha.3|v0.3.0-prealpha.2|v0.3.0-prealpha.1|v0.2.1|v0.2.1-prealpha.2|v0.2.0|v0.2.0-prealpha.1|v0.1.0-prealpha.25|v0.1.0-prealpha.24|v0.1.0|v0.1.0-prealpha.23|v0.1.0-prealpha.22|v0.1.0-prealpha.21|v0.1.0-beta.1|v0.1.0-prealpha.20|v0.1.0-prealpha.19|v0.1.0-prealpha.18|v0.1.0-alpha.1|v0.1.0-alpha|provenance-test-v0.1.0.11|v0.1.0-prealpha.17|v0.1.0-prealpha.13|v0.1.0-prealpha.12|v0.1.0-prealpha.11|v0.1.0-prealpha.9|v0.1.0-prealpha.10|v0.1.0-prealpha.8|v0.1.0-prealpha.7|v0.1.0-prealpha.6|v0.1.0-prealpha.5|v0.1.0-prealpha.4|v0.1.0-prealpha.3|v0.1.0-prealpha.2|v0.1.0-prealpha.1|provenance-test-v0.1.0.10|provenance-test-v0.1.0.9|provenance-test-v0.1.0.8|provenance-test-v0.1.0.7|provenance-test-v0.1.0.6|provenance-test-v0.1.0.5)
+    SIGNING_REPO=alphastorm/omp-session-gateway ;;
+esac
 
 mkdir release-verification
 gh release download "$TAG" --repo "$REPO" --dir release-verification
@@ -744,7 +810,11 @@ SBOM="$(ls omp-session-gateway-*.spdx.json)"
 Without a tag, `gh release view` resolves the current GitHub Latest release, which is always the
 qualified stable. To verify a historical artifact, set `TAG` to it and use its matching signing
 workflow: for example, `v0.1.0-beta.1` used `release.yml`, not `signed-release.yml`. Do not
-substitute today’s workflow identity for a historical receipt.
+substitute today’s workflow identity for a historical receipt. Repository downloads use the new
+owner, but signed certificates and attestation source repositories never change on transfer.
+The closed historical tag list above selects the old signing identity only for releases already
+published when this cutover was prepared; every other tag requires the new owner. Do not add
+future tags to that list or replace exact workflow/tag/issuer pins with a wildcard.
 Asset names carry the package version, not the tag: a candidate tagged `vX.Y.Z-prealpha.N`
 downloads `omp-session-gateway-X.Y.Z-bun.tar`, so the names are read from the fresh directory.
 
@@ -784,8 +854,8 @@ Verify GitHub build provenance against the exact repository, workflow, and tag r
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   gh attestation verify "$artifact" \
-    --repo "$REPO" \
-    --signer-workflow "$REPO/.github/workflows/$WORKFLOW" \
+    --repo "$SIGNING_REPO" \
+    --signer-workflow "$SIGNING_REPO/.github/workflows/$WORKFLOW" \
     --source-ref "refs/tags/$TAG"
 done
 ```
@@ -794,7 +864,7 @@ Verify the independent Sigstore bundles against the GitHub Actions OIDC issuer a
 workflow-ref certificate identity:
 
 ```sh
-CERTIFICATE_IDENTITY="https://github.com/$REPO/.github/workflows/$WORKFLOW@refs/tags/$TAG"
+CERTIFICATE_IDENTITY="https://github.com/$SIGNING_REPO/.github/workflows/$WORKFLOW@refs/tags/$TAG"
 for artifact in "$ARCHIVE" "$SBOM" SHA256SUMS
 do
   cosign verify-blob \

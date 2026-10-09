@@ -278,11 +278,15 @@ verifies both tags into it, installs, upgrades, rolls back, prints the invariant
 and removes the root on the way out. It exits non-zero if any invariant fails. `clean` is safe when
 nothing exists.
 
-The verification the script performs per tag, if you want to reproduce it by hand:
+The verification the script performs per tag, if you want to reproduce it by hand. This exact
+legacy tag was signed by the old owner using `release.yml`; preserve that certificate identity.
+For another tag, follow [Verify a published build](RELEASE.md#verify-a-published-build), which
+selects the historical signing owner only for the closed pre-transfer tag set and requires
+`carrythroughsystems/omp-session-gateway` for later releases:
 
 ```sh
 TAG=v0.1.0-alpha.1
-gh release download "$TAG" -R alphastorm/omp-session-gateway -D . --clobber \
+gh release download "$TAG" -R carrythroughsystems/omp-session-gateway -D . --clobber \
   -p omp-session-gateway-0.1.0-bun.tar \
   -p omp-session-gateway-0.1.0-bun.tar.sigstore.json \
   -p SHA256SUMS -p SHA256SUMS.sigstore.json

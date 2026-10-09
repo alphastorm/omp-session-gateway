@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/alphastorm/omp-session-gateway/schemas/stable-release.schema.json",
+  "$id": "https://github.com/carrythroughsystems/omp-session-gateway/schemas/stable-release.schema.json",
   "title": "OMP Session Gateway stable release qualification",
   "type": "object",
   "additionalProperties": false,

@@ -36,19 +36,19 @@ The Mac guest does not qualify physical firmware, FileVault, Secure Boot or star
 
 ## Canonical documents
 
-- [README](https://github.com/alphastorm/omp-session-gateway#readme): problem, user experience, build and run, how it compares
-- [Compatibility](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/COMPATIBILITY.md): qualified host/client/OMP combinations and support policy
-- [Release status](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md): per-candidate qualification evidence, authoritative where docs disagree
-- [Security](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/SECURITY.md): threat model, capability handling, acceptance gates
-- [Architecture](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/ARCHITECTURE.md): trust boundaries and components
-- [Protocol](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/PROTOCOL.md): IPC and HTTP contracts
-- [Operations](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OPERATIONS.md): install, Tailscale Serve, doctor, upgrade
-- [OMP integration](https://github.com/alphastorm/omp-session-gateway/blob/main/docs/OMP_INTEGRATION.md): stock mainline discovery/query contract, supported settings, and exact qualification boundary
-- [Stable release lock](https://github.com/alphastorm/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json) and [upstream lock](https://github.com/alphastorm/omp-session-gateway/blob/main/UPSTREAM.lock.json): machine-readable current claim
+- [README](https://github.com/carrythroughsystems/omp-session-gateway#readme): problem, user experience, build and run, how it compares
+- [Compatibility](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/COMPATIBILITY.md): qualified host/client/OMP combinations and support policy
+- [Release status](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/RELEASE_STATUS.md): per-candidate qualification evidence, authoritative where docs disagree
+- [Security](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/SECURITY.md): threat model, capability handling, acceptance gates
+- [Architecture](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/ARCHITECTURE.md): trust boundaries and components
+- [Protocol](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/PROTOCOL.md): IPC and HTTP contracts
+- [Operations](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/OPERATIONS.md): install, Tailscale Serve, doctor, upgrade
+- [OMP integration](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/docs/OMP_INTEGRATION.md): stock mainline discovery/query contract, supported settings, and exact qualification boundary
+- [Stable release lock](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/STABLE_RELEASE.lock.json) and [upstream lock](https://github.com/carrythroughsystems/omp-session-gateway/blob/main/UPSTREAM.lock.json): machine-readable current claim
 
 ## Web pages
 
-- [Overview](https://alphastorm.github.io/omp-session-gateway/)
-- [Compare](https://alphastorm.github.io/omp-session-gateway/compare/)
-- [Status](https://alphastorm.github.io/omp-session-gateway/status/)
-- [Security](https://alphastorm.github.io/omp-session-gateway/security/)
+- [Overview](https://carrythroughsystems.github.io/omp-session-gateway/)
+- [Compare](https://carrythroughsystems.github.io/omp-session-gateway/compare/)
+- [Status](https://carrythroughsystems.github.io/omp-session-gateway/status/)
+- [Security](https://carrythroughsystems.github.io/omp-session-gateway/security/)

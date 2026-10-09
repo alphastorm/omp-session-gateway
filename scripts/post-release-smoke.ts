@@ -32,7 +32,45 @@ import { requireAndroidDevicePreconditions, requireSingleDevice, runAdb, type An
 import { fixtureModelError, OMP_FIXTURE_ARGS, OMP_FIXTURE_ENV } from "./omp-fixture.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_REPOSITORY = "alphastorm/omp-session-gateway";
+// Published under alphastorm through v0.7.5 (2026-10-08T16:38:49Z), captured 2026-10-09.
+const HISTORICAL_RELEASE_TAGS = new Set(
+  "v0.7.5 v0.7.5-prealpha.2 v0.7.5-prealpha.1 v0.7.4 v0.7.4-prealpha.1 v0.7.3 v0.7.3-prealpha.1 v0.7.2 v0.7.2-prealpha.2 v0.7.2-prealpha.1 v0.7.1 v0.7.1-prealpha.1 v0.7.0 v0.7.0-prealpha.1 v0.6.3 v0.6.3-prealpha.2 v0.6.3-prealpha.1 v0.6.2 v0.6.2-prealpha.1 v0.6.1 v0.6.1-prealpha.1 v0.6.0 v0.6.0-prealpha.4 v0.6.0-prealpha.3 v0.6.0-prealpha.2 v0.6.0-prealpha.1 v0.5.3 v0.5.3-prealpha.1 v0.5.2 v0.5.2-prealpha.1 v0.5.1 v0.5.1-prealpha.1 v0.5.0 v0.5.0-prealpha.1 v0.4.2 v0.4.2-prealpha.1 v0.4.1 v0.4.1-prealpha.3 v0.4.1-prealpha.2 v0.4.1-prealpha.1 v0.4.0 v0.4.0-prealpha.1 v0.3.0 v0.3.0-prealpha.3 v0.3.0-prealpha.2 v0.3.0-prealpha.1 v0.2.1 v0.2.1-prealpha.2 v0.2.0 v0.2.0-prealpha.1 v0.1.0-prealpha.25 v0.1.0-prealpha.24 v0.1.0 v0.1.0-prealpha.23 v0.1.0-prealpha.22 v0.1.0-prealpha.21 v0.1.0-beta.1 v0.1.0-prealpha.20 v0.1.0-prealpha.19 v0.1.0-prealpha.18 v0.1.0-alpha.1 v0.1.0-alpha provenance-test-v0.1.0.11 v0.1.0-prealpha.17 v0.1.0-prealpha.13 v0.1.0-prealpha.12 v0.1.0-prealpha.11 v0.1.0-prealpha.9 v0.1.0-prealpha.10 v0.1.0-prealpha.8 v0.1.0-prealpha.7 v0.1.0-prealpha.6 v0.1.0-prealpha.5 v0.1.0-prealpha.4 v0.1.0-prealpha.3 v0.1.0-prealpha.2 v0.1.0-prealpha.1 provenance-test-v0.1.0.10 provenance-test-v0.1.0.9 provenance-test-v0.1.0.8 provenance-test-v0.1.0.7 provenance-test-v0.1.0.6 provenance-test-v0.1.0.5".split(" "),
+);
+
+export function releaseSigningRepositories(repository: string, tag: string): string[] {
+  if (repository !== "carrythroughsystems/omp-session-gateway" && repository !== "alphastorm/omp-session-gateway") return [repository];
+  return HISTORICAL_RELEASE_TAGS.has(tag)
+    ? ["carrythroughsystems/omp-session-gateway", "alphastorm/omp-session-gateway"]
+    : ["carrythroughsystems/omp-session-gateway"];
+}
+
+/** Historical signatures keep their original repository identity after a transfer. */
+export async function verifyReleaseSignatures(
+  artifact: string,
+  repository: string,
+  tag: string,
+  run: (argv: string[]) => Promise<unknown>,
+): Promise<void> {
+  const repositories = releaseSigningRepositories(repository, tag);
+  let failure: unknown;
+  for (const signer of repositories) {
+    const workflow = `${signer}/.github/workflows/signed-release.yml`;
+    try {
+      await run(["cosign", "verify-blob", "--bundle", `${artifact}.sigstore.json`,
+        "--certificate-identity", `https://github.com/${workflow}@refs/tags/${tag}`,
+        "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", artifact]);
+      // --repo validates the attestation's source repository, not just its download location.
+      await run(["gh", "attestation", "verify", artifact, "--repo", signer,
+        "--signer-workflow", workflow, "--source-ref", `refs/tags/${tag}`]);
+      return;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure;
+}
+
+const DEFAULT_REPOSITORY = "carrythroughsystems/omp-session-gateway";
 const COMMAND_OUTPUT_LIMIT = 4 * 1024 * 1024;
 const STABLE_TAG_PATTERN = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -425,39 +463,9 @@ async function verifyPublishedRelease(
     if (assetDigests.get(name) !== `sha256:${localDigest}`) throw new Error(`GitHub asset digest mismatch for ${name}`);
   }
 
-  const workflow = `${options.repository}/.github/workflows/signed-release.yml`;
-  const certificateIdentity = `https://github.com/${workflow}@refs/tags/${options.tag}`;
   for (const name of names.attested) {
-    await runCommand(
-      `GitHub attestation for ${name}`,
-      [
-        "gh",
-        "attestation",
-        "verify",
-        join(downloadDirectory, name),
-        "--repo",
-        options.repository,
-        "--signer-workflow",
-        workflow,
-        "--source-ref",
-        `refs/tags/${options.tag}`,
-      ],
-      { timeoutMs: 180_000, safeFailureOutput: true },
-    );
-    await runCommand(
-      `Sigstore bundle for ${name}`,
-      [
-        "cosign",
-        "verify-blob",
-        "--bundle",
-        join(downloadDirectory, `${name}.sigstore.json`),
-        "--certificate-identity",
-        certificateIdentity,
-        "--certificate-oidc-issuer",
-        "https://token.actions.githubusercontent.com",
-        join(downloadDirectory, name),
-      ],
-      { timeoutMs: 180_000, safeFailureOutput: true },
+    await verifyReleaseSignatures(join(downloadDirectory, name), options.repository, options.tag, argv =>
+      runCommand(`Release signature for ${name}`, argv, { timeoutMs: 180_000, safeFailureOutput: true }),
     );
   }
 

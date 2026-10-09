@@ -16,7 +16,8 @@ const originals = historicalTrees();
 const receipt = await fixture("v0.7.4.receipt.json");
 const smoke = await fixture("v0.7.4.smoke.json");
 const status = await fixture("v0.7.4.status.json");
-const publication = await fixture("v0.7.4.publication.json");
+// Preserve the recorded fixture; simulate its publication at the transferred repository.
+const publication = JSON.parse(JSON.stringify(await fixture("v0.7.4.publication.json")).replaceAll("https://github.com/alphastorm/omp-session-gateway", "https://github.com/carrythroughsystems/omp-session-gateway"));
 const releaseText = await readFile(new URL("v0.7.4.release-text.json", fixtures), "utf8");
 const prepareOptions: ReleaseGenerateOptions = { command: "prepare", version: "0.7.4", date: "2026-10-03" };
 const approveOptions: ReleaseGenerateOptions = { command: "approve", version: "v0.7.4", date: "2026-10-03", candidateTag: "v0.7.4-prealpha.1", receipt };
@@ -40,11 +41,19 @@ test("the visible historical archive preserves every replaced v0.7.4 operator fa
 
 for (const [name, scenario] of Object.entries(cases)) {
   test(`${name}: real v0.7.4 parent produces every full-file golden byte hash`, () => {
-    const actual = Object.fromEntries(Object.entries(scenario.result).map(([path, bytes]) => [path, createHash("sha256").update(bytes).digest("hex")]));
+    // Keep the historical golden bytes; only newly generated repository links move owners.
+    const actual = Object.fromEntries(Object.entries(scenario.result).map(([path, bytes]) => [path, createHash("sha256").update(bytes.replaceAll("https://github.com/carrythroughsystems/omp-session-gateway", "https://github.com/alphastorm/omp-session-gateway")).digest("hex")]));
     expect(actual).toEqual(goldens[name]!);
     expect(generateRelease(scenario.before, scenario.options)).toEqual(scenario.result);
   });
 }
+
+test("new release generation uses the transferred repository", () => {
+  expect(approved["docs/RELEASE_STATUS.md"]).toContain("https://github.com/carrythroughsystems/omp-session-gateway/releases/tag/v0.7.4-prealpha.1");
+  expect(recorded["docs/RELEASE_STATUS.md"]).toContain(publication.releaseUrl);
+  const oldPublication = { ...publication, runUrl: publication.runUrl.replace("carrythroughsystems", "alphastorm") };
+  expect(() => generateRelease(recordBefore, { ...recordOptions, publication: oldPublication })).toThrow("release run URL");
+});
 
 test("v0.7.4 package/lock/constants exactly reproduce the manual prepare commit", () => {
   for (const path of Object.keys(prepared).filter(path => path.endsWith("package.json") || path.endsWith(".ts") || path === "bun.lock")) {
@@ -142,7 +151,7 @@ test.skipIf(process.platform === "win32")("workflow data extraction renders exac
       const end = workflow.indexOf("\n          fi\n", start) + "\n          fi".length;
       const script = workflow.slice(start, end).replace(/^          /gmu, "");
       const process = Bun.spawn(["bash", "-euo", "pipefail", "-c", script + '\ncat "$notes"'], {
-        cwd: directory, env: { ...globalThis.process.env, notes: join(directory, "notes.md"), GITHUB_REF_NAME: tag, OMP_RELEASE_CHANNEL: channel, PACKAGE_VERSION: "0.7.4", QUALIFIED_PREVIOUS_TAG: "v0.7.3", GITHUB_SHA: "dcfa0b32503ca83e71e15d2872eff920831b14ac", GITHUB_REPOSITORY: "alphastorm/omp-session-gateway", upstream_commit: "d0cc52397dc2a68d39cba49b0009b9e50ffd643e", upstream_tag: "v18.5.1" }, stdout: "pipe", stderr: "pipe",
+        cwd: directory, env: { ...globalThis.process.env, notes: join(directory, "notes.md"), GITHUB_REF_NAME: tag, OMP_RELEASE_CHANNEL: channel, PACKAGE_VERSION: "0.7.4", QUALIFIED_PREVIOUS_TAG: "v0.7.3", GITHUB_SHA: "dcfa0b32503ca83e71e15d2872eff920831b14ac", GITHUB_REPOSITORY: "carrythroughsystems/omp-session-gateway", upstream_commit: "d0cc52397dc2a68d39cba49b0009b9e50ffd643e", upstream_tag: "v18.5.1" }, stdout: "pipe", stderr: "pipe",
       });
       const output = await new Response(process.stdout).text();
       expect(await process.exited, await new Response(process.stderr).text()).toBe(0);
