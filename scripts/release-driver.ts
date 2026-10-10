@@ -178,7 +178,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     if (comparison > 0) return state.phase === "held" ? idle("main baseline is newer than this request") : decision("hold", "held", "main baseline is newer than this request");
     if (comparison < 0) {
       const pr = repo.order;
-      if (pr === undefined || !isOrder(pr) || pr.state !== "open") return idle("waiting for matching Alpha Founder draft order PR");
+      if (pr === undefined || !isOrder(pr) || pr.state !== "open") return idle("waiting for matching Carrythrough draft order PR");
       const outside = outsideOrderScope(pr);
       if (outside.length > 0) return state.phase === "held" ? idle("held: order changes outside ORDER_SCOPE") : decision("hold", "held", `order #${pr.number} changes outside ORDER_SCOPE: ${outside.join(", ")}`, { links: [pr.url] });
       // A held order is never auto-landed later, even if somebody edits it into scope.

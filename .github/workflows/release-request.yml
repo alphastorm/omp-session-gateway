@@ -158,7 +158,7 @@ jobs:
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           gh label create release-request --repo "$GITHUB_REPOSITORY" --color 0e8a16 --force >/dev/null
           # Pagination avoids missing an older identical open request. Only bot-authored issues
-          # satisfy the Alpha Founder tracking contract; pull requests and human lookalikes do not.
+          # satisfy the Carrythrough tracking contract; pull requests and human lookalikes do not.
           matches=$(gh api --method GET --paginate "repos/$GITHUB_REPOSITORY/issues" -f state=open -f per_page=100 \
             --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .title == \"$title\") | [.number, any(.labels[]; .name == \"release-request\")] | @tsv")
           if [[ -n "$matches" ]]; then

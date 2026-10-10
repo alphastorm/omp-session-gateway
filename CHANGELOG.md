@@ -42,7 +42,7 @@ This release uses stock OMP v18.8.3 as its engineering baseline. The 8 changelog
   approve PR; exact-head checks, signed tags, candidate qualification, runtime equality, published
   provenance, rebuilt digests and installed-byte smoke remain mandatory.
 - Deterministic prepare/approve/record generation with v0.7.4 golden evidence, workflow-independent
-  release text, and a device-free offline `check:order` lane for Alpha Founder patches.
+  release text, and a device-free offline `check:order` lane for Carrythrough patches.
 
 ### Changed
 

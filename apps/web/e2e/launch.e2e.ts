@@ -322,7 +322,7 @@ test("embedded active ask matches the original 3d shell interaction", async ({ p
     await page.addInitScript(({ keyBytes }) => {
       const question = "How should ADR-0036 proceed?";
       const options = [
-        { label: "Implement ADR-0036 locally", description: "Apply the compatibility fix in Alpha Founder." },
+        { label: "Implement ADR-0036 locally", description: "Apply the compatibility fix in the gateway." },
         { label: "Wait for upstream", description: "Leave the current behavior unchanged." },
       ];
       const args = {
