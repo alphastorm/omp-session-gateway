@@ -122,8 +122,8 @@ accepts only smoke evidence of an install, so every driver smoke reinstalls the 
 Each state transition posts exactly one reconciled bot comment:
 `release-driver: <state> — <detail>`, followed by links.
 
-An order must be authored by `alpha-founder-source-alphastorm[bot]` with GitHub type `Bot`,
-from this repository's `alpha-founder/*` head into `main`, first observed as a draft. Only these
+An order must be authored by `carrythroughsystems[bot]` with GitHub type `Bot`,
+from this repository's `carrythrough/*` head into `main`, first observed as a draft. Only these
 paths, in this order, belong to the binding's ORDER_SCOPE:
 
 1. `CHANGELOG.md`
@@ -188,7 +188,7 @@ main automatically. Its last inspected commit was `d70791bf490e4e38ca743b4738b85
 
 3. **After the PR merges**, advance the installed checkout and check the bot's new repository
    permissions. The plist, signing key, gh host `github.com` and user identities
-   `alphastorm-release`, `alphastorm` and `alpha-founder-source-alphastorm[bot]` do not change:
+   `alphastorm-release`, `alphastorm` and the order App's bot do not change:
 
    ```sh
    cd "$HOME/Development/omp-session-gateway"
