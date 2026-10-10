@@ -33,10 +33,9 @@ a candidate, a passed receipt, or an approved lock never promotes itself. Work f
 of `main` that matches `origin/main` (`qualify:stable` refuses detached or unpublished commits), with
 pinned Bun `1.4.0` first on `PATH`.
 
-Three steps need an explicit maintainer decision: the release itself (scope, promotion, and
-publication), the live qualification run (a billed Debian droplet, a disposable Windows VM, the
-retained Mac, the attached Pixel, and the relay check), and the published-byte smoke (it upgrades
-the installed gateway and drives the Pixel).
+The manual path requires an explicit maintainer decision for scope/publication, live qualification
+and installed-byte smoke. The standing routine driver below already has authority for these steps
+within its patch-release class and existing resource caps; it does not ask again per release.
 
 1. **Prepare the candidate.** One `chore(release): prepare X.Y.Z` PR bumps the version in the five
    `package.json` files, `PRODUCT_VERSION` in `apps/gateway/src/diagnostics.ts` and
@@ -84,8 +83,9 @@ rerun or claimed, and no historical eight-hour receipt transfers.
 ## Unattended release driver
 
 The opt-in Studio driver makes every automated repository write as `alphastorm-release`.
-The weekly workflow or a manual dispatch starts a request, and the founder merges one generated
-approve PR; there is no Slack authority, button, or token. Slack may relay only the first line of a
+The weekly workflow or a manual dispatch starts a request. Under standing routine authority the
+release bot merges the generated exact-subject promotion PR; there is no per-release founder
+approval, Slack authority, button, or token. Slack may relay only the first line of a
 release-bot progress comment. The manual procedure above remains available, but must never overlap a driver
 campaign or smoke.
 
@@ -115,7 +115,7 @@ an order. The issue body is for humans; the driver never parses it. A successful
 read-only gh session before bot credentials are installed. `tick` advances at most one step:
 select the highest trusted open request, land the exact Carrythrough draft order, generate and
 merge prepare, sign/publish/verify the candidate, preflight and qualify, generate and locally check
-approve, wait for the founder, sign/publish/verify stable (including rebuilt-digest equality), smoke
+approve, check routine authority, merge as the release bot, sign/publish/verify stable (including rebuilt-digest equality), smoke
 with `--force-reinstall --rebuild-omp`, generate/merge record, and close fulfilled requests. A
 retried smoke finds the stable gateway already active from the failed attempt, and the record
 accepts only smoke evidence of an install, so every driver smoke reinstalls the published bytes.
@@ -143,11 +143,45 @@ Behind branches are updated before rechecking; merges are squash merges with `--
 No driver push targets `main`. Strict branch protection and signed-commit requirements remain in
 force; GitHub supplies the signed squash merge. Auto-merge stays disabled.
 
-The approve PR is different: only the configured founder may merge it. The locally checked head
-and tree are durably pinned; a changed head, a different merged tree, closure without merging, or
-a merge by another login stops the driver. Before asking for approval, the Studio runs the stable
-build, candidate runtime comparison, release-policy gate, smoke plan and `bun run check` from the
-exact approve head. Stable signing rechecks the founder/tree binding again.
+The promotion PR remains the reviewable exact-subject artifact. Standing authority permits only
+the next patch version, eligible upstream baseline orders, and fixes/performance fixes/reverts
+already reviewed and merged by the configured maintainer. The installed checkout is the separately
+reviewed setup baseline. Later source commits require an associated merged main PR in those
+classes or a bot-owned generated release record; unclassified/direct source commits refuse.
+
+Before bot merge the Studio durably pins candidate tag/source/digest, promotion head/tree and the
+installed-policy fingerprint. Its passed receipt must bind qualification, stable build, candidate
+runtime comparison, release-policy gate, smoke plan and local checks to that subject. All seven
+GitHub checks must pass on the same head. The legacy phase name "approval-required" evaluates
+this predicate; it no longer asks the founder. Only the configured release bot may merge this PR.
+Stable signing independently rereads merger, merge source/tree, evidence, current main and policy.
+Main movement after prepare is a stale-source hold, never silent incorporation of newer work.
+
+A routine release cannot change its own controls: all .github/ paths (signers, credential permissions,
+checks and CODEOWNERS), all schemas/, all scripts/ except generated release-text.json and the
+order-scoped windows-qualification-pins.json, AGENTS.md/CLAUDE.md, tsconfig/bunfig/other lock controls,
+and docs/RELEASE.md, docs/TEST_PLAN.md, docs/SECURITY.md are protected. Package manifests and bun.lock
+are fingerprinted with only generated workspace versions omitted; build-release.ts omits only its
+generated product-version literal. Ordinary source/test fixes do not change quality requirements.
+Added/deleted control paths and rename-from paths cannot evade the comparison. The live main
+branch-protection attestation, configured bot/source-reviewer identities and required-check list also
+enter the fingerprint. The setup reviewer observed classic main protection: strict seven required
+checks; enforce_admins=true; stale-review dismissal=true; zero required approving reviews;
+code-owner/last-push approval=false; signed commits=true; linear history=false; force pushes and
+deletions=false; conversation resolution=true; restrictions=null. These exact admin-only facts are
+committed as ROUTINE_BRANCH_PROTECTION. At runtime the unprivileged bot rereads protected=true,
+protection enabled for everyone and the exact seven contexts from /branches/main, plus the merged
+commit verification.verified signature and PR merger metadata. A readable divergence holds. The
+bot cannot reread admin-only fields: they are attested, not claimed as freshly observed. Changing
+the attestation or an admin-only setting is the separately reviewed F3 setup path; never broaden
+the machine credential to administration access. Changing the installed-policy fingerprint requires the same separately
+reviewed one-time setup/installation path, never a release-bot self-upgrade.
+
+ROUTINE_HOLD_REASONS in scripts/release-policy.ts enumerates authority-path-changed, policy-changed,
+out-of-class, stale-source, missing-evidence, head-tree-changed, unexpected-merger,
+pr-identity-changed, required-checks-missing, merge-tree-changed, merge-missing and merge-signature-missing. Pending required
+checks wait without an effect; other holds preserve the subject for operator review. A historical
+passed job without the exact evidence binding grants no authority.
 
 Prepare, approve and record use `scripts/release-generate.ts` with an explicit persisted
 `--date YYYY-MM-DD`; package/workspace versions and source constants are mechanical edits.
@@ -268,6 +302,31 @@ Configuration is `OMP_RELEASE_BOT_LOGIN`, `OMP_RELEASE_FOUNDER_LOGIN`,
 `OMP_RELEASE_GH_CONFIG_DIR`, `OMP_RELEASE_SIGNING_KEY`, `OMP_RELEASE_STATE_DIR` (absolute
 paths), and `OMP_RELEASE_DRY_RUN=1|true`. Defaults match the paths above.
 
+### Readiness and credential expiry
+
+Both plan and status are read-only, including local state. Plan includes readiness alongside its
+proposed operation; status reports phase, candidate, pending intent/outbox and typed hold. Readiness
+uses the dedicated machine account even when a plan uses an existing read-only gh session for
+repository reads. It checks private credential-file ownership/mode/presence, required tools,
+pinned Darwin-arm64 Bun, configured retained guest/SSH reachability, one authorized adb device,
+repository write identity, writer-readable branch-protection facts, disabled/dry-run switches and
+the shared lease. Admin-only facts use the installed attestation above, not inferred defaults. Normal ticks persist
+sanitized readiness.json before new-request admission; false prerequisites leave requests unconsumed.
+No raw credential, device serial or response header is persisted.
+
+GitHub credential expiry is reported from its response header when supplied. Service-account,
+Tailscale and Vultr expiry/validity remain explicitly unknown without supported metadata; the
+driver does not invent validity or refresh credentials. TestingBot catalog/device availability,
+Pixel PIN/WebAPK, workflow-secret validity and retained guest full preflight remain mandatory
+candidate preflight requirements. File presence/SSH reachability are not full-matrix qualification
+or zero-touch proof. Readiness lists unobserved checks explicitly. Resolve missing prerequisites,
+wrong bot identity or an unreadable/owned lease before arming; never delete the owning lease.
+
+The Funnel check is gateway-scoped: unrelated Mana/Studio Funnels stay live. Funnel on the gateway
+Serve authority, proxy/TCP routes to its backend, foreground gateway exposure, and unparseable
+relevant configuration refuse. Do not pause unrelated investor Funnels to pass smoke. Published-byte
+smoke still forces reinstall and checks every doctor result; public gateway exposure stays prohibited.
+
 ### Durable jobs, failures and kill switch
 
 State lives under `~/.local/state/omp-session-gateway/release-driver/`: atomic/fsynced
@@ -282,8 +341,11 @@ Campaign, approve checks and smoke run detached in named tmux sessions with a st
 result and exit file under `jobs/`. Campaign receipts remain at
 `~/.local/share/omp-session-gateway/qualification/<candidate>/stable-qualification.json`.
 Qualification and smoke use their existing shared release-host lease (including its durable failed
-owner); the driver never deletes, replaces or steals it. A failed/missing long job enters
-`diagnostic-required`, reports non-passed lanes, and is not retried. An explicit new green request
+owner); the driver never deletes, replaces or steals it. A failed/missing device/cloud job enters
+diagnostic-required, reports non-passed lanes, and is not retried. A missing local approve-check
+worker can resume only at the same head/tree and policy; no device, cloud or publication action
+is replayed. Passed/failed results are never overwritten to invent a retry. The saved intent and
+outbox reconcile accepted bot merges and announcements after a crash; immutable tags never move. An explicit new green request
 after a fix on main selects the next prealpha only after the previous lease is recovered. Follow
 [Release gates](#release-gates) for cleanup/recovery of that exact old campaign first; a new request
 is not permission to abandon cloud/device resources. Failed receipts stay unchanged. Public

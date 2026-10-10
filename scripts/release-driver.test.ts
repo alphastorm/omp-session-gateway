@@ -1,21 +1,72 @@
 import { describe, expect, test } from "bun:test";
-import { botEnvironment, driverConfig, StudioDriver } from "./release-driver-runtime.ts";
+
+test("routine merge accepted before crash reconciles without another merge or tag", async () => {
+  const fake = new FakeDriver();
+  fake.state = { ...state("approval-required"), approvedHead: evidence.head, approvedTree: evidence.tree, candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401 };
+  fake.repo.approve = pr(); fake.failSave = 2;
+  await expect(tick(fake, config)).rejects.toThrow("simulated crash");
+  expect(fake.state.intent?.operation).toBe("merge-approve");
+  expect(fake.repo.approve.merged).toBe(true);
+  expect((await tick(fake, config)).operation).toBe("merge-approve");
+  expect(fake.performed.filter(op => op === "merge-approve")).toHaveLength(1);
+  expect(fake.state.stableCommit).toBe("2".repeat(40));
+});
+test("changed authority during effect replay becomes a durable typed hold and reconciled outbox", async () => {
+  class ChangedAuthority extends FakeDriver {
+    override async perform(): Promise<Partial<DriverState>> { throw new RoutineHoldError("policy-changed"); }
+  }
+  const fake = new ChangedAuthority(); fake.state = state();
+  expect((await tick(fake, config)).holdReason).toBe("policy-changed");
+  expect(fake.state.holdReason).toBe("policy-changed");
+  expect(fake.state.intent).toBeUndefined();
+  expect((await tick(fake, config)).operation).toBe("idle");
+  expect(fake.comments.size).toBe(1);
+});
+test("only a vanished same-subject local approve job resumes; campaign and smoke remain diagnostic", () => {
+  const checking = { ...state("approve-checking"), approvedHead: evidence.head, approvedTree: evidence.tree };
+  expect(nextStep(checking, snapshot({ approve: pr(), approveChecks: { status: "absent" } }), config).operation).toBe("start-approve-checks");
+  expect(nextStep(checking, snapshot({ approve: pr({ head: "d".repeat(40) }), approveChecks: { status: "absent" } }), config).holdReason).toBe("head-tree-changed");
+  for (const phase of ["qualifying", "smoking"] as const) expect(nextStep(state(phase), snapshot({ campaign: { status: "absent" }, smoke: { status: "absent" } }), config).operation).toBe("stop");
+});
+test("GitHub credential expiry is reported without persisting raw credential headers", () => {
+  expect(credentialExpiry("x-oauth-scopes: repo")).toEqual({ status: "unknown" });
+  expect(credentialExpiry("GitHub-Authentication-Token-Expiration: 2026-10-10 00:00:00 UTC", Date.parse("2026-10-09"))).toEqual({ status: "valid", expiresAt: "2026-10-10T00:00:00.000Z" });
+  expect(credentialExpiry("github-authentication-token-expiration: 2026-10-08", Date.parse("2026-10-09")).status).toBe("expired");
+});
+test("routine controls normalize generated versions but retain policy and dependency changes", async () => {
+  class Controls extends StudioDriver {
+    override async git(args: string[]) {
+      if (args[0] === "ls-tree") return ["100644 blob a\tpackage.json", "100644 blob b\tbun.lock", "100644 blob c\tscripts/build-release.ts", "100644 blob d\t.github/workflows/signed-release.yml"].join("\n");
+      const version = args[1]!.startsWith("old:") ? "0.7.5" : "0.7.6";
+      if (args[1]!.endsWith(":package.json")) return JSON.stringify({ version, scripts: { check: "bun test" } });
+      if (args[1]!.endsWith(":bun.lock")) return '{\n    "apps/gateway": {\n      "name": "gateway",\n      "version": "' + version + '",\n    },\n}';
+      return 'export const PRODUCT_VERSION = "' + version + '";';
+    }
+  }
+  const runtime = new Controls(driverConfig(), true);
+  expect(await runtime.controls("old", true)).toEqual(await runtime.controls("new", true));
+});
+
+import { botEnvironment, credentialExpiry, driverConfig, StudioDriver } from "./release-driver-runtime.ts";
 import { compareVersions, isOrder, nextCandidate, nextStep, ORDER_SCOPE, outsideOrderScope, REPOSITORY, selectRequest, StaleIntentError, tick } from "./release-driver.ts";
 import type { Decision, DriverPort, DriverState, Operation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 
+import { ROUTINE_EVIDENCE_STEPS, RoutineHoldError } from "./release-policy.ts";
+const authority = { policy: "policy-1", protectedChanges: [], sourceReviewed: true, sourceFresh: true, patchRelease: true };
+const evidence = { head: "b".repeat(40), tree: "c".repeat(40), candidate: "v0.7.5-prealpha.1", candidateCommit: "e".repeat(40), candidateDigest: "f".repeat(64), policy: authority.policy, steps: ROUTINE_EVIDENCE_STEPS };
 const config = { bot: "alphastorm-release", founder: "alphastorm" };
 const issue: TrackingIssue = { number: 400, title: "Upstream tracking: v18.8.3", author: "github-actions[bot]", request: "42:1", url: "https://github.com/carrythroughsystems/omp-session-gateway/issues/400" };
 function state(phase: DriverState["phase"] = "selected"): DriverState {
-  return { schemaVersion: 1, sequence: 1, phase, issue: { ...issue }, version: "0.7.5", candidate: "v0.7.5-prealpha.1", selectedMain: "a".repeat(40), date: "2026-10-07" };
+  return { schemaVersion: 1, sequence: 1, phase, issue: { ...issue }, version: "0.7.5", candidate: "v0.7.5-prealpha.1", selectedMain: "a".repeat(40), previousStable: "v0.7.4", authorityPolicy: authority.policy, date: "2026-10-07" };
 }
 function pr(overrides: Partial<PullRequest> = {}): PullRequest {
-  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, behind: false, checksPassed: true, files: [], url: "https://github.com/carrythroughsystems/omp-session-gateway/pull/401", ...overrides };
+  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, mergeVerified: true, behind: false, checksPassed: true, files: [], url: "https://github.com/carrythroughsystems/omp-session-gateway/pull/401", ...overrides };
 }
 function order(overrides: Partial<PullRequest> = {}): PullRequest {
   return pr({ author: "carrythroughsystems[bot]", authorType: "Bot", headRef: "carrythrough/order-400", draft: true, files: ORDER_SCOPE.map(filename => ({ filename })), ...overrides });
 }
 function snapshot(overrides: Partial<RepositorySnapshot> = {}): RepositorySnapshot {
-  return { main: "a".repeat(40), upstreamTag: "v18.8.3", latestStable: "v0.7.4", tags: ["v0.7.4", "v0.7.4-prealpha.1"], issues: [{ ...issue }], ...overrides };
+  return { main: "a".repeat(40), upstreamTag: "v18.8.3", latestStable: "v0.7.4", tags: ["v0.7.4", "v0.7.4-prealpha.1"], issues: [{ ...issue }], authority, evidence, ...overrides };
 }
 class FakeDriver implements DriverPort {
   state: DriverState | undefined;
@@ -45,13 +96,14 @@ class FakeDriver implements DriverPort {
       case "update-order": this.repo.order!.behind = false; this.repo.order!.head = "d".repeat(40); break;
       case "ready-order": this.repo.order!.draft = false; break;
       case "merge-order": this.repo.upstreamTag = "v18.8.3"; this.repo.main = "9".repeat(40); break;
-      case "open-prepare": this.prepareSources.push(current.selectedMain); this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402 }; break;
+      case "open-prepare": this.prepareSources.push(current.selectedMain); this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402, authorityPolicy: authority.policy }; break;
       case "merge-prepare": patch = { candidateCommit: "e".repeat(40) }; break;
       case "tag-candidate": this.repo.candidateWorkflow = "passed"; break;
       case "verify-candidate": patch = { candidateDigest: "f".repeat(64) }; break;
       case "start-campaign": this.repo.campaign = { status: "passed" }; break;
       case "open-approve": this.repo.approve = pr(); patch = { approvePr: 401 }; break;
       case "start-approve-checks": this.repo.approveChecks = { status: "passed" }; break;
+      case "merge-approve": Object.assign(this.repo.approve!, { state: "closed", merged: true, mergedBy: config.bot, mergeTree: current.approvedTree, mergeCommit: "2".repeat(40) }); patch = { stableCommit: "2".repeat(40) }; break;
       case "tag-stable": this.repo.stableWorkflow = "passed"; break;
       case "verify-stable": patch = { stableDigest: "1".repeat(64) }; break;
       case "start-smoke": this.repo.smoke = { status: "passed" }; break;
@@ -81,12 +133,8 @@ test("one tick advances at most one step across the complete happy path", async 
   const fake = new FakeDriver();
   fake.repo.upstreamTag = "v18.5.1";
   fake.repo.order = order({ behind: true });
-  const expected: Operation[] = ["select", "update-order", "ready-order", "merge-order", "open-prepare", "merge-prepare", "tag-candidate", "observe-candidate", "verify-candidate", "start-campaign", "finish-campaign", "open-approve", "start-approve-checks", "finish-approve-checks", "accept-approval", "tag-stable", "observe-stable", "verify-stable", "start-smoke", "finish-smoke", "open-record", "merge-record", "close"];
+  const expected: Operation[] = ["select", "update-order", "ready-order", "merge-order", "open-prepare", "merge-prepare", "tag-candidate", "observe-candidate", "verify-candidate", "start-campaign", "finish-campaign", "open-approve", "start-approve-checks", "finish-approve-checks", "merge-approve", "tag-stable", "observe-stable", "verify-stable", "start-smoke", "finish-smoke", "open-record", "merge-record", "close"];
   for (const operation of expected) {
-    if (operation === "accept-approval") {
-      expect((await tick(fake, config)).operation).toBe("idle");
-      Object.assign(fake.repo.approve!, { state: "closed", merged: true, mergedBy: config.founder, mergeTree: fake.state!.approvedTree, mergeCommit: "2".repeat(40) });
-    }
     const previous = fake.state?.sequence ?? 0;
     expect((await tick(fake, config)).operation).toBe(operation);
     expect(fake.state!.sequence).toBe(previous + 1);
@@ -129,20 +177,20 @@ describe("Carrythrough order authority and scope", () => {
   });
 });
 
-describe("approve is a founder-only exact-tree gate", () => {
-  const approved = { ...state("approval-required"), approvePr: 401, approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
+describe("approve is a standing routine exact-tree gate", () => {
+  const approved = { ...state("approval-required"), candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401, approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
   test.each([
-    [{ merged: true, state: "closed", mergedBy: config.bot, mergeTree: "c".repeat(40) }, "non-founder"],
-    [{ merged: true, state: "closed", mergedBy: config.founder, mergeTree: "d".repeat(40) }, "tree differs"],
-    [{ state: "closed", merged: false }, "closed without"],
-    [{ head: "d".repeat(40) }, "head/tree differs"],
-    [{ author: "attacker" }, "identity changed"],
+    [{ merged: true, state: "closed", mergedBy: config.founder, mergeTree: "c".repeat(40) }, "unexpected-merger"],
+    [{ merged: true, state: "closed", mergedBy: config.bot, mergeTree: "d".repeat(40) }, "merge-tree-changed"],
+    [{ state: "closed", merged: false }, "pr-identity-changed"],
+    [{ head: "d".repeat(40) }, "head-tree-changed"],
+    [{ author: "attacker" }, "pr-identity-changed"],
   ] as const)("refuses unsafe approval %j", (change, reason) => {
     const result = nextStep(approved, snapshot({ approve: pr(change) }), config);
-    expect(result.operation).toBe("stop"); expect(result.detail).toContain(reason);
+    expect(result.operation).toBe("hold"); expect(result.holdReason).toBe(reason);
   });
   test("cannot bypass Studio checks by merging early", () => {
-    expect(nextStep(state("approve-open"), snapshot({ approve: pr({ merged: true }) }), config).operation).toBe("stop");
+    expect(nextStep(state("approve-open"), snapshot({ approve: pr({ merged: true }) }), config).holdReason).toBe("missing-evidence");
   });
 });
 
@@ -294,13 +342,13 @@ test("runtime refuses a changed order scope at the last merge boundary, includin
   await expect(runtime.merge(order({ draft: false }), true)).rejects.toThrow("scope changed");
 });
 
-test("runtime rechecks founder, merge commit and checked tree before a stable tag effect", async () => {
+test("runtime rechecks authority, merge commit and checked tree before a stable tag effect", async () => {
   class RefusingRuntime extends StudioDriver {
-    override async readPr() { return pr({ merged: true, mergedBy: config.bot, mergeTree: "c".repeat(40), mergeCommit: "e".repeat(40) }); }
+    override async promotionSnapshot() { return snapshot({ approve: pr({ merged: true, mergedBy: config.founder, mergeTree: "c".repeat(40), mergeCommit: "e".repeat(40) }) }); }
   }
   const runtime = new RefusingRuntime(driverConfig(), false);
-  const approved = { ...state("approved"), approvePr: 401, stableCommit: "e".repeat(40), approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
-  await expect(runtime.perform({ operation: "tag-stable", phase: "stable-tagged", detail: "publish" }, approved)).rejects.toThrow("founder approval binding changed");
+  const approved = { ...state("approved"), candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401, stableCommit: "e".repeat(40), approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
+  await expect(runtime.perform({ operation: "tag-stable", phase: "stable-tagged", detail: "publish" }, approved)).rejects.toThrow("unexpected-merger");
 });
 
 test("runtime adopts an already-accepted pinned bot merge after a crash without another write", async () => {

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { runDriver } from "./release-driver-runtime.ts";
+import { RoutineHoldError, routineReleaseHold, routineSourceHold } from "./release-policy.ts";
+import type { RoutineAuthority, RoutineEvidence, RoutineHoldReason } from "./release-policy.ts";
 
 export const REPOSITORY = "carrythroughsystems/omp-session-gateway";
 // The delivery App's bot opens an order from a branch under this prefix.
@@ -8,11 +10,6 @@ export const ORDER_HEAD_PREFIX = "carrythrough/";
 export const ORDER_SCOPE = [
   "CHANGELOG.md", "UPSTREAM.lock.json", "docs/COMPATIBILITY.md", "docs/DECISIONS.md",
   "docs/OMP_INTEGRATION.md", "docs/RELEASE_STATUS.md", "scripts/windows-qualification-pins.json",
-] as const;
-export const REQUIRED_CHECKS = [
-  "implementation-checks", "windows-service-lifecycle", "browser-notifications",
-  "portable-source (ubuntu-24.04)", "portable-source (macos-latest)",
-  "portable-source (windows-latest)", "browser-core",
 ] as const;
 export interface TrackingIssue {
   number: number;
@@ -37,6 +34,7 @@ export interface PullRequest {
   mergedBy?: string | undefined;
   mergeCommit?: string | undefined;
   mergeTree?: string | undefined;
+  mergeVerified?: boolean | undefined;
   behind: boolean;
   checksPassed: boolean;
   files: { filename: string; previous_filename?: string }[];
@@ -50,7 +48,7 @@ export type Phase = "selected" | "order-updated" | "order-ready" | "order-landed
 export type Operation = "select" | "hold" | "stop" | "update-order" | "update-release-pr" | "ready-order" | "merge-order"
   | "open-prepare" | "merge-prepare" | "tag-candidate" | "observe-candidate" | "verify-candidate"
   | "start-campaign" | "finish-campaign" | "open-approve" | "start-approve-checks" | "finish-approve-checks"
-  | "accept-approval" | "tag-stable" | "observe-stable" | "verify-stable" | "start-smoke"
+  | "merge-approve" | "accept-approval" | "tag-stable" | "observe-stable" | "verify-stable" | "start-smoke"
   | "finish-smoke" | "open-record" | "merge-record" | "close" | "rerequest";
 export interface DriverState {
   schemaVersion: 1;
@@ -60,6 +58,7 @@ export interface DriverState {
   version: string;
   candidate: string;
   selectedMain: string;
+  previousStable?: string;
   date: string;
   preparePr?: number | undefined;
   orderPr?: number | undefined;
@@ -68,6 +67,8 @@ export interface DriverState {
   approvePr?: number | undefined;
   approvedHead?: string | undefined;
   approvedTree?: string | undefined;
+  authorityPolicy?: string | undefined;
+  holdReason?: RoutineHoldReason | undefined;
   stableCommit?: string | undefined;
   stableDigest?: string | undefined;
   publicationRun?: string | undefined;
@@ -94,6 +95,9 @@ export interface RepositorySnapshot {
   stableWorkflow?: "pending" | "passed" | "failed";
   campaign?: JobObservation;
   approveChecks?: JobObservation;
+  authority?: RoutineAuthority;
+  authorityFailure?: RoutineHoldReason;
+  evidence?: RoutineEvidence;
   smoke?: JobObservation;
   /** A failed host lease must first be recovered manually; a new request cannot steal it. */
   hostRecoveryRequired?: boolean;
@@ -106,8 +110,9 @@ export interface Decision {
   links?: string[];
   pr?: PullRequest;
   patch?: Partial<DriverState>;
+  holdReason?: RoutineHoldReason;
 }
-export interface Idle { operation: "idle"; detail: string }
+export interface Idle { operation: "idle"; detail: string; holdReason?: RoutineHoldReason }
 export function compareVersions(a: string, b: string): number {
   const parse = (value: string) => {
     if (!/^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value)) throw new Error("expected exact stock/stable version");
@@ -147,8 +152,21 @@ function refuse(pr: PullRequest | undefined, config: DriverConfig, role: string)
   if (pr.state === "closed" && !pr.merged) return `${role} PR closed without merging`;
   return undefined;
 }
+export function routineHold(reason: RoutineHoldReason): Decision {
+  return decision("hold", "held", "routine release held: " + reason, { holdReason: reason, patch: { holdReason: reason } });
+}
+export function promotionHold(state: DriverState, repo: RepositorySnapshot, config: DriverConfig, merged = false): RoutineHoldReason | undefined {
+  const reason = routineReleaseHold({
+    subject: { head: state.approvedHead, tree: state.approvedTree, candidate: state.candidate, candidateCommit: state.candidateCommit, candidateDigest: state.candidateDigest, policy: state.authorityPolicy },
+    authority: repo.authority, evidence: repo.evidence, pr: repo.approve, bot: config.bot, repository: REPOSITORY,
+    branch: "release-driver/" + state.issue.number + "/" + state.candidate + "-approve", merged,
+  });
+  return reason ?? (merged && repo.approve?.mergeCommit !== state.stableCommit ? "merge-missing" : undefined);
+}
 export function nextStep(state: DriverState | undefined, repo: RepositorySnapshot, config: DriverConfig, date = new Date().toISOString().slice(0, 10)): Decision | Idle {
   if (state?.intent !== undefined) return state.intent;
+  if (repo.authorityFailure !== undefined) return routineHold(repo.authorityFailure);
+  if (state?.holdReason !== undefined) return idle("held: " + state.holdReason + "; inspect exact subject before operator recovery");
   if (state === undefined || state.phase === "closed") {
     const issue = selectRequest(repo.issues);
     if (issue === undefined) return idle("no open tracking issue; idle");
@@ -156,7 +174,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     compareVersions(repo.latestStable, repo.latestStable);
     const version = `${parts[0]}.${parts[1]}.${BigInt(parts[2]!) + 1n}`;
     return decision("select", "selected", `request ${requestVersion(issue)} for gateway v${version}`, { patch: {
-      schemaVersion: 1, sequence: 0, issue, version, candidate: nextCandidate(version, repo.tags), selectedMain: repo.main, date,
+      schemaVersion: 1, sequence: 0, issue, version, candidate: nextCandidate(version, repo.tags), selectedMain: repo.main, previousStable: repo.latestStable, date,
     }, links: [issue.url] });
   }
   const failure = (detail: string) => decision("stop", "diagnostic-required", detail + (["qualifying", "smoking"].includes(state.phase) ? "; inspect and recover the exact owning release-host lease before further device work" : ""), { patch: { failedMain: repo.main } });
@@ -196,6 +214,7 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
   }
   if (state.phase === "prepare-open" || state.phase === "record-open") {
     const prepare = state.phase === "prepare-open", pr = prepare ? repo.prepare : repo.record;
+    if (prepare && !pr?.merged && repo.main !== state.selectedMain) return routineHold("stale-source");
     const invalid = refuse(pr, config, prepare ? "prepare" : "record");
     if (invalid !== undefined) return decision("stop", "stopped", invalid);
     if (!pr!.merged && pr!.behind && pr!.checksPassed && state.updatedHead !== pr!.head) return decision("update-release-pr", state.phase, "update release PR before strict checked merge", { pr: pr!, patch: { updatedHead: pr!.head } });
@@ -213,34 +232,42 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
   if (state.phase === "candidate-verified") return decision("start-campaign", "qualifying", `preflight then detached qualification of ${state.candidate}`);
   if (state.phase === "qualifying" || state.phase === "approve-checking" || state.phase === "smoking") {
     const job = state.phase === "qualifying" ? repo.campaign : state.phase === "smoking" ? repo.smoke : repo.approveChecks;
+    if (state.phase === "approve-checking" && job?.status === "absent") {
+      const pr = repo.approve;
+      if (!pr || pr.head !== state.approvedHead || pr.tree !== state.approvedTree) return routineHold("head-tree-changed");
+      if (repo.authority?.policy !== state.authorityPolicy) return routineHold("policy-changed");
+      return decision("start-approve-checks", "approve-checking", "resume only the same-subject local checks; no device/cloud action is replayed", { pr });
+    }
     if (job?.status === "failed" || job?.status === "absent") return failure(job.detail ?? `${state.phase} process disappeared; inspect private job logs; no retry`);
     if (job?.status !== "passed") return idle(`waiting for detached ${state.phase}`);
     if (state.phase === "qualifying") return decision("finish-campaign", "qualified", "all candidate qualification lanes passed");
     if (state.phase === "smoking") return decision("finish-smoke", "smoked", "published-byte smoke passed with --force-reinstall and --rebuild-omp");
     const pr = repo.approve;
     const invalid = refuse(pr, config, "approve");
-    if (invalid !== undefined || pr!.head !== state.approvedHead || pr!.tree !== state.approvedTree) return decision("stop", "stopped", invalid ?? "approve PR changed during local checks");
-    return decision("finish-approve-checks", "approval-required", "founder must merge the checked approve PR", { links: [pr!.url] });
+    if (invalid !== undefined) return routineHold("pr-identity-changed");
+    if (pr!.head !== state.approvedHead || pr!.tree !== state.approvedTree) return routineHold("head-tree-changed");
+    return decision("finish-approve-checks", "approval-required", "exact-subject checks completed; evaluate standing routine authority", { links: [pr!.url] });
   }
   if (state.phase === "qualified") return decision("open-approve", "approve-open", `open receipt-derived stable approval for v${state.version}`);
   if (state.phase === "approve-open") {
     const pr = repo.approve;
     const invalid = refuse(pr, config, "approve");
-    if (invalid !== undefined || pr!.merged) return decision("stop", "stopped", invalid ?? "approve PR merged before Studio checks");
-    return decision("start-approve-checks", "approve-checking", "run stable build, runtime comparison, policy, smoke plan and full local checks", { pr: pr!, patch: { approvedHead: pr!.head, approvedTree: pr!.tree } });
+    if (invalid !== undefined) return routineHold("pr-identity-changed");
+    if (pr!.merged) return routineHold("missing-evidence");
+    const reason = routineSourceHold(repo.authority, state.authorityPolicy);
+    if (reason !== undefined) return routineHold(reason);
+    if (!state.authorityPolicy) return routineHold("policy-changed");
+    return decision("start-approve-checks", "approve-checking", "run stable build, runtime comparison, policy, smoke plan and full local checks", { pr: pr!, patch: { approvedHead: pr!.head, approvedTree: pr!.tree, authorityPolicy: state.authorityPolicy } });
   }
-  if (state.phase === "approval-required") {
-    const pr = repo.approve;
-    const invalid = refuse(pr, config, "approve");
-    if (invalid !== undefined) return decision("stop", "stopped", invalid);
-    if (pr!.head !== state.approvedHead || pr!.tree !== state.approvedTree) return decision("stop", "stopped", "approve PR head/tree differs from locally checked approval");
-    if (!pr!.merged) return idle("approval-required; waiting for founder merge");
-    if (pr!.mergedBy !== config.founder) return decision("stop", "stopped", "approve PR merged by a non-founder");
-    if (pr!.mergeTree !== state.approvedTree) return decision("stop", "stopped", "approve merge tree differs from checked head tree");
-    if (pr!.mergeCommit === undefined) return decision("stop", "stopped", "approve merge commit is missing");
-    return decision("accept-approval", "approved", "founder merged the exact checked approval tree", { patch: { stableCommit: pr!.mergeCommit }, links: [pr!.url] });
+  if (state.phase === "approval-required" || state.phase === "approved") {
+    const reason = promotionHold(state, repo, config, state.phase === "approved");
+    if (reason === "required-checks-missing") return { operation: "idle", detail: "held: required-checks-missing; waiting for exact-head strict checks", holdReason: reason };
+    if (reason !== undefined) return routineHold(reason);
+    const pr = repo.approve!;
+    if (state.phase === "approved") return decision("tag-stable", "stable-tagged", "sign and push the exact routine-authorized stable merge");
+    if (!pr.merged) return decision("merge-approve", "approved", "standing routine authority: merge the exact checked promotion", { pr });
+    return decision("accept-approval", "approved", "observed exact-subject release-bot merge", { patch: { stableCommit: pr.mergeCommit }, links: [pr.url] });
   }
-  if (state.phase === "approved") return decision("tag-stable", "stable-tagged", `sign and push v${state.version} on the founder's approved merge`);
   if (state.phase === "stable-published") return decision("verify-stable", "stable-verified", `verify v${state.version}, GitHub Latest and rebuilt archive digest`);
   if (state.phase === "stable-verified") return decision("start-smoke", "smoking", `detached published-byte smoke for v${state.version} with --force-reinstall and --rebuild-omp`);
   if (state.phase === "smoked") return decision("open-record", "record-open", `record v${state.version} publication and smoke evidence`);
@@ -270,7 +297,7 @@ export async function tick(port: DriverPort, config: DriverConfig, plan = false)
     await port.save(state);
     return idle(`reconciled ${state.phase} progress comment`);
   }
-  const step = nextStep(state, await port.snapshot(state), config);
+  let step = nextStep(state, await port.snapshot(state), config);
   if (plan || step.operation === "idle") return step;
   if (state === undefined || step.operation === "select") state = { ...step.patch, phase: "selected" } as DriverState;
   state.intent = step;
@@ -279,10 +306,15 @@ export async function tick(port: DriverPort, config: DriverConfig, plan = false)
   try {
     result = await port.perform(step, { ...state, ...step.patch });
   } catch (error) {
-    if (!(error instanceof StaleIntentError)) throw error;
-    delete state.intent;
-    await port.save(state);
-    return idle(`re-planning: ${step.operation} refused before any effect (${error.message})`);
+    if (error instanceof RoutineHoldError) {
+      step = routineHold(error.reason);
+      result = {};
+    } else {
+      if (!(error instanceof StaleIntentError)) throw error;
+      delete state.intent;
+      await port.save(state);
+      return idle("re-planning: " + step.operation + " refused before any effect (" + error.message + ")");
+    }
   }
   state = { ...state, ...step.patch, ...result, phase: step.phase, sequence: state.sequence + 1 };
   delete state.intent;
