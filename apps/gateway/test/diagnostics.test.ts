@@ -253,20 +253,81 @@ describe("Tailscale doctor parsing", () => {
     expect(tailscaleSelfIp({ Self: { TailscaleIPs: ["not-an-ip"] } })).toBeUndefined();
   });
 
-  test("fails when any Funnel configuration is active", () => {
-    expect(funnelConfigurationDisabled({})).toBe(true);
-    expect(funnelConfigurationDisabled({ AllowFunnel: {} })).toBe(true);
-    expect(
-      funnelConfigurationDisabled({
-        TCP: { "443": { HTTPS: true } },
-        Web: {
-          "gateway.example.ts.net:443": {
-            Handlers: { "/": { Proxy: "http://127.0.0.1:4317" } },
-          },
+  // `tailscale funnel status --json` on a gateway node that also publishes another local service, as
+  // captured on the Studio release host on 2026-10-08 (names replaced).
+  const sharedNode = {
+    TCP: { "10000": { HTTPS: true }, "443": { HTTPS: true }, "8443": { HTTPS: true } },
+    Web: {
+      "gateway.example.ts.net:10000": { Handlers: { "/": { Proxy: "http://127.0.0.1:18080" } } },
+      "gateway.example.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:4317" } } },
+      "gateway.example.ts.net:8443": { Handlers: { "/": { Proxy: "http://127.0.0.1:18080" } } },
+    },
+    AllowFunnel: { "gateway.example.ts.net:10000": true, "gateway.example.ts.net:8443": true },
+  };
+
+  test("passes when no Funnel reaches the gateway, including Funnels for other services on its node", () => {
+    expect(funnelConfigurationDisabled({}, config())).toBe(true);
+    expect(funnelConfigurationDisabled({ ...sharedNode, AllowFunnel: { "gateway.example.ts.net:443": false } }, config())).toBe(
+      true,
+    );
+    expect(serveConfigurationMatches(sharedNode, config())).toBe(true);
+    expect(funnelConfigurationDisabled(sharedNode, config())).toBe(true);
+  });
+
+  test("fails when Funnel is enabled for the gateway's own Serve authority", () => {
+    const funneled = { ...sharedNode, AllowFunnel: { ...sharedNode.AllowFunnel, "gateway.example.ts.net:443": true } };
+    expect(funnelConfigurationDisabled(funneled, config())).toBe(false);
+    const customPortConfig: GatewayConfig = {
+      ...config(),
+      http: { hostname: "127.0.0.1", port: 4317, publicOrigin: "https://gateway.example.ts.net:8443" },
+    };
+    expect(funnelConfigurationDisabled(sharedNode, customPortConfig)).toBe(false);
+  });
+
+  test("fails when a Funnel proxies or forwards to the gateway's backend port in any tailscaled form", () => {
+    for (const proxy of ["http://127.0.0.1:4317", "http://localhost:4317/", "https+insecure://[::1]:4317", "localhost:4317", "4317"]) {
+      const web = {
+        ...sharedNode.Web,
+        "gateway.example.ts.net:8443": { Handlers: { "/": { Proxy: "http://127.0.0.1:18080" }, "/gateway": { Proxy: proxy } } },
+      };
+      expect(funnelConfigurationDisabled({ ...sharedNode, Web: web }, config())).toBe(false);
+    }
+    const forwarded = (target: string) => ({ ...sharedNode, TCP: { ...sharedNode.TCP, "10000": { TCPForward: target } } });
+    expect(funnelConfigurationDisabled(forwarded("127.0.0.1:4317"), config())).toBe(false);
+    expect(funnelConfigurationDisabled(forwarded("127.0.0.1:5432"), config())).toBe(true);
+    expect(funnelConfigurationDisabled(forwarded("unix:/var/run/app.sock"), config())).toBe(true);
+  });
+
+  test("checks foreground funnel sessions, which tailscaled merges with the persistent configuration", () => {
+    // `tailscale funnel 443` without --bg on the gateway's own authority; no persistent Funnel exists.
+    const foregroundFunnel = {
+      TCP: sharedNode.TCP,
+      Web: sharedNode.Web,
+      Foreground: { session: { AllowFunnel: { "gateway.example.ts.net:443": true } } },
+    };
+    expect(funnelConfigurationDisabled(foregroundFunnel, config())).toBe(false);
+    // A foreground handler takes precedence over the persistent one for an already funneled authority.
+    const foregroundHandler = {
+      ...sharedNode,
+      Foreground: {
+        session: {
+          TCP: { "8443": { HTTPS: true } },
+          Web: { "gateway.example.ts.net:8443": { Handlers: { "/": { Proxy: "http://127.0.0.1:4317" } } } },
         },
-      }),
-    ).toBe(true);
-    expect(funnelConfigurationDisabled({ AllowFunnel: { "gateway.example.ts.net": { "443": false } } })).toBe(true);
-    expect(funnelConfigurationDisabled({ AllowFunnel: { "gateway.example.ts.net": { "443": true } } })).toBe(false);
+      },
+    };
+    expect(funnelConfigurationDisabled(foregroundHandler, config())).toBe(false);
+  });
+
+  test("fails closed on a Funnel entry or target it cannot parse", () => {
+    expect(funnelConfigurationDisabled(null, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ ...sharedNode, Foreground: "unparseable" }, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ ...sharedNode, Web: { "gateway.example.ts.net:8443": { Handlers: "unparseable" } } }, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ ...sharedNode, TCP: { "8443": "unparseable" } }, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ AllowFunnel: true }, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ ...sharedNode, AllowFunnel: { "gateway.example.ts.net:8443": "unknown" } }, config())).toBe(false);
+    expect(funnelConfigurationDisabled({ AllowFunnel: { "not a host:8443": true } }, config())).toBe(false);
+    const web = { ...sharedNode.Web, "gateway.example.ts.net:8443": { Handlers: { "/": { Proxy: "http://[::1" } } } };
+    expect(funnelConfigurationDisabled({ ...sharedNode, Web: web }, config())).toBe(false);
   });
 });
