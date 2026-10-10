@@ -244,7 +244,7 @@ export class StudioDriver implements DriverPort {
       let hash = entry.sha;
       if (manifest || entry.path === "bun.lock" || entry.path === "scripts/build-release.ts") {
         const text = local ? await this.git(["show", source + ":" + entry.path])
-          : Buffer.from((await this.api<{ content: string }>("contents/" + entry.path + "?ref=" + source))!.content, "base64").toString();
+          : Buffer.from((await this.api<{ content: string }>("contents/" + entry.path + "?ref=" + source))!.content, "base64").toString().trim();
         let normalized: string;
         if (entry.path === "scripts/build-release.ts") normalized = text.replace(/const PRODUCT_VERSION = "[0-9.]+"/u, 'const PRODUCT_VERSION = "<release>"');
         else if (entry.path === "bun.lock") {

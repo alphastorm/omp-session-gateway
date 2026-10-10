@@ -1,5 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
+
+test("local and API control fingerprints normalize the same source framing", async () => {
+  const text = 'export const PRODUCT_VERSION = "0.7.5";\n';
+  class Controls extends StudioDriver {
+    override async git(args: string[]) { return args[0] === "ls-tree" ? "100644 blob abc\tscripts/build-release.ts" : text.trim(); }
+    override async api<T>(path: string): Promise<T | undefined> {
+      return (path.startsWith("git/trees/") ? { truncated: false, tree: [{ mode: "100644", type: "blob", sha: "abc", path: "scripts/build-release.ts" }] }
+        : { content: Buffer.from(text).toString("base64") }) as T;
+    }
+  }
+  const runtime = new Controls(driverConfig(), true);
+  expect(await runtime.controls("source", true)).toEqual(await runtime.controls("source"));
+});
+
 test("routine merge accepted before crash reconciles without another merge or tag", async () => {
   const fake = new FakeDriver();
   fake.state = { ...state("approval-required"), approvedHead: evidence.head, approvedTree: evidence.tree, candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401 };
