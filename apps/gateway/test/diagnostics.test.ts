@@ -298,6 +298,13 @@ describe("Tailscale doctor parsing", () => {
     expect(funnelConfigurationDisabled(forwarded("unix:/var/run/app.sock"), config())).toBe(true);
   });
 
+  test("R5 ignores remote services using the gateway port but refuses local targets", () => {
+    const proxy = (target: string) => ({ ...sharedNode, Web: { ...sharedNode.Web, "gateway.example.ts.net:8443": { Handlers: { "/": { Proxy: target } } } } });
+    expect(funnelConfigurationDisabled(proxy("http://192.0.2.1:4317"), config())).toBe(true);
+    expect(funnelConfigurationDisabled({ ...sharedNode, TCP: { "8443": { TCPForward: "192.0.2.1:4317" } } }, config())).toBe(true);
+    for (const target of ["http://127.0.0.1:4317", "http://localhost:4317", "http://[::1]:4317", "4317"]) expect(funnelConfigurationDisabled(proxy(target), config())).toBe(false);
+  });
+
   test("checks foreground funnel sessions, which tailscaled merges with the persistent configuration", () => {
     // `tailscale funnel 443` without --bg on the gateway's own authority; no persistent Funnel exists.
     const foregroundFunnel = {

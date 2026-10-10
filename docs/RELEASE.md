@@ -148,6 +148,11 @@ the next patch version, eligible upstream baseline orders, and fixes/performance
 already reviewed and merged by the configured maintainer. The installed checkout is the separately
 reviewed setup baseline. Later source commits require an associated merged main PR in those
 classes or a bot-owned generated release record; unclassified/direct source commits refuse.
+Founder fixes must be squash-merged with an immutable `fix`, `perf` or `revert` merge-commit
+subject (optional Conventional Commit scope). Mutable PR titles never authorize a release.
+Rebase/multi-commit merges can leave commits without an exact associated PR merge SHA and are
+intentionally out of class: the typed hold names the first unreviewed commit. Resolve through
+the separately reviewed setup path, not by retitling a PR or relaxing the routine predicate.
 
 Before bot merge the Studio durably pins candidate tag/source/digest, promotion head/tree and the
 installed-policy fingerprint. Its passed receipt must bind qualification, stable build, candidate
@@ -160,9 +165,16 @@ Main movement after prepare is a stale-source hold, never silent incorporation o
 A routine release cannot change its own controls: all .github/ paths (signers, credential permissions,
 checks and CODEOWNERS), all schemas/, all scripts/ except generated release-text.json and the
 order-scoped windows-qualification-pins.json, AGENTS.md/CLAUDE.md, tsconfig/bunfig/other lock controls,
-and docs/RELEASE.md, docs/TEST_PLAN.md, docs/SECURITY.md are protected. Package manifests and bun.lock
-are fingerprinted with only generated workspace versions omitted; build-release.ts omits only its
-generated product-version literal. Ordinary source/test fixes do not change quality requirements.
+and docs/RELEASE.md, docs/TEST_PLAN.md, docs/SECURITY.md are protected. Package manifests
+at every depth are fingerprinted with only their top-level version omitted; root bun.lock omits only
+generated workspace versions. The manifest sweep found the root and four workspace package.json
+files, bunfig.toml, mise.toml and mise.lock; no npm/Yarn configuration, Deno, Python or Cargo
+install manifests are present. Lifecycle scripts and dependency/trusted-dependency changes remain
+controls, even in a newly added nested package. bunfig.toml and lifecycle-capable mise.toml at
+any depth are protected; mise.lock is covered by the lockfile rule. build-release.ts omits only its
+generated product-version literal. Both tracked modifications and untracked non-ignored files
+(including Bun-autoloaded .env/config inputs) make the installed checkout dirty and hold admission.
+Ordinary source/test fixes do not change quality requirements.
 Added/deleted control paths and rename-from paths cannot evade the comparison. The live main
 branch-protection attestation, configured bot/source-reviewer identities and required-check list also
 enter the fingerprint. The setup reviewer observed classic main protection: strict seven required
@@ -177,9 +189,17 @@ the attestation or an admin-only setting is the separately reviewed F3 setup pat
 the machine credential to administration access. Changing the installed-policy fingerprint requires the same separately
 reviewed one-time setup/installation path, never a release-bot self-upgrade.
 
+Generated prepare/approve/record PRs must change only the exact per-kind `GENERATED_RELEASE_PATHS`
+set in scripts/release-policy.ts, including both rename filenames. This is rechecked before merging
+and when classifying previous release records. Protected paths remain refused; prepare may change
+only the generated build-release.ts version literal, manifest versions and bun.lock workspace
+versions, proven by normalized control equality at the merge boundary. Existing PR/remote-branch
+checkpoints require a verified head signature and the configured bot as commit author before
+adoption. Bot PR authorship or a release-driver branch prefix alone grants no authority.
+
 ROUTINE_HOLD_REASONS in scripts/release-policy.ts enumerates authority-path-changed, policy-changed,
 out-of-class, stale-source, missing-evidence, head-tree-changed, unexpected-merger,
-pr-identity-changed, required-checks-missing, merge-tree-changed, merge-missing and merge-signature-missing. Pending required
+pr-identity-changed, required-checks-missing, merge-tree-changed, merge-missing, merge-signature-missing and generated-content-mismatch. Pending required
 checks wait without an effect; other holds preserve the subject for operator review. A historical
 passed job without the exact evidence binding grants no authority.
 
@@ -267,9 +287,29 @@ Non-login SSH needs the explicit Homebrew PATH. Install only after old manual la
 children are drained; retain their receipts and the shared release-host lease.
 
 SSH to the Studio as the operator (for example `ssh gwops@studio.example.ts.net`), then:
+Disable admission and unload the driver before any checkout mutation. Do not continue while a
+worker, detached job or host lease remains active: let it finish and retain its receipts. A failed
+owner requires its documented recovery; never delete the lease to make installation proceed.
 
 ```sh
 export PATH="$HOME/.omp/lane-toolchain/bun-1.4.0/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+state="$HOME/.local/state/omp-session-gateway/release-driver"
+install -d -m 700 "$state"
+touch "$state/disabled"
+if launchctl print "gui/$(id -u)/com.omp.gateway-release-driver" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)/com.omp.gateway-release-driver"
+fi
+# Confirm no driver tick/worker or tmux job remains before touching the checkout.
+pgrep -fl 'release-driver|stable-qualification|post-release-smoke'
+tmux list-sessions
+# Inspect state/outbox and all job claims, retaining them; never fabricate completion.
+if test -f "$state/state.json"; then jq '{phase,candidate,intent,announcement}' "$state/state.json"; fi
+find "$state/jobs" -name '*.json' -type f -print
+if test -f "$HOME/.local/state/omp-session-gateway/release-host/lease.sqlite"; then
+  sqlite3 -readonly "$HOME/.local/state/omp-session-gateway/release-host/lease.sqlite" 'select * from campaign;'
+fi
+# STOP until active owners have completed and pending effects/outbox are reconciled.
+# Do not advance a checkout underneath a pending release; finish/recover it on its old policy.
 cd "$HOME/Development/omp-session-gateway"
 git fetch origin main
 git switch main
@@ -279,8 +319,6 @@ GH_CONFIG_DIR="$HOME/.config/gh-release-bot" gh auth status
 # Must print alphastorm-release; do not copy the founder's gh configuration.
 GH_CONFIG_DIR="$HOME/.config/gh-release-bot" gh api user --jq .login
 bun scripts/release-driver.ts plan
-install -d -m 700 "$HOME/.local/state/omp-session-gateway/release-driver"
-touch "$HOME/.local/state/omp-session-gateway/release-driver/disabled"
 bun --eval 'const template = await Bun.file("scripts/com.omp.gateway-release-driver.plist").text(); await Bun.write(process.env.HOME + "/Library/LaunchAgents/com.omp.gateway-release-driver.plist", template.replaceAll("@HOME@", process.env.HOME));'
 chmod 600 "$HOME/Library/LaunchAgents/com.omp.gateway-release-driver.plist"
 # Replace this documentation target with the retained guest's actual SSH target.
@@ -305,7 +343,8 @@ paths), and `OMP_RELEASE_DRY_RUN=1|true`. Defaults match the paths above.
 ### Readiness and credential expiry
 
 Both plan and status are read-only, including local state. Plan includes readiness alongside its
-proposed operation; status reports phase, candidate, pending intent/outbox and typed hold. Readiness
+proposed operation; status reports phase, candidate, pending intent/outbox, typed hold and the
+first unreviewed source commit when applicable. Readiness
 uses the dedicated machine account even when a plan uses an existing read-only gh session for
 repository reads. It checks private credential-file ownership/mode/presence, required tools,
 pinned Darwin-arm64 Bun, configured retained guest/SSH reachability, one authorized adb device,

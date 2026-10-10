@@ -11,7 +11,7 @@ import { releaseAssetNames, verifyReleaseSignatures } from "./post-release-smoke
 import { downloadReleaseAssets } from "./release-download.ts";
 import { compareReleaseArchives } from "./release-runtime-compare.ts";
 import type { StableQualificationReceipt } from "./stable-qualification.ts";
-import { REQUIRED_CHECKS, ROUTINE_BRANCH_PROTECTION, routineBranchProtectionMatches, ROUTINE_EVIDENCE_STEPS, RoutineHoldError, routineProtectedPath, routineSourceHold } from "./release-policy.ts";
+import { REQUIRED_CHECKS, ROUTINE_BRANCH_PROTECTION, routineBranchProtectionMatches, ROUTINE_EVIDENCE_STEPS, RoutineHoldError, routineProtectedPath, routineSourceHold, generatedReleaseKind, generatedReleaseFilesMatch } from "./release-policy.ts";
 import type { RoutineAuthority, RoutineEvidence } from "./release-policy.ts";
 import { runAdb } from "./android-device.ts";
 
@@ -239,7 +239,7 @@ export class StudioDriver implements DriverPort {
     const controls = new Map<string, string>();
     for (const entry of tree) {
       if (entry.type === "tree") continue;
-      const manifest = entry.path === "package.json" || /^(apps|packages)\/[^/]+\/package\.json$/u.test(entry.path);
+      const manifest = entry.path === "package.json" || entry.path.endsWith("/package.json");
       if (!routineProtectedPath(entry.path) && !manifest && entry.path !== "bun.lock") continue;
       let hash = entry.sha;
       if (manifest || entry.path === "bun.lock" || entry.path === "scripts/build-release.ts") {
@@ -270,11 +270,12 @@ export class StudioDriver implements DriverPort {
     if (protection === undefined) throw new RoutineHoldError("missing-evidence");
     if (!routineBranchProtectionMatches(protection)) throw new RoutineHoldError("policy-changed");
     const protectedChanges = [...new Set([...trusted.keys(), ...observed.keys()])].filter(path => trusted.get(path) !== observed.get(path));
-    if (await this.git(["status", "--porcelain", "--untracked-files=no"]) !== "") protectedChanges.push("installed-checkout-dirty");
+    if (await this.git(["status", "--porcelain", "--untracked-files=all"]) !== "") protectedChanges.push("installed-checkout-dirty");
     const policy = createHash("sha256").update(JSON.stringify({ controls: [...trusted].sort(), protection: ROUTINE_BRANCH_PROTECTION, bot: this.config.bot, reviewer: this.config.founder, checks: REQUIRED_CHECKS })).digest("hex");
     const comparison = await this.api<{ status: string; total_commits: number; commits: { sha: string }[] }>("compare/" + installed + "..." + state.selectedMain);
     let sourceReviewed = comparison?.status === "identical" || comparison?.status === "ahead";
     if (!comparison || comparison.total_commits !== comparison.commits.length) sourceReviewed = false;
+    let unreviewedCommit: string | undefined;
     for (const commit of comparison?.commits ?? []) {
       const prs = await this.pages<{ number: number }>("commits/" + commit.sha + "/pulls?per_page=100");
       let reviewed = false;
@@ -282,18 +283,20 @@ export class StudioDriver implements DriverPort {
         const candidate = (await this.api<ApiPr & { title: string }>("pulls/" + item.number))!;
         if (!candidate.merged || candidate.base.ref !== "main" || candidate.merge_commit_sha !== commit.sha) continue;
         const detail = await this.readPr(item.number);
+        const subject = (await this.api<{ message: string }>("git/commits/" + candidate.merge_commit_sha))!.message.split("\n", 1)[0]!;
         const baseline = isOrder(detail) && outsideOrderScope(detail).length === 0 && candidate.merged_by?.login === this.config.bot;
         // The source fix was reviewed by its maintainer merge, not by the release bot evaluating itself.
-        const fix = /^(fix|perf|revert)(\([^)]+\))?: /u.test(candidate.title) && candidate.merged_by?.login === this.config.founder;
-        const releaseRecord = detail.author === this.config.bot && detail.headRef.startsWith("release-driver/")
-          && /^(chore|docs)\(release\): (prepare|approve|record) /u.test(candidate.title) && candidate.merged_by?.login === this.config.bot;
+        const fix = /^(fix|perf|revert)(\([^)]+\))?: /u.test(subject) && candidate.merged_by?.login === this.config.founder;
+        const kind = generatedReleaseKind(detail.headRef);
+        const releaseRecord = detail.author === this.config.bot && generatedReleaseFilesMatch(kind, detail.files)
+          && /^(chore|docs)\(release\): (prepare|approve|record) /u.test(subject) && candidate.merged_by?.login === this.config.bot;
         if (baseline || fix || releaseRecord) { reviewed = true; break; }
       }
-      if (!reviewed) { sourceReviewed = false; break; }
+      if (!reviewed) { sourceReviewed = false; unreviewedCommit = commit.sha; break; }
     }
     const previous = (state.previousStable ?? "v0.0.0").replace(/^v/u, "").split(".").map(BigInt);
     const version = state.version.split(".").map(BigInt);
-    return { policy, protectedChanges, sourceReviewed,
+    return { policy, protectedChanges, sourceReviewed, ...(unreviewedCommit === undefined ? {} : { unreviewedCommit }),
       sourceFresh: pr ? main === (pr.merged ? pr.mergeCommit : state.candidateCommit) : main === state.selectedMain,
       patchRelease: version[0] === previous[0] && version[1] === previous[1] && version[2] === previous[2]! + 1n };
   }
@@ -379,17 +382,29 @@ export class StudioDriver implements DriverPort {
     if (!(ref.startsWith("refs/heads/release-driver/") || /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+(?:-prealpha\.[1-9][0-9]*)?$/u.test(ref))) throw new Error("driver refuses push outside owned release branches/tags");
     await this.git(["push", `https://github.com/${REPOSITORY}.git`, `${ref}:${ref}`], cwd);
   }
+  async assertGeneratedControls(pr: PullRequest): Promise<void> {
+    if (!generatedReleaseFilesMatch(generatedReleaseKind(pr.headRef), pr.files)) throw new RoutineHoldError("generated-content-mismatch");
+    const [installed, candidate] = await Promise.all([this.controls(await this.git(["rev-parse", "HEAD"]), true), this.controls(pr.head)]);
+    if ([...new Set([...installed.keys(), ...candidate.keys()])].some(path => installed.get(path) !== candidate.get(path))) throw new RoutineHoldError("generated-content-mismatch");
+  }
+  async assertCheckpointAuthor(head: string): Promise<void> {
+    const commit = await this.api<{ author: { login: string } | null; commit: { verification: { verified: boolean } } }>("commits/" + head);
+    if (commit?.author?.login !== this.config.bot || commit.commit.verification.verified !== true) throw new RoutineHoldError("pr-identity-changed");
+  }
   async openPr(kind: "prepare" | "approve" | "record", state: DriverState): Promise<PullRequest> {
     const branch = `release-driver/${state.issue.number}/${state.candidate}-${kind}`;
     const existing = await this.pages<ApiPr>(`pulls?state=all&base=main&head=carrythroughsystems:${encodeURIComponent(branch)}&per_page=100`);
     if (existing.length > 1) throw new Error("multiple PRs use the deterministic release branch");
     if (existing.length === 1) {
       const pr = await this.readPr(existing[0]!.number);
-      if (pr.author !== this.config.bot || pr.headRepository !== REPOSITORY) throw new Error("release PR is not bot-owned");
+      if (pr.author !== this.config.bot || pr.headRepository !== REPOSITORY || pr.base !== "main" || pr.headRef !== branch) throw new RoutineHoldError("pr-identity-changed");
+      await this.assertCheckpointAuthor(pr.head);
+      await this.assertGeneratedControls(pr);
       return pr;
     }
     const source = kind === "prepare" ? state.selectedMain : kind === "approve" ? state.candidateCommit! : state.stableCommit!;
     const remote = await this.api<{ object: { sha: string } }>(`git/ref/heads/${branch}`, true);
+    if (remote !== undefined) await this.assertCheckpointAuthor(remote.object.sha);
     const directory = await this.checkout(`${state.issue.number}-${state.candidate}-${kind}`, remote?.object.sha ?? source, branch);
     if (remote === undefined) {
       const args = [process.execPath, "scripts/release-generate.ts", kind, kind === "prepare" ? state.version : `v${state.version}`, "--date", state.date];
@@ -418,6 +433,7 @@ export class StudioDriver implements DriverPort {
       throw new StaleIntentError("PR head changed before pinned merge");
     }
     if (order ? !isOrder(current) || outsideOrderScope(current).length > 0 : current.author !== this.config.bot || current.base !== "main" || current.headRepository !== REPOSITORY) throw new Error("PR identity/scope changed");
+    if (!order) await this.assertGeneratedControls(current);
     if (current.merged) {
       if (current.mergedBy !== this.config.bot) throw new Error("driver-owned PR merged by another identity");
       return current;
@@ -490,7 +506,7 @@ export class StudioDriver implements DriverPort {
   }
   requireSourceAuthority(authority: RoutineAuthority, expected?: string): void {
     const reason = routineSourceHold(authority, expected);
-    if (reason !== undefined) throw new RoutineHoldError(reason);
+    if (reason !== undefined) throw new RoutineHoldError(reason, authority.unreviewedCommit);
   }
   async perform(step: Decision, state: DriverState): Promise<Partial<DriverState>> {
     if (this.plan) throw new Error("plan attempted a release effect");
@@ -537,16 +553,17 @@ export class StudioDriver implements DriverPort {
       case "merge-approve": {
         const repo = await this.promotionSnapshot(state);
         const reason = promotionHold(state, repo, this.config);
-        if (reason !== undefined) throw new RoutineHoldError(reason);
+        if (reason !== undefined) throw new RoutineHoldError(reason, repo.authority?.unreviewedCommit);
         const pr = await this.merge(repo.approve!, false);
         const after = await this.promotionSnapshot({ ...state, stableCommit: pr.mergeCommit });
         const changed = promotionHold({ ...state, stableCommit: pr.mergeCommit }, after, this.config, true);
-        if (changed !== undefined) throw new RoutineHoldError(changed);
+        if (changed !== undefined) throw new RoutineHoldError(changed, after.authority?.unreviewedCommit);
         return { stableCommit: pr.mergeCommit };
       }
       case "tag-stable": {
-        const reason = promotionHold(state, await this.promotionSnapshot(state), this.config, true);
-        if (reason !== undefined) throw new RoutineHoldError(reason);
+        const repo = await this.promotionSnapshot(state);
+        const reason = promotionHold(state, repo, this.config, true);
+        if (reason !== undefined) throw new RoutineHoldError(reason, repo.authority?.unreviewedCommit);
         await this.tag(`v${state.version}`, state.stableCommit!); return {};
       }
       case "verify-stable": return { stableDigest: await this.verify(`v${state.version}`, state.stableCommit!, true, state) };
@@ -645,7 +662,7 @@ async function drive(args: string[]): Promise<unknown> {
     if (mode === "status") {
       const state = await driver.load();
       return { readiness, phase: state?.phase, candidate: state?.candidate, intent: state?.intent?.operation,
-        holdReason: state?.holdReason, outboxPending: state?.announcement !== undefined };
+        holdReason: state?.holdReason, holdCommit: state?.holdCommit, outboxPending: state?.announcement !== undefined };
     }
     return { ...await tick(driver, config, true), readiness };
   }

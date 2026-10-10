@@ -133,13 +133,13 @@ export function serveConfigurationMatches(value: unknown, config: GatewayConfig)
 }
 
 /**
- * The TCP port a Serve proxy or TCP-forward target connects to, expanded as tailscaled expands it:
+ * The TCP destination a Serve proxy or TCP-forward target connects to, expanded as tailscaled expands it:
  * a bare port means `127.0.0.1`, and a target without a scheme means `http://`. `null` for a Unix
  * socket, which cannot reach the gateway's TCP listener; `undefined` when unparsable.
  */
-function serveTargetPort(target: string): number | null | undefined {
+function serveTarget(target: string): { hostname: string; port: number } | null | undefined {
   if (target.startsWith("unix:")) return null;
-  if (/^\d+$/u.test(target)) { const port = Number(target); return port > 0 && port <= 65535 ? port : undefined; }
+  if (/^\d+$/u.test(target)) { const port = Number(target); return port > 0 && port <= 65535 ? { hostname: "127.0.0.1", port } : undefined; }
   const insecure = "https+insecure://";
   const url = target.startsWith(insecure)
     ? `https://${target.slice(insecure.length)}`
@@ -148,21 +148,25 @@ function serveTargetPort(target: string): number | null | undefined {
       : `http://${target}`;
   try {
     const parsed = new URL(url);
-    if (parsed.port !== "") return Number(parsed.port);
-    return parsed.protocol === "https:" ? 443 : 80;
+    return { hostname: parsed.hostname, port: parsed.port !== "" ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80 };
   } catch {
     return undefined;
   }
 }
 
-/** Whether a Serve target can reach the gateway's backend port; an unparsable target can. */
-function targetReachesPort(target: unknown, port: number): boolean {
+/** Match the listener host as well as its port; unparsable relevant targets fail closed. */
+function targetReachesGateway(target: unknown, config: GatewayConfig): boolean {
   if (typeof target !== "string") return true;
-  const targetPort = serveTargetPort(target);
-  return targetPort === undefined || targetPort === port;
+  const destination = serveTarget(target);
+  if (destination === undefined) return true;
+  if (destination === null || destination.port !== config.http.port) return false;
+  const normalize = (host: string) => host.toLowerCase().replace(/^\[|\]$/gu, "").replace(/\.$/u, "");
+  const host = normalize(destination.hostname), bind = normalize(config.http.hostname);
+  const loopback = (host: string) => host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."));
+  return host === bind || (loopback(host) && loopback(bind)) || bind === "0.0.0.0" || bind === "::";
 }
 
-function authorityReachesPort(scope: unknown, authority: string, port: number): boolean {
+function authorityReachesGateway(scope: unknown, authority: string, config: GatewayConfig): boolean {
   const tcpPort = authority.slice(authority.lastIndexOf(":") + 1);
   const isObject = (value: unknown) => typeof value === "object" && value !== null && !Array.isArray(value);
   const tcp = property(scope, "TCP"), web = property(scope, "Web");
@@ -170,7 +174,7 @@ function authorityReachesPort(scope: unknown, authority: string, port: number): 
   const listener = property(tcp, tcpPort);
   if (listener !== undefined && !isObject(listener)) return true;
   const forward = property(listener, "TCPForward");
-  if (forward !== undefined && targetReachesPort(forward, port)) return true;
+  if (forward !== undefined && targetReachesGateway(forward, config)) return true;
   return objectEntries(web).some(([hostPort, server]) => {
     if (normalizedServeAuthority(hostPort) !== authority) return false;
     const handlers = property(server, "Handlers");
@@ -178,7 +182,7 @@ function authorityReachesPort(scope: unknown, authority: string, port: number): 
     return objectEntries(handlers).some(([, handler]) => {
       if (!isObject(handler)) return true;
       const proxy = property(handler, "Proxy");
-      return proxy !== undefined ? targetReachesPort(proxy, port)
+      return proxy !== undefined ? targetReachesGateway(proxy, config)
         : typeof property(handler, "Path") !== "string" && typeof property(handler, "Text") !== "string";
     });
   });
@@ -187,7 +191,7 @@ function authorityReachesPort(scope: unknown, authority: string, port: number): 
 /**
  * Funnel publishes a Serve authority to the Internet, so none may reach the gateway: Funnel may be
  * enabled neither for the gateway's own Serve authority nor for an authority whose handler proxies
- * or forwards to the gateway's backend port. tailscaled merges foreground `tailscale funnel`
+ * or forwards to the gateway's listener host and port. tailscaled merges foreground `tailscale funnel`
  * sessions with the persistent configuration, so every scope is checked against every other. A
  * Funnel that publishes another local service passes; an entry that cannot be parsed fails.
  */
@@ -207,7 +211,7 @@ export function funnelConfigurationDisabled(value: unknown, config: GatewayConfi
       if (enabled !== true) return false;
       const authority = normalizedServeAuthority(hostPort);
       if (authority === undefined || authority === gatewayAuthority) return false;
-      if (scopes.some(source => authorityReachesPort(source, authority, config.http.port))) return false;
+      if (scopes.some(source => authorityReachesGateway(source, authority, config))) return false;
     }
   }
   return true;

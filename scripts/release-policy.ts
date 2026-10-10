@@ -26,16 +26,37 @@ export function routineBranchProtectionMatches(value: unknown): boolean {
 export function routineProtectedPath(path: string): boolean {
   return path.startsWith(".github/") || path.startsWith("schemas/")
     || (path.startsWith("scripts/") && !["scripts/windows-qualification-pins.json", "scripts/release-text.json"].includes(path))
-    || /(^|\/)(?:tsconfig[^/]*\.json|bunfig\.toml|[^/]*lock[^/]*|AGENTS\.md|CLAUDE\.md)$/u.test(path)
+    || /(^|\/)(?:tsconfig[^/]*\.json|bunfig\.toml|mise\.toml|[^/]*lock[^/]*|AGENTS\.md|CLAUDE\.md)$/u.test(path)
       && !["UPSTREAM.lock.json", "STABLE_RELEASE.lock.json", "bun.lock"].includes(path)
     || ["docs/RELEASE.md", "docs/TEST_PLAN.md", "docs/SECURITY.md"].includes(path);
 }
+export const GENERATED_RELEASE_PATHS = {
+  prepare: ["package.json", "apps/gateway/package.json", "apps/web/package.json", "packages/collab-client/package.json", "packages/protocol/package.json",
+    "apps/gateway/src/diagnostics.ts", "scripts/build-release.ts", "apps/gateway/src/installation.ts", "bun.lock", "CHANGELOG.md",
+    "scripts/release-text.json", "docs/RELEASE_STATUS.md", "docs/ANDROID.md", "docs/ATTENTION_SPEC.md", "docs/LIFECYCLE_BRANCH_RESUME.md", "docs/BACKLOG.md"],
+  approve: ["STABLE_RELEASE.lock.json", "docs/RELEASE_STATUS.md", "docs/UPGRADE_ROLLBACK.md", "README.md", "docs/COMPATIBILITY.md", "site/llms.txt", "site/status/index.html", "scripts/release-text.json"],
+  record: ["docs/RELEASE_STATUS.md", "docs/ANDROID.md", "docs/ATTENTION_SPEC.md", "docs/LIFECYCLE_BRANCH_RESUME.md", "docs/BACKLOG.md", "docs/COMPATIBILITY.md", "site/llms.txt", "site/status/index.html", "scripts/release-text.json"],
+} as const;
+export type GeneratedReleaseKind = keyof typeof GENERATED_RELEASE_PATHS;
+export function generatedReleaseKind(headRef: string): GeneratedReleaseKind | undefined {
+  return /^release-driver\/[1-9][0-9]*\/v[0-9]+\.[0-9]+\.[0-9]+-prealpha\.[1-9][0-9]*-(prepare|approve|record)$/u.exec(headRef)?.[1] as GeneratedReleaseKind | undefined;
+}
+/** A version-bearing control is permitted only with the runtime's normalized control equality check. */
+export function generatedReleaseFilesMatch(kind: GeneratedReleaseKind | undefined, files: readonly { filename: string; previous_filename?: string }[]): boolean {
+  if (kind === undefined) return false;
+  const paths: readonly string[] = GENERATED_RELEASE_PATHS[kind];
+  return files.every(file => [file.filename, ...(file.previous_filename === undefined ? [] : [file.previous_filename])]
+    .every(path => paths.includes(path) && (!routineProtectedPath(path) || (kind === "prepare" && path === "scripts/build-release.ts"))));
+}
+
 export const ROUTINE_HOLD_REASONS = ["authority-path-changed", "policy-changed", "out-of-class", "stale-source",
   "missing-evidence", "head-tree-changed", "unexpected-merger", "pr-identity-changed", "required-checks-missing",
-  "merge-tree-changed", "merge-missing", "merge-signature-missing"] as const;
+  "merge-tree-changed", "merge-missing", "merge-signature-missing", "generated-content-mismatch"] as const;
 export type RoutineHoldReason = typeof ROUTINE_HOLD_REASONS[number];
 export class RoutineHoldError extends Error {
-  constructor(readonly reason: RoutineHoldReason) { super(reason); this.name = "RoutineHoldError"; }
+  constructor(readonly reason: RoutineHoldReason, readonly sourceCommit?: string) {
+    super(reason + (sourceCommit === undefined ? "" : " at source commit " + sourceCommit)); this.name = "RoutineHoldError";
+  }
 }
 export const ROUTINE_EVIDENCE_STEPS = ["qualification", "stable-build", "runtime-comparison", "release-policy", "smoke-plan", "local-checks"] as const;
 export interface RoutineEvidence {
@@ -46,6 +67,7 @@ export interface RoutineAuthority {
   policy: string;
   protectedChanges: string[];
   sourceReviewed: boolean;
+  unreviewedCommit?: string;
   sourceFresh: boolean;
   patchRelease: boolean;
 }
@@ -55,6 +77,7 @@ export interface RoutineSubject {
 }
 export interface RoutinePromotion {
   author: string; base: string; headRepository: string; headRef: string; head: string; tree: string;
+  files: readonly { filename: string; previous_filename?: string }[];
   state: "open" | "closed"; draft: boolean; merged: boolean; checksPassed: boolean; behind: boolean;
   mergedBy?: string | undefined; mergeTree?: string | undefined; mergeCommit?: string | undefined; mergeVerified?: boolean | undefined;
 }
@@ -77,6 +100,7 @@ export function routineReleaseHold(input: {
   if (!subject.policy) return "policy-changed";
   if (!pr || pr.author !== input.bot || pr.base !== "main" || pr.headRepository !== input.repository || pr.headRef !== input.branch || pr.draft || (pr.state === "closed" && !pr.merged)) return "pr-identity-changed";
   if (pr.head !== subject.head || pr.tree !== subject.tree) return "head-tree-changed";
+  if (!generatedReleaseFilesMatch("approve", pr.files)) return "generated-content-mismatch";
   if (!evidence || !subject.candidateCommit || !subject.candidateDigest || evidence.head !== subject.head || evidence.tree !== subject.tree
     || evidence.candidate !== subject.candidate || evidence.candidateCommit !== subject.candidateCommit
     || evidence.candidateDigest !== subject.candidateDigest || evidence.policy !== subject.policy

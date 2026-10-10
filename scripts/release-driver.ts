@@ -69,6 +69,7 @@ export interface DriverState {
   approvedTree?: string | undefined;
   authorityPolicy?: string | undefined;
   holdReason?: RoutineHoldReason | undefined;
+  holdCommit?: string | undefined;
   stableCommit?: string | undefined;
   stableDigest?: string | undefined;
   publicationRun?: string | undefined;
@@ -152,8 +153,10 @@ function refuse(pr: PullRequest | undefined, config: DriverConfig, role: string)
   if (pr.state === "closed" && !pr.merged) return `${role} PR closed without merging`;
   return undefined;
 }
-export function routineHold(reason: RoutineHoldReason): Decision {
-  return decision("hold", "held", "routine release held: " + reason, { holdReason: reason, patch: { holdReason: reason } });
+export function routineHold(reason: RoutineHoldReason, sourceCommit?: string): Decision {
+  const holdCommit = reason === "out-of-class" ? sourceCommit : undefined;
+  return decision("hold", "held", "routine release held: " + reason + (holdCommit === undefined ? "" : " at source commit " + holdCommit),
+    { holdReason: reason, patch: { holdReason: reason, holdCommit } });
 }
 export function promotionHold(state: DriverState, repo: RepositorySnapshot, config: DriverConfig, merged = false): RoutineHoldReason | undefined {
   const reason = routineReleaseHold({
@@ -166,7 +169,7 @@ export function promotionHold(state: DriverState, repo: RepositorySnapshot, conf
 export function nextStep(state: DriverState | undefined, repo: RepositorySnapshot, config: DriverConfig, date = new Date().toISOString().slice(0, 10)): Decision | Idle {
   if (state?.intent !== undefined) return state.intent;
   if (repo.authorityFailure !== undefined) return routineHold(repo.authorityFailure);
-  if (state?.holdReason !== undefined) return idle("held: " + state.holdReason + "; inspect exact subject before operator recovery");
+  if (state?.holdReason !== undefined) return idle("held: " + state.holdReason + (state.holdCommit === undefined ? "" : " at source commit " + state.holdCommit) + "; inspect exact subject before operator recovery");
   if (state === undefined || state.phase === "closed") {
     const issue = selectRequest(repo.issues);
     if (issue === undefined) return idle("no open tracking issue; idle");
@@ -255,14 +258,14 @@ export function nextStep(state: DriverState | undefined, repo: RepositorySnapsho
     if (invalid !== undefined) return routineHold("pr-identity-changed");
     if (pr!.merged) return routineHold("missing-evidence");
     const reason = routineSourceHold(repo.authority, state.authorityPolicy);
-    if (reason !== undefined) return routineHold(reason);
+    if (reason !== undefined) return routineHold(reason, repo.authority?.unreviewedCommit);
     if (!state.authorityPolicy) return routineHold("policy-changed");
     return decision("start-approve-checks", "approve-checking", "run stable build, runtime comparison, policy, smoke plan and full local checks", { pr: pr!, patch: { approvedHead: pr!.head, approvedTree: pr!.tree, authorityPolicy: state.authorityPolicy } });
   }
   if (state.phase === "approval-required" || state.phase === "approved") {
     const reason = promotionHold(state, repo, config, state.phase === "approved");
     if (reason === "required-checks-missing") return { operation: "idle", detail: "held: required-checks-missing; waiting for exact-head strict checks", holdReason: reason };
-    if (reason !== undefined) return routineHold(reason);
+    if (reason !== undefined) return routineHold(reason, repo.authority?.unreviewedCommit);
     const pr = repo.approve!;
     if (state.phase === "approved") return decision("tag-stable", "stable-tagged", "sign and push the exact routine-authorized stable merge");
     if (!pr.merged) return decision("merge-approve", "approved", "standing routine authority: merge the exact checked promotion", { pr });
@@ -307,7 +310,7 @@ export async function tick(port: DriverPort, config: DriverConfig, plan = false)
     result = await port.perform(step, { ...state, ...step.patch });
   } catch (error) {
     if (error instanceof RoutineHoldError) {
-      step = routineHold(error.reason);
+      step = routineHold(error.reason, error.sourceCommit);
       result = {};
     } else {
       if (!(error instanceof StaleIntentError)) throw error;
