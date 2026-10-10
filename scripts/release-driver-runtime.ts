@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readFile, readdir, rename, writeFile } from "node:f
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { REPOSITORY, REQUIRED_CHECKS, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
+import { ORDER_AUTHOR, ORDER_HEAD_PREFIX, REPOSITORY, REQUIRED_CHECKS, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
 import type { Decision, DriverConfig, DriverPort, DriverState, JobObservation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 import { assertReleaseTagState } from "./release-tag-state.ts";
 import { releaseAssetNames, verifyReleaseSignatures } from "./post-release-smoke.ts";
@@ -178,7 +178,7 @@ export class StudioDriver implements DriverPort {
     if (state === undefined || state.phase === "closed") return repo;
     if (compareVersions(repo.upstreamTag, requestVersion(state.issue)!) < 0) {
       const prs = await this.pages<ApiPr>("pulls?state=open&base=main&per_page=100");
-      const matching = prs.filter(pr => pr.user.login === "alpha-founder-source-alphastorm[bot]" && pr.user.type === "Bot" && pr.head.repo?.full_name === REPOSITORY && pr.head.ref.startsWith("alpha-founder/"));
+      const matching = prs.filter(pr => pr.user.login === ORDER_AUTHOR && pr.user.type === "Bot" && pr.head.repo?.full_name === REPOSITORY && pr.head.ref.startsWith(ORDER_HEAD_PREFIX));
       // Multiple matching orders are ambiguous. Never select by attacker-controlled title/body.
       if (matching.length === 1) repo.order = await this.readPr(matching[0]!.number);
     }

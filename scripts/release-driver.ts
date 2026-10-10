@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { runDriver } from "./release-driver-runtime.ts";
 
 export const REPOSITORY = "carrythroughsystems/omp-session-gateway";
+// The delivery App's bot opens an order from a branch under this prefix.
+export const ORDER_AUTHOR = "carrythroughsystems[bot]";
+export const ORDER_HEAD_PREFIX = "carrythrough/";
 export const ORDER_SCOPE = [
   "CHANGELOG.md", "UPSTREAM.lock.json", "docs/COMPATIBILITY.md", "docs/DECISIONS.md",
   "docs/OMP_INTEGRATION.md", "docs/RELEASE_STATUS.md", "scripts/windows-qualification-pins.json",
@@ -128,8 +131,8 @@ export function nextCandidate(version: string, tags: string[]): string {
   return `${prefix}${next}`;
 }
 export function isOrder(pr: PullRequest): boolean {
-  return pr.author === "alpha-founder-source-alphastorm[bot]" && pr.authorType === "Bot"
-    && pr.headRepository === REPOSITORY && pr.headRef.startsWith("alpha-founder/") && pr.base === "main";
+  return pr.author === ORDER_AUTHOR && pr.authorType === "Bot"
+    && pr.headRepository === REPOSITORY && pr.headRef.startsWith(ORDER_HEAD_PREFIX) && pr.base === "main";
 }
 export function outsideOrderScope(pr: PullRequest): string[] {
   return [...new Set(pr.files.flatMap(file => [file.filename, ...(file.previous_filename === undefined ? [] : [file.previous_filename])]))].filter(path => !ORDER_SCOPE.some(allowed => allowed === path));

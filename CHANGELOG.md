@@ -13,6 +13,11 @@ The format is based on Keep a Changelog and Semantic Versioning.
   trusted open tracking request exists, including a re-check before filing. Manual dispatch and
   fixes-only requests are unchanged.
 
+### Changed
+
+- The release driver lands an order only from `carrythroughsystems[bot]` on a `carrythrough/*`
+  head: the delivery App's new name and branch prefix.
+
 ### Fixed
 
 - Run the release driver's detached jobs at interactive priority, as an operator's SSH session
