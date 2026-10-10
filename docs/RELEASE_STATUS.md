@@ -3660,7 +3660,7 @@ recovery guidance rather than claiming JavaScript can restart Chrome's network s
 
 
 **GitHub publication rehearsal:** gh 2.97.0 exercised the exact six-asset draft and publish flags in
-private repository alphastorm/chariot-shadow-workspace on 2026-08-22. The prerelease stayed
+a private rehearsal repository on 2026-08-22. The prerelease stayed
 prerelease/not-Latest before and after publication; the stable-shaped release stayed non-prerelease,
 became Latest only on publication, and resolved through the latest-release API. Both synthetic
 releases and tags were removed. Named evidence:

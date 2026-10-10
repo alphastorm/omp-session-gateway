@@ -107,13 +107,13 @@ It resolves the exact stock npm version, refuses a version below `UPSTREAM.lock.
 the existing Linux/Windows canary. A red canary retains its existing canary-issue reporting and
 opens no tracking issue. A green run opens or reuses `Upstream tracking: vX.Y.Z` with the
 `release-request` label, using `GITHUB_TOKEN` in a job that never checks out or executes PR code.
-Equality with the lock is a fixes-only request: it is still filed and Alpha Founder does not start
+Equality with the lock is a fixes-only request: it is still filed and Carrythrough does not start
 an order. The issue body is for humans; the driver never parses it. A successful request job's
 `Request OMP vX.Y.Z` name and Actions run/attempt identify explicit re-requests without issue edits.
 
 `bun scripts/release-driver.ts plan` is read-only, including local state. It can use the existing
 read-only gh session before bot credentials are installed. `tick` advances at most one step:
-select the highest trusted open request, land the exact Alpha Founder draft order, generate and
+select the highest trusted open request, land the exact Carrythrough draft order, generate and
 merge prepare, sign/publish/verify the candidate, preflight and qualify, generate and locally check
 approve, wait for the founder, sign/publish/verify stable (including rebuilt-digest equality), smoke
 with `--force-reinstall --rebuild-omp`, generate/merge record, and close fulfilled requests. A
@@ -302,7 +302,7 @@ drain or recover the owning job before rearming. Never remove `state.json`, the 
 or either SQLite file to force a retry. Revoke the bot credential to stop repository writes if the
 operator account is compromised; Slack has no credential or authority to pause/resume a release.
 
-### Alpha Founder checks-pod boundary
+### Carrythrough checks-pod boundary
 
 `bun run check:order` validates ORDER_SCOPE's pins/schema and existing repository/coherence/ledger
 gates on Linux, with no devices and no network after `bun install`. The pod needs a writable

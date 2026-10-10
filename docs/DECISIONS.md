@@ -1214,7 +1214,7 @@ target remains unqualified until a full signed-candidate campaign passes on it.
 **Status:** Accepted — 2026-10-07
 
 **Decision:** A green manually dispatched stock-OMP canary opens or reuses the exact bot-authored
-tracking issue. Its title, not its body, selects the upstream version. Alpha Founder supplies a
+tracking issue. Its title, not its body, selects the upstream version. Carrythrough supplies a
 draft source PR restricted to the seven ORDER_SCOPE paths; the Studio release driver lands it
 only with the complete required-check set and a pinned squash merge. Equal-baseline requests
 are fixes-only releases and need no source order.

@@ -74,7 +74,7 @@ export async function runOp(argv: readonly string[], environment: Readonly<Recor
   return { exitCode, stdout, failure: `exited ${exitCode}${detail === "" ? "" : `: ${detail}`}` };
 }
 
-/** The service-account token file: `OMP_STABLE_OP_TOKEN_FILE`, else alpha-founder's retained-host token. */
+/** The service-account token file: `OMP_STABLE_OP_TOKEN_FILE`, else the operator's default token file. */
 export function serviceAccountTokenFile(environment: Readonly<Record<string, string | undefined>>): string {
   return environment.OMP_STABLE_OP_TOKEN_FILE ?? join(homedir(), ".local", "state", "alpha-founder", "retained-host", "op-service-account.token");
 }

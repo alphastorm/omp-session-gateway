@@ -99,7 +99,7 @@ test("one tick advances at most one step across the complete happy path", async 
   for (const comment of fake.comments.values()) expect(comment.split("\n")[0]).toMatch(/^release-driver: [a-z-]+ — [^\n]+$/u);
 });
 
-describe("Alpha Founder order authority and scope", () => {
+describe("Carrythrough order authority and scope", () => {
   test.each([
     { filename: "scripts/build-release.ts" },
     { filename: "CHANGELOG.md", previous_filename: "scripts/build-release.ts" },
