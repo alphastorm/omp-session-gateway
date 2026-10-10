@@ -1,21 +1,86 @@
 import { describe, expect, test } from "bun:test";
-import { botEnvironment, driverConfig, StudioDriver } from "./release-driver-runtime.ts";
+
+
+test("local and API control fingerprints normalize the same source framing", async () => {
+  const text = 'export const PRODUCT_VERSION = "0.7.5";\n';
+  class Controls extends StudioDriver {
+    override async git(args: string[]) { return args[0] === "ls-tree" ? "100644 blob abc\tscripts/build-release.ts" : text.trim(); }
+    override async api<T>(path: string): Promise<T | undefined> {
+      return (path.startsWith("git/trees/") ? { truncated: false, tree: [{ mode: "100644", type: "blob", sha: "abc", path: "scripts/build-release.ts" }] }
+        : { content: Buffer.from(text).toString("base64") }) as T;
+    }
+  }
+  const runtime = new Controls(driverConfig(), true);
+  expect(await runtime.controls("source", true)).toEqual(await runtime.controls("source"));
+});
+
+test("routine merge accepted before crash reconciles without another merge or tag", async () => {
+  const fake = new FakeDriver();
+  fake.state = { ...state("approval-required"), approvedHead: evidence.head, approvedTree: evidence.tree, candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401 };
+  fake.repo.approve = pr(); fake.failSave = 2;
+  await expect(tick(fake, config)).rejects.toThrow("simulated crash");
+  expect(fake.state.intent?.operation).toBe("merge-approve");
+  expect(fake.repo.approve.merged).toBe(true);
+  expect((await tick(fake, config)).operation).toBe("merge-approve");
+  expect(fake.performed.filter(op => op === "merge-approve")).toHaveLength(1);
+  expect(fake.state.stableCommit).toBe("2".repeat(40));
+});
+test("changed authority during effect replay becomes a durable typed hold and reconciled outbox", async () => {
+  class ChangedAuthority extends FakeDriver {
+    override async perform(): Promise<Partial<DriverState>> { throw new RoutineHoldError("policy-changed"); }
+  }
+  const fake = new ChangedAuthority(); fake.state = state();
+  expect((await tick(fake, config)).holdReason).toBe("policy-changed");
+  expect(fake.state.holdReason).toBe("policy-changed");
+  expect(fake.state.intent).toBeUndefined();
+  expect((await tick(fake, config)).operation).toBe("idle");
+  expect(fake.comments.size).toBe(1);
+});
+test("only a vanished same-subject local approve job resumes; campaign and smoke remain diagnostic", () => {
+  const checking = { ...state("approve-checking"), approvedHead: evidence.head, approvedTree: evidence.tree };
+  expect(nextStep(checking, snapshot({ approve: pr(), approveChecks: { status: "absent" } }), config).operation).toBe("start-approve-checks");
+  expect(nextStep(checking, snapshot({ approve: pr({ head: "d".repeat(40) }), approveChecks: { status: "absent" } }), config).holdReason).toBe("head-tree-changed");
+  for (const phase of ["qualifying", "smoking"] as const) expect(nextStep(state(phase), snapshot({ campaign: { status: "absent" }, smoke: { status: "absent" } }), config).operation).toBe("stop");
+});
+test("GitHub credential expiry is reported without persisting raw credential headers", () => {
+  expect(credentialExpiry("x-oauth-scopes: repo")).toEqual({ status: "unknown" });
+  expect(credentialExpiry("GitHub-Authentication-Token-Expiration: 2026-10-10 00:00:00 UTC", Date.parse("2026-10-09"))).toEqual({ status: "valid", expiresAt: "2026-10-10T00:00:00.000Z" });
+  expect(credentialExpiry("github-authentication-token-expiration: 2026-10-08", Date.parse("2026-10-09")).status).toBe("expired");
+});
+test("routine controls normalize generated versions but retain policy and dependency changes", async () => {
+  class Controls extends StudioDriver {
+    override async git(args: string[]) {
+      if (args[0] === "ls-tree") return ["100644 blob a\tpackage.json", "100644 blob b\tbun.lock", "100644 blob c\tscripts/build-release.ts", "100644 blob d\t.github/workflows/signed-release.yml"].join("\n");
+      const version = args[1]!.startsWith("old:") ? "0.7.5" : "0.7.6";
+      if (args[1]!.endsWith(":package.json")) return JSON.stringify({ version, scripts: { check: "bun test" } });
+      if (args[1]!.endsWith(":bun.lock")) return '{\n    "apps/gateway": {\n      "name": "gateway",\n      "version": "' + version + '",\n    },\n}';
+      return 'export const PRODUCT_VERSION = "' + version + '";';
+    }
+  }
+  const runtime = new Controls(driverConfig(), true);
+  expect(await runtime.controls("old", true)).toEqual(await runtime.controls("new", true));
+});
+
+import { botEnvironment, credentialExpiry, driverConfig, StudioDriver } from "./release-driver-runtime.ts";
 import { compareVersions, isOrder, nextCandidate, nextStep, ORDER_SCOPE, outsideOrderScope, REPOSITORY, selectRequest, StaleIntentError, tick } from "./release-driver.ts";
 import type { Decision, DriverPort, DriverState, Operation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 
+import { REQUIRED_CHECKS, ROUTINE_EVIDENCE_STEPS, RoutineHoldError } from "./release-policy.ts";
+const authority = { policy: "policy-1", protectedChanges: [], sourceReviewed: true, sourceFresh: true, patchRelease: true };
+const evidence = { head: "b".repeat(40), tree: "c".repeat(40), candidate: "v0.7.5-prealpha.1", candidateCommit: "e".repeat(40), candidateDigest: "f".repeat(64), policy: authority.policy, steps: ROUTINE_EVIDENCE_STEPS };
 const config = { bot: "alphastorm-release", founder: "alphastorm" };
 const issue: TrackingIssue = { number: 400, title: "Upstream tracking: v18.8.3", author: "github-actions[bot]", request: "42:1", url: "https://github.com/carrythroughsystems/omp-session-gateway/issues/400" };
 function state(phase: DriverState["phase"] = "selected"): DriverState {
-  return { schemaVersion: 1, sequence: 1, phase, issue: { ...issue }, version: "0.7.5", candidate: "v0.7.5-prealpha.1", selectedMain: "a".repeat(40), date: "2026-10-07" };
+  return { schemaVersion: 1, sequence: 1, phase, issue: { ...issue }, version: "0.7.5", candidate: "v0.7.5-prealpha.1", selectedMain: "a".repeat(40), previousStable: "v0.7.4", authorityPolicy: authority.policy, date: "2026-10-07" };
 }
 function pr(overrides: Partial<PullRequest> = {}): PullRequest {
-  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, behind: false, checksPassed: true, files: [], url: "https://github.com/carrythroughsystems/omp-session-gateway/pull/401", ...overrides };
+  return { number: 401, author: config.bot, authorType: "User", headRepository: REPOSITORY, base: "main", headRef: "release-driver/400/v0.7.5-prealpha.1-approve", head: "b".repeat(40), tree: "c".repeat(40), draft: false, state: "open", merged: false, mergeVerified: true, behind: false, checksPassed: true, files: [], url: "https://github.com/carrythroughsystems/omp-session-gateway/pull/401", ...overrides };
 }
 function order(overrides: Partial<PullRequest> = {}): PullRequest {
   return pr({ author: "carrythroughsystems[bot]", authorType: "Bot", headRef: "carrythrough/order-400", draft: true, files: ORDER_SCOPE.map(filename => ({ filename })), ...overrides });
 }
 function snapshot(overrides: Partial<RepositorySnapshot> = {}): RepositorySnapshot {
-  return { main: "a".repeat(40), upstreamTag: "v18.8.3", latestStable: "v0.7.4", tags: ["v0.7.4", "v0.7.4-prealpha.1"], issues: [{ ...issue }], ...overrides };
+  return { main: "a".repeat(40), upstreamTag: "v18.8.3", latestStable: "v0.7.4", tags: ["v0.7.4", "v0.7.4-prealpha.1"], issues: [{ ...issue }], authority, evidence, ...overrides };
 }
 class FakeDriver implements DriverPort {
   state: DriverState | undefined;
@@ -45,13 +110,14 @@ class FakeDriver implements DriverPort {
       case "update-order": this.repo.order!.behind = false; this.repo.order!.head = "d".repeat(40); break;
       case "ready-order": this.repo.order!.draft = false; break;
       case "merge-order": this.repo.upstreamTag = "v18.8.3"; this.repo.main = "9".repeat(40); break;
-      case "open-prepare": this.prepareSources.push(current.selectedMain); this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402 }; break;
+      case "open-prepare": this.prepareSources.push(current.selectedMain); this.repo.prepare = pr({ number: 402 }); patch = { preparePr: 402, authorityPolicy: authority.policy }; break;
       case "merge-prepare": patch = { candidateCommit: "e".repeat(40) }; break;
       case "tag-candidate": this.repo.candidateWorkflow = "passed"; break;
       case "verify-candidate": patch = { candidateDigest: "f".repeat(64) }; break;
       case "start-campaign": this.repo.campaign = { status: "passed" }; break;
       case "open-approve": this.repo.approve = pr(); patch = { approvePr: 401 }; break;
       case "start-approve-checks": this.repo.approveChecks = { status: "passed" }; break;
+      case "merge-approve": Object.assign(this.repo.approve!, { state: "closed", merged: true, mergedBy: config.bot, mergeTree: current.approvedTree, mergeCommit: "2".repeat(40) }); patch = { stableCommit: "2".repeat(40) }; break;
       case "tag-stable": this.repo.stableWorkflow = "passed"; break;
       case "verify-stable": patch = { stableDigest: "1".repeat(64) }; break;
       case "start-smoke": this.repo.smoke = { status: "passed" }; break;
@@ -67,6 +133,127 @@ class FakeDriver implements DriverPort {
   }
 }
 
+
+describe("review remediations", () => {
+  test.each(["prepare", "record"])("R1 rejects protected generated %s bytes even on accepted-merge replay", async kind => {
+    const current = pr({ headRef: "release-driver/400/v0.7.5-prealpha.1-" + kind, merged: true, mergedBy: config.bot,
+      files: [{ filename: "docs/RELEASE_STATUS.md", previous_filename: "scripts/release-policy.ts" }] });
+    class Runtime extends StudioDriver {
+      override async readPr() { return current; }
+      override async controls() { return new Map<string, string>(); }
+    }
+    await expect(new Runtime(driverConfig(), false).merge(current, false)).rejects.toThrow("generated-content-mismatch");
+  });
+  test("R1 generated version exception admits equal controls and refuses changed executable controls", async () => {
+    const current = pr({ headRef: "release-driver/400/v0.7.5-prealpha.1-prepare", merged: true, mergedBy: config.bot,
+      files: [{ filename: "scripts/build-release.ts" }, { filename: "package.json" }, { filename: "bun.lock" }] });
+    class Runtime extends StudioDriver {
+      changed = false;
+      override async readPr() { return current; }
+      override async git() { return "installed"; }
+      override async controls(_source: string, local = false) { return new Map([["scripts/build-release.ts", local || !this.changed ? "unchanged" : "executable-edit"]]); }
+    }
+    const runtime = new Runtime(driverConfig(), false);
+    expect(await runtime.merge(current, false)).toEqual(current);
+    runtime.changed = true;
+    await expect(runtime.merge(current, false)).rejects.toThrow("generated-content-mismatch");
+  });
+  test.each([{ author: "foreign", verified: true }, { author: config.bot, verified: false }])("R1 refuses foreign or unsigned existing PR checkpoints %j", async identity => {
+    class Runtime extends StudioDriver {
+      override async pages<T>(): Promise<T[]> { return [{ number: 401 }] as T[]; }
+      override async readPr() { return pr(); }
+      override async api<T>(): Promise<T | undefined> { return { author: { login: identity.author }, commit: { verification: { verified: identity.verified } } } as T; }
+    }
+    await expect(new Runtime(driverConfig(), false).openPr("approve", state())).rejects.toThrow("pr-identity-changed");
+  });
+  test("R1 refuses an unsigned remote branch before creating its checkout", async () => {
+    class Runtime extends StudioDriver {
+      override async pages<T>(): Promise<T[]> { return []; }
+      override async api<T>(path: string): Promise<T | undefined> {
+        return (path.startsWith("git/ref/") ? { object: { sha: "b".repeat(40) } }
+          : { author: { login: config.bot }, commit: { verification: { verified: false } } }) as T;
+      }
+      override async checkout(): Promise<string> { throw new Error("unsafe checkpoint reached checkout"); }
+    }
+    await expect(new Runtime(driverConfig(), false).openPr("prepare", state())).rejects.toThrow("pr-identity-changed");
+  });
+  class SourceRuntime extends StudioDriver {
+    title = "fix(gateway): mutable title";
+    subject = "feat(gateway): immutable feature";
+    sourcePr = pr({ merged: true, mergedBy: config.founder, mergeCommit: "a".repeat(40) });
+    dirty = false;
+    override async controls() { return new Map<string, string>(); }
+    override async git(args: string[]) {
+      if (args[0] === "rev-parse") return "installed";
+      if (args[0] === "status") return this.dirty && !args.includes("--untracked-files=no") ? "?? .env" : "";
+      throw new Error("unexpected git read");
+    }
+    override async pages<T>(): Promise<T[]> { return [{ number: 401 }] as T[]; }
+    override async readPr() { return this.sourcePr; }
+    override async api<T>(path: string): Promise<T | undefined> {
+      if (path === "branches/main") return { protected: true, protection: { enabled: true, required_status_checks: { contexts: [...REQUIRED_CHECKS], enforcement_level: "everyone" } } } as T;
+      if (path.startsWith("compare/")) return { status: "ahead", total_commits: 1, commits: [{ sha: "a".repeat(40) }] } as T;
+      if (path.startsWith("git/commits/")) return { message: this.subject } as T;
+      if (path === "pulls/401") return { merged: true, base: { ref: "main" }, merge_commit_sha: "a".repeat(40), merged_by: { login: this.sourcePr.mergedBy }, title: this.title } as T;
+      throw new Error("unexpected API read " + path);
+    }
+  }
+  test("R2 ignores a mutable fix title when immutable merge subject is out of class", async () => {
+    const runtime = new SourceRuntime(driverConfig(), true);
+    expect((await runtime.authority(state(), state().selectedMain)).sourceReviewed).toBe(false);
+    runtime.title = "feat(gateway): title edited after merge"; runtime.subject = "fix(gateway): immutable reviewed fix";
+    expect((await runtime.authority(state(), state().selectedMain)).sourceReviewed).toBe(true);
+  });
+  test("R1 release-record classification refuses files outside generator output", async () => {
+    const runtime = new SourceRuntime(driverConfig(), true);
+    runtime.title = runtime.subject = "docs(release): record v0.7.5";
+    runtime.sourcePr = pr({ headRef: "release-driver/400/v0.7.5-prealpha.1-record", merged: true, mergedBy: config.bot,
+      files: [{ filename: "apps/gateway/src/doctor.ts" }] });
+    expect((await runtime.authority(state(), state().selectedMain)).sourceReviewed).toBe(false);
+  });
+  test("U2 untracked non-ignored runtime inputs make installed policy dirty", async () => {
+    const runtime = new SourceRuntime(driverConfig(), true); runtime.dirty = true;
+    expect((await runtime.authority(state(), state().selectedMain)).protectedChanges).toContain("installed-checkout-dirty");
+  });
+  test("R3 fingerprints package lifecycle scripts at arbitrary depth", async () => {
+    class Runtime extends StudioDriver {
+      override async git(args: string[]) {
+        if (args[0] === "ls-tree") return "100644 blob a\ttools/fixtures/nested/package.json";
+        return JSON.stringify({ version: args[1]!.startsWith("next:") ? "2.0.0" : "1.0.0", scripts: { postinstall: args[1]!.startsWith("changed:") ? "changed" : "original" } });
+      }
+    }
+    const runtime = new Runtime(driverConfig(), true);
+    const first = await runtime.controls("old", true);
+    expect(first.has("tools/fixtures/nested/package.json")).toBe(true);
+    expect(first).toEqual(await runtime.controls("next", true));
+    expect(first).not.toEqual(await runtime.controls("changed", true));
+  });
+  test("R4 installation instructions quiesce and drain before checkout mutation", async () => {
+    const doc = await Bun.file(new URL("../docs/RELEASE.md", import.meta.url)).text();
+    const instructions = doc.split("### Studio installation (run as gwops after integration)")[1]!.split("### Readiness")[0]!;
+    const fetch = instructions.indexOf("git fetch origin main");
+    expect(instructions.indexOf("\ntouch ")).toBeGreaterThan(0);
+    expect(instructions.indexOf("\ntouch ")).toBeLessThan(fetch);
+    expect(instructions.indexOf('launchctl bootout "gui/$(id -u)/com.omp.gateway-release-driver"')).toBeLessThan(fetch);
+    expect(instructions.indexOf("Confirm no driver tick/worker or tmux job remains")).toBeGreaterThan(0);
+    expect(instructions.indexOf("Confirm no driver tick/worker or tmux job remains")).toBeLessThan(fetch);
+  });
+  test("U1 documents squash-only fix admission and names held source commits", async () => {
+    const doc = await Bun.file(new URL("../docs/RELEASE.md", import.meta.url)).text();
+    expect(doc).toContain("Founder fixes must be squash-merged");
+    const runtime = new SourceRuntime(driverConfig(), true);
+    const observed = await runtime.authority(state(), state().selectedMain);
+    expect(observed).toHaveProperty("unreviewedCommit", "a".repeat(40));
+    const current = { ...state("approve-open"), authorityPolicy: observed.policy };
+    const hold = nextStep(current, snapshot({ approve: pr(), authority: observed }), config);
+    expect(hold.detail).toContain("at source commit " + "a".repeat(40));
+    const fake = new FakeDriver(); fake.state = current; fake.repo = snapshot({ approve: pr(), authority: observed });
+    await tick(fake, config);
+    expect(fake.state.holdCommit).toBe("a".repeat(40));
+    expect((await tick(fake, config)).detail).toContain("a".repeat(40));
+  });
+});
+
 test("stock numeric requests choose highest trusted exact title; fixes-only requests are selected", () => {
   const newer = { ...issue, number: 402, title: "Upstream tracking: v18.10.1" };
   expect(selectRequest([issue, { ...newer, author: "attacker" }, newer])).toEqual(newer);
@@ -81,12 +268,8 @@ test("one tick advances at most one step across the complete happy path", async 
   const fake = new FakeDriver();
   fake.repo.upstreamTag = "v18.5.1";
   fake.repo.order = order({ behind: true });
-  const expected: Operation[] = ["select", "update-order", "ready-order", "merge-order", "open-prepare", "merge-prepare", "tag-candidate", "observe-candidate", "verify-candidate", "start-campaign", "finish-campaign", "open-approve", "start-approve-checks", "finish-approve-checks", "accept-approval", "tag-stable", "observe-stable", "verify-stable", "start-smoke", "finish-smoke", "open-record", "merge-record", "close"];
+  const expected: Operation[] = ["select", "update-order", "ready-order", "merge-order", "open-prepare", "merge-prepare", "tag-candidate", "observe-candidate", "verify-candidate", "start-campaign", "finish-campaign", "open-approve", "start-approve-checks", "finish-approve-checks", "merge-approve", "tag-stable", "observe-stable", "verify-stable", "start-smoke", "finish-smoke", "open-record", "merge-record", "close"];
   for (const operation of expected) {
-    if (operation === "accept-approval") {
-      expect((await tick(fake, config)).operation).toBe("idle");
-      Object.assign(fake.repo.approve!, { state: "closed", merged: true, mergedBy: config.founder, mergeTree: fake.state!.approvedTree, mergeCommit: "2".repeat(40) });
-    }
     const previous = fake.state?.sequence ?? 0;
     expect((await tick(fake, config)).operation).toBe(operation);
     expect(fake.state!.sequence).toBe(previous + 1);
@@ -129,20 +312,20 @@ describe("Carrythrough order authority and scope", () => {
   });
 });
 
-describe("approve is a founder-only exact-tree gate", () => {
-  const approved = { ...state("approval-required"), approvePr: 401, approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
+describe("approve is a standing routine exact-tree gate", () => {
+  const approved = { ...state("approval-required"), candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401, approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
   test.each([
-    [{ merged: true, state: "closed", mergedBy: config.bot, mergeTree: "c".repeat(40) }, "non-founder"],
-    [{ merged: true, state: "closed", mergedBy: config.founder, mergeTree: "d".repeat(40) }, "tree differs"],
-    [{ state: "closed", merged: false }, "closed without"],
-    [{ head: "d".repeat(40) }, "head/tree differs"],
-    [{ author: "attacker" }, "identity changed"],
+    [{ merged: true, state: "closed", mergedBy: config.founder, mergeTree: "c".repeat(40) }, "unexpected-merger"],
+    [{ merged: true, state: "closed", mergedBy: config.bot, mergeTree: "d".repeat(40) }, "merge-tree-changed"],
+    [{ state: "closed", merged: false }, "pr-identity-changed"],
+    [{ head: "d".repeat(40) }, "head-tree-changed"],
+    [{ author: "attacker" }, "pr-identity-changed"],
   ] as const)("refuses unsafe approval %j", (change, reason) => {
     const result = nextStep(approved, snapshot({ approve: pr(change) }), config);
-    expect(result.operation).toBe("stop"); expect(result.detail).toContain(reason);
+    expect(result.operation).toBe("hold"); expect(result.holdReason).toBe(reason);
   });
   test("cannot bypass Studio checks by merging early", () => {
-    expect(nextStep(state("approve-open"), snapshot({ approve: pr({ merged: true }) }), config).operation).toBe("stop");
+    expect(nextStep(state("approve-open"), snapshot({ approve: pr({ merged: true }) }), config).holdReason).toBe("missing-evidence");
   });
 });
 
@@ -237,6 +420,9 @@ test("runtime finds an existing release PR under the organization owner", async 
       return [{ number: existing.number }] as T[];
     }
     override async readPr() { return existing; }
+    override async git() { return "installed"; }
+    override async controls() { return new Map<string, string>(); }
+    override async api<T>(): Promise<T | undefined> { return { author: { login: config.bot }, commit: { verification: { verified: true } } } as T; }
   }
   expect(REPOSITORY).toBe("carrythroughsystems/omp-session-gateway");
   const runtime = new TransferredRuntime(driverConfig(), false);
@@ -245,7 +431,11 @@ test("runtime finds an existing release PR under the organization owner", async 
 
 test("runtime refuses a moved pinned merge as stale, but a merge at another head as a hard stop", async () => {
   let current = pr({ head: "d".repeat(40) });
-  class MovedRuntime extends StudioDriver { override async readPr() { return current; } }
+  class MovedRuntime extends StudioDriver {
+    override async readPr() { return current; }
+    override async git() { return "installed"; }
+    override async controls() { return new Map<string, string>(); }
+  }
   const runtime = new MovedRuntime(driverConfig(), false);
   await expect(runtime.merge(pr(), false)).rejects.toThrow(StaleIntentError);
   current = pr({ checksPassed: false });
@@ -294,18 +484,22 @@ test("runtime refuses a changed order scope at the last merge boundary, includin
   await expect(runtime.merge(order({ draft: false }), true)).rejects.toThrow("scope changed");
 });
 
-test("runtime rechecks founder, merge commit and checked tree before a stable tag effect", async () => {
+test("runtime rechecks authority, merge commit and checked tree before a stable tag effect", async () => {
   class RefusingRuntime extends StudioDriver {
-    override async readPr() { return pr({ merged: true, mergedBy: config.bot, mergeTree: "c".repeat(40), mergeCommit: "e".repeat(40) }); }
+    override async promotionSnapshot() { return snapshot({ approve: pr({ merged: true, mergedBy: config.founder, mergeTree: "c".repeat(40), mergeCommit: "e".repeat(40) }) }); }
   }
   const runtime = new RefusingRuntime(driverConfig(), false);
-  const approved = { ...state("approved"), approvePr: 401, stableCommit: "e".repeat(40), approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
-  await expect(runtime.perform({ operation: "tag-stable", phase: "stable-tagged", detail: "publish" }, approved)).rejects.toThrow("founder approval binding changed");
+  const approved = { ...state("approved"), candidateCommit: evidence.candidateCommit, candidateDigest: evidence.candidateDigest, approvePr: 401, stableCommit: "e".repeat(40), approvedHead: "b".repeat(40), approvedTree: "c".repeat(40) };
+  await expect(runtime.perform({ operation: "tag-stable", phase: "stable-tagged", detail: "publish" }, approved)).rejects.toThrow("unexpected-merger");
 });
 
 test("runtime adopts an already-accepted pinned bot merge after a crash without another write", async () => {
   const merged = pr({ merged: true, mergedBy: config.bot, mergeCommit: "e".repeat(40), state: "closed" });
-  class ReconciledRuntime extends StudioDriver { override async readPr() { return merged; } }
+  class ReconciledRuntime extends StudioDriver {
+    override async readPr() { return merged; }
+    override async git() { return "installed"; }
+    override async controls() { return new Map<string, string>(); }
+  }
   const runtime = new ReconciledRuntime(driverConfig(), false);
   expect(await runtime.merge(pr(), false)).toEqual(merged);
 });

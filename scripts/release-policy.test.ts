@@ -3,7 +3,79 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
-import { assertStableReleaseQualification, releasePolicy, releaseVersion } from "./release-policy.ts";
+import { REQUIRED_CHECKS, ROUTINE_BRANCH_PROTECTION, routineBranchProtectionMatches, ROUTINE_HOLD_REASONS, ROUTINE_EVIDENCE_STEPS, GENERATED_RELEASE_PATHS, generatedReleaseKind, generatedReleaseFilesMatch, routineProtectedPath, routineReleaseHold, assertStableReleaseQualification, releasePolicy, releaseVersion } from "./release-policy.ts";
+
+
+describe("standing routine release authority", () => {
+  const input = () => ({
+    subject: { head: "head", tree: "tree", candidate: "candidate", candidateCommit: "commit", candidateDigest: "digest", policy: "policy" },
+    authority: { policy: "policy", protectedChanges: [] as string[], sourceReviewed: true, sourceFresh: true, patchRelease: true },
+    evidence: { head: "head", tree: "tree", candidate: "candidate", candidateCommit: "commit", candidateDigest: "digest", policy: "policy", steps: [...ROUTINE_EVIDENCE_STEPS] as string[] },
+    pr: { author: "bot", base: "main", headRepository: "repo", headRef: "branch", head: "head", tree: "tree", state: "open" as const, draft: false, merged: true, checksPassed: true, behind: false, mergedBy: "bot", mergeTree: "tree", mergeCommit: "merge", mergeVerified: true, files: [] as { filename: string; previous_filename?: string }[] },
+    bot: "bot", repository: "repo", branch: "branch", merged: true,
+  });
+  const mutations: Record<typeof ROUTINE_HOLD_REASONS[number], (x: ReturnType<typeof input>) => void> = {
+    "authority-path-changed": x => { x.authority.protectedChanges = [".github/workflows/signed-release.yml"]; },
+    "policy-changed": x => { x.authority.policy = "other"; },
+    "out-of-class": x => { x.authority.sourceReviewed = false; },
+    "stale-source": x => { x.authority.sourceFresh = false; },
+    "missing-evidence": x => { x.evidence.steps = []; },
+    "head-tree-changed": x => { x.pr.head = "other"; },
+    "unexpected-merger": x => { x.pr.mergedBy = "founder"; },
+    "pr-identity-changed": x => { x.pr.author = "other"; },
+    "required-checks-missing": x => { x.pr.checksPassed = false; },
+    "merge-tree-changed": x => { x.pr.mergeTree = "other"; },
+    "merge-missing": x => { x.pr.mergeCommit = ""; },
+    "merge-signature-missing": x => { x.pr.mergeVerified = false; },
+    "generated-content-mismatch": x => { x.pr.files = [{ filename: "scripts/release-policy.ts" }]; },
+  };
+  test.each([...ROUTINE_HOLD_REASONS])("enumerates and refuses %s", reason => {
+    const subject = input(); mutations[reason](subject);
+    expect(routineReleaseHold(subject)).toBe(reason);
+  });
+  test("admits the reviewed exact patch subject, never a missing subject or changed digest", () => {
+    expect(routineReleaseHold(input())).toBeUndefined();
+    const missing = input(); missing.evidence.candidateDigest = "wrong";
+    expect(routineReleaseHold(missing)).toBe("missing-evidence");
+    const minor = input(); minor.authority.patchRelease = false;
+    expect(routineReleaseHold(minor)).toBe("out-of-class");
+  });
+  test.each([".github/workflows/release-request.yml", ".github/workflows/signed-release.yml", ".github/CODEOWNERS", "scripts/release-policy.ts", "scripts/release-driver-runtime.ts", "scripts/release-host-lease.ts", "scripts/post-release-smoke.ts", "scripts/stable-qualification.ts", "scripts/check-repository.ts", "schemas/stable-release.schema.json", "docs/RELEASE.md"])("protects authority, signer, permissions and quality path %s", path => {
+    expect(routineProtectedPath(path)).toBe(true);
+  });
+  test("checks writer-readable protection facts against the installed administrator attestation", () => {
+    const branch = { protected: true, protection: { enabled: true, required_status_checks: { contexts: [...REQUIRED_CHECKS], enforcement_level: "everyone" } } };
+    expect(ROUTINE_BRANCH_PROTECTION.required_signatures).toBe(true);
+    expect(ROUTINE_BRANCH_PROTECTION.required_status_checks.strict).toBe(true);
+    expect(routineBranchProtectionMatches(branch)).toBe(true);
+    expect(routineBranchProtectionMatches({ ...branch, protected: false })).toBe(false);
+    branch.protection.required_status_checks.contexts.pop();
+    expect(routineBranchProtectionMatches(branch)).toBe(false);
+  });
+  test("R3 protects lifecycle-capable mise configuration as well as its lock", () => {
+    expect(routineProtectedPath("mise.lock")).toBe(true);
+    expect(routineProtectedPath("mise.toml")).toBe(true);
+    expect(routineProtectedPath("tools/fixtures/mise.toml")).toBe(true);
+  });
+  test("R1 exact generator output allowlists preserve rename and protected-path boundaries", () => {
+    for (const kind of ["prepare", "approve", "record"] as const) {
+      expect(generatedReleaseKind("release-driver/400/v0.7.5-prealpha.1-" + kind)).toBe(kind);
+      expect(generatedReleaseFilesMatch(kind, GENERATED_RELEASE_PATHS[kind].map(filename => ({ filename })))).toBe(true);
+      for (const filename of ["scripts/release-policy.ts", "apps/gateway/src/doctor.ts", "UPSTREAM.lock.json"]) {
+        expect(generatedReleaseFilesMatch(kind, [{ filename }])).toBe(false);
+        expect(generatedReleaseFilesMatch(kind, [{ filename: "docs/RELEASE_STATUS.md", previous_filename: filename }])).toBe(false);
+      }
+    }
+    expect(generatedReleaseKind("release-driver/foreign-record")).toBeUndefined();
+    expect(generatedReleaseFilesMatch(undefined, [])).toBe(false);
+    expect(generatedReleaseFilesMatch("record", [{ filename: "README.md" }])).toBe(false);
+    expect(generatedReleaseFilesMatch("record", [{ filename: "STABLE_RELEASE.lock.json" }])).toBe(false);
+    expect(generatedReleaseFilesMatch("approve", [{ filename: "bun.lock" }])).toBe(false);
+  });
+  test("ordinary baseline pins and source fixes do not change the authority controls", () => {
+    for (const path of ["apps/gateway/src/doctor.ts", "apps/gateway/test/diagnostics.test.ts", "UPSTREAM.lock.json", "scripts/windows-qualification-pins.json", "scripts/release-text.json"]) expect(routineProtectedPath(path)).toBe(false);
+  });
+});
 
 const VERSION = "0.2.1";
 const qualifiedManifest = () => ({

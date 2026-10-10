@@ -4,13 +4,16 @@ import { lstat, mkdir, open, readFile, readdir, rename, writeFile } from "node:f
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ORDER_AUTHOR, ORDER_HEAD_PREFIX, REPOSITORY, REQUIRED_CHECKS, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, tick } from "./release-driver.ts";
+import { ORDER_AUTHOR, ORDER_HEAD_PREFIX, REPOSITORY, StaleIntentError, compareVersions, isOrder, outsideOrderScope, requestVersion, promotionHold, tick } from "./release-driver.ts";
 import type { Decision, DriverConfig, DriverPort, DriverState, JobObservation, PullRequest, RepositorySnapshot, TrackingIssue } from "./release-driver.ts";
 import { assertReleaseTagState } from "./release-tag-state.ts";
 import { releaseAssetNames, verifyReleaseSignatures } from "./post-release-smoke.ts";
 import { downloadReleaseAssets } from "./release-download.ts";
 import { compareReleaseArchives } from "./release-runtime-compare.ts";
 import type { StableQualificationReceipt } from "./stable-qualification.ts";
+import { REQUIRED_CHECKS, ROUTINE_BRANCH_PROTECTION, routineBranchProtectionMatches, ROUTINE_EVIDENCE_STEPS, RoutineHoldError, routineProtectedPath, routineSourceHold, generatedReleaseKind, generatedReleaseFilesMatch } from "./release-policy.ts";
+import type { RoutineAuthority, RoutineEvidence } from "./release-policy.ts";
+import { runAdb } from "./android-device.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 interface RuntimeConfig extends DriverConfig {
@@ -64,6 +67,11 @@ async function privateDirectory(path: string): Promise<void> {
   const info = await lstat(path);
   if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error("release-driver state directory must be private and owned by this account");
 }
+export function credentialExpiry(headers: string, now = Date.now()): { status: "unknown" | "valid" | "expired"; expiresAt?: string } {
+  const value = /^github-authentication-token-expiration:\s*(.+)$/imu.exec(headers)?.[1]?.trim();
+  const at = value === undefined ? NaN : Date.parse(value);
+  return !Number.isFinite(at) ? { status: "unknown" } : { status: at <= now ? "expired" : "valid", expiresAt: new Date(at).toISOString() };
+}
 interface ApiPr {
   number: number; user: { login: string; type: string }; head: { sha: string; ref: string; repo: { full_name: string } | null };
   base: { ref: string }; draft: boolean; state: "open" | "closed"; merged: boolean;
@@ -93,6 +101,59 @@ export class StudioDriver implements DriverPort {
   async pages<T>(path: string): Promise<T[]> {
     const pages = await this.gh<T[][]>(["api", "--paginate", "--slurp", `repos/${REPOSITORY}/${path}`]);
     return pages!.flat();
+  }
+  async readiness(): Promise<Record<string, unknown> & { ready: boolean }> {
+    const env = botEnvironment(this.config);
+    const checks: Record<string, boolean> = {};
+    const privateInput = async (path: string): Promise<boolean> => {
+      try { const stat = await lstat(path); return stat.isFile() && stat.uid === process.getuid?.() && (stat.mode & 0o077) === 0 && stat.size > 0; }
+      catch { return false; }
+    };
+    for (const [name, path] of Object.entries({ signingKey: this.config.signingKey,
+      vultr: join(homedir(), ".vultr-apikey"), tailscaleApi: join(homedir(), ".ts-qual-apikey"),
+      serviceAccount: join(homedir(), ".local/state/omp-session-gateway/op-service-account.token"),
+      pixelKeychain: join(homedir(), "Library/Keychains/omp-qualification.keychain-db") })) checks[name] = await privateInput(path);
+    checks.tailscaleJoin = await privateInput(join(homedir(), ".ts-qual-authkey")) || await privateInput(join(homedir(), ".ts-authkey-qual"));
+    checks.platform = process.platform === "darwin" && process.arch === "arm64" && Bun.version === "1.4.0";
+    // Share the qualification prerequisite list recognized by check:repository (not an adb argv).
+    const executables = ["adb", "security", "git", "gh", "cosign", "shasum", "ssh", "scp", "bash", "python3", "curl"];
+    for (const executable of [...executables, "tmux", "op"]) checks[executable] = Bun.which(executable) !== null;
+    checks.java = await Bun.file("/opt/homebrew/opt/openjdk@17/bin/java").exists();
+    const target = env.OMP_STABLE_MAC_HOST;
+    checks.macConfigured = !!target && !target.includes(".example.");
+    if (checks.macConfigured) {
+      const result = await command(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "ControlMaster=no", "-o", "ControlPath=none", target!, "true"], ROOT, env, true).catch(() => undefined);
+      checks.macReachable = result?.code === 0;
+    }
+    const devices = await runAdb(undefined, ["devices"], { timeoutMs: 10_000 }).catch(() => undefined);
+    checks.pixel = devices !== undefined && devices.split("\n").filter(line => /\tdevice$/u.test(line.trim())).length === 1;
+    let expiry: ReturnType<typeof credentialExpiry> = { status: "unknown" };
+    try {
+      const identity = await command(["gh", "api", "--include", "user"], ROOT, env);
+      const boundary = identity.out.search(/\r?\n\r?\n/u);
+      const body = identity.out.slice(boundary).trim();
+      checks.botIdentity = boundary >= 0 && JSON.parse(body).login === this.config.bot;
+      expiry = credentialExpiry(identity.out.slice(0, boundary));
+      const repository = JSON.parse((await command(["gh", "api", "repos/" + REPOSITORY], ROOT, env)).out);
+      checks.repositoryWrite = repository.permissions?.push === true;
+      const protection = await command(["gh", "api", "repos/" + REPOSITORY + "/branches/main"], ROOT, env);
+      checks.branchProtection = routineBranchProtectionMatches(JSON.parse(protection.out));
+    } catch { checks.botIdentity = false; checks.repositoryWrite = false; }
+    checks.githubNotExpired = expiry.status !== "expired";
+    const leasePath = join(homedir(), ".local/state/omp-session-gateway/release-host/lease.sqlite");
+    let lease: "free" | "owned" | "unreadable" = "free";
+    if (await Bun.file(leasePath).exists()) {
+      try { const db = new Database(leasePath, { readonly: true });
+        try { if (db.query("SELECT owner FROM campaign WHERE id = 1").get() !== null) lease = "owned"; } finally { db.close(); }
+      } catch { lease = "unreadable"; }
+    }
+    checks.hostLeaseFree = lease === "free";
+    return { at: new Date().toISOString(), ready: Object.values(checks).every(Boolean), checks, lease,
+      disabled: await Bun.file(join(this.config.stateDir, "disabled")).exists(), dryRun: this.config.dryRun,
+      owner: this.config.bot, repository: REPOSITORY, orderAuthor: ORDER_AUTHOR, orderPrefix: ORDER_HEAD_PREFIX,
+      credentialExpiry: { github: expiry, serviceAccount: "unknown", tailscale: "unknown", vultr: "unknown" },
+      unobserved: ["service-account and provider validity/expiry", "TestingBot pinned-device availability", "Pixel PIN and WebAPK", "qualification workflow secrets", "retained guest full preflight"],
+      nextAction: "resolve false checks before consuming a request; full candidate preflight remains mandatory; never clear an owned lease" };
   }
   async authenticate(): Promise<void> {
     if (this.plan) throw new Error("plan mode cannot authenticate for writes");
@@ -126,13 +187,13 @@ export class StudioDriver implements DriverPort {
       this.api<{ tree: { sha: string } }>(`git/commits/${pr.head.sha}`),
       this.pages<{ filename: string; previous_filename?: string }>(`pulls/${number}/files?per_page=100`),
       this.gh<{ check_runs: { name: string; status: string; conclusion: string; app: { slug: string } }[] }[]>(["api", "--paginate", "--slurp", `repos/${REPOSITORY}/commits/${pr.head.sha}/check-runs?per_page=100&filter=latest`]),
-      pr.merged && pr.merge_commit_sha !== null ? this.api<{ tree: { sha: string } }>(`git/commits/${pr.merge_commit_sha}`) : undefined,
+      pr.merged && pr.merge_commit_sha !== null ? this.api<{ tree: { sha: string }; verification: { verified: boolean } }>(`git/commits/${pr.merge_commit_sha}`) : undefined,
     ]);
     const runs = checks!.flatMap(page => page.check_runs);
     return { number, author: pr.user.login, authorType: pr.user.type, headRepository: pr.head.repo?.full_name ?? "",
       base: pr.base.ref, headRef: pr.head.ref, head: pr.head.sha, tree: head!.tree.sha, draft: pr.draft,
       state: pr.state, merged: pr.merged, mergedBy: pr.merged_by?.login, mergeCommit: pr.merge_commit_sha ?? undefined,
-      mergeTree: merge?.tree.sha, behind: pr.mergeable_state === "behind" || pr.mergeable_state === "unknown",
+      mergeTree: merge?.tree.sha, mergeVerified: merge?.verification.verified, behind: pr.mergeable_state === "behind" || pr.mergeable_state === "unknown",
       checksPassed: REQUIRED_CHECKS.every(name => runs.some(run => run.name === name && run.status === "completed" && run.conclusion === "success" && run.app.slug === "github-actions")), files, url: pr.html_url };
   }
   async issues(): Promise<TrackingIssue[]> {
@@ -166,6 +227,93 @@ export class StudioDriver implements DriverPort {
   }
   jobDirectory(kind: JobSpec["kind"], state: DriverState): string { return join(this.config.stateDir, "jobs", `${state.issue.number}-${state.candidate}-${kind}`); }
   session(kind: JobSpec["kind"], state: DriverState): string { return `omp-release-${state.issue.number}-${state.candidate.replaceAll(".", "-")}-${kind}`; }
+  /** Installed controls are the separately reviewed trust root, not candidate-supplied policy. */
+  async controls(source: string, local = false): Promise<Map<string, string>> {
+    const entries = local
+      ? (await this.git(["ls-tree", "-r", source])).split("\n").filter(Boolean).map(line => {
+        const [meta, path] = line.split("\t"); return { path: path!, sha: meta!.split(" ")[2]!, type: meta!.split(" ")[1]!, mode: meta!.split(" ")[0]! };
+      })
+      : (await this.api<{ truncated: boolean; tree: { path: string; sha: string; type: string; mode: string }[] }>("git/trees/" + source + "?recursive=1"));
+    if (!Array.isArray(entries) && entries?.truncated) throw new RoutineHoldError("missing-evidence");
+    const tree = Array.isArray(entries) ? entries : entries!.tree;
+    const controls = new Map<string, string>();
+    for (const entry of tree) {
+      if (entry.type === "tree") continue;
+      const manifest = entry.path === "package.json" || entry.path.endsWith("/package.json");
+      if (!routineProtectedPath(entry.path) && !manifest && entry.path !== "bun.lock") continue;
+      let hash = entry.sha;
+      if (manifest || entry.path === "bun.lock" || entry.path === "scripts/build-release.ts") {
+        const text = local ? await this.git(["show", source + ":" + entry.path])
+          : Buffer.from((await this.api<{ content: string }>("contents/" + entry.path + "?ref=" + source))!.content, "base64").toString().trim();
+        let normalized: string;
+        if (entry.path === "scripts/build-release.ts") normalized = text.replace(/const PRODUCT_VERSION = "[0-9.]+"/u, 'const PRODUCT_VERSION = "<release>"');
+        else if (entry.path === "bun.lock") {
+          // Match only the generated workspace versions, not dependency versions in this JSONC lock.
+          normalized = text.replace(/("(?:apps|packages)\/[^"\n]+": \{\n      "name": "[^"\n]+",\n      "version": ")[0-9.]+(",)/gu, '$1<release>$2');
+        } else {
+          const parsed = JSON.parse(text);
+          delete parsed.version;
+          normalized = JSON.stringify(parsed);
+        }
+        hash = createHash("sha256").update(normalized).digest("hex");
+      }
+      controls.set(entry.path, entry.mode + ":" + hash);
+    }
+    return controls;
+  }
+  async authority(state: DriverState, main: string, pr?: PullRequest): Promise<RoutineAuthority> {
+    const installed = await this.git(["rev-parse", "HEAD"]);
+    const source = pr?.merged ? pr.mergeCommit! : pr?.head ?? state.selectedMain;
+    const [trusted, observed, protection] = await Promise.all([
+      this.controls(installed, true), this.controls(source), this.api<unknown>("branches/main", true),
+    ]);
+    if (protection === undefined) throw new RoutineHoldError("missing-evidence");
+    if (!routineBranchProtectionMatches(protection)) throw new RoutineHoldError("policy-changed");
+    const protectedChanges = [...new Set([...trusted.keys(), ...observed.keys()])].filter(path => trusted.get(path) !== observed.get(path));
+    if (await this.git(["status", "--porcelain", "--untracked-files=all"]) !== "") protectedChanges.push("installed-checkout-dirty");
+    const policy = createHash("sha256").update(JSON.stringify({ controls: [...trusted].sort(), protection: ROUTINE_BRANCH_PROTECTION, bot: this.config.bot, reviewer: this.config.founder, checks: REQUIRED_CHECKS })).digest("hex");
+    const comparison = await this.api<{ status: string; total_commits: number; commits: { sha: string }[] }>("compare/" + installed + "..." + state.selectedMain);
+    let sourceReviewed = comparison?.status === "identical" || comparison?.status === "ahead";
+    if (!comparison || comparison.total_commits !== comparison.commits.length) sourceReviewed = false;
+    let unreviewedCommit: string | undefined;
+    for (const commit of comparison?.commits ?? []) {
+      const prs = await this.pages<{ number: number }>("commits/" + commit.sha + "/pulls?per_page=100");
+      let reviewed = false;
+      for (const item of prs) {
+        const candidate = (await this.api<ApiPr & { title: string }>("pulls/" + item.number))!;
+        if (!candidate.merged || candidate.base.ref !== "main" || candidate.merge_commit_sha !== commit.sha) continue;
+        const detail = await this.readPr(item.number);
+        const subject = (await this.api<{ message: string }>("git/commits/" + candidate.merge_commit_sha))!.message.split("\n", 1)[0]!;
+        const baseline = isOrder(detail) && outsideOrderScope(detail).length === 0 && candidate.merged_by?.login === this.config.bot;
+        // The source fix was reviewed by its maintainer merge, not by the release bot evaluating itself.
+        const fix = /^(fix|perf|revert)(\([^)]+\))?: /u.test(subject) && candidate.merged_by?.login === this.config.founder;
+        const kind = generatedReleaseKind(detail.headRef);
+        const releaseRecord = detail.author === this.config.bot && generatedReleaseFilesMatch(kind, detail.files)
+          && /^(chore|docs)\(release\): (prepare|approve|record) /u.test(subject) && candidate.merged_by?.login === this.config.bot;
+        if (baseline || fix || releaseRecord) { reviewed = true; break; }
+      }
+      if (!reviewed) { sourceReviewed = false; unreviewedCommit = commit.sha; break; }
+    }
+    const previous = (state.previousStable ?? "v0.0.0").replace(/^v/u, "").split(".").map(BigInt);
+    const version = state.version.split(".").map(BigInt);
+    return { policy, protectedChanges, sourceReviewed, ...(unreviewedCommit === undefined ? {} : { unreviewedCommit }),
+      sourceFresh: pr ? main === (pr.merged ? pr.mergeCommit : state.candidateCommit) : main === state.selectedMain,
+      patchRelease: version[0] === previous[0] && version[1] === previous[1] && version[2] === previous[2]! + 1n };
+  }
+  async evidence(state: DriverState): Promise<RoutineEvidence | undefined> {
+    const result = await jsonFile<JobObservation & { evidence?: RoutineEvidence }>(join(this.jobDirectory("approve", state), "result.json"));
+    const receipt = await jsonFile<StableQualificationReceipt>(this.receipt(state));
+    if (result?.status !== "passed" || receipt?.status !== "passed" || receipt.schemaVersion !== 3
+      || receipt.tag !== state.candidate || receipt.candidate?.sourceCommit !== state.candidateCommit
+      || receipt.candidate?.archiveSha256 !== state.candidateDigest || Object.values(receipt.lanes).some(lane => lane.status !== "passed")) return undefined;
+    return result.evidence;
+  }
+  async promotionSnapshot(state: DriverState): Promise<RepositorySnapshot> {
+    const pr = await this.readPr(state.approvePr!);
+    const main = (await this.api<{ sha: string }>("commits/main"))!.sha;
+    const [authority, evidence] = await Promise.all([this.authority(state, main, pr), this.evidence(state)]);
+    return { main, approve: pr, authority, ...(evidence === undefined ? {} : { evidence }), upstreamTag: "", latestStable: "", tags: [], issues: [] };
+  }
   async snapshot(state: DriverState | undefined): Promise<RepositorySnapshot> {
     const [main, upstream, latest, tags, issues] = await Promise.all([
       this.api<{ sha: string }>("commits/main"), this.api<{ content: string }>("contents/UPSTREAM.lock.json?ref=main"),
@@ -185,6 +333,12 @@ export class StudioDriver implements DriverPort {
     if (state.preparePr !== undefined) repo.prepare = await this.readPr(state.preparePr);
     if (state.approvePr !== undefined) repo.approve = await this.readPr(state.approvePr);
     if (state.recordPr !== undefined) repo.record = await this.readPr(state.recordPr);
+    if (["approve-open", "approve-checking", "approval-required", "approved"].includes(state.phase)) {
+      try { repo.authority = await this.authority(state, repo.main, repo.approve); }
+      catch (error) { if (!(error instanceof RoutineHoldError)) throw error; repo.authorityFailure = error.reason; }
+      const evidence = await this.evidence(state);
+      if (evidence !== undefined) repo.evidence = evidence;
+    }
     if (state.phase === "candidate-tagged") repo.candidateWorkflow = await this.workflow(state.candidate, state.candidateCommit!);
     if (state.phase === "stable-tagged") repo.stableWorkflow = await this.workflow(`v${state.version}`, state.stableCommit!);
     if (state.phase === "qualifying") repo.campaign = await this.job("campaign", state);
@@ -228,17 +382,29 @@ export class StudioDriver implements DriverPort {
     if (!(ref.startsWith("refs/heads/release-driver/") || /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+(?:-prealpha\.[1-9][0-9]*)?$/u.test(ref))) throw new Error("driver refuses push outside owned release branches/tags");
     await this.git(["push", `https://github.com/${REPOSITORY}.git`, `${ref}:${ref}`], cwd);
   }
+  async assertGeneratedControls(pr: PullRequest): Promise<void> {
+    if (!generatedReleaseFilesMatch(generatedReleaseKind(pr.headRef), pr.files)) throw new RoutineHoldError("generated-content-mismatch");
+    const [installed, candidate] = await Promise.all([this.controls(await this.git(["rev-parse", "HEAD"]), true), this.controls(pr.head)]);
+    if ([...new Set([...installed.keys(), ...candidate.keys()])].some(path => installed.get(path) !== candidate.get(path))) throw new RoutineHoldError("generated-content-mismatch");
+  }
+  async assertCheckpointAuthor(head: string): Promise<void> {
+    const commit = await this.api<{ author: { login: string } | null; commit: { verification: { verified: boolean } } }>("commits/" + head);
+    if (commit?.author?.login !== this.config.bot || commit.commit.verification.verified !== true) throw new RoutineHoldError("pr-identity-changed");
+  }
   async openPr(kind: "prepare" | "approve" | "record", state: DriverState): Promise<PullRequest> {
     const branch = `release-driver/${state.issue.number}/${state.candidate}-${kind}`;
     const existing = await this.pages<ApiPr>(`pulls?state=all&base=main&head=carrythroughsystems:${encodeURIComponent(branch)}&per_page=100`);
     if (existing.length > 1) throw new Error("multiple PRs use the deterministic release branch");
     if (existing.length === 1) {
       const pr = await this.readPr(existing[0]!.number);
-      if (pr.author !== this.config.bot || pr.headRepository !== REPOSITORY) throw new Error("release PR is not bot-owned");
+      if (pr.author !== this.config.bot || pr.headRepository !== REPOSITORY || pr.base !== "main" || pr.headRef !== branch) throw new RoutineHoldError("pr-identity-changed");
+      await this.assertCheckpointAuthor(pr.head);
+      await this.assertGeneratedControls(pr);
       return pr;
     }
     const source = kind === "prepare" ? state.selectedMain : kind === "approve" ? state.candidateCommit! : state.stableCommit!;
     const remote = await this.api<{ object: { sha: string } }>(`git/ref/heads/${branch}`, true);
+    if (remote !== undefined) await this.assertCheckpointAuthor(remote.object.sha);
     const directory = await this.checkout(`${state.issue.number}-${state.candidate}-${kind}`, remote?.object.sha ?? source, branch);
     if (remote === undefined) {
       const args = [process.execPath, "scripts/release-generate.ts", kind, kind === "prepare" ? state.version : `v${state.version}`, "--date", state.date];
@@ -256,7 +422,7 @@ export class StudioDriver implements DriverPort {
       }
       await this.push(`refs/heads/${branch}`, directory);
     }
-    const created = await this.gh<ApiPr>(["api", "--method", "POST", `repos/${REPOSITORY}/pulls`, "-f", `title=${kind === "record" ? "docs" : "chore"}(release): ${kind} v${state.version}`, "-f", `head=${branch}`, "-f", "base=main", "-f", `body=Generated release ${kind} for #${state.issue.number}. ${kind === "approve" ? "Only the founder may merge after the release-driver approval-required comment." : "The release driver pins the head when merging."}`]);
+    const created = await this.gh<ApiPr>(["api", "--method", "POST", `repos/${REPOSITORY}/pulls`, "-f", `title=${kind === "record" ? "docs" : "chore"}(release): ${kind} v${state.version}`, "-f", `head=${branch}`, "-f", "base=main", "-f", `body=Generated release ${kind} for #${state.issue.number}. ${kind === "approve" ? "Standing routine authority permits only the release bot to merge after exact-head/tree qualification, comparison, policy, smoke-plan and required checks." : "The release driver pins the head when merging."}`]);
     return this.readPr(created!.number);
   }
   receipt(state: DriverState): string { return join(homedir(), ".local/share/omp-session-gateway/qualification", state.candidate, "stable-qualification.json"); }
@@ -267,6 +433,7 @@ export class StudioDriver implements DriverPort {
       throw new StaleIntentError("PR head changed before pinned merge");
     }
     if (order ? !isOrder(current) || outsideOrderScope(current).length > 0 : current.author !== this.config.bot || current.base !== "main" || current.headRepository !== REPOSITORY) throw new Error("PR identity/scope changed");
+    if (!order) await this.assertGeneratedControls(current);
     if (current.merged) {
       if (current.mergedBy !== this.config.bot) throw new Error("driver-owned PR merged by another identity");
       return current;
@@ -330,12 +497,16 @@ export class StudioDriver implements DriverPort {
     await privateDirectory(directory);
     if (await Bun.file(join(directory, "result.json")).exists()) return;
     if ((await command(["tmux", "has-session", "-t", this.session(kind, state)], ROOT, this.env, true)).code === 0) return;
-    if (await Bun.file(join(directory, "started")).exists()) return; // Observe missing exit/session next tick; never relaunch.
+    if (kind !== "approve" && await Bun.file(join(directory, "started")).exists()) return; // Never infer device/cloud action absence from a missing reply.
     await atomicJson(join(directory, "spec.json"), { kind, state, root: ROOT } satisfies JobSpec);
     const quote = (text: string) => `'${text.replaceAll("'", `'"'"'`)}'`;
     const launcher = `${quote(process.execPath)} ${quote(join(ROOT, "scripts/release-driver.ts"))} worker ${quote(join(directory, "spec.json"))} >${quote(join(directory, "out.log"))} 2>${quote(join(directory, "err.log"))}`;
     const workerEnvironment = { PATH: this.env.PATH ?? "", OMP_RELEASE_BOT_LOGIN: this.config.bot, OMP_RELEASE_FOUNDER_LOGIN: this.config.founder, OMP_RELEASE_GH_CONFIG_DIR: this.config.ghConfig, OMP_RELEASE_SIGNING_KEY: this.config.signingKey, OMP_RELEASE_STATE_DIR: this.config.stateDir, OMP_STABLE_MAC_HOST: this.env.OMP_STABLE_MAC_HOST ?? "", OMP_STABLE_MAC_MODEL: this.env.OMP_STABLE_MAC_MODEL ?? "VirtualMac2,1" };
     await command(["tmux", "new-session", "-d", "-s", this.session(kind, state), ...Object.entries(workerEnvironment).flatMap(([key, value]) => ["-e", `${key}=${value}`]), launcher], ROOT, this.env);
+  }
+  requireSourceAuthority(authority: RoutineAuthority, expected?: string): void {
+    const reason = routineSourceHold(authority, expected);
+    if (reason !== undefined) throw new RoutineHoldError(reason, authority.unreviewedCommit);
   }
   async perform(step: Decision, state: DriverState): Promise<Partial<DriverState>> {
     if (this.plan) throw new Error("plan attempted a release effect");
@@ -357,16 +528,42 @@ export class StudioDriver implements DriverPort {
         return {};
       }
       case "merge-order": await this.merge(step.pr!, true); return {};
-      case "open-prepare": return { preparePr: (await this.openPr("prepare", state)).number };
-      case "merge-prepare": return { candidateCommit: (await this.merge(step.pr!, false)).mergeCommit };
-      case "tag-candidate": await this.tag(state.candidate, state.candidateCommit!); return {};
+      case "open-prepare": {
+        const main = (await this.api<{ sha: string }>("commits/main"))!.sha;
+        const authority = await this.authority(state, main);
+        this.requireSourceAuthority(authority, state.authorityPolicy);
+        return { preparePr: (await this.openPr("prepare", state)).number, authorityPolicy: authority.policy };
+      }
+      case "merge-prepare": {
+        const current = await this.readPr(step.pr!.number);
+        const main = (await this.api<{ sha: string }>("commits/main"))!.sha;
+        if (main !== (current.merged ? current.mergeCommit : state.selectedMain)) throw new RoutineHoldError("stale-source");
+        return { candidateCommit: (await this.merge(step.pr!, false)).mergeCommit };
+      }
+      case "tag-candidate": {
+        const pr = await this.readPr(state.preparePr!);
+        if (!pr.merged || pr.mergedBy !== this.config.bot || pr.mergeCommit !== state.candidateCommit || pr.mergeTree !== pr.tree) throw new RoutineHoldError("merge-tree-changed");
+        this.requireSourceAuthority(await this.authority(state, (await this.api<{ sha: string }>("commits/main"))!.sha, pr), state.authorityPolicy);
+        await this.tag(state.candidate, state.candidateCommit!); return {};
+      }
       case "verify-candidate": return { candidateDigest: await this.verify(state.candidate, state.candidateCommit!, false, state) };
       case "start-campaign": await this.launch("campaign", state); return {};
       case "open-approve": return { approvePr: (await this.openPr("approve", state)).number };
       case "start-approve-checks": await this.launch("approve", { ...state, ...step.patch }); return {};
+      case "merge-approve": {
+        const repo = await this.promotionSnapshot(state);
+        const reason = promotionHold(state, repo, this.config);
+        if (reason !== undefined) throw new RoutineHoldError(reason, repo.authority?.unreviewedCommit);
+        const pr = await this.merge(repo.approve!, false);
+        const after = await this.promotionSnapshot({ ...state, stableCommit: pr.mergeCommit });
+        const changed = promotionHold({ ...state, stableCommit: pr.mergeCommit }, after, this.config, true);
+        if (changed !== undefined) throw new RoutineHoldError(changed, after.authority?.unreviewedCommit);
+        return { stableCommit: pr.mergeCommit };
+      }
       case "tag-stable": {
-        const pr = await this.readPr(state.approvePr!);
-        if (!pr.merged || pr.mergedBy !== this.config.founder || pr.mergeCommit !== state.stableCommit || pr.mergeTree !== state.approvedTree || pr.head !== state.approvedHead) throw new Error("founder approval binding changed before stable tag");
+        const repo = await this.promotionSnapshot(state);
+        const reason = promotionHold(state, repo, this.config, true);
+        if (reason !== undefined) throw new RoutineHoldError(reason, repo.authority?.unreviewedCommit);
         await this.tag(`v${state.version}`, state.stableCommit!); return {};
       }
       case "verify-stable": return { stableDigest: await this.verify(`v${state.version}`, state.stableCommit!, true, state) };
@@ -388,8 +585,11 @@ export class StudioDriver implements DriverPort {
     const spec = await jsonFile<JobSpec>(specPath);
     if (spec === undefined || spec.root !== ROOT || specPath !== join(this.jobDirectory(spec.kind, spec.state), "spec.json")) throw new Error("worker specification is outside its owned job directory");
     const directory = dirname(specPath), state = spec.state;
-    const claim = await open(join(directory, "started"), "wx", 0o600);
-    await claim.close();
+    try { const claim = await open(join(directory, "started"), "wx", 0o600); await claim.close(); }
+    catch (error) {
+      // Only pure local approve checks can replay after their tmux owner disappeared.
+      if (spec.kind !== "approve" || (error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
     try {
       await this.authenticate();
       const source = spec.kind === "campaign" ? state.candidateCommit! : spec.kind === "approve" ? state.approvedHead! : state.stableCommit!;
@@ -409,6 +609,9 @@ export class StudioDriver implements DriverPort {
         const receipt = await jsonFile<StableQualificationReceipt>(this.receipt(state));
         if (receipt?.status !== "passed" || receipt.schemaVersion !== 3 || receipt.tag !== state.candidate || receipt.candidate?.sourceCommit !== state.candidateCommit || receipt.candidate?.archiveSha256 !== state.candidateDigest || Object.values(receipt.lanes).some(lane => lane.status !== "passed")) throw new Error("qualification receipt is not fully passed and candidate-bound");
       } else if (spec.kind === "approve") {
+        const pr = await this.readPr(state.approvePr!);
+        if (pr.head !== state.approvedHead || pr.tree !== state.approvedTree) throw new RoutineHoldError("head-tree-changed");
+        this.requireSourceAuthority(await this.authority(state, (await this.api<{ sha: string }>("commits/main"))!.sha, pr), state.authorityPolicy);
         await command([process.execPath, "run", "release:build"], checkout, { ...this.env, OMP_RELEASE_CHANNEL: "stable" });
         const names = releaseAssetNames(state.version);
         const compared = await compareReleaseArchives(join(dirname(this.receipt(state)), "assets", names.archive), state.candidateDigest!, join(checkout, "dist/release", names.archive));
@@ -429,7 +632,12 @@ export class StudioDriver implements DriverPort {
         const status = await command([join(homedir(), ".local/lib/omp-session-gateway/bun/v1.4.0/bun"), join(installation, "versions", active, "apps/gateway/src/cli.js"), "status"], checkout, this.env);
         await atomicJson(join(directory, "status.json"), JSON.parse(status.out));
       }
-      await atomicJson(join(directory, "result.json"), { status: "passed" } satisfies JobObservation);
+      const evidence: RoutineEvidence | undefined = spec.kind === "approve" ? {
+        head: state.approvedHead!, tree: state.approvedTree!, candidate: state.candidate,
+        candidateCommit: state.candidateCommit!, candidateDigest: state.candidateDigest!, policy: state.authorityPolicy!,
+        steps: ROUTINE_EVIDENCE_STEPS,
+      } : undefined;
+      await atomicJson(join(directory, "result.json"), { status: "passed", ...(evidence === undefined ? {} : { evidence }) });
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       if (error instanceof Error && error.cause !== undefined) await atomicJson(join(directory, "diagnostic.json"), error.cause);
@@ -446,10 +654,18 @@ export class StudioDriver implements DriverPort {
 
 async function drive(args: string[]): Promise<unknown> {
   const [mode, spec, ...extra] = args;
-  if (!["plan", "tick", "worker"].includes(mode ?? "") || extra.length > 0 || (mode === "worker") !== (spec !== undefined)) throw new Error("usage: bun scripts/release-driver.ts plan|tick|worker <private-spec-path>");
-  const config = driverConfig(), plan = mode === "plan" || config.dryRun;
+  if (!["plan", "status", "tick", "worker"].includes(mode ?? "") || extra.length > 0 || (mode === "worker") !== (spec !== undefined)) throw new Error("usage: bun scripts/release-driver.ts plan|status|tick|worker <private-spec-path>");
+  const config = driverConfig(), plan = mode === "plan" || mode === "status" || config.dryRun;
   const driver = new StudioDriver(config, plan);
-  if (plan) return tick(driver, config, true);
+  if (plan) {
+    const readiness = await driver.readiness();
+    if (mode === "status") {
+      const state = await driver.load();
+      return { readiness, phase: state?.phase, candidate: state?.candidate, intent: state?.intent?.operation,
+        holdReason: state?.holdReason, holdCommit: state?.holdCommit, outboxPending: state?.announcement !== undefined };
+    }
+    return { ...await tick(driver, config, true), readiness };
+  }
   if (process.platform !== "darwin" || (await command([process.execPath, "--version"], ROOT, process.env)).out !== "1.4.0") throw new Error("release driver writes require the Studio Darwin host and Bun 1.4.0");
   if (await Bun.file(join(config.stateDir, "disabled")).exists()) return { operation: "idle", detail: "kill switch is enabled" };
   await privateDirectory(config.stateDir);
@@ -461,6 +677,10 @@ async function drive(args: string[]): Promise<unknown> {
   try {
     lock.exec("PRAGMA busy_timeout=1000");
     lock.exec("BEGIN IMMEDIATE");
+    const readiness = await driver.readiness();
+    await atomicJson(join(config.stateDir, "readiness.json"), readiness);
+    const state = await driver.load();
+    if ((state === undefined || state.phase === "closed") && !readiness.ready) return { operation: "idle", detail: "blocked-prerequisite; inspect readiness.json", readiness };
     await driver.authenticate();
     return await tick(driver, config);
   } finally { lock.close(); }
@@ -470,7 +690,7 @@ async function drive(args: string[]): Promise<unknown> {
 export async function runDriver(args: string[]): Promise<unknown> {
   const config = driverConfig();
   const log = async (entry: unknown) => {
-    if (args[0] === "plan" || config.dryRun) return;
+    if (args[0] === "plan" || args[0] === "status" || config.dryRun) return;
     try { if (!(await lstat(config.stateDir)).isDirectory()) return; }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     const path = join(config.stateDir, "driver.log");
